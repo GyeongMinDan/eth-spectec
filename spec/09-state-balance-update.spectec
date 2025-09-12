@@ -1,0 +1,28 @@
+;; 09-state-balance.spectec
+;; Increase / Decrease balance as helpers
+
+dec $increase_balance(beaconState, validatorIndex, gwei) : beaconState
+def $increase_balance(state, validatorIndex_vi, gwei_delta) = state_updated
+  -- if $(validatorIndex_vi < |state.BALANCES|)
+  -- if state.BALANCES[validatorIndex_vi] = gwei_current
+  -- if $(gwei_current + gwei_delta) = gwei_new
+  -- if state.BALANCES[[validatorIndex_vi] = gwei_new] = gwei_update*
+  -- if state_updated = state[.BALANCES = gwei_update*]
+
+dec $decrease_balance(beaconState, validatorIndex, gwei) : beaconState
+
+;; case 1: delta > current ⇒ set to 0
+def $decrease_balance(state, validatorIndex_vi, gwei_delta) = state_updated
+  -- if $(validatorIndex_vi < |state.BALANCES|)
+  -- if state.BALANCES[validatorIndex_vi] = gwei_current
+  -- if $(gwei_delta > gwei_current)
+  -- if state.BALANCES[[validatorIndex_vi] = $(gwei_current - gwei_current)] = gwei_update*
+  -- if state_updated = state[.BALANCES = gwei_update*]
+
+;; case 2: delta ≤ current ⇒ decrease delta
+def $decrease_balance(state, validatorIndex_vi, gwei_delta) = state_updated
+  -- if $(validatorIndex_vi < |state.BALANCES|)
+  -- if state.BALANCES[validatorIndex_vi] = gwei_current
+  -- if $(gwei_delta <= gwei_current)
+  -- if state.BALANCES[[validatorIndex_vi] = $(gwei_current - gwei_delta)] = gwei_update*
+  -- if state_updated = state[.BALANCES = gwei_update*]

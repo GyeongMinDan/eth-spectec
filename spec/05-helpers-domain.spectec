@@ -1,0 +1,55 @@
+;; =========================
+;; 05-helpers-domain.spectec
+;; fork-data / domain helpers
+;; =========================
+
+;; ------------------------------------------------------------
+;; compute_fork_data_root(version, genesis_root) : root
+;; ------------------------------------------------------------
+dec $compute_fork_data_root(version, root) : root
+def $compute_fork_data_root(curVer, genRoot) =
+  $hash_tree_root_forkdata({ CURRENT_VERSION curVer, GENESIS_VALIDATORS_ROOT genRoot })
+
+;; ------------------------------------------------------------
+;; compute_domain(domainType, [version], [genesis_root]) : domain
+;; (옵셔널 인자 조합 4가지)
+;; ------------------------------------------------------------
+dec $compute_domain(domainType, version?, root?) : domain
+
+def $compute_domain(domainType, version, root) =
+  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root(version, root)))
+
+def $compute_domain(domainType, eps, eps) =
+  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root($GENESIS_FORK_VERSION, $ZERO_ROOT)))
+
+def $compute_domain(domainType, version, eps) =
+  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root(version, $ZERO_ROOT)))
+
+def $compute_domain(domainType, eps, root) =
+  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root($GENESIS_FORK_VERSION, root)))
+
+;; ------------------------------------------------------------
+;; get_domain(state, domainType, [epoch]) : domain
+;; (epoch 미지정 시 현재 epoch 기준 분기)
+;; ------------------------------------------------------------
+dec $get_domain(beaconState, domainType, epoch?) : domain
+
+;; epoch 생략: 현재 epoch 사용
+def $get_domain(state, domainType, eps) =
+  $compute_domain(domainType, state.FORK.PREVIOUS_VERSION, state.GENESIS_VALIDATORS_ROOT)
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $(epoch_cur < state.FORK.EPOCH)
+
+def $get_domain(state, domainType, eps) =
+  $compute_domain(domainType, state.FORK.CURRENT_VERSION, state.GENESIS_VALIDATORS_ROOT)
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $(state.FORK.EPOCH <= epoch_cur)
+
+;; epoch 명시: 전달된 epoch 사용
+def $get_domain(state, domainType, epoch) =
+  $compute_domain(domainType, state.FORK.PREVIOUS_VERSION, state.GENESIS_VALIDATORS_ROOT)
+  -- if $(epoch < state.FORK.EPOCH)
+
+def $get_domain(state, domainType, epoch) =
+  $compute_domain(domainType, state.FORK.CURRENT_VERSION, state.GENESIS_VALIDATORS_ROOT)
+  -- if $(state.FORK.EPOCH <= epoch)

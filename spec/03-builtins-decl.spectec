@@ -1,0 +1,44 @@
+;; =========================
+;; 03-builtins-decls.spectec
+;; (dec-only: 인터프리터/런타임 제공)
+;; =========================
+
+;; --- 해시/암호 ---
+dec $hash_<X>(X) : bytes32
+dec $bls_verify(blsPubkey, root, blsSignature) : boolean
+
+;; --- hash_tree_root 계열 ---
+dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
+dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
+dec $hash_tree_root_depositData(depositData) : root
+dec $hash_tree_root_forkdata(forkdata) : root
+dec $hash_tree_root_tx(bytes32*) : root
+dec $hash_tree_root_withdrawals(withdrawal*) : root
+dec $hash_tree_root_roots(root*) : root
+
+;; --- 실행 엔진 ---
+dec $ee_verify_and_notify_new_payload(executionPayload) : boolean
+
+;; --- 바이트/도메인 유틸 ---
+dec $bytes_to_uint64(bytes32) : uint64
+dec $xor(bytes32, bytes32) : bytes32
+dec $first_28_bytes(bytes32) : bytes28
+dec $concat_domain(domainType, bytes28) : domain
+dec $get_first_byte(bytes32) : bytes1
+dec $strip_first_byte(bytes32) : bytes32
+dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
+
+;; --- 서명 루트 계산 ---
+dec $compute_signing_root(epoch, domain) : root
+dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
+dec $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) : root
+
+;; --- 머클 검증 ---
+dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
+
+;; --- 수치 유틸  ---
+dec $integer_squareroot(uint64) : uint64
+
+;; --- 리스트 안에 원소 개수 세기 ---
+;; count occurrences of element in list
+dec $count_occurrences_<X>(X*, X) : nat

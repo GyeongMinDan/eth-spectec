@@ -1,0 +1,127 @@
+;;
+;; process_block_header
+;;
+dec $process_block_header(beaconState, beaconBlock) : beaconState
+
+def $process_block_header(state, block) = state_updated
+  -- if $(block.SLOT = state.SLOT)
+  -- if $(state.LATEST_BLOCK_HEADER.SLOT < block.SLOT)
+  -- if $get_beacon_proposer_index(state) = validatorIndex_prop_vi
+  -- if $(block.PROPOSER_INDEX = validatorIndex_prop_vi)
+  -- if root_parent_expected_root = $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER)
+  -- if $(block.PARENT_ROOT = root_parent_expected_root)
+  -- if root_body_root_new = $hash_tree_root_beaconBlockBody(block.BODY)
+  -- if beaconBlockHeader_new =
+       { SLOT block.SLOT,
+         PROPOSER_INDEX block.PROPOSER_INDEX,
+         PARENT_ROOT block.PARENT_ROOT,
+         STATE_ROOT $ZERO_ROOT,
+         BODY_ROOT root_body_root_new }
+  -- if $(validatorIndex_prop_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
+  -- if $(validator_proposer.SLASHED = false)
+  -- if state_updated = state[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
+
+;;
+;; process_withdrawals
+;;   
+;;
+dec $process_withdrawals(beaconState, executionPayload) : beaconState
+
+
+;;
+;; process_execution_payload
+;;
+dec $process_execution_payload(beaconState, beaconBlockBody) : beaconState
+
+def $process_execution_payload(state, body) = state_updated
+  -- if executionPayload_block = body.EXECUTION_PAYLOAD
+  ;; 1. 부모 해시 일치
+  -- if $(executionPayload_block.PARENT_HASH = state.LATEST_EXECUTION_PAYLOAD_HEADER.BLOCK_HASH)
+  ;; 2. prev_randao 일치
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $get_randao_mix(state, epoch_cur) = bytes32_randao_expected
+  -- if $(executionPayload_block.PREV_RANDAO = bytes32_randao_expected)
+  ;; 3. timestamp 일치
+  -- if $compute_time_at_slot(state, state.SLOT) = uint64_ts_expected
+  -- if $(executionPayload_block.TIMESTAMP = uint64_ts_expected)
+  ;; 4. 실행 엔진 검증 (항상 true)
+  -- if $ee_verify_and_notify_new_payload(executionPayload_block) = true
+  ;; 5. 헤더 캐싱용 루트 계산
+  -- if $hash_tree_root_tx(executionPayload_block.TRANSACTIONS)      = root_tx
+  -- if $hash_tree_root_withdrawals(executionPayload_block.WITHDRAWALS) = root_withdrawal
+  ;; 6. 새 헤더 구성 및 저장
+  -- if executionPayloadHeader_new =
+       { PARENT_HASH        executionPayload_block.PARENT_HASH,
+         FEE_RECIPIENT      executionPayload_block.FEE_RECIPIENT,
+         STATE_ROOT         executionPayload_block.STATE_ROOT,
+         RECEIPTS_ROOT      executionPayload_block.RECEIPTS_ROOT,
+         LOGS_BLOOM         executionPayload_block.LOGS_BLOOM,
+         PREV_RANDAO        executionPayload_block.PREV_RANDAO,
+         BLOCK_NUMBER       executionPayload_block.BLOCK_NUMBER,
+         GAS_LIMIT          executionPayload_block.GAS_LIMIT,
+         GAS_USED           executionPayload_block.GAS_USED,
+         TIMESTAMP          executionPayload_block.TIMESTAMP,
+         EXTRA_DATA         executionPayload_block.EXTRA_DATA,
+         BASE_FEE_PER_GAS   executionPayload_block.BASE_FEE_PER_GAS,
+         BLOCK_HASH         executionPayload_block.BLOCK_HASH,
+         TRANSACTIONS_ROOT  root_tx,
+         WITHDRAWALS_ROOT   root_withdrawal }
+  -- if state_updated = state[.LATEST_EXECUTION_PAYLOAD_HEADER = executionPayloadHeader_new]
+
+
+;;
+;; process_randao
+;;
+dec $process_randao(beaconState, beaconBlockBody) : beaconState
+
+def $process_randao(state, body) = state_updated
+  -- if $get_current_epoch(state) = epoch
+  -- if $get_beacon_proposer_index(state) = validatorIndex_prop_vi
+  -- if $(validatorIndex_prop_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
+  -- if $get_domain(state, $DOMAIN_RANDAO, eps) = domain_randao
+  -- if $compute_signing_root(epoch, domain_randao) = root_signing
+  -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body.RANDAO_REVEAL) = true
+  -- if $get_randao_mix(state, epoch) = bytes32_mix_old
+  -- if $hash_<blsSignature>(body.RANDAO_REVEAL) = bytes32_hash_reveal
+  -- if $xor(bytes32_mix_old, bytes32_hash_reveal) = bytes32_mix_new
+  -- if $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR) = n
+  -- if state.RANDAO_MIXES[[n] = bytes32_mix_new] = bytes32_randao_mixes_update*
+  -- if state_updated = state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+
+
+;;
+;; process_eth1_data
+;;
+dec $process_eth1_data(beaconState, beaconBlockBody) : beaconState
+
+;; 과반수 → ETH1_DATA 갱신
+def $process_eth1_data(state, body) = state_updated
+  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occ
+  -- if $(n_occ * 2 > $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+  -- if state_updated = state[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body.ETH1_DATA]
+
+;; 과반수 미만 → 투표만 누적
+def $process_eth1_data(state, body) = state_updated
+  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occ
+  -- if $(n_occ * 2 <= $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+  -- if state_updated = state[.ETH1_DATA_VOTES = eth1Data_update*]
+
+
+;;
+;; process_operations
+;;   
+;; 이건 어떻게 관계를 표현?
+
+dec $process_operations(beaconState, beaconBlockBody) : beaconState
+
+
+
+;;
+;; process_sync_aggregate
+;; 
+;;
+dec $process_sync_aggregate(beaconState, syncAggregate) : beaconState

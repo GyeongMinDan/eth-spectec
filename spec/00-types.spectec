@@ -1,0 +1,42 @@
+;;
+;; Primitive Types
+;;
+
+syntax bytes4 = int
+syntax bytes32 = int
+syntax bytes1 = int
+syntax bytes8 = int
+syntax bytes20 = int
+syntax bytes48 = int
+syntax bytes96 = int
+syntax bytes256 = int
+syntax uint8 = nat
+syntax uint64 = nat
+syntax uint256 = nat
+syntax bytes28 = int
+
+;;
+;; Custom eth2spec Types
+;;
+
+syntax slot = uint64
+syntax epoch = uint64
+syntax validatorIndex = uint64
+syntax gwei = uint64
+syntax root = bytes32
+syntax hash32 = bytes32
+syntax version = bytes4
+syntax committeeIndex = uint64
+syntax boolean = bool
+syntax domainType = bytes4
+syntax forkDigest = bytes4
+syntax domain = bytes32
+syntax blsPubkey = bytes48
+syntax blsSignature = bytes96
+syntax nodeID = bytes256
+syntax subnetID = uint64
+syntax ether = uint64
+syntax participationFlags = uint8
+syntax executionAddress = bytes20
+syntax payloadId = bytes8
+syntax withdrawalIndex = uint64

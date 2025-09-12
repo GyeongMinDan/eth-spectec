@@ -1,0 +1,8 @@
+;; ------------------------------------------------------------
+;; is_slashable_attestation_data
+;; ------------------------------------------------------------
+dec $is_slashable_attestation_data(attestationData, attestationData) : bool
+def $is_slashable_attestation_data(attd1, attd2) =
+  ( ~(attd1 = attd2) /\ $( attd1.TARGET.EPOCH = attd2.TARGET.EPOCH ) )
+  \/
+  ( $( attd1.SOURCE.EPOCH < attd2.SOURCE.EPOCH ) /\ $( attd2.TARGET.EPOCH < attd1.TARGET.EPOCH ) )

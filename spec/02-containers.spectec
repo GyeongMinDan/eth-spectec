@@ -1,0 +1,306 @@
+;;
+;; Containers: defined as SpecTec struct types
+;;
+
+syntax fork =
+  { PREVIOUS_VERSION version,
+    CURRENT_VERSION version,
+    EPOCH epoch }
+
+syntax forkdata =
+  { CURRENT_VERSION version,
+    GENESIS_VALIDATORS_ROOT root }
+
+syntax checkpoint =
+  { EPOCH epoch,
+    ROOT root }
+
+syntax eth1Data =
+  { DEPOSIT_ROOT root,
+    DEPOSIT_COUNT uint64,
+    BLOCK_HASH hash32 }
+
+syntax beaconBlockHeader =
+  { SLOT slot,
+    PROPOSER_INDEX validatorIndex,
+    PARENT_ROOT root,
+    STATE_ROOT root,
+    BODY_ROOT root }
+
+
+
+;; Additional container types
+syntax validator =
+  { PUBKEY blsPubkey,
+    WITHDRAWAL_CREDENTIALS bytes32,
+    EFFECTIVE_BALANCE gwei,
+    SLASHED boolean,
+    ACTIVATION_ELIGIBILITY_EPOCH epoch,
+    ACTIVATION_EPOCH epoch,
+    EXIT_EPOCH epoch,
+    WITHDRAWABLE_EPOCH epoch }
+
+syntax attestationData =
+  { SLOT slot,
+    INDEX committeeIndex,
+    BEACON_BLOCK_ROOT root,
+    SOURCE checkpoint,
+    TARGET checkpoint }
+
+syntax indexedAttestation =
+  { ATTESTING_INDICES validatorIndex*,
+    DATA attestationData,
+    SIGNATURE blsSignature }
+
+syntax pendingAttestation =
+  { AGGREGATION_BITS boolean*,
+    DATA attestationData,
+    INCLUSION_DELAY slot,
+    PROPOSER_INDEX validatorIndex }
+
+syntax historicalBatch =
+  { BLOCK_ROOTS root*,
+    STATE_ROOTS root* }
+
+syntax depositMessage =
+  { PUBKEY blsPubkey,
+    WITHDRAWAL_CREDENTIALS bytes32,
+    AMOUNT gwei }
+
+syntax depositData =
+  { PUBKEY blsPubkey,
+    WITHDRAWAL_CREDENTIALS bytes32,
+    AMOUNT gwei,
+    SIGNATURE blsSignature }
+
+syntax signingData =
+  { OBJECT_ROOT root,
+    DOMAIN domain }
+
+syntax attesterSlashing =
+  { ATTESTATION_1 indexedAttestation,
+    ATTESTATION_2 indexedAttestation }
+
+syntax attestation =
+  { AGGREGATION_BITS boolean*,
+    DATA attestationData,
+    SIGNATURE blsSignature }
+
+syntax deposit =
+  { PROOF bytes32*,
+    DATA depositData }
+
+syntax voluntaryExit =
+  { EPOCH epoch,
+    VALIDATOR_INDEX validatorIndex }
+
+syntax signedVoluntaryExit =
+  { MESSAGE voluntaryExit,
+    SIGNATURE blsSignature }
+
+syntax signedBeaconBlockHeader =
+  { MESSAGE beaconBlockHeader,
+    SIGNATURE blsSignature }
+
+syntax proposerSlashing =
+  { SIGNED_HEADER_1 signedBeaconBlockHeader,
+    SIGNED_HEADER_2 signedBeaconBlockHeader }
+
+syntax eth1Block =
+  { TIMESTAMP uint64,
+    DEPOSIT_ROOT root,
+    DEPOSIT_COUNT uint64 }
+
+syntax aggregateAndProof =
+  { AGGREGATOR_INDEX validatorIndex,
+    AGGREGATE attestation,
+    SELECTION_PROOF blsSignature }
+
+syntax signedAggregateAndProof =
+  { MESSAGE aggregateAndProof,
+    SIGNATURE blsSignature }
+
+syntax syncAggregate =
+  { SYNC_COMMITTEE_BITS boolean*,
+    SYNC_COMMITTEE_SIGNATURE blsSignature }
+
+syntax syncCommittee =
+  { PUBKEYS blsPubkey*,
+    AGGREGATE_PUBKEY blsPubkey }
+
+syntax syncCommitteeMessage =
+  { SLOT slot,
+    BEACON_BLOCK_ROOT root,
+    VALIDATOR_INDEX validatorIndex,
+    SIGNATURE blsSignature }
+
+syntax syncCommitteeContribution =
+  { SLOT slot,
+    BEACON_BLOCK_ROOT root,
+    SUBCOMMITTEE_INDEX uint64,
+    AGGREGATION_BITS boolean*,
+    SIGNATURE blsSignature }
+
+syntax contributionAndProof =
+  { AGGREGATOR_INDEX validatorIndex,
+    CONTRIBUTION syncCommitteeContribution,
+    SELECTION_PROOF blsSignature }
+
+syntax signedContributionAndProof =
+  { MESSAGE contributionAndProof,
+    SIGNATURE blsSignature }
+
+syntax syncAggregatorSelectionData =
+  { SLOT slot,
+    SUBCOMMITTEE_INDEX uint64 }
+
+syntax executionPayloadHeader =
+  { PARENT_HASH hash32,
+    FEE_RECIPIENT executionAddress,
+    STATE_ROOT bytes32,
+    RECEIPTS_ROOT bytes32,
+    LOGS_BLOOM bytes32*,
+    PREV_RANDAO bytes32,
+    BLOCK_NUMBER uint64,
+    GAS_LIMIT uint64,
+    GAS_USED uint64,
+    TIMESTAMP uint64,
+    EXTRA_DATA bytes32*,
+    BASE_FEE_PER_GAS uint256,
+    BLOCK_HASH hash32,
+    TRANSACTIONS_ROOT root,
+    WITHDRAWALS_ROOT root }
+
+syntax lightClientHeader =
+  { BEACON beaconBlockHeader,
+    EXECUTION executionPayloadHeader,
+    EXECUTION_BRANCH bytes32* }
+
+syntax lightClientOptimisticUpdate =
+  { ATTESTED_HEADER lightClientHeader,
+    SYNC_AGGREGATE syncAggregate,
+    SIGNATURE_SLOT slot }
+
+syntax lightClientFinalityUpdate =
+  { ATTESTED_HEADER lightClientHeader,
+    FINALIZED_HEADER lightClientHeader,
+    FINALITY_BRANCH bytes32*,
+    SYNC_AGGREGATE syncAggregate,
+    SIGNATURE_SLOT slot }
+
+syntax lightClientUpdate =
+  { ATTESTED_HEADER lightClientHeader,
+    NEXT_SYNC_COMMITTEE syncCommittee,
+    NEXT_SYNC_COMMITTEE_BRANCH bytes32*,
+    FINALIZED_HEADER lightClientHeader,
+    FINALITY_BRANCH bytes32*,
+    SYNC_AGGREGATE syncAggregate,
+    SIGNATURE_SLOT slot }
+
+syntax lightClientBootstrap =
+  { HEADER lightClientHeader,
+    CURRENT_SYNC_COMMITTEE syncCommittee,
+    CURRENT_SYNC_COMMITTEE_BRANCH bytes32* }
+
+syntax powBlock =
+  { BLOCK_HASH hash32,
+    PARENT_HASH hash32,
+    TOTAL_DIFFICULTY uint256 }
+
+syntax withdrawal =
+  { INDEX withdrawalIndex,
+    VALIDATOR_INDEX validatorIndex,
+    ADDRESS executionAddress,
+    AMOUNT gwei }
+
+syntax executionPayload =
+  { PARENT_HASH hash32,
+    FEE_RECIPIENT executionAddress,
+    STATE_ROOT bytes32,
+    RECEIPTS_ROOT bytes32,
+    LOGS_BLOOM bytes32*,
+    PREV_RANDAO bytes32,
+    BLOCK_NUMBER uint64,
+    GAS_LIMIT uint64,
+    GAS_USED uint64,
+    TIMESTAMP uint64,
+    EXTRA_DATA bytes32*,
+    BASE_FEE_PER_GAS uint256,
+    BLOCK_HASH hash32,
+    TRANSACTIONS bytes32*,
+    WITHDRAWALS withdrawal* }
+
+syntax blsToExecutionChange =
+  { VALIDATOR_INDEX validatorIndex,
+    FROM_BLS_PUBKEY blsPubkey,
+    TO_EXECUTION_ADDRESS executionAddress }
+
+syntax signedBlsToExecutionChange =
+  { MESSAGE blsToExecutionChange,
+    SIGNATURE blsSignature }
+
+
+
+syntax historicalSummary =
+  { BLOCK_SUMMARY_ROOT root,
+    STATE_SUMMARY_ROOT root }
+
+syntax beaconState =
+  { GENESIS_TIME uint64,
+    GENESIS_VALIDATORS_ROOT bytes32,
+    SLOT slot,
+    FORK fork,
+    LATEST_BLOCK_HEADER beaconBlockHeader,
+    BLOCK_ROOTS root*,
+    STATE_ROOTS root*,
+    HISTORICAL_ROOTS root*,
+    ETH1_DATA eth1Data,
+    ETH1_DATA_VOTES eth1Data*,
+    ETH1_DEPOSIT_INDEX uint64,
+    VALIDATORS validator*,
+    BALANCES gwei*,
+    RANDAO_MIXES bytes32*,
+    SLASHINGS gwei*,
+    PREVIOUS_EPOCH_PARTICIPATION participationFlags*,
+    CURRENT_EPOCH_PARTICIPATION participationFlags*,
+    JUSTIFICATION_BITS boolean*,
+    PREVIOUS_JUSTIFIED_CHECKPOINT checkpoint,
+    CURRENT_JUSTIFIED_CHECKPOINT checkpoint,
+    FINALIZED_CHECKPOINT checkpoint,
+    INACTIVITY_SCORES uint64*,
+    CURRENT_SYNC_COMMITTEE syncCommittee,
+    NEXT_SYNC_COMMITTEE syncCommittee,
+    LATEST_EXECUTION_PAYLOAD_HEADER executionPayloadHeader,
+    NEXT_WITHDRAWAL_INDEX withdrawalIndex,
+    NEXT_WITHDRAWAL_VALIDATOR_INDEX validatorIndex,
+    HISTORICAL_SUMMARIES historicalSummary* }
+
+syntax beaconBlockBody =
+  {
+    RANDAO_REVEAL blsSignature,
+    ETH1_DATA eth1Data,
+    GRAFFITI bytes32,
+    PROPOSER_SLASHINGS proposerSlashing*,
+    ATTESTER_SLASHINGS attesterSlashing*,
+    ATTESTATIONS attestation*,
+    DEPOSITS deposit*,
+    VOLUNTARY_EXITS voluntaryExit*,
+    ;; [Altair] sync committee aggregation
+    SYNC_AGGREGATE syncAggregate,
+    ;; [Bellatrix/Capella] execution-layer payload
+    EXECUTION_PAYLOAD executionPayload,
+    ;; [Capella] BLS to Execution address change
+    BLS_TO_EXECUTION_CHANGES signedBlsToExecutionChange*
+  }
+
+syntax beaconBlock =
+  { SLOT slot,
+    PROPOSER_INDEX validatorIndex,
+    PARENT_ROOT root,
+    STATE_ROOT root,
+    BODY beaconBlockBody }
+
+syntax signedBeaconBlock =
+  { MESSAGE beaconBlock,
+    SIGNATURE blsSignature }
+

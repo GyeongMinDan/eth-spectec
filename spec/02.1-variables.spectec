@@ -1,0 +1,23 @@
+;;
+;; Variables
+;;
+
+var i : int
+var n : nat
+var state : beaconState
+var body : beaconBlockBody
+var block : beaconBlock
+
+var delta           : gwei
+var idx             : nat
+var current         : gwei
+var newBalance      : gwei
+var balancesUpdate  : gwei*
+
+var attd1 : attestationData
+var attd2 : attestationData
+
+var curVer  : version
+var genRoot : root
+
+var balance : gwei
