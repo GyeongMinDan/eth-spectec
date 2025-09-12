@@ -1,0 +1,97 @@
+;; ================================
+;; 06-helpers-validator.spectec
+;; validator predicates & helpers
+;; ================================
+
+
+;; ------------------------------------------------------------
+;; compute_activation_exit_epoch : epoch -> epoch
+;; ------------------------------------------------------------
+dec $compute_activation_exit_epoch(epoch) : epoch
+def $compute_activation_exit_epoch(epoch) = $(epoch + 1 + $MAX_SEED_LOOKAHEAD)
+
+;; ------------------------------------------------------------
+;; is_active_validator : (validator, epoch) -> bool
+;; ------------------------------------------------------------
+dec $is_active_validator(validator, epoch) : boolean
+
+def $is_active_validator(validator, epoch) = true
+  -- if $(validator.ACTIVATION_EPOCH <= epoch)
+  -- if $(epoch < validator.EXIT_EPOCH)
+
+def $is_active_validator(validator, epoch) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; is_eligible_for_activation_queue : validator -> bool
+;; ------------------------------------------------------------
+dec $is_eligible_for_activation_queue(validator) : boolean
+
+def $is_eligible_for_activation_queue(validator) = true
+  -- if $(validator.ACTIVATION_ELIGIBILITY_EPOCH = $FAR_FUTURE_EPOCH)
+  -- if $(validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)
+
+def $is_eligible_for_activation_queue(validator) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; is_eligible_for_activation : (state, validator) -> bool
+;; ------------------------------------------------------------
+dec $is_eligible_for_activation(beaconState, validator) : boolean
+
+def $is_eligible_for_activation(state, validator) = true
+  -- if $(validator.ACTIVATION_ELIGIBILITY_EPOCH <= state.FINALIZED_CHECKPOINT.EPOCH)
+  -- if $(validator.ACTIVATION_EPOCH = $FAR_FUTURE_EPOCH)
+
+def $is_eligible_for_activation(state, validator) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; is_slashable_validator : (validator, epoch) -> bool
+;; ------------------------------------------------------------
+dec $is_slashable_validator(validator, epoch) : boolean
+
+def $is_slashable_validator(validator, epoch) = true
+  -- if $(validator.SLASHED = false)
+  -- if $(validator.ACTIVATION_EPOCH <= epoch)
+  -- if $(epoch < validator.WITHDRAWABLE_EPOCH)
+
+def $is_slashable_validator(validator, epoch) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; has_eth1_withdrawal_credential : validator -> bool
+;; ------------------------------------------------------------
+dec $has_eth1_withdrawal_credential(validator) : boolean
+
+def $has_eth1_withdrawal_credential(validator) = true
+  -- if $get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $ETH1_ADDRESS_WITHDRAWAL_PREFIX
+
+def $has_eth1_withdrawal_credential(validator) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; is_fully_withdrawable_validator : (validator, balance:gwei, epoch) -> bool
+;; ------------------------------------------------------------
+dec $is_fully_withdrawable_validator(validator, gwei, epoch) : boolean
+
+def $is_fully_withdrawable_validator(validator, balance, epoch) = true
+  -- if $has_eth1_withdrawal_credential(validator) = true
+  -- if $(validator.WITHDRAWABLE_EPOCH <= epoch)
+  -- if $(balance > 0)
+
+def $is_fully_withdrawable_validator(validator, balance, epoch) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; is_partially_withdrawable_validator : (validator, balance:gwei) -> bool
+;; ------------------------------------------------------------
+dec $is_partially_withdrawable_validator(validator, gwei) : boolean
+
+def $is_partially_withdrawable_validator(validator, balance) = true
+  -- if $has_eth1_withdrawal_credential(validator) = true
+  -- if $(validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)
+  -- if $(balance > $MAX_EFFECTIVE_BALANCE)
+
+def $is_partially_withdrawable_validator(validator, balance) = false
+  -- otherwise

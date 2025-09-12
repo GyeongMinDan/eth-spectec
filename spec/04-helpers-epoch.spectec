@@ -1,0 +1,33 @@
+;; =========================
+;; 04-helpers-epoch.spectec
+;; epoch / slot / time helpers
+;; =========================
+
+
+;; compute_epoch_at_slot : slot -> epoch
+dec $compute_epoch_at_slot(slot) : epoch
+def $compute_epoch_at_slot(slot) =
+  $(slot / $SLOTS_PER_EPOCH)
+
+;; compute_start_slot_at_epoch : epoch -> slot
+dec $compute_start_slot_at_epoch(epoch) : slot
+def $compute_start_slot_at_epoch(epoch) =
+  $(epoch * $SLOTS_PER_EPOCH)
+
+;; get_current_epoch : state -> epoch
+dec $get_current_epoch(beaconState) : epoch
+def $get_current_epoch(state) = $compute_epoch_at_slot(state.SLOT)
+
+;; get_previous_epoch : state -> epoch
+dec $get_previous_epoch(beaconState) : epoch
+
+def $get_previous_epoch(state) = $GENESIS_EPOCH
+  -- if $get_current_epoch(state) = $GENESIS_EPOCH
+
+def $get_previous_epoch(state) = $( $get_current_epoch(state) - 1 )
+  -- otherwise
+
+;; compute_time_at_slot : (state, slot) -> unix time (uint64)
+dec $compute_time_at_slot(beaconState, slot) : uint64
+def $compute_time_at_slot(state, slot) =
+  $(state.GENESIS_TIME + (slot - $GENESIS_SLOT) * $SECONDS_PER_SLOT)

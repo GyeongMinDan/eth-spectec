@@ -1,0 +1,91 @@
+;;
+;; process_proposer_slashing
+;; 
+
+;; TODO
+
+
+;;
+;; process_attester_slashing
+;;
+
+;; TODO
+
+;;
+;; process_attestation
+;;
+
+;; TODO
+
+
+;; 
+;; process_deposit
+;;
+dec $process_deposit(beaconState, deposit) : beaconState
+
+def $process_deposit(state, deposit) = state_applied
+  -- if $hash_tree_root_depositData(deposit.DATA) = root_leaf
+  -- if $( $DEPOSIT_CONTRACT_TREE_DEPTH + 1 ) = uint64_depth_plus_1
+  -- if $is_valid_merkle_branch(
+         root_leaf,
+         deposit.PROOF,
+         uint64_depth_plus_1,
+         state.ETH1_DEPOSIT_INDEX,
+         state.ETH1_DATA.DEPOSIT_ROOT
+       ) = true
+  -- if $(state.ETH1_DEPOSIT_INDEX + 1) = uint64_deposit_index_next
+  -- if state_inc = state[.ETH1_DEPOSIT_INDEX = uint64_deposit_index_next]
+  -- if state_applied =
+       $apply_deposit(
+         state_inc,
+         deposit.DATA.PUBKEY,
+         deposit.DATA.WITHDRAWAL_CREDENTIALS,
+         deposit.DATA.AMOUNT,
+         deposit.DATA.SIGNATURE
+       )
+
+;; 
+;; process_voluntary_exit
+;; 
+
+;; --- process_voluntary_exit as function ---
+dec $process_voluntary_exit(beaconState, signedVoluntaryExit) : beaconState
+
+def $process_voluntary_exit(state, signedVoluntaryExit) = state_after_exit
+  -- if voluntaryExit = signedVoluntaryExit.MESSAGE
+  -- if validatorIndex_exit = voluntaryExit.VALIDATOR_INDEX
+  -- if $(validatorIndex_exit < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_exit] = validator
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $is_active_validator(validator, epoch_cur) = true
+  -- if $(validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)
+  -- if $(epoch_cur >= voluntaryExit.EPOCH)
+  -- if $(epoch_cur >= validator.ACTIVATION_EPOCH + $SHARD_COMMITTEE_PERIOD)
+  -- if $get_domain(state, $DOMAIN_VOLUNTARY_EXIT, voluntaryExit.EPOCH) = domain_exit
+  -- if $compute_signing_root_voluntary_exit(voluntaryExit, domain_exit) = root_vol_exit_signing_root
+  -- if $bls_verify(validator.PUBKEY, root_vol_exit_signing_root, signedVoluntaryExit.SIGNATURE) = true
+  -- if state_after_exit = $initiate_validator_exit(state, validatorIndex_exit)
+
+
+;; 
+;; process_bls_to_execution_change
+;; 
+dec $process_bls_to_execution_change(beaconState, signedBlsToExecutionChange) : beaconState
+
+def $process_bls_to_execution_change(state, signedBlsToExecutionChange) = state_updated
+  -- if blsToExecutionChange = signedBlsToExecutionChange.MESSAGE
+  -- if validatorIndex_change = blsToExecutionChange.VALIDATOR_INDEX
+  -- if $(validatorIndex_change < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_change] = validator
+  -- if $get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $BLS_WITHDRAWAL_PREFIX
+  -- if $hash_<blsPubkey>(blsToExecutionChange.FROM_BLS_PUBKEY) = bytes32_pk_hash
+  -- if $strip_first_byte(validator.WITHDRAWAL_CREDENTIALS) = bytes32_wc_tail
+  -- if $strip_first_byte(bytes32_pk_hash) = bytes32_pk_tail
+  -- if $(bytes32_wc_tail = bytes32_pk_tail)
+  -- if $compute_domain($DOMAIN_BLS_TO_EXECUTION_CHANGE, eps, state.GENESIS_VALIDATORS_ROOT) = domain_btec
+  -- if $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain_btec) = root_sign
+  -- if $bls_verify(blsToExecutionChange.FROM_BLS_PUBKEY, root_sign, signedBlsToExecutionChange.SIGNATURE) = true
+  -- if $make_withdrawal_credentials_eth1(blsToExecutionChange.TO_EXECUTION_ADDRESS) = bytes32_new_wc
+  -- if validator_updated = validator[.WITHDRAWAL_CREDENTIALS = bytes32_new_wc]
+  -- if state.VALIDATORS[[validatorIndex_change] = validator_updated] = validator_update*
+  -- if state_updated = state[.VALIDATORS = validator_update*]

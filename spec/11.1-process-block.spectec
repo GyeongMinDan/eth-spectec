@@ -1,0 +1,15 @@
+relation ProcessBlock:
+  beaconState beaconBlock ~> beaconState
+  hint(input %0 %1)
+
+
+;; 파이프라인: 각 스텝은 함수(dec/def)로 정의
+rule ProcessBlock/main:
+  state block ~> state_6
+  -- if $process_block_header(state, block)                          = state_0
+  -- if $process_withdrawals(state_0, block.BODY.EXECUTION_PAYLOAD)  = state_1
+  -- if $process_execution_payload(state_1, block.BODY)              = state_2
+  -- if $process_randao(state_2, block.BODY)                         = state_3
+  -- if $process_eth1_data(state_3, block.BODY)                      = state_4
+  -- if $process_operations(state_4, block.BODY)                     = state_5
+  -- if $process_sync_aggregate(state_5, block.BODY.SYNC_AGGREGATE)  = state_6
