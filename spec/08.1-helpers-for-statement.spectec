@@ -1,3 +1,18 @@
+;; max for uint64
+dec $max_uint64(uint64, uint64) : uint64
+def $max_uint64(uint64, uint64) = uint64
+  -- if $(uint64 >= uint64)
+def $max_uint64(uint64, uint64) = uint64
+  -- otherwise
+
+;; min for uint64
+dec $min_uint64(uint64, uint64) : uint64
+def $min_uint64(uint64, uint64) = uint64
+  -- if $(uint64 <= uint64)
+def $min_uint64(uint64, uint64) = uint64
+  -- otherwise
+
+
 syntax enumerated_<X> = (nat, X)
 dec $enumerate_<X>(X*) : enumerated_<X>*
 
@@ -28,3 +43,27 @@ def $get_active_validator_indices(state, epoch) = n_active*
       def $is_active_validator_enumerated
     )
     = (n_active, validator_active)*
+
+;; ------------------------------------------------------------
+;; get_validator_churn_limit
+;; ------------------------------------------------------------
+dec $get_validator_churn_limit(beaconState) : uint64
+def $get_validator_churn_limit(state_beaconState) = uint64_churn_limit
+  -- if $get_current_epoch(state_beaconState) = epoch_current
+  -- if $get_active_validator_indices(state_beaconState, epoch_current) = validatorIndex_active*
+  -- if $( |validatorIndex_active*| ) = uint64_len_active
+  -- if $(uint64_len_active / $CHURN_LIMIT_QUOTIENT) = uint64_quota
+  -- if $max_uint64($MIN_PER_EPOCH_CHURN_LIMIT, uint64_quota) = uint64_churn_limit
+
+
+;; ------------------------------------------------------------
+;; get_committee_count_per_slot
+;; ------------------------------------------------------------
+dec $get_committee_count_per_slot(beaconState, epoch) : uint64
+def $get_committee_count_per_slot(state_beaconState, epoch_epoch) = uint64_committees_per_slot
+  -- if $get_active_validator_indices(state_beaconState, epoch_epoch) = validatorIndex_active*
+  -- if $( |validatorIndex_active*| ) = uint64_len_active
+  -- if $(uint64_len_active / $SLOTS_PER_EPOCH) = uint64_per_slot
+  -- if $(uint64_per_slot / $TARGET_COMMITTEE_SIZE) = uint64_estimate
+  -- if $min_uint64($MAX_COMMITTEES_PER_SLOT, uint64_estimate) = uint64_capped
+  -- if $max_uint64(1, uint64_capped) = uint64_committees_per_slot
