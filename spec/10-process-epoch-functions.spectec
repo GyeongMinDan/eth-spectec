@@ -1,11 +1,7 @@
-;; =========================
-;; 16-epoch-substeps.spectec
-;; Substep functions for epoch processing
-;; =========================
-
 ;;
 ;; process_justification_and_finalization
 ;;
+
 ;; --- substep: justification_and_finalization (skip / main) ---
 dec $process_justification_and_finalization(beaconState) : beaconState
 
