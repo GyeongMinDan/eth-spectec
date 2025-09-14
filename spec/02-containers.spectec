@@ -304,3 +304,13 @@ syntax signedBeaconBlock =
   { MESSAGE beaconBlock,
     SIGNATURE blsSignature }
 
+syntax seedInput =
+  { DOMAIN domainType,
+    BYTES bytes,
+    MIX bytes32 }
+
+syntax proposerSeedInput =
+  { BASE bytes32,     ;; get_seed(state, epoch, DOMAIN_BEACON_PROPOSER)
+    BYTES bytes }     ;; uint_to_bytes(state.SLOT)
+
+

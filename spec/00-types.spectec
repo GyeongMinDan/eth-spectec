@@ -2,18 +2,21 @@
 ;; Primitive Types
 ;;
 
+syntax bytes = int
 syntax bytes4 = int
 syntax bytes32 = int
 syntax bytes1 = int
 syntax bytes8 = int
 syntax bytes20 = int
+syntax bytes28 = int
 syntax bytes48 = int
 syntax bytes96 = int
 syntax bytes256 = int
+syntax uint = nat
 syntax uint8 = nat
 syntax uint64 = nat
 syntax uint256 = nat
-syntax bytes28 = int
+
 
 ;;
 ;; Custom eth2spec Types
