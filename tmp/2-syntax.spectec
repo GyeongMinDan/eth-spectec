@@ -1,0 +1,600 @@
+syntax bytes4 = int
+syntax bytes32 = int
+syntax bytes1 = int
+syntax bytes8 = int
+syntax bytes20 = int
+syntax bytes48 = int
+syntax bytes96 = int
+syntax bytes256 = int
+syntax uint8 = nat
+syntax uint64 = nat
+syntax uint256 = nat
+
+;;
+;; Custom Types
+;;
+
+syntax slot = uint64
+syntax epoch = uint64
+syntax validatorIndex = uint64
+syntax gwei = uint64
+syntax root = bytes32
+syntax hash32 = bytes32
+syntax version = bytes4
+syntax committeeIndex = uint64
+syntax boolean = bool
+syntax domainType = bytes4
+syntax forkDigest = bytes4
+syntax domain = bytes32
+syntax blsPubkey = bytes48
+syntax blsSignature = bytes96
+syntax nodeID = bytes256
+syntax subnetID = uint64
+syntax ether = uint64
+syntax participationFlags = uint8
+syntax executionAddress = bytes20
+syntax payloadId = bytes8
+syntax withdrawalIndex = uint64
+
+;;
+;; Constants: defined as parameterless functions
+;;
+
+;; Time parameters
+dec $SLOTS_PER_EPOCH : nat
+def $SLOTS_PER_EPOCH = 32
+
+dec $EPOCHS_PER_ETH1_VOTING_PERIOD : nat
+def $EPOCHS_PER_ETH1_VOTING_PERIOD = 64
+
+;; State list lengths
+dec $EPOCHS_PER_SLASHINGS_VECTOR : nat
+def $EPOCHS_PER_SLASHINGS_VECTOR = 8192
+
+;; Additional constants
+dec $UINT64_MAX : nat
+def $UINT64_MAX = 18446744073709551615
+
+dec $GENESIS_SLOT : nat
+def $GENESIS_SLOT = 0
+
+dec $GENESIS_EPOCH : nat
+def $GENESIS_EPOCH = 0
+
+dec $FAR_FUTURE_EPOCH : nat
+def $FAR_FUTURE_EPOCH = 18446744073709551615
+
+dec $BASE_REWARDS_PER_EPOCH : nat
+def $BASE_REWARDS_PER_EPOCH = 4
+
+dec $DEPOSIT_CONTRACT_TREE_DEPTH : nat
+def $DEPOSIT_CONTRACT_TREE_DEPTH = 32
+
+dec $JUSTIFICATION_BITS_LENGTH : nat
+def $JUSTIFICATION_BITS_LENGTH = 4
+
+dec $INTERVALS_PER_SLOT : nat
+def $INTERVALS_PER_SLOT = 3
+
+dec $BASIS_POINTS : nat
+def $BASIS_POINTS = 10000
+
+dec $TARGET_AGGREGATORS_PER_COMMITTEE : nat
+def $TARGET_AGGREGATORS_PER_COMMITTEE = 16
+
+dec $ETH_TO_GWEI : nat
+def $ETH_TO_GWEI = 1000000000
+
+dec $SAFETY_DECAY : nat
+def $SAFETY_DECAY = 10
+
+dec $TIMELY_SOURCE_FLAG_INDEX : nat
+def $TIMELY_SOURCE_FLAG_INDEX = 0
+
+dec $TIMELY_TARGET_FLAG_INDEX : nat
+def $TIMELY_TARGET_FLAG_INDEX = 1
+
+dec $TIMELY_HEAD_FLAG_INDEX : nat
+def $TIMELY_HEAD_FLAG_INDEX = 2
+
+dec $TIMELY_SOURCE_WEIGHT : nat
+def $TIMELY_SOURCE_WEIGHT = 14
+
+dec $TIMELY_TARGET_WEIGHT : nat
+def $TIMELY_TARGET_WEIGHT = 26
+
+dec $TIMELY_HEAD_WEIGHT : nat
+def $TIMELY_HEAD_WEIGHT = 14
+
+dec $SYNC_REWARD_WEIGHT : nat
+def $SYNC_REWARD_WEIGHT = 2
+
+dec $PROPOSER_WEIGHT : nat
+def $PROPOSER_WEIGHT = 8
+
+dec $WEIGHT_DENOMINATOR : nat
+def $WEIGHT_DENOMINATOR = 64
+
+dec $MAX_COMMITTEES_PER_SLOT : nat
+def $MAX_COMMITTEES_PER_SLOT = 64
+
+dec $TARGET_COMMITTEE_SIZE : nat
+def $TARGET_COMMITTEE_SIZE = 128
+
+dec $MAX_VALIDATORS_PER_COMMITTEE : nat
+def $MAX_VALIDATORS_PER_COMMITTEE = 2048
+
+dec $SHUFFLE_ROUND_COUNT : nat
+def $SHUFFLE_ROUND_COUNT = 90
+
+dec $HYSTERESIS_QUOTIENT : nat
+def $HYSTERESIS_QUOTIENT = 4
+
+dec $HYSTERESIS_DOWNWARD_MULTIPLIER : nat
+def $HYSTERESIS_DOWNWARD_MULTIPLIER = 1
+
+dec $HYSTERESIS_UPWARD_MULTIPLIER : nat
+def $HYSTERESIS_UPWARD_MULTIPLIER = 5
+
+dec $MIN_DEPOSIT_AMOUNT : nat
+def $MIN_DEPOSIT_AMOUNT = 1000000000
+
+dec $MAX_EFFECTIVE_BALANCE : nat
+def $MAX_EFFECTIVE_BALANCE = 32000000000
+
+dec $EFFECTIVE_BALANCE_INCREMENT : nat
+def $EFFECTIVE_BALANCE_INCREMENT = 1000000000
+
+dec $MIN_ATTESTATION_INCLUSION_DELAY : nat
+def $MIN_ATTESTATION_INCLUSION_DELAY = 1
+
+dec $MIN_SEED_LOOKAHEAD : nat
+def $MIN_SEED_LOOKAHEAD = 1
+
+dec $MAX_SEED_LOOKAHEAD : nat
+def $MAX_SEED_LOOKAHEAD = 4
+
+dec $MIN_EPOCHS_TO_INACTIVITY_PENALTY : nat
+def $MIN_EPOCHS_TO_INACTIVITY_PENALTY = 4
+
+dec $SLOTS_PER_HISTORICAL_ROOT : nat
+def $SLOTS_PER_HISTORICAL_ROOT = 8192
+
+dec $EPOCHS_PER_HISTORICAL_VECTOR : nat
+def $EPOCHS_PER_HISTORICAL_VECTOR = 65536
+
+dec $HISTORICAL_ROOTS_LIMIT : nat
+def $HISTORICAL_ROOTS_LIMIT = 16777216
+
+dec $VALIDATOR_REGISTRY_LIMIT : nat
+def $VALIDATOR_REGISTRY_LIMIT = 1099511627776
+
+dec $BASE_REWARD_FACTOR : nat
+def $BASE_REWARD_FACTOR = 64
+
+dec $WHISTLEBLOWER_REWARD_QUOTIENT : nat
+def $WHISTLEBLOWER_REWARD_QUOTIENT = 512
+
+dec $PROPOSER_REWARD_QUOTIENT : nat
+def $PROPOSER_REWARD_QUOTIENT = 8
+
+dec $INACTIVITY_PENALTY_QUOTIENT : nat
+def $INACTIVITY_PENALTY_QUOTIENT = 67108864
+
+dec $MIN_SLASHING_PENALTY_QUOTIENT : nat
+def $MIN_SLASHING_PENALTY_QUOTIENT = 128
+
+dec $PROPORTIONAL_SLASHING_MULTIPLIER : nat
+def $PROPORTIONAL_SLASHING_MULTIPLIER = 1
+
+dec $MAX_PROPOSER_SLASHINGS : nat
+def $MAX_PROPOSER_SLASHINGS = 16
+
+dec $MAX_ATTESTER_SLASHINGS : nat
+def $MAX_ATTESTER_SLASHINGS = 2
+
+dec $MAX_ATTESTATIONS : nat
+def $MAX_ATTESTATIONS = 128
+
+dec $MAX_DEPOSITS : nat
+def $MAX_DEPOSITS = 16
+
+dec $MAX_VOLUNTARY_EXITS : nat
+def $MAX_VOLUNTARY_EXITS = 16
+
+dec $SYNC_COMMITTEE_SIZE : nat
+def $SYNC_COMMITTEE_SIZE = 512
+
+dec $EPOCHS_PER_SYNC_COMMITTEE_PERIOD : nat
+def $EPOCHS_PER_SYNC_COMMITTEE_PERIOD = 256
+
+dec $MIN_SYNC_COMMITTEE_PARTICIPANTS : nat
+def $MIN_SYNC_COMMITTEE_PARTICIPANTS = 1
+
+dec $UPDATE_TIMEOUT : nat
+def $UPDATE_TIMEOUT = 8192
+
+dec $MAX_BYTES_PER_TRANSACTION : nat
+def $MAX_BYTES_PER_TRANSACTION = 1073741824
+
+dec $MAX_TRANSACTIONS_PER_PAYLOAD : nat
+def $MAX_TRANSACTIONS_PER_PAYLOAD = 1048576
+
+dec $BYTES_PER_LOGS_BLOOM : nat
+def $BYTES_PER_LOGS_BLOOM = 256
+
+dec $MAX_EXTRA_DATA_BYTES : nat
+def $MAX_EXTRA_DATA_BYTES = 32
+
+dec $MAX_BLS_TO_EXECUTION_CHANGES : nat
+def $MAX_BLS_TO_EXECUTION_CHANGES = 16
+
+dec $MAX_WITHDRAWALS_PER_PAYLOAD : nat
+def $MAX_WITHDRAWALS_PER_PAYLOAD = 16
+
+dec $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP : nat
+def $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP = 16384
+
+;;
+;; Containers: defined as SpecTec struct types
+;;
+
+syntax fork =
+  { PREVIOUS_VERSION version,
+    CURRENT_VERSION version,
+    EPOCH epoch }
+
+syntax checkpoint =
+  { EPOCH epoch,
+    ROOT root }
+
+syntax eth1Data =
+  { DEPOSIT_ROOT root,
+    DEPOSIT_COUNT uint64,
+    BLOCK_HASH hash32 }
+
+syntax beaconBlockHeader =
+  { SLOT slot,
+    PROPOSER_INDEX validatorIndex,
+    PARENT_ROOT root,
+    STATE_ROOT root,
+    BODY_ROOT root }
+
+syntax beaconBlockBody =
+  {
+    ;; RANDAO_REVEAL bytes32,
+    ETH1_DATA eth1Data,
+    ;; GRAFFITI bytes32,
+    ;; PROPOSER_SLASHINGS proposerSlashing*,
+    ;; ATTESTER_SLASHINGS attesterSlashing*,
+    ;; ATTESTATIONS attestation*,
+    ;; DEPOSITS deposit*,
+    ;; VOLUNTARY_EXITS voluntaryExit*
+  }
+
+;; Additional container types
+syntax validator =
+  { PUBKEY blsPubkey,
+    WITHDRAWAL_CREDENTIALS bytes32,
+    EFFECTIVE_BALANCE gwei,
+    SLASHED boolean,
+    ACTIVATION_ELIGIBILITY_EPOCH epoch,
+    ACTIVATION_EPOCH epoch,
+    EXIT_EPOCH epoch,
+    WITHDRAWABLE_EPOCH epoch }
+
+syntax attestationData =
+  { SLOT slot,
+    INDEX committeeIndex,
+    BEACON_BLOCK_ROOT root,
+    SOURCE checkpoint,
+    TARGET checkpoint }
+
+syntax indexedAttestation =
+  { ATTESTING_INDICES validatorIndex*,
+    DATA attestationData,
+    SIGNATURE blsSignature }
+
+syntax pendingAttestation =
+  { AGGREGATION_BITS boolean*,
+    DATA attestationData,
+    INCLUSION_DELAY slot,
+    PROPOSER_INDEX validatorIndex }
+
+syntax historicalBatch =
+  { BLOCK_ROOTS root*,
+    STATE_ROOTS root* }
+
+syntax depositMessage =
+  { PUBKEY blsPubkey,
+    WITHDRAWAL_CREDENTIALS bytes32,
+    AMOUNT gwei }
+
+syntax depositData =
+  { PUBKEY blsPubkey,
+    WITHDRAWAL_CREDENTIALS bytes32,
+    AMOUNT gwei,
+    SIGNATURE blsSignature }
+
+syntax signingData =
+  { OBJECT_ROOT root,
+    DOMAIN domain }
+
+syntax attesterSlashing =
+  { ATTESTATION_1 indexedAttestation,
+    ATTESTATION_2 indexedAttestation }
+
+syntax attestation =
+  { AGGREGATION_BITS boolean*,
+    DATA attestationData,
+    SIGNATURE blsSignature }
+
+syntax deposit =
+  { PROOF bytes32*,
+    DATA depositData }
+
+syntax voluntaryExit =
+  { EPOCH epoch,
+    VALIDATOR_INDEX validatorIndex }
+
+syntax signedVoluntaryExit =
+  { MESSAGE voluntaryExit,
+    SIGNATURE blsSignature }
+
+syntax signedBeaconBlockHeader =
+  { MESSAGE beaconBlockHeader,
+    SIGNATURE blsSignature }
+
+syntax proposerSlashing =
+  { SIGNED_HEADER_1 signedBeaconBlockHeader,
+    SIGNED_HEADER_2 signedBeaconBlockHeader }
+
+syntax eth1Block =
+  { TIMESTAMP uint64,
+    DEPOSIT_ROOT root,
+    DEPOSIT_COUNT uint64 }
+
+syntax aggregateAndProof =
+  { AGGREGATOR_INDEX validatorIndex,
+    AGGREGATE attestation,
+    SELECTION_PROOF blsSignature }
+
+syntax signedAggregateAndProof =
+  { MESSAGE aggregateAndProof,
+    SIGNATURE blsSignature }
+
+syntax syncAggregate =
+  { SYNC_COMMITTEE_BITS boolean*,
+    SYNC_COMMITTEE_SIGNATURE blsSignature }
+
+syntax syncCommittee =
+  { PUBKEYS blsPubkey*,
+    AGGREGATE_PUBKEY blsPubkey }
+
+syntax syncCommitteeMessage =
+  { SLOT slot,
+    BEACON_BLOCK_ROOT root,
+    VALIDATOR_INDEX validatorIndex,
+    SIGNATURE blsSignature }
+
+syntax syncCommitteeContribution =
+  { SLOT slot,
+    BEACON_BLOCK_ROOT root,
+    SUBCOMMITTEE_INDEX uint64,
+    AGGREGATION_BITS boolean*,
+    SIGNATURE blsSignature }
+
+syntax contributionAndProof =
+  { AGGREGATOR_INDEX validatorIndex,
+    CONTRIBUTION syncCommitteeContribution,
+    SELECTION_PROOF blsSignature }
+
+syntax signedContributionAndProof =
+  { MESSAGE contributionAndProof,
+    SIGNATURE blsSignature }
+
+syntax syncAggregatorSelectionData =
+  { SLOT slot,
+    SUBCOMMITTEE_INDEX uint64 }
+
+syntax executionPayloadHeader =
+  { PARENT_HASH hash32,
+    FEE_RECIPIENT executionAddress,
+    STATE_ROOT bytes32,
+    RECEIPTS_ROOT bytes32,
+    LOGS_BLOOM bytes32*,
+    PREV_RANDAO bytes32,
+    BLOCK_NUMBER uint64,
+    GAS_LIMIT uint64,
+    GAS_USED uint64,
+    TIMESTAMP uint64,
+    EXTRA_DATA bytes32*,
+    BASE_FEE_PER_GAS uint256,
+    BLOCK_HASH hash32,
+    TRANSACTIONS_ROOT root,
+    WITHDRAWALS_ROOT root }
+
+syntax lightClientHeader =
+  { BEACON beaconBlockHeader,
+    EXECUTION executionPayloadHeader,
+    EXECUTION_BRANCH bytes32* }
+
+syntax lightClientOptimisticUpdate =
+  { ATTESTED_HEADER lightClientHeader,
+    SYNC_AGGREGATE syncAggregate,
+    SIGNATURE_SLOT slot }
+
+syntax lightClientFinalityUpdate =
+  { ATTESTED_HEADER lightClientHeader,
+    FINALIZED_HEADER lightClientHeader,
+    FINALITY_BRANCH bytes32*,
+    SYNC_AGGREGATE syncAggregate,
+    SIGNATURE_SLOT slot }
+
+syntax lightClientUpdate =
+  { ATTESTED_HEADER lightClientHeader,
+    NEXT_SYNC_COMMITTEE syncCommittee,
+    NEXT_SYNC_COMMITTEE_BRANCH bytes32*,
+    FINALIZED_HEADER lightClientHeader,
+    FINALITY_BRANCH bytes32*,
+    SYNC_AGGREGATE syncAggregate,
+    SIGNATURE_SLOT slot }
+
+syntax lightClientBootstrap =
+  { HEADER lightClientHeader,
+    CURRENT_SYNC_COMMITTEE syncCommittee,
+    CURRENT_SYNC_COMMITTEE_BRANCH bytes32* }
+
+syntax powBlock =
+  { BLOCK_HASH hash32,
+    PARENT_HASH hash32,
+    TOTAL_DIFFICULTY uint256 }
+
+syntax withdrawal =
+  { INDEX withdrawalIndex,
+    VALIDATOR_INDEX validatorIndex,
+    ADDRESS executionAddress,
+    AMOUNT gwei }
+
+syntax executionPayload =
+  { PARENT_HASH hash32,
+    FEE_RECIPIENT executionAddress,
+    STATE_ROOT bytes32,
+    RECEIPTS_ROOT bytes32,
+    LOGS_BLOOM bytes32*,
+    PREV_RANDAO bytes32,
+    BLOCK_NUMBER uint64,
+    GAS_LIMIT uint64,
+    GAS_USED uint64,
+    TIMESTAMP uint64,
+    EXTRA_DATA bytes32*,
+    BASE_FEE_PER_GAS uint256,
+    BLOCK_HASH hash32,
+    TRANSACTIONS bytes32*,
+    WITHDRAWALS withdrawal* }
+
+syntax blsToExecutionChange =
+  { VALIDATOR_INDEX validatorIndex,
+    FROM_BLS_PUBKEY blsPubkey,
+    TO_EXECUTION_ADDRESS executionAddress }
+
+syntax signedBlsToExecutionChange =
+  { MESSAGE blsToExecutionChange,
+    SIGNATURE blsSignature }
+
+syntax beaconBlock =
+  { SLOT slot,
+    PROPOSER_INDEX validatorIndex,
+    PARENT_ROOT root,
+    STATE_ROOT root,
+    BODY beaconBlockBody }
+
+syntax signedBeaconBlock =
+  { MESSAGE beaconBlock,
+    SIGNATURE blsSignature }
+
+syntax historicalSummary =
+  { BLOCK_SUMMARY_ROOT root,
+    STATE_SUMMARY_ROOT root }
+
+syntax beaconState =
+  { GENESIS_TIME int,
+    GENESIS_VALIDATORS_ROOT bytes32,
+    SLOT slot,
+    FORK fork,
+    LATEST_BLOCK_HEADER beaconBlockHeader,
+    BLOCK_ROOTS root*,
+    STATE_ROOTS root*,
+    HISTORICAL_ROOTS root*,
+    ETH1_DATA eth1Data,
+    ETH1_DATA_VOTES eth1Data*,
+    ETH1_DEPOSIT_INDEX uint64,
+    VALIDATORS validator*,
+    BALANCES gwei*,
+    RANDAO_MIXES bytes32*,
+    SLASHINGS gwei*,
+    PREVIOUS_EPOCH_PARTICIPATION participationFlags*,
+    CURRENT_EPOCH_PARTICIPATION participationFlags*,
+    JUSTIFICATION_BITS boolean*,
+    PREVIOUS_JUSTIFIED_CHECKPOINT checkpoint,
+    CURRENT_JUSTIFIED_CHECKPOINT checkpoint,
+    FINALIZED_CHECKPOINT checkpoint,
+    INACTIVITY_SCORES uint64*,
+    CURRENT_SYNC_COMMITTEE syncCommittee,
+    NEXT_SYNC_COMMITTEE syncCommittee,
+    LATEST_EXECUTION_PAYLOAD_HEADER executionPayloadHeader,
+    NEXT_WITHDRAWAL_INDEX withdrawalIndex,
+    NEXT_WITHDRAWAL_VALIDATOR_INDEX validatorIndex,
+    HISTORICAL_SUMMARIES historicalSummary* }
+
+;;
+;; Variables
+;;
+
+var i : int
+var n : nat
+var state : beaconState
+var body : beaconBlockBody
+
+;;
+;; Helper functions
+;;
+dec $compute_epoch_at_slot(slot) : epoch
+def $compute_epoch_at_slot(slot) =
+  $(slot / $SLOTS_PER_EPOCH)
+
+dec $get_current_epoch(beaconState) : epoch
+def $get_current_epoch(state) = $compute_epoch_at_slot(state.SLOT)
+
+
+dec $gwei(int) : gwei
+
+;;
+;; Standard functions for list operations
+;;
+
+;; update list at position
+dec $update_list_<X>(X*, nat, X) : X*
+
+;; count occurrences of element in list
+dec $count_occurrences_<X>(X*, X) : nat
+
+;;
+;; Epoch processing
+;;
+
+relation Process:
+  beaconState ~> beaconState
+  hint(input %0)
+
+rule Process/eth1_data_reset:
+  state ~> state[.ETH1_DATA_VOTES = eps]
+  -- if $($get_current_epoch(state) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
+
+rule Process/slashings_reset:
+  state ~> state[.SLASHINGS = gwei_update*]
+  -- if $($get_current_epoch(state) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = n
+  -- if $update_list_<gwei>(state.SLASHINGS, n, 0) = gwei_update*
+
+;;
+;; Block processing
+;;
+
+relation ProcessBlock:
+  beaconState beaconBlockBody ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessBlock/eth1_data_if:
+  state body ~> state[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body.ETH1_DATA]
+  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occurences
+  -- if $(n_occurences * 2 > $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+
+rule ProcessBlock/eth1_data_else:
+  state body ~> state[.ETH1_DATA_VOTES = eth1Data_update*]
+  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occurences
+  -- if $(n_occurences * 2 <= $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+
