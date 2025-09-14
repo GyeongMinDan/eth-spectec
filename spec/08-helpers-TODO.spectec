@@ -2,7 +2,7 @@
 ;; helper functions that have to be defined
 ;;
 
-dec $get_beacon_proposer_index(beaconState) : validatorIndex
+dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex
 
 dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
 
@@ -16,3 +16,4 @@ dec $get_total_active_balance(beaconState) : gwei
 dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
 
 dec $get_next_sync_committee(beaconState) : syncCommittee
+

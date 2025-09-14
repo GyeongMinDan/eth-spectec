@@ -21,6 +21,7 @@ dec $ee_verify_and_notify_new_payload(executionPayload) : boolean
 
 ;; --- 바이트/도메인 유틸 ---
 dec $bytes_to_uint64(bytes32) : uint64
+dec $uint_to_bytes(uint) : bytes
 dec $xor(bytes32, bytes32) : bytes32
 dec $first_28_bytes(bytes32) : bytes28
 dec $concat_domain(domainType, bytes28) : domain
