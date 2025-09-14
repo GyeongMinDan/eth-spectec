@@ -1,0 +1,162 @@
+syntax uint64 = nat
+syntax bytes4 = int
+syntax bytes32 = int
+
+;;
+;; Custom Types
+;;
+
+syntax slot = uint64
+syntax epoch = uint64
+syntax validatorIndex = uint64
+syntax gwei = uint64
+syntax root = bytes32
+syntax hash32 = bytes32
+syntax version = bytes4
+
+;;
+;; Constants: defined as parameterless functions
+;;
+
+;; Time parameters
+dec $SLOTS_PER_EPOCH : nat
+def $SLOTS_PER_EPOCH = 32
+
+dec $EPOCHS_PER_ETH1_VOTING_PERIOD : nat
+def $EPOCHS_PER_ETH1_VOTING_PERIOD = 64
+
+;; State list lengths
+dec $EPOCHS_PER_SLASHINGS_VECTOR : nat
+def $EPOCHS_PER_SLASHINGS_VECTOR = 8192
+
+;;
+;; Containers: defined as SpecTec struct types
+;;
+
+syntax fork =
+  { PREVIOUS_VERSION version,
+    CURRENT_VERSION version,
+    EPOCH epoch }
+
+syntax checkpoint =
+  { EPOCH epoch,
+    ROOT root }
+
+syntax eth1Data =
+  { DEPOSIT_ROOT root,
+    DEPOSIT_COUNT uint64,
+    BLOCK_HASH hash32 }
+
+syntax beaconBlockHeader =
+  { SLOT slot,
+    PROPOSER_INDEX validatorIndex,
+    PARENT_ROOT root,
+    STATE_ROOT root,
+    BODY_ROOT root }
+
+syntax beaconBlockBody =
+  {
+    ;; RANDAO_REVEAL bytes32,
+    ETH1_DATA eth1Data,
+    ;; GRAFFITI bytes32,
+    ;; PROPOSER_SLASHINGS proposerSlashing*,
+    ;; ATTESTER_SLASHINGS attesterSlashing*,
+    ;; ATTESTATIONS attestation*,
+    ;; DEPOSITS deposit*,
+    ;; VOLUNTARY_EXITS voluntaryExit*
+  }
+
+syntax beaconState =
+  { GENESIS_TIME int,
+    GENESIS_VALIDATORS_ROOT bytes32,
+    SLOT slot,
+    FORK fork,
+    LATEST_BLOCK_HEADER beaconBlockHeader,
+    BLOCK_ROOTS root*,
+    STATE_ROOTS root*,
+    HISTORICAL_ROOTS root*,
+    ETH1_DATA eth1Data,
+    ETH1_DATA_VOTES eth1Data*,
+    ETH1_DEPOSIT_INDEX uint64,
+    ;; VALIDATORS validator*,
+    BALANCES gwei*,
+    RANDAO_MIXES bytes32*,
+    SLASHINGS gwei*,
+    ;; PREVIOUS_EPOCH_ATTESTATIONS pendingAttestation*,
+    ;; CURRENT_EPOCH_ATTESTATIONS pendingAttestation*,
+    ;; JUSTIFICATION_BITS bytes4,
+    ;; PREVIOUS_JUSTIFIED_CHECKPOINT checkpoint,
+    ;; CURRENT_JUSTIFIED_CHECKPOINT checkpoint,
+    FINALIZED_CHECKPOINT checkpoint }
+
+;;
+;; Variables
+;;
+
+var i : int
+var n : nat
+var state : beaconState
+var body : beaconBlockBody
+
+;;
+;; Helper functions
+;;
+dec $compute_epoch_at_slot(slot) : epoch
+def $compute_epoch_at_slot(slot) =
+  $(slot / $SLOTS_PER_EPOCH)
+
+dec $get_current_epoch(beaconState) : epoch
+def $get_current_epoch(state) = $compute_epoch_at_slot(state.SLOT)
+
+
+dec $gwei(int) : gwei
+
+;;
+;; Standard functions for list operations
+;;
+
+;; update list at position
+dec $update_list_<X>(X*, nat, X) : X*
+
+;; count occurrences of element in list
+dec $count_occurrences_<X>(X*, X) : nat
+
+;;
+;; Epoch processing
+;;
+
+relation Process:
+  beaconState ~> beaconState
+  hint(input %0)
+
+rule Process/eth1_data_reset:
+  state ~> state[.ETH1_DATA_VOTES = eps]
+  -- if $($get_current_epoch(state) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
+
+rule Process/slashings_reset:
+  state ~> state[.SLASHINGS = gwei_update*]
+  -- if $($get_current_epoch(state) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = n
+  -- if $update_list_<gwei>(state.SLASHINGS, n, 0) = gwei_update*
+
+;;
+;; Block processing
+;;
+
+relation ProcessBlock:
+  beaconState beaconBlockBody ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessBlock/eth1_data_if:
+  state body ~> state[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body.ETH1_DATA]
+  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occurences
+  -- if $(n_occurences * 2 > $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+
+rule ProcessBlock/eth1_data_else:
+  state body ~> state[.ETH1_DATA_VOTES = eth1Data_update*]
+  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occurences
+  -- if $(n_occurences * 2 <= $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+
