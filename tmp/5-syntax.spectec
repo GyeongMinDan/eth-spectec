@@ -1,15 +1,17 @@
+syntax bytes = int
 syntax bytes4 = int
 syntax bytes32 = int
 syntax bytes1 = int
 syntax bytes8 = int
 syntax bytes20 = int
+syntax bytes28 = int
 syntax bytes48 = int
 syntax bytes96 = int
 syntax bytes256 = int
+syntax uint = nat
 syntax uint8 = nat
 syntax uint64 = nat
 syntax uint256 = nat
-syntax bytes28 = int
 
 ;;
 ;; Custom Types
@@ -747,6 +749,10 @@ syntax signedBeaconBlock =
   { MESSAGE beaconBlock,
     SIGNATURE blsSignature }
 
+syntax seedInput =
+  { DOMAIN domainType,
+    BYTES bytes,
+    MIX bytes32 }
 ;;
 ;; Variables
 ;;
@@ -830,7 +836,6 @@ def $min_uint64(uint64, uint64) = uint64
 def $min_uint64(uint64, uint64) = uint64
   -- otherwise
 
-dec $uint_to_bytes(uint) : bytes
 ;;
 ;; Helper functions
 ;;
@@ -1143,6 +1148,37 @@ def $get_active_validator_indices(state, epoch) = n_active*
     )
     = (n_active, validator_active)*
 
+syntax proposerSeedInput =
+  { BASE bytes32,     ;; get_seed(state, epoch, DOMAIN_BEACON_PROPOSER)
+    BYTES bytes }     ;; uint_to_bytes(state.SLOT)
+
+dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex   
+
+;; ------------------------------------------------------------
+;; get_seed
+;; ------------------------------------------------------------
+dec $get_seed(beaconState, epoch, domainType) : bytes32
+
+def $get_seed(state, epoch, domainType) = bytes32_seed
+  -- if $(epoch + $EPOCHS_PER_HISTORICAL_VECTOR - $MIN_SEED_LOOKAHEAD - 1) = epoch_mix_source
+  -- if $get_randao_mix(state, epoch_mix_source) = bytes32_mix
+  -- if $uint_to_bytes(epoch) = bytes_epoch
+  -- if seedInput_pre = { DOMAIN domainType, BYTES bytes_epoch, MIX bytes32_mix }
+  -- if $hash_<seedInput>(seedInput_pre) = bytes32_seed
+
+;; ------------------------------------------------------------
+;; get_beacon_proposer_index
+;; ------------------------------------------------------------
+dec $get_beacon_proposer_index(beaconState) : validatorIndex
+
+def $get_beacon_proposer_index(state) = validatorIndex_prop
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $get_seed(state, epoch_cur, $DOMAIN_BEACON_PROPOSER) = bytes32_seed_base
+  -- if $uint_to_bytes(state.SLOT) = bytes_slot
+  -- if proposerSeedInput_pre = { BASE bytes32_seed_base, BYTES bytes_slot }
+  -- if $hash_<proposerSeedInput>(proposerSeedInput_pre) = bytes32_seed
+  -- if $get_active_validator_indices(state, epoch_cur) = validatorIndex_indices*
+  -- if $compute_proposer_index(state, validatorIndex_indices*, bytes32_seed) = validatorIndex_prop
 
 ;;
 ;; Epoch processing
