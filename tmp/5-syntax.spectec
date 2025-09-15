@@ -1089,6 +1089,62 @@ rule IncreaseBalance:
   -- if $(current + delta) = newBalance
   -- if $update_list_<gwei>(state.BALANCES, idx, newBalance) = balancesUpdate
 
+
+;; 
+dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
+
+;; ------------------------------------------------------------
+;; get_beacon_committee
+;; ------------------------------------------------------------
+dec $get_beacon_committee(beaconState, slot, committeeIndex) : validatorIndex*
+def $get_beacon_committee(state, slot, committeeIndex) = validatorIndex_committee*
+  -- if $compute_epoch_at_slot(slot) = epoch
+  -- if $get_committee_count_per_slot(state, epoch) = uint64_committees_per_slot
+  -- if $get_active_validator_indices(state, epoch) = validatorIndex_indices*
+  -- if $get_seed(state, epoch, $DOMAIN_BEACON_ATTESTER) = bytes32_seed
+  -- if $( (slot \ $SLOTS_PER_EPOCH) * uint64_committees_per_slot + committeeIndex ) = uint64_index
+  -- if $( uint64_committees_per_slot * $SLOTS_PER_EPOCH ) = uint64_count
+  -- if $compute_committee(
+         validatorIndex_indices*,
+         bytes32_seed,
+         uint64_index,
+         uint64_count
+       ) = validatorIndex_committee*
+
+;; --- 2의 제곱 연산 --- 
+dec $pow2(nat) : nat
+;; --------------------------------------------
+;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
+;; --------------------------------------------
+
+;; uint8 범위 내에 없으면 false
+dec $has_flag(participationFlags, nat) : boolean
+
+def $has_flag(participationFlags, n) = false
+  -- if $( n >= 8 )
+
+def $has_flag(participationFlags, n) = true
+  -- if $( ((participationFlags / $pow2(n)) \ 2) = 1 )
+
+def $has_flag(participationFlags, n) = false
+  -- otherwise
+
+
+;; --------------------------------------------
+;; add_flag: flags의 i번째 비트를 더해서(or) 반환
+;; --------------------------------------------
+dec $add_flag(participationFlags, nat) : participationFlags
+
+;; uint8 범위 내에 없으면 false
+def $add_flag(participationFlags, n) = participationFlags
+  -- if $( n >= 8 )
+
+def $add_flag(participationFlags, n) = participationFlags
+  -- if $( ((participationFlags / $pow2(n)) \ 2) = 1 )
+
+def $add_flag(participationFlags, n) = $( participationFlags + $pow2(n) )
+  -- if $( ((participationFlags / $pow2(n)) \ 2) = 0 )
+
 ;; ------------------------------------------------------------
 ;; decrease_balance
 ;; ------------------------------------------------------------
