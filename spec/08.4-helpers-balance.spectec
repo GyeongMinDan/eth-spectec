@@ -3,10 +3,10 @@ dec $sum_effective_balance(beaconState, validatorIndex*) : gwei
 ;; if list is empty -> eps -> 0
 def $sum_effective_balance(state, eps) = 0
 
-;; (vi :: vt*)(head, tail)면 vi의 EFFECTIVE_BALANCE + 나머지 합 으로 표현(재귀),
-def $sum_effective_balance(state, (validatorIndex_vi :: validatorIndex_t*)) = $(gwei_i + gwei_t)
-  -- if $(validatorIndex_vi < |state.VALIDATORS|)               
-  -- if state.VALIDATORS[validatorIndex_vi] = validator_i
+;; (validatorIndex :: validatorIndex_t*)(head, tail)면 validatorIndex의 EFFECTIVE_BALANCE + 나머지 합 으로 표현(재귀),
+def $sum_effective_balance(state, (validatorIndex_validatorIndex :: validatorIndex_t*)) = $(gwei_i + gwei_t)
+  -- if $(validatorIndex_validatorIndex < |state.VALIDATORS|)               
+  -- if state.VALIDATORS[validatorIndex_validatorIndex] = validator_i
   -- if gwei_i = validator_i.EFFECTIVE_BALANCE
   -- if $sum_effective_balance(state, validatorIndex_t*) = gwei_t
 
@@ -19,3 +19,36 @@ dec $get_total_balance(beaconState, validatorIndex*) : gwei
 def $get_total_balance(state, validatorIndex_indices*) = gwei_total
   -- if $sum_effective_balance(state, validatorIndex_indices*) = gwei_sum
   -- if $max_uint64($EFFECTIVE_BALANCE_INCREMENT, gwei_sum) = gwei_total
+
+
+dec $get_total_active_balance(beaconState) : gwei
+
+def $get_total_active_balance(state) = gwei_total
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $get_active_validator_indices(state, epoch_cur) = validatorIndex_active*
+  -- if $to_set_<validatorIndex>(validatorIndex_active*) = validatorIndex_set*
+  -- if $get_total_balance(state, validatorIndex_set*) = gwei_total
+
+;; --------------------------------------------
+;; get_base_reward_per_increment(state) : gwei
+;;
+;; --------------------------------------------
+dec $get_base_reward_per_increment(beaconState) : gwei
+
+def $get_base_reward_per_increment(state) = gwei_base
+  -- if $get_total_active_balance(state) = gwei_total_active
+  -- if $integer_squareroot(gwei_total_active) = uint64_sqrt_total
+  -- if $( $EFFECTIVE_BALANCE_INCREMENT * $BASE_REWARD_FACTOR ) = uint64_num
+  -- if $( uint64_num / uint64_sqrt_total ) = gwei_base
+
+;; --------------------------------------------
+;; get_base_reward(state, index) : gwei
+;; --------------------------------------------
+dec $get_base_reward(beaconState, validatorIndex) : gwei
+
+def $get_base_reward(state, validatorIndex_vi) = gwei_reward
+  -- if $(validatorIndex_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_vi] = validator_i
+  -- if $( validator_i.EFFECTIVE_BALANCE / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_increments
+  -- if $get_base_reward_per_increment(state) = gwei_per_inc
+  -- if $( uint64_increments * gwei_per_inc ) = gwei_reward
