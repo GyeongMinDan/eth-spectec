@@ -865,6 +865,9 @@ dec $count_occurrences_<X>(X*, X) : nat
 ;; --- 2의 제곱 연산 --- 
 dec $pow2(nat) : nat
 
+;; 리스트 set 함수(리스트 내 중복 제거)
+dec $to_set_<X>(X*) : X*
+
 ;; --------------------------------------------
 ;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
 ;; --------------------------------------------
@@ -1158,10 +1161,9 @@ dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
 
 dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beaconState
 
-;; Set[ValidatorIndex]는 중복 없는 리스트 -> (validatorIndex*)
+
 dec $get_unslashed_participating_indices(beaconState, nat, epoch) : validatorIndex*
 dec $get_total_balance(beaconState, validatorIndex*) : gwei
-dec $get_total_active_balance(beaconState) : gwei
 
 dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
 
@@ -1303,6 +1305,37 @@ def $get_total_balance(state, validatorIndex_indices*) = gwei_total
   -- if $sum_effective_balance(state, validatorIndex_indices*) = gwei_sum
   -- if $max_uint64($EFFECTIVE_BALANCE_INCREMENT, gwei_sum) = gwei_total
 
+dec $get_total_active_balance(beaconState) : gwei
+
+def $get_total_active_balance(state) = gwei_total
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $get_active_validator_indices(state, epoch_cur) = validatorIndex_active*
+  -- if $to_set_<validatorIndex>(validatorIndex_active*) = validatorIndex_set*
+  -- if $get_total_balance(state, validatorIndex_set*) = gwei_total
+
+;; --------------------------------------------
+;; get_base_reward_per_increment(state) : gwei
+;;
+;; --------------------------------------------
+dec $get_base_reward_per_increment(beaconState) : gwei
+
+def $get_base_reward_per_increment(state) = gwei_base
+  -- if $get_total_active_balance(state) = gwei_total_active
+  -- if $integer_squareroot(gwei_total_active) = uint64_sqrt_total
+  -- if $( $EFFECTIVE_BALANCE_INCREMENT * $BASE_REWARD_FACTOR ) = uint64_num
+  -- if $( uint64_num / uint64_sqrt_total ) = gwei_base
+
+;; --------------------------------------------
+;; get_base_reward(state, index) : gwei
+;; --------------------------------------------
+dec $get_base_reward(beaconState, validatorIndex) : gwei
+
+def $get_base_reward(state, validatorIndex_vi) = gwei_reward
+  -- if $(validatorIndex_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_vi] = validator_i
+  -- if $( validator_i.EFFECTIVE_BALANCE / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_increments
+  -- if $get_base_reward_per_increment(state) = gwei_per_inc
+  -- if $( uint64_increments * gwei_per_inc ) = gwei_reward
 ;; 09-state-balance.spectec
 ;; Increase / Decrease balance as helpers
 

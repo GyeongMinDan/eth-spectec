@@ -67,3 +67,29 @@ def $get_committee_count_per_slot(state_beaconState, epoch_epoch) = uint64_commi
   -- if $(uint64_per_slot / $TARGET_COMMITTEE_SIZE) = uint64_estimate
   -- if $min_uint64($MAX_COMMITTEES_PER_SLOT, uint64_estimate) = uint64_capped
   -- if $max_uint64(1, uint64_capped) = uint64_committees_per_slot
+
+
+;; --------------------------------------------
+;; eligible cond: active(v, prev) OR (v.SLASHED ∧ prev+1 < v.WITHDRAWABLE_EPOCH)
+;; almost same as get_active_validator_indices
+;; --------------------------------------------
+dec $is_eligible_validator_enumerated(enumerated_<validator>, epoch) : bool
+def $is_eligible_validator_enumerated((n, validator), epoch_prev) =
+  $is_active_validator(validator, epoch_prev)
+  \/
+  ( $(validator.SLASHED = true) /\ $(epoch_prev + 1 < validator.WITHDRAWABLE_EPOCH) )
+
+;; --------------------------------------------
+;; get_eligible_validator_indices(state) : validatorIndex*
+;; --------------------------------------------
+dec $get_eligible_validator_indices(beaconState) : validatorIndex*
+
+def $get_eligible_validator_indices(state) = n_eligible*
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if state.VALIDATORS = validator*
+  -- if $enumerate_<validator>(validator*) = (n, validator)*
+  -- if $filter_list_2_<(nat, validator), epoch>(
+       (n, validator)*,
+       epoch_prev,
+       def $is_eligible_validator_enumerated
+     ) = (n_eligible, validator_eligible)*

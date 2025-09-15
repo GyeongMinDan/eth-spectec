@@ -46,3 +46,6 @@ dec $count_occurrences_<X>(X*, X) : nat
 
 ;; --- 2의 제곱 연산 --- 
 dec $pow2(nat) : nat
+
+;; 리스트 set 함수(리스트 내 중복 제거)
+dec $to_set_<X>(X*) : X*
