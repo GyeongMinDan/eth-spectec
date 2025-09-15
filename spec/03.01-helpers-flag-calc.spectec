@@ -1,0 +1,31 @@
+;; --------------------------------------------
+;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
+;; --------------------------------------------
+
+;; uint8 범위 내에 없으면 false
+dec $has_flag(participationFlags, nat) : boolean
+
+def $has_flag(participationFlags, n) = false
+  -- if $( n >= 8 )
+
+def $has_flag(participationFlags, n) = true
+  -- if $( ((participationFlags / $pow2(n)) \ 2) = 1 )
+
+def $has_flag(participationFlags, n) = false
+  -- otherwise
+
+
+;; --------------------------------------------
+;; add_flag: flags의 i번째 비트를 더해서(or) 반환
+;; --------------------------------------------
+dec $add_flag(participationFlags, nat) : participationFlags
+
+;; uint8 범위 내에 없으면 false
+def $add_flag(participationFlags, n) = participationFlags
+  -- if $( n >= 8 )
+
+def $add_flag(participationFlags, n) = participationFlags
+  -- if $( ((participationFlags / $pow2(n)) \ 2) = 1 )
+
+def $add_flag(participationFlags, n) = $( participationFlags + $pow2(n) )
+  -- if $( ((participationFlags / $pow2(n)) \ 2) = 0 )

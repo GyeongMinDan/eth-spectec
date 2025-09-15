@@ -23,3 +23,21 @@ def $get_beacon_proposer_index(state) = validatorIndex_prop
   -- if $hash_<proposerSeedInput>(proposerSeedInput_pre) = bytes32_seed
   -- if $get_active_validator_indices(state, epoch_cur) = validatorIndex_indices*
   -- if $compute_proposer_index(state, validatorIndex_indices*, bytes32_seed) = validatorIndex_prop
+
+;; ------------------------------------------------------------
+;; get_beacon_committee
+;; ------------------------------------------------------------
+dec $get_beacon_committee(beaconState, slot, committeeIndex) : validatorIndex*
+def $get_beacon_committee(state, slot, committeeIndex) = validatorIndex_committee*
+  -- if $compute_epoch_at_slot(slot) = epoch
+  -- if $get_committee_count_per_slot(state, epoch) = uint64_committees_per_slot
+  -- if $get_active_validator_indices(state, epoch) = validatorIndex_indices*
+  -- if $get_seed(state, epoch, $DOMAIN_BEACON_ATTESTER) = bytes32_seed
+  -- if $( (slot \ $SLOTS_PER_EPOCH) * uint64_committees_per_slot + committeeIndex ) = uint64_index
+  -- if $( uint64_committees_per_slot * $SLOTS_PER_EPOCH ) = uint64_count
+  -- if $compute_committee(
+         validatorIndex_indices*,
+         bytes32_seed,
+         uint64_index,
+         uint64_count
+       ) = validatorIndex_committee*

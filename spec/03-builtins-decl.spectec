@@ -43,3 +43,6 @@ dec $integer_squareroot(uint64) : uint64
 ;; --- 리스트 안에 원소 개수 세기 ---
 ;; count occurrences of element in list
 dec $count_occurrences_<X>(X*, X) : nat
+
+;; --- 2의 제곱 연산 --- 
+dec $pow2(nat) : nat

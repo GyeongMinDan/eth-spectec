@@ -17,3 +17,5 @@ dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaco
 
 dec $get_next_sync_committee(beaconState) : syncCommittee
 
+dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
+
