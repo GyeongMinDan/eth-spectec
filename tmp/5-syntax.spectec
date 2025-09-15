@@ -1,3 +1,7 @@
+;;
+;; Primitive Types
+;;
+
 syntax bytes = int
 syntax bytes4 = int
 syntax bytes32 = int
@@ -13,8 +17,9 @@ syntax uint8 = nat
 syntax uint64 = nat
 syntax uint256 = nat
 
+
 ;;
-;; Custom Types
+;; Custom eth2spec Types
 ;;
 
 syntax slot = uint64
@@ -42,11 +47,6 @@ syntax withdrawalIndex = uint64
 ;;
 ;; Constants: defined as parameterless functions
 ;;
-
-;;
-;; Constant vars  →  parameterless functions
-;;
-
 dec $UINT64_MAX : uint64
 def $UINT64_MAX = 18446744073709551615
 
@@ -184,7 +184,7 @@ def $DOMAIN_BLS_TO_EXECUTION_CHANGE = 167772160      ;; 0x0A000000
 
 
 ;;
-;; Preset vars  →  parameterless functions
+;; Preset vars (mainnet Configuration)  →  parameterless functions
 ;;
 
 dec $MAX_COMMITTEES_PER_SLOT : uint64
@@ -472,8 +472,10 @@ dec $CAPELLA_FORK_EPOCH : epoch
 def $CAPELLA_FORK_EPOCH = 194048
 
 ;; 0x0000....
+;; not defined in eth2spec but needed
 dec $ZERO_ROOT : root
 def $ZERO_ROOT = 0
+
 ;;
 ;; Containers: defined as SpecTec struct types
 ;;
@@ -647,6 +649,37 @@ syntax executionPayloadHeader =
     TRANSACTIONS_ROOT root,
     WITHDRAWALS_ROOT root }
 
+syntax lightClientHeader =
+  { BEACON beaconBlockHeader,
+    EXECUTION executionPayloadHeader,
+    EXECUTION_BRANCH bytes32* }
+
+syntax lightClientOptimisticUpdate =
+  { ATTESTED_HEADER lightClientHeader,
+    SYNC_AGGREGATE syncAggregate,
+    SIGNATURE_SLOT slot }
+
+syntax lightClientFinalityUpdate =
+  { ATTESTED_HEADER lightClientHeader,
+    FINALIZED_HEADER lightClientHeader,
+    FINALITY_BRANCH bytes32*,
+    SYNC_AGGREGATE syncAggregate,
+    SIGNATURE_SLOT slot }
+
+syntax lightClientUpdate =
+  { ATTESTED_HEADER lightClientHeader,
+    NEXT_SYNC_COMMITTEE syncCommittee,
+    NEXT_SYNC_COMMITTEE_BRANCH bytes32*,
+    FINALIZED_HEADER lightClientHeader,
+    FINALITY_BRANCH bytes32*,
+    SYNC_AGGREGATE syncAggregate,
+    SIGNATURE_SLOT slot }
+
+syntax lightClientBootstrap =
+  { HEADER lightClientHeader,
+    CURRENT_SYNC_COMMITTEE syncCommittee,
+    CURRENT_SYNC_COMMITTEE_BRANCH bytes32* }
+
 syntax powBlock =
   { BLOCK_HASH hash32,
     PARENT_HASH hash32,
@@ -753,6 +786,12 @@ syntax seedInput =
   { DOMAIN domainType,
     BYTES bytes,
     MIX bytes32 }
+
+syntax proposerSeedInput =
+  { BASE bytes32,     ;; get_seed(state, epoch, DOMAIN_BEACON_PROPOSER)
+    BYTES bytes }     ;; uint_to_bytes(state.SLOT)
+
+
 ;;
 ;; Variables
 ;;
@@ -777,342 +816,55 @@ var genRoot : root
 
 var balance : gwei
 
-;;
-;; Standard functions for list operations
-;;
+;; =========================
+;; 03-builtins-decls.spectec
+;; (dec-only: 인터프리터/런타임 제공)
+;; =========================
 
-;; update list at position
-dec $update_list_<X>(X*, nat, X) : X*
+;; --- 해시/암호 ---
+dec $hash_<X>(X) : bytes32
+dec $bls_verify(blsPubkey, root, blsSignature) : boolean
 
+;; --- hash_tree_root 계열 ---
+dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
+dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
+dec $hash_tree_root_depositData(depositData) : root
+dec $hash_tree_root_forkdata(forkdata) : root
+dec $hash_tree_root_tx(bytes32*) : root
+dec $hash_tree_root_withdrawals(withdrawal*) : root
+dec $hash_tree_root_roots(root*) : root
+
+;; --- 실행 엔진 ---
+dec $ee_verify_and_notify_new_payload(executionPayload) : boolean
+
+;; --- 바이트/도메인 유틸 ---
+dec $bytes_to_uint64(bytes32) : uint64
+dec $uint_to_bytes(uint) : bytes
+dec $xor(bytes32, bytes32) : bytes32
+dec $first_28_bytes(bytes32) : bytes28
+dec $concat_domain(domainType, bytes28) : domain
+dec $get_first_byte(bytes32) : bytes1
+dec $strip_first_byte(bytes32) : bytes32
+dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
+
+;; --- 서명 루트 계산 ---
+dec $compute_signing_root(epoch, domain) : root
+dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
+dec $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) : root
+
+;; --- 머클 검증 ---
+dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
+
+;; --- 수치 유틸  ---
+dec $integer_squareroot(uint64) : uint64
+
+;; --- 리스트 안에 원소 개수 세기 ---
 ;; count occurrences of element in list
 dec $count_occurrences_<X>(X*, X) : nat
 
-;; list 인덱싱 헬퍼 함수 (리스트에서 몇번째 인덱스의 값)
-dec $nth_<X>(X*, nat) : X
-
-;; utility: structural inequality (서로 다른 구조체)
-dec $neq_<X>(X, X) : boolean
-
-;; validatorIndex nat 으로 캐스팅?
-dec $as_nat_validatorIndex(validatorIndex) : nat
-
-
-;; hash_tree_root for forkdata
-dec $hash_tree_root_forkdata(forkdata) : root
-
-;; hash_tree_root_for root
-dec $hash_tree_root_roots(root*) : root
-
-
-;; 첫 1바이트 슬라이싱
-dec $get_first_byte(bytes32) : bytes1
-
-;; integer squareroot 
-dec $integer_squareroot(uint64) : uint64
-
-;; xor
-dec $xor(bytes32, bytes32) : bytes32
-
-;; bytes_to_uint64 (little Endian!!)
-dec $bytes_to_uint64(bytes32) : uint64
-
-;; 28 바이트 슬라이싱
-dec $first_28_bytes(bytes32) : bytes28
-
-;; 바이트 값 이어붙이기
-dec $concat_domain(domainType, bytes28) : domain
-
-;; max for uint64
-dec $max_uint64(uint64, uint64) : uint64
-def $max_uint64(uint64, uint64) = uint64
-  -- if $(uint64 >= uint64)
-def $max_uint64(uint64, uint64) = uint64
-  -- otherwise
-
-;; min for uint64
-dec $min_uint64(uint64, uint64) : uint64
-def $min_uint64(uint64, uint64) = uint64
-  -- if $(uint64 <= uint64)
-def $min_uint64(uint64, uint64) = uint64
-  -- otherwise
-
-;;
-;; Helper functions
-;;
-
-
-;; ------------------------------------------------------------
-;; compute_epoch_at_slot
-;; ------------------------------------------------------------
-dec $compute_epoch_at_slot(slot) : epoch
-def $compute_epoch_at_slot(slot) =
-  $(slot / $SLOTS_PER_EPOCH)
-
-;; ------------------------------------------------------------
-;; compute_start_slot_at_epoch
-;; ------------------------------------------------------------
-dec $compute_start_slot_at_epoch(epoch) : slot
-def $compute_start_slot_at_epoch(epoch) =
-  $(epoch * $SLOTS_PER_EPOCH)
-
-;; ------------------------------------------------------------
-;; get_current_epoch
-;; ------------------------------------------------------------
-dec $get_current_epoch(beaconState) : epoch
-def $get_current_epoch(state) = $compute_epoch_at_slot(state.SLOT)
-
-;; ------------------------------------------------------------
-;; gwei
-;; ------------------------------------------------------------
-dec $gwei(int) : gwei
-
-;; ------------------------------------------------------------
-;; compute_activation_exit_epoch
-;; ------------------------------------------------------------
-dec $compute_activation_exit_epoch(epoch) : epoch
-def $compute_activation_exit_epoch(epoch) = $(epoch + 1 + $MAX_SEED_LOOKAHEAD)
-
-;; ------------------------------------------------------------
-;; is_active_validator
-;; ------------------------------------------------------------
-dec $is_active_validator(validator, epoch) : boolean
-
-def $is_active_validator(validator, epoch) = true
-  -- if $(validator.ACTIVATION_EPOCH <= epoch)
-  -- if $(epoch < validator.EXIT_EPOCH)
-
-def $is_active_validator(validator, epoch) = false
-  -- otherwise
-
-;; ------------------------------------------------------------
-;; get_previous_epoch
-;; ------------------------------------------------------------
-dec $get_previous_epoch(beaconState) : epoch
-
-def $get_previous_epoch(state) = $GENESIS_EPOCH
-  -- if $get_current_epoch(state) = $GENESIS_EPOCH
-
-def $get_previous_epoch(state) = $( $get_current_epoch(state) - 1 )
-  -- otherwise
-
-;; ------------------------------------------------------------
-;; get_block_root_at_slot
-;; ------------------------------------------------------------
-dec $get_block_root_at_slot(beaconState, slot) : root
-
-def $get_block_root_at_slot(state, slot) =
-  $nth_<root>(state.BLOCK_ROOTS, $(slot \ $SLOTS_PER_HISTORICAL_ROOT))
-  -- if $(slot < state.SLOT)
-  -- if $(state.SLOT <= slot + $SLOTS_PER_HISTORICAL_ROOT)
-  
-;; ------------------------------------------------------------
-;; get_block_root
-;; ------------------------------------------------------------
-dec $get_block_root(beaconState, epoch) : root
-
-def $get_block_root(state, epoch) = $get_block_root_at_slot(state, slot)
-  -- if $compute_start_slot_at_epoch(epoch) = slot
-
-;; ------------------------------------------------------------
-;; get_randao_mix
-;; ------------------------------------------------------------
-dec $get_randao_mix(beaconState, epoch) : bytes32
-
-def $get_randao_mix(state, epoch) =
-  $nth_<bytes32>(state.RANDAO_MIXES, $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR))
-
-;; ------------------------------------------------------------
-;; is_eligible_for_activation_queue
-;; ------------------------------------------------------------
-dec $is_eligible_for_activation_queue(validator) : boolean
-
-def $is_eligible_for_activation_queue(validator) = true
-  -- if $(validator.ACTIVATION_ELIGIBILITY_EPOCH = $FAR_FUTURE_EPOCH)
-  -- if $(validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)
-
-def $is_eligible_for_activation_queue(validator) = false
-  -- otherwise
-
-;; ------------------------------------------------------------
-;; is_eligible_for_activation
-;; ------------------------------------------------------------
-dec $is_eligible_for_activation(beaconState, validator) : boolean
-
-def $is_eligible_for_activation(state, validator) = true
-  -- if $(validator.ACTIVATION_ELIGIBILITY_EPOCH <= state.FINALIZED_CHECKPOINT.EPOCH)
-  -- if $(validator.ACTIVATION_EPOCH = $FAR_FUTURE_EPOCH)
-
-def $is_eligible_for_activation(state, validator) = false
-  -- otherwise
-
-;; ------------------------------------------------------------
-;; is_slashable_validator
-;; ------------------------------------------------------------
-dec $is_slashable_validator(validator, epoch) : boolean
-
-def $is_slashable_validator(validator, epoch) = true
-  -- if $(validator.SLASHED = false)
-  -- if $(validator.ACTIVATION_EPOCH <= epoch)
-  -- if $(epoch < validator.WITHDRAWABLE_EPOCH)
-
-def $is_slashable_validator(validator, epoch) = false
-  -- otherwise
-  
-;; ------------------------------------------------------------
-;; compute_time_at_slot
-;; ------------------------------------------------------------
-dec $compute_time_at_slot(beaconState, slot) : uint64
-def $compute_time_at_slot(state, slot) =
-  $(state.GENESIS_TIME + (slot - $GENESIS_SLOT) * $SECONDS_PER_SLOT)
-
-;; ------------------------------------------------------------
-;; is_slashable_attestation_data
-;; ------------------------------------------------------------
-dec $is_slashable_attestation_data(attestationData, attestationData) : bool
-def $is_slashable_attestation_data(attd1, attd2) =
-  ( ~(attd1 = attd2) /\ $( attd1.TARGET.EPOCH = attd2.TARGET.EPOCH ) )
-  \/
-  ( $( attd1.SOURCE.EPOCH < attd2.SOURCE.EPOCH ) /\ $( attd2.TARGET.EPOCH < attd1.TARGET.EPOCH ) )
-
-;; ------------------------------------------------------------
-;; compute_fork_data_root
-;; ------------------------------------------------------------
-dec $compute_fork_data_root(version, root) : root
-def $compute_fork_data_root(curVer, genRoot) =
-  $hash_tree_root_forkdata({ CURRENT_VERSION curVer, GENESIS_VALIDATORS_ROOT genRoot })
-
-;; ------------------------------------------------------------
-;; has_eth1_withdrawal_credential
-;; ------------------------------------------------------------
-dec $has_eth1_withdrawal_credential(validator) : boolean
-
-def $has_eth1_withdrawal_credential(validator) = true
-  -- if $get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $ETH1_ADDRESS_WITHDRAWAL_PREFIX
-
-def $has_eth1_withdrawal_credential(validator) = false
-  -- otherwise
-
-;; ------------------------------------------------------------
-;; is_fully_withdrawable_validator
-;; ------------------------------------------------------------
-dec $is_fully_withdrawable_validator(validator, gwei, epoch) : boolean
-
-def $is_fully_withdrawable_validator(validator, balance, epoch) = true
-  -- if $has_eth1_withdrawal_credential(validator) = true
-  -- if $(validator.WITHDRAWABLE_EPOCH <= epoch)
-  -- if $(balance > 0)
-
-def $is_fully_withdrawable_validator(validator, balance, epoch) = false
-  -- otherwise
-
-;; ------------------------------------------------------------
-;; is_partially_withdrawable_validator
-;; ------------------------------------------------------------
-dec $is_partially_withdrawable_validator(validator, gwei) : boolean
-
-def $is_partially_withdrawable_validator(validator, balance) = true
-  -- if $has_eth1_withdrawal_credential(validator) = true
-  -- if $(validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)
-  -- if $(balance > $MAX_EFFECTIVE_BALANCE)
-
-def $is_partially_withdrawable_validator(validator, balance) = false
-  -- otherwise
-
-;; ------------------------------------------------------------
-;; compute_domain 
-;; ------------------------------------------------------------
-dec $compute_domain(domainType, version?, root?) : domain
-def $compute_domain(domainType, version, root) =
-  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root(version, root)))
-
-def $compute_domain(domainType, eps, eps) =
-  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root($GENESIS_FORK_VERSION, $ZERO_ROOT)))
-
-def $compute_domain(domainType, version, eps) =
-  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root(version, $ZERO_ROOT)))
-
-def $compute_domain(domainType, eps, root) =
-  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root($GENESIS_FORK_VERSION, root)))
-
-;; ------------------------------------------------------------
-;; get_domain (epoch optional)
-;; ------------------------------------------------------------
-dec $get_domain(beaconState, domainType, epoch?) : domain
-
-;; epoch 생략: 현재 epoch 사용
-def $get_domain(state, domainType, eps) =
-  $compute_domain(domainType, state.FORK.PREVIOUS_VERSION, state.GENESIS_VALIDATORS_ROOT)
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $(epoch_cur < state.FORK.EPOCH)
-
-def $get_domain(state, domainType, eps) =
-  $compute_domain(domainType, state.FORK.CURRENT_VERSION, state.GENESIS_VALIDATORS_ROOT)
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $(state.FORK.EPOCH <= epoch_cur)
-
-;; epoch 명시: 전달된 epoch 사용
-def $get_domain(state, domainType, epoch) =
-  $compute_domain(domainType, state.FORK.PREVIOUS_VERSION, state.GENESIS_VALIDATORS_ROOT)
-  -- if $(epoch < state.FORK.EPOCH)
-
-def $get_domain(state, domainType, epoch) =
-  $compute_domain(domainType, state.FORK.CURRENT_VERSION, state.GENESIS_VALIDATORS_ROOT)
-  -- if $(state.FORK.EPOCH <= epoch)
-
-;; ------------------------------------------------------------
-;; get_finality_delay
-;; ------------------------------------------------------------
-dec $get_finality_delay(beaconState) : uint64
-def $get_finality_delay(state) =
-  $( $get_previous_epoch(state) - state.FINALIZED_CHECKPOINT.EPOCH )
-
-;; ------------------------------------------------------------
-;; is_in_inactivity_leak
-;; ------------------------------------------------------------
-dec $is_in_inactivity_leak(beaconState) : boolean
-def $is_in_inactivity_leak(state) =
-  $( $get_finality_delay(state) > $MIN_EPOCHS_TO_INACTIVITY_PENALTY )
-
-;;
-;; Updating beaconstate fields
-;;
-
-relation IncreaseBalance:
-  beaconState validatorIndex gwei ~> beaconState
-  hint(input %0 %1 %2)
-
-rule IncreaseBalance:
-  state validatorIndex delta ~> state[.BALANCES = balancesUpdate]
-  -- if $as_nat_validatorIndex(validatorIndex) = idx
-  -- if $( idx < |state.BALANCES| )
-  -- if $nth_<gwei>(state.BALANCES, idx) = current
-  -- if $(current + delta) = newBalance
-  -- if $update_list_<gwei>(state.BALANCES, idx, newBalance) = balancesUpdate
-
-
-;; 
-dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
-
-;; ------------------------------------------------------------
-;; get_beacon_committee
-;; ------------------------------------------------------------
-dec $get_beacon_committee(beaconState, slot, committeeIndex) : validatorIndex*
-def $get_beacon_committee(state, slot, committeeIndex) = validatorIndex_committee*
-  -- if $compute_epoch_at_slot(slot) = epoch
-  -- if $get_committee_count_per_slot(state, epoch) = uint64_committees_per_slot
-  -- if $get_active_validator_indices(state, epoch) = validatorIndex_indices*
-  -- if $get_seed(state, epoch, $DOMAIN_BEACON_ATTESTER) = bytes32_seed
-  -- if $( (slot \ $SLOTS_PER_EPOCH) * uint64_committees_per_slot + committeeIndex ) = uint64_index
-  -- if $( uint64_committees_per_slot * $SLOTS_PER_EPOCH ) = uint64_count
-  -- if $compute_committee(
-         validatorIndex_indices*,
-         bytes32_seed,
-         uint64_index,
-         uint64_count
-       ) = validatorIndex_committee*
-
 ;; --- 2의 제곱 연산 --- 
 dec $pow2(nat) : nat
+
 ;; --------------------------------------------
 ;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
 ;; --------------------------------------------
@@ -1145,33 +897,280 @@ def $add_flag(participationFlags, n) = participationFlags
 def $add_flag(participationFlags, n) = $( participationFlags + $pow2(n) )
   -- if $( ((participationFlags / $pow2(n)) \ 2) = 0 )
 
+
+;; =========================
+;; 04-helpers-epoch.spectec
+;; epoch / slot / time helpers
+;; =========================
+
+
+;; compute_epoch_at_slot : slot -> epoch
+dec $compute_epoch_at_slot(slot) : epoch
+def $compute_epoch_at_slot(slot) =
+  $(slot / $SLOTS_PER_EPOCH)
+
+;; compute_start_slot_at_epoch : epoch -> slot
+dec $compute_start_slot_at_epoch(epoch) : slot
+def $compute_start_slot_at_epoch(epoch) =
+  $(epoch * $SLOTS_PER_EPOCH)
+
+;; get_current_epoch : state -> epoch
+dec $get_current_epoch(beaconState) : epoch
+def $get_current_epoch(state) = $compute_epoch_at_slot(state.SLOT)
+
+;; get_previous_epoch : state -> epoch
+dec $get_previous_epoch(beaconState) : epoch
+
+def $get_previous_epoch(state) = $GENESIS_EPOCH
+  -- if $get_current_epoch(state) = $GENESIS_EPOCH
+
+def $get_previous_epoch(state) = $( $get_current_epoch(state) - 1 )
+  -- otherwise
+
+;; compute_time_at_slot : (state, slot) -> unix time (uint64)
+dec $compute_time_at_slot(beaconState, slot) : uint64
+def $compute_time_at_slot(state, slot) =
+  $(state.GENESIS_TIME + (slot - $GENESIS_SLOT) * $SECONDS_PER_SLOT)
+
+;; =========================
+;; 05-helpers-domain.spectec
+;; fork-data / domain helpers
+;; =========================
+
 ;; ------------------------------------------------------------
-;; decrease_balance
+;; compute_fork_data_root(version, genesis_root) : root
 ;; ------------------------------------------------------------
-relation DecreaseBalance:
-  beaconState validatorIndex gwei ~> beaconState
-  hint(input %0 %1 %2)
+dec $compute_fork_data_root(version, root) : root
+def $compute_fork_data_root(curVer, genRoot) =
+  $hash_tree_root_forkdata({ CURRENT_VERSION curVer, GENESIS_VALIDATORS_ROOT genRoot })
+
+;; ------------------------------------------------------------
+;; compute_domain(domainType, [version], [genesis_root]) : domain
+;; (옵셔널 인자 조합 4가지)
+;; ------------------------------------------------------------
+dec $compute_domain(domainType, version?, root?) : domain
+
+def $compute_domain(domainType, version, root) =
+  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root(version, root)))
+
+def $compute_domain(domainType, eps, eps) =
+  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root($GENESIS_FORK_VERSION, $ZERO_ROOT)))
+
+def $compute_domain(domainType, version, eps) =
+  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root(version, $ZERO_ROOT)))
+
+def $compute_domain(domainType, eps, root) =
+  $concat_domain(domainType, $first_28_bytes($compute_fork_data_root($GENESIS_FORK_VERSION, root)))
+
+;; ------------------------------------------------------------
+;; get_domain(state, domainType, [epoch]) : domain
+;; (epoch 미지정 시 현재 epoch 기준 분기)
+;; ------------------------------------------------------------
+dec $get_domain(beaconState, domainType, epoch?) : domain
+
+;; epoch 생략: 현재 epoch 사용
+def $get_domain(state, domainType, eps) =
+  $compute_domain(domainType, state.FORK.PREVIOUS_VERSION, state.GENESIS_VALIDATORS_ROOT)
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $(epoch_cur < state.FORK.EPOCH)
+
+def $get_domain(state, domainType, eps) =
+  $compute_domain(domainType, state.FORK.CURRENT_VERSION, state.GENESIS_VALIDATORS_ROOT)
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $(state.FORK.EPOCH <= epoch_cur)
+
+;; epoch 명시: 전달된 epoch 사용
+def $get_domain(state, domainType, epoch) =
+  $compute_domain(domainType, state.FORK.PREVIOUS_VERSION, state.GENESIS_VALIDATORS_ROOT)
+  -- if $(epoch < state.FORK.EPOCH)
+
+def $get_domain(state, domainType, epoch) =
+  $compute_domain(domainType, state.FORK.CURRENT_VERSION, state.GENESIS_VALIDATORS_ROOT)
+  -- if $(state.FORK.EPOCH <= epoch)
+
+;; ================================
+;; 06-helpers-validator.spectec
+;; validator predicates & helpers
+;; ================================
 
 
-;; case 1 delta > current ⇒ set to 0 
-rule DecreaseBalance/decbalif:
-  state validatorIndex delta ~> state[.BALANCES = balancesUpdate]
-  -- if $as_nat_validatorIndex(validatorIndex) = idx
-  -- if $( idx < |state.BALANCES| )
-  -- if $nth_<gwei>(state.BALANCES, idx) = current
-  -- if $(delta > current)
-  -- if $(current - current) = newBalance
-  -- if $update_list_<gwei>(state.BALANCES, idx, newBalance) = balancesUpdate
+;; ------------------------------------------------------------
+;; compute_activation_exit_epoch : epoch -> epoch
+;; ------------------------------------------------------------
+dec $compute_activation_exit_epoch(epoch) : epoch
+def $compute_activation_exit_epoch(epoch) = $(epoch + 1 + $MAX_SEED_LOOKAHEAD)
 
-;; case 2 delta ≤ current ⇒ decrease delta
-rule DecreaseBalance/decbalelse:
-  state validatorIndex delta ~> state[.BALANCES = balancesUpdate]
-  -- if $as_nat_validatorIndex(validatorIndex) = idx
-  -- if $( idx < |state.BALANCES| )
-  -- if $nth_<gwei>(state.BALANCES, idx) = current
-  -- if $(delta <= current)
-  -- if $(current - delta) = newBalance
-  -- if $update_list_<gwei>(state.BALANCES, idx, newBalance) = balancesUpdate
+;; ------------------------------------------------------------
+;; is_active_validator : (validator, epoch) -> bool
+;; ------------------------------------------------------------
+dec $is_active_validator(validator, epoch) : boolean
+
+def $is_active_validator(validator, epoch) = true
+  -- if $(validator.ACTIVATION_EPOCH <= epoch)
+  -- if $(epoch < validator.EXIT_EPOCH)
+
+def $is_active_validator(validator, epoch) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; is_eligible_for_activation_queue : validator -> bool
+;; ------------------------------------------------------------
+dec $is_eligible_for_activation_queue(validator) : boolean
+
+def $is_eligible_for_activation_queue(validator) = true
+  -- if $(validator.ACTIVATION_ELIGIBILITY_EPOCH = $FAR_FUTURE_EPOCH)
+  -- if $(validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)
+
+def $is_eligible_for_activation_queue(validator) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; is_eligible_for_activation : (state, validator) -> bool
+;; ------------------------------------------------------------
+dec $is_eligible_for_activation(beaconState, validator) : boolean
+
+def $is_eligible_for_activation(state, validator) = true
+  -- if $(validator.ACTIVATION_ELIGIBILITY_EPOCH <= state.FINALIZED_CHECKPOINT.EPOCH)
+  -- if $(validator.ACTIVATION_EPOCH = $FAR_FUTURE_EPOCH)
+
+def $is_eligible_for_activation(state, validator) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; is_slashable_validator : (validator, epoch) -> bool
+;; ------------------------------------------------------------
+dec $is_slashable_validator(validator, epoch) : boolean
+
+def $is_slashable_validator(validator, epoch) = true
+  -- if $(validator.SLASHED = false)
+  -- if $(validator.ACTIVATION_EPOCH <= epoch)
+  -- if $(epoch < validator.WITHDRAWABLE_EPOCH)
+
+def $is_slashable_validator(validator, epoch) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; has_eth1_withdrawal_credential : validator -> bool
+;; ------------------------------------------------------------
+dec $has_eth1_withdrawal_credential(validator) : boolean
+
+def $has_eth1_withdrawal_credential(validator) = true
+  -- if $get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $ETH1_ADDRESS_WITHDRAWAL_PREFIX
+
+def $has_eth1_withdrawal_credential(validator) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; is_fully_withdrawable_validator : (validator, balance:gwei, epoch) -> bool
+;; ------------------------------------------------------------
+dec $is_fully_withdrawable_validator(validator, gwei, epoch) : boolean
+
+def $is_fully_withdrawable_validator(validator, balance, epoch) = true
+  -- if $has_eth1_withdrawal_credential(validator) = true
+  -- if $(validator.WITHDRAWABLE_EPOCH <= epoch)
+  -- if $(balance > 0)
+
+def $is_fully_withdrawable_validator(validator, balance, epoch) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; is_partially_withdrawable_validator : (validator, balance:gwei) -> bool
+;; ------------------------------------------------------------
+dec $is_partially_withdrawable_validator(validator, gwei) : boolean
+
+def $is_partially_withdrawable_validator(validator, balance) = true
+  -- if $has_eth1_withdrawal_credential(validator) = true
+  -- if $(validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)
+  -- if $(balance > $MAX_EFFECTIVE_BALANCE)
+
+def $is_partially_withdrawable_validator(validator, balance) = false
+  -- otherwise
+
+;; =======================================
+;; 07-helpers-roots-mixes.spectec
+;; roots & randao mixes & time/leak helpers
+;; =======================================
+
+;; ------------------------------------------------------------
+;; get_block_root_at_slot : (state, slot) -> root
+;; ------------------------------------------------------------
+dec $get_block_root_at_slot(beaconState, slot) : root
+
+def $get_block_root_at_slot(state, slot) = root_ret
+  -- if $(slot < state.SLOT)
+  -- if $(state.SLOT <= slot + $SLOTS_PER_HISTORICAL_ROOT)
+  -- if $(slot \ $SLOTS_PER_HISTORICAL_ROOT) = n
+  -- if state.BLOCK_ROOTS[n] = root_ret
+
+;; ------------------------------------------------------------
+;; get_block_root : (state, epoch) -> root
+;; ------------------------------------------------------------
+dec $get_block_root(beaconState, epoch) : root
+
+def $get_block_root(state, epoch) = $get_block_root_at_slot(state, slot)
+  -- if $compute_start_slot_at_epoch(epoch) = slot
+
+;; ------------------------------------------------------------
+;; get_randao_mix : (state, epoch) -> bytes32
+;; ------------------------------------------------------------
+dec $get_randao_mix(beaconState, epoch) : bytes32
+
+def $get_randao_mix(state, epoch) = bytes32_mix
+  -- if $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR) = n
+  -- if state.RANDAO_MIXES[n] = bytes32_mix
+
+
+;; ------------------------------------------------------------
+;; get_finality_delay : state -> uint64
+;; ------------------------------------------------------------
+dec $get_finality_delay(beaconState) : uint64
+def $get_finality_delay(state) =
+  $( $get_previous_epoch(state) - state.FINALIZED_CHECKPOINT.EPOCH )
+
+;; ------------------------------------------------------------
+;; is_in_inactivity_leak : state -> bool
+;; ------------------------------------------------------------
+dec $is_in_inactivity_leak(beaconState) : boolean
+def $is_in_inactivity_leak(state) =
+  $( $get_finality_delay(state) > $MIN_EPOCHS_TO_INACTIVITY_PENALTY )
+
+;; max for uint64
+dec $max_uint64(uint64, uint64) : uint64
+def $max_uint64(uint64, uint64) = uint64
+  -- if $(uint64 >= uint64)
+def $max_uint64(uint64, uint64) = uint64
+  -- otherwise
+
+;; min for uint64
+dec $min_uint64(uint64, uint64) : uint64
+def $min_uint64(uint64, uint64) = uint64
+  -- if $(uint64 <= uint64)
+def $min_uint64(uint64, uint64) = uint64
+  -- otherwise
+
+;;
+;; helper functions that have to be defined
+;;
+
+dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex
+
+dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
+
+dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beaconState
+
+;; Set[ValidatorIndex]는 중복 없는 리스트 -> (validatorIndex*)
+dec $get_unslashed_participating_indices(beaconState, nat, epoch) : validatorIndex*
+dec $get_total_balance(beaconState, validatorIndex*) : gwei
+dec $get_total_active_balance(beaconState) : gwei
+
+dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
+
+dec $get_next_sync_committee(beaconState) : syncCommittee
+
+dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
+
+
+
 
 syntax enumerated_<X> = (nat, X)
 dec $enumerate_<X>(X*) : enumerated_<X>*
@@ -1204,11 +1203,39 @@ def $get_active_validator_indices(state, epoch) = n_active*
     )
     = (n_active, validator_active)*
 
-syntax proposerSeedInput =
-  { BASE bytes32,     ;; get_seed(state, epoch, DOMAIN_BEACON_PROPOSER)
-    BYTES bytes }     ;; uint_to_bytes(state.SLOT)
+;; ------------------------------------------------------------
+;; get_validator_churn_limit
+;; ------------------------------------------------------------
+dec $get_validator_churn_limit(beaconState) : uint64
+def $get_validator_churn_limit(state_beaconState) = uint64_churn_limit
+  -- if $get_current_epoch(state_beaconState) = epoch_current
+  -- if $get_active_validator_indices(state_beaconState, epoch_current) = validatorIndex_active*
+  -- if $( |validatorIndex_active*| ) = uint64_len_active
+  -- if $(uint64_len_active / $CHURN_LIMIT_QUOTIENT) = uint64_quota
+  -- if $max_uint64($MIN_PER_EPOCH_CHURN_LIMIT, uint64_quota) = uint64_churn_limit
 
-dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex   
+
+;; ------------------------------------------------------------
+;; get_committee_count_per_slot
+;; ------------------------------------------------------------
+dec $get_committee_count_per_slot(beaconState, epoch) : uint64
+def $get_committee_count_per_slot(state_beaconState, epoch_epoch) = uint64_committees_per_slot
+  -- if $get_active_validator_indices(state_beaconState, epoch_epoch) = validatorIndex_active*
+  -- if $( |validatorIndex_active*| ) = uint64_len_active
+  -- if $(uint64_len_active / $SLOTS_PER_EPOCH) = uint64_per_slot
+  -- if $(uint64_per_slot / $TARGET_COMMITTEE_SIZE) = uint64_estimate
+  -- if $min_uint64($MAX_COMMITTEES_PER_SLOT, uint64_estimate) = uint64_capped
+  -- if $max_uint64(1, uint64_capped) = uint64_committees_per_slot
+
+;; ------------------------------------------------------------
+;; is_slashable_attestation_data
+;; ------------------------------------------------------------
+dec $is_slashable_attestation_data(attestationData, attestationData) : bool
+def $is_slashable_attestation_data(attd1, attd2) =
+  ( ~(attd1 = attd2) /\ $( attd1.TARGET.EPOCH = attd2.TARGET.EPOCH ) )
+  \/
+  ( $( attd1.SOURCE.EPOCH < attd2.SOURCE.EPOCH ) /\ $( attd2.TARGET.EPOCH < attd1.TARGET.EPOCH ) )
+
 
 ;; ------------------------------------------------------------
 ;; get_seed
@@ -1236,30 +1263,87 @@ def $get_beacon_proposer_index(state) = validatorIndex_prop
   -- if $get_active_validator_indices(state, epoch_cur) = validatorIndex_indices*
   -- if $compute_proposer_index(state, validatorIndex_indices*, bytes32_seed) = validatorIndex_prop
 
-;;
-;; Epoch processing
-;;
+;; ------------------------------------------------------------
+;; get_beacon_committee
+;; ------------------------------------------------------------
+dec $get_beacon_committee(beaconState, slot, committeeIndex) : validatorIndex*
+def $get_beacon_committee(state, slot, committeeIndex) = validatorIndex_committee*
+  -- if $compute_epoch_at_slot(slot) = epoch
+  -- if $get_committee_count_per_slot(state, epoch) = uint64_committees_per_slot
+  -- if $get_active_validator_indices(state, epoch) = validatorIndex_indices*
+  -- if $get_seed(state, epoch, $DOMAIN_BEACON_ATTESTER) = bytes32_seed
+  -- if $( (slot \ $SLOTS_PER_EPOCH) * uint64_committees_per_slot + committeeIndex ) = uint64_index
+  -- if $( uint64_committees_per_slot * $SLOTS_PER_EPOCH ) = uint64_count
+  -- if $compute_committee(
+         validatorIndex_indices*,
+         bytes32_seed,
+         uint64_index,
+         uint64_count
+       ) = validatorIndex_committee*
 
-relation Process:
-  beaconState ~> beaconState
-  hint(input %0)
+dec $sum_effective_balance(beaconState, validatorIndex*) : gwei
 
-;; Set[ValidatorIndex]는 중복 없는 리스트 -> (validatorIndex*)
-dec $get_unslashed_participating_indices(beaconState, nat, epoch) : validatorIndex*
+;; if list is empty -> eps -> 0
+def $sum_effective_balance(state, eps) = 0
+
+;; (vi :: vt*)면 vi의 EFFECTIVE_BALANCE + 나머지 합
+def $sum_effective_balance(state, (validatorIndex_vi :: validatorIndex_t*)) = $(gwei_i + gwei_t)
+  -- if $(validatorIndex_vi < |state.VALIDATORS|)               
+  -- if state.VALIDATORS[validatorIndex_vi] = validator_i
+  -- if gwei_i = validator_i.EFFECTIVE_BALANCE
+  -- if $sum_effective_balance(state, validatorIndex_t*) = gwei_t
+
+
+;; --------------------------------------------
+;; get_total_balance(state, indices) : gwei
+;; --------------------------------------------
 dec $get_total_balance(beaconState, validatorIndex*) : gwei
-dec $get_total_active_balance(beaconState) : gwei
 
-dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
+def $get_total_balance(state, validatorIndex_indices*) = gwei_total
+  -- if $sum_effective_balance(state, validatorIndex_indices*) = gwei_sum
+  -- if $max_uint64($EFFECTIVE_BALANCE_INCREMENT, gwei_sum) = gwei_total
 
-;; skip
-rule Process/justification_and_finalization/skip:
-  state ~> state
+;; 09-state-balance.spectec
+;; Increase / Decrease balance as helpers
+
+dec $increase_balance(beaconState, validatorIndex, gwei) : beaconState
+def $increase_balance(state, validatorIndex_vi, gwei_delta) = state_updated
+  -- if $(validatorIndex_vi < |state.BALANCES|)
+  -- if state.BALANCES[validatorIndex_vi] = gwei_current
+  -- if $(gwei_current + gwei_delta) = gwei_new
+  -- if state.BALANCES[[validatorIndex_vi] = gwei_new] = gwei_update*
+  -- if state_updated = state[.BALANCES = gwei_update*]
+
+dec $decrease_balance(beaconState, validatorIndex, gwei) : beaconState
+
+;; case 1: delta > current ⇒ set to 0
+def $decrease_balance(state, validatorIndex_vi, gwei_delta) = state_updated
+  -- if $(validatorIndex_vi < |state.BALANCES|)
+  -- if state.BALANCES[validatorIndex_vi] = gwei_current
+  -- if $(gwei_delta > gwei_current)
+  -- if state.BALANCES[[validatorIndex_vi] = $(gwei_current - gwei_current)] = gwei_update*
+  -- if state_updated = state[.BALANCES = gwei_update*]
+
+;; case 2: delta ≤ current ⇒ decrease delta
+def $decrease_balance(state, validatorIndex_vi, gwei_delta) = state_updated
+  -- if $(validatorIndex_vi < |state.BALANCES|)
+  -- if state.BALANCES[validatorIndex_vi] = gwei_current
+  -- if $(gwei_delta <= gwei_current)
+  -- if state.BALANCES[[validatorIndex_vi] = $(gwei_current - gwei_delta)] = gwei_update*
+  -- if state_updated = state[.BALANCES = gwei_update*]
+
+;;
+;; process_justification_and_finalization
+;;
+
+;; --- substep: justification_and_finalization (skip / main) ---
+dec $process_justification_and_finalization(beaconState) : beaconState
+
+def $process_justification_and_finalization(state) = state
   -- if $get_current_epoch(state) = epoch_cur
   -- if $(epoch_cur <= ($GENESIS_EPOCH + 1))
 
-;; no skip
-rule Process/justification_and_finalization/main:
-  state ~> state_weighed
+def $process_justification_and_finalization(state) = state_weighed
   -- if $get_current_epoch(state) = epoch_cur
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_prev_indices*
@@ -1270,33 +1354,79 @@ rule Process/justification_and_finalization/main:
   -- if $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_target_bal, gwei_curr_target_bal) = state_weighed
 
 
-rule Process/eth1_data_reset:
-  state ~> state[.ETH1_DATA_VOTES = eps]
+;;
+;; process_inactivity_updates
+;;
+dec $process_inactivity_updates(beaconState) : beaconState
+
+
+;;
+;; process_rewards_and_penalties
+;;
+dec $process_rewards_and_penalties(beaconState) : beaconState
+
+
+;;
+;; process_registry_updates
+;;
+dec $process_registry_updates(beaconState) : beaconState
+
+;;
+;; process_slashings
+;;
+dec $process_slashings(beaconState) : beaconState
+
+
+;;
+;; process_eth1_data_reset
+;;
+dec $process_eth1_data_reset(beaconState) : beaconState
+
+def $process_eth1_data_reset(state) = state_updated
   -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
+  -- if state_updated = state[.ETH1_DATA_VOTES = eps]
 
-;; ------------------------------------------------------------
+
+;;
 ;; process_effective_balance_updates
-;; ------------------------------------------------------------
+;;
+dec $process_effective_balance_updates(beaconState) : beaconState
 
 
+;;
+;; process_slashings_reset
+;;
+dec $process_slashings_reset(beaconState) : beaconState
 
-rule Process/slashings_reset:
-  state ~> state[.SLASHINGS = gwei_update*]
+def $process_slashings_reset(state) = state_updated
   -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = n
-  -- if $update_list_<gwei>(state.SLASHINGS, n, 0) = gwei_update*
+  -- if $(n < |state.SLASHINGS|)
+  -- if state.SLASHINGS[[n] = 0] = gwei_update*
+  -- if state_updated = state[.SLASHINGS = gwei_update*]
 
-rule Process/randao_mixes_reset:
-  state ~> state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+;;
+;; process_randao_mixes_reset
+;;
+dec $process_randao_mixes_reset(beaconState) : beaconState
+
+def $process_randao_mixes_reset(state) = state_updated
   -- if $get_current_epoch(state) = epoch_current
   -- if $(epoch_current + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = n
   -- if $get_randao_mix(state, epoch_current) = bytes32_mix
-  -- if $update_list_<bytes32>(state.RANDAO_MIXES, n, bytes32_mix) = bytes32_randao_mixes_update*
+  -- if $(n < |state.RANDAO_MIXES|)
+  -- if state.RANDAO_MIXES[[n] = bytes32_mix] = bytes32_randao_mixes_update*
+  -- if state_updated = state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
 
-rule Process/historical_summaries_update:
-  state ~> state[.HISTORICAL_SUMMARIES = historicalSummary_update*]
+
+;;
+;; process_historical_summaries_update
+;;
+dec $process_historical_summaries_update(beaconState) : beaconState
+
+def $process_historical_summaries_update(state) = state_updated
   -- if $get_current_epoch(state) = epoch_cur
   -- if $(epoch_cur + 1) = epoch_next
   -- if $( epoch_next \ ( $SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH ) ) = 0
@@ -1304,46 +1434,40 @@ rule Process/historical_summaries_update:
   -- if $hash_tree_root_roots(state.STATE_ROOTS) = root_state_summary
   -- if { BLOCK_SUMMARY_ROOT root_block_summary, STATE_SUMMARY_ROOT root_state_summary } = historicalSummary_new
   -- if state.HISTORICAL_SUMMARIES ++ [ historicalSummary_new ] = historicalSummary_update*
+  -- if state_updated = state[.HISTORICAL_SUMMARIES = historicalSummary_update*]
 
-dec $get_next_sync_committee(beaconState) : syncCommittee
+;;
+;; process_participation_flag_updates
+;;
+dec $process_participation_flag_updates(beaconState) : beaconState
 
-rule Process/sync_committee_updates:
-  state ~> state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
-              [.NEXT_SYNC_COMMITTEE    = syncCommittee_next]
+
+;;
+;; process_sync_committee_updates
+;;
+dec $process_sync_committee_updates(beaconState) : beaconState
+
+def $process_sync_committee_updates(state) = state_updated
   -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = 0
   -- if syncCommittee_next = $get_next_sync_committee(state)
+  -- if state_updated =
+       state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
+           [.NEXT_SYNC_COMMITTEE    = syncCommittee_next]
+
 
 ;;
-;; Block processing
-;;
-
-relation ProcessBlock:
-  beaconState beaconBlockBody ~> beaconState
-  hint(input %0 %1)
-
 ;; process_block_header
-dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
-dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
-dec $get_beacon_proposer_index(beaconState) : validatorIndex
+;;
+dec $process_block_header(beaconState, beaconBlock) : beaconState
 
-relation ProcessBlockHeader:
-  beaconState beaconBlock ~> beaconState
-  hint(input %0 %1)
-
-rule ProcessBlockHeader/main:
-  state block ~> state[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
-  ;; 1 슬롯 일치
+def $process_block_header(state, block) = state_updated
   -- if $(block.SLOT = state.SLOT)
-  ;; 2 이전 헤더보다 최신인지
   -- if $(state.LATEST_BLOCK_HEADER.SLOT < block.SLOT)
-  ;; 3 제안자 인덱스 검증
-  -- if $get_beacon_proposer_index(state) = validatorIndex_prop
-  -- if $(block.PROPOSER_INDEX = validatorIndex_prop)
-  ;; 4 부모 루트 검증
-  -- if root_parent_expected = $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER)
-  -- if $(block.PARENT_ROOT = root_parent_expected)
-  ;; 5 새 헤더 캐싱(STATE_ROOT는 0으로, BODY_ROOT는 블록 바디 해시)
+  -- if $get_beacon_proposer_index(state) = validatorIndex_prop_vi
+  -- if $(block.PROPOSER_INDEX = validatorIndex_prop_vi)
+  -- if root_parent_expected_root = $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER)
+  -- if $(block.PARENT_ROOT = root_parent_expected_root)
   -- if root_body_root_new = $hash_tree_root_beaconBlockBody(block.BODY)
   -- if beaconBlockHeader_new =
        { SLOT block.SLOT,
@@ -1351,41 +1475,40 @@ rule ProcessBlockHeader/main:
          PARENT_ROOT block.PARENT_ROOT,
          STATE_ROOT $ZERO_ROOT,
          BODY_ROOT root_body_root_new }
-  ;; 6 제안자 슬래시 여부 확인 (not slashed)
-  -- if $as_nat_validatorIndex(block.PROPOSER_INDEX) = idx
-  -- if validator_proposer = $nth_<validator>(state.VALIDATORS, idx)
+  -- if $(validatorIndex_prop_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
   -- if $(validator_proposer.SLASHED = false)
+  -- if state_updated = state[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
 
-;; spec 대로 -> true 만 리턴하는 함수
-dec $ee_verify_and_notify_new_payload(executionPayload) : boolean
-def $ee_verify_and_notify_new_payload(executionPayload) = true
-
-;; 필요한 hash_tree_root, tx hash_tree_root, withdrawal hash_tree_root
-dec $hash_tree_root_tx(bytes32*) : root
-dec $hash_tree_root_withdrawals(withdrawal*) : root
+;;
+;; process_withdrawals
+;;   
+;;
+dec $process_withdrawals(beaconState, executionPayload) : beaconState
 
 
-;; ------------------------------------------------------------
+;;
 ;; process_execution_payload
-;; ------------------------------------------------------------
-rule ProcessBlock/execution_payload:
-  state body ~> state[.LATEST_EXECUTION_PAYLOAD_HEADER = executionPayloadHeader_new]
+;;
+dec $process_execution_payload(beaconState, beaconBlockBody) : beaconState
+
+def $process_execution_payload(state, body) = state_updated
   -- if executionPayload_block = body.EXECUTION_PAYLOAD
-  ;; 1 부모 해시 일치
+  ;; 1. 부모 해시 일치
   -- if $(executionPayload_block.PARENT_HASH = state.LATEST_EXECUTION_PAYLOAD_HEADER.BLOCK_HASH)
-  ;; 2 prev_randao 일치
+  ;; 2. prev_randao 일치
   -- if $get_current_epoch(state) = epoch_cur
   -- if $get_randao_mix(state, epoch_cur) = bytes32_randao_expected
   -- if $(executionPayload_block.PREV_RANDAO = bytes32_randao_expected)
-  ;; 3 timestamp 일치
+  ;; 3. timestamp 일치
   -- if $compute_time_at_slot(state, state.SLOT) = uint64_ts_expected
   -- if $(executionPayload_block.TIMESTAMP = uint64_ts_expected)
-  ;; 4 실행 엔진 검증 (항상 true)
+  ;; 4. 실행 엔진 검증 (항상 true)
   -- if $ee_verify_and_notify_new_payload(executionPayload_block) = true
-  ;; 5 헤더 캐싱을 위한 루트 계산
-  -- if $hash_tree_root_tx(executionPayload_block.TRANSACTIONS) = root_tx
+  ;; 5. 헤더 캐싱용 루트 계산
+  -- if $hash_tree_root_tx(executionPayload_block.TRANSACTIONS)      = root_tx
   -- if $hash_tree_root_withdrawals(executionPayload_block.WITHDRAWALS) = root_withdrawal
-  ;; 6 새 ExecutionPayloadHeader 구성 및 저장
+  ;; 6. 새 헤더 구성 및 저장
   -- if executionPayloadHeader_new =
        { PARENT_HASH        executionPayload_block.PARENT_HASH,
          FEE_RECIPIENT      executionPayload_block.FEE_RECIPIENT,
@@ -1402,20 +1525,19 @@ rule ProcessBlock/execution_payload:
          BLOCK_HASH         executionPayload_block.BLOCK_HASH,
          TRANSACTIONS_ROOT  root_tx,
          WITHDRAWALS_ROOT   root_withdrawal }
+  -- if state_updated = state[.LATEST_EXECUTION_PAYLOAD_HEADER = executionPayloadHeader_new]
 
-;; 여기서부터는 우선 필요한 헬퍼 dec 만 
+
+;;
 ;; process_randao
+;;
+dec $process_randao(beaconState, beaconBlockBody) : beaconState
 
-dec $hash_<X>(X) : bytes32
-dec $bls_verify(blsPubkey, root, blsSignature) : boolean
-dec $compute_signing_root(epoch, domain) : root
-
-rule ProcessBlock/randao:
-  state body ~> state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+def $process_randao(state, body) = state_updated
   -- if $get_current_epoch(state) = epoch
-  -- if $get_beacon_proposer_index(state) = validatorIndex_prop
-  -- if $as_nat_validatorIndex(validatorIndex_prop) = idx
-  -- if $nth_<validator>(state.VALIDATORS, idx) = validator_proposer
+  -- if $get_beacon_proposer_index(state) = validatorIndex_prop_vi
+  -- if $(validatorIndex_prop_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
   -- if $get_domain(state, $DOMAIN_RANDAO, eps) = domain_randao
   -- if $compute_signing_root(epoch, domain_randao) = root_signing
   -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body.RANDAO_REVEAL) = true
@@ -1423,43 +1545,112 @@ rule ProcessBlock/randao:
   -- if $hash_<blsSignature>(body.RANDAO_REVEAL) = bytes32_hash_reveal
   -- if $xor(bytes32_mix_old, bytes32_hash_reveal) = bytes32_mix_new
   -- if $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR) = n
-  -- if $update_list_<bytes32>(state.RANDAO_MIXES, n, bytes32_mix_new) = bytes32_randao_mixes_update*
+  -- if state.RANDAO_MIXES[[n] = bytes32_mix_new] = bytes32_randao_mixes_update*
+  -- if state_updated = state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
 
 
-rule ProcessBlock/eth1_data_if:
-  state body ~> state[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body.ETH1_DATA]
+;;
+;; process_eth1_data
+;;
+dec $process_eth1_data(beaconState, beaconBlockBody) : beaconState
+
+;; 과반수 → ETH1_DATA 갱신
+def $process_eth1_data(state, body) = state_updated
   -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
-  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occurences
-  -- if $(n_occurences * 2 > $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occ
+  -- if $(n_occ * 2 > $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+  -- if state_updated = state[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body.ETH1_DATA]
 
-rule ProcessBlock/eth1_data_else:
-  state body ~> state[.ETH1_DATA_VOTES = eth1Data_update*]
+;; 과반수 미만 → 투표만 누적
+def $process_eth1_data(state, body) = state_updated
   -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
-  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occurences
-  -- if $(n_occurences * 2 <= $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occ
+  -- if $(n_occ * 2 <= $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+  -- if state_updated = state[.ETH1_DATA_VOTES = eth1Data_update*]
 
-;; ------------------------------------------------------------
-;; Decls needed by process_deposit
-;; ------------------------------------------------------------
 
-dec $hash_tree_root_depositData(depositData) : root
+;;
+;; process_operations
+;;   
+;; 이건 어떻게 관계를 표현?
 
-dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
+dec $process_operations(beaconState, beaconBlockBody) : beaconState
 
-;; apply_deposit는 dec 만
-dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beaconState
 
-;; ------------------------------------------------------------
-;; process_deposit
-;; ------------------------------------------------------------
 
-relation ProcessDeposit:
-  beaconState deposit ~> beaconState
+;;
+;; process_sync_aggregate
+;; 
+;;
+dec $process_sync_aggregate(beaconState, syncAggregate) : beaconState
+
+
+;;
+;; Epoch processing 
+;;
+
+relation ProcessEpoch:
+  beaconState ~> beaconState
+  hint(input %0)
+
+;; 파이프라인: 각 스텝은 함수(dec/def)로 정의
+rule ProcessEpoch/main:
+  state ~> state_11
+  -- if $process_justification_and_finalization(state)     = state_0
+  -- if $process_inactivity_updates(state_0)               = state_1    
+  -- if $process_rewards_and_penalties(state_1)            = state_2    
+  -- if $process_registry_updates(state_2)                 = state_3    
+  -- if $process_slashings(state_3)                        = state_4  
+  -- if $process_eth1_data_reset(state_4)                  = state_5
+  -- if $process_effective_balance_updates(state_5)        = state_6     
+  -- if $process_slashings_reset(state_6)                  = state_7
+  -- if $process_randao_mixes_reset(state_7)               = state_8
+  -- if $process_historical_summaries_update(state_8)      = state_9
+  -- if $process_participation_flag_updates(state_9)       = state_10    
+  -- if $process_sync_committee_updates(state_10)          = state_11
+
+relation ProcessBlock:
+  beaconState beaconBlock ~> beaconState
   hint(input %0 %1)
 
-rule ProcessDeposit/main:
-  state deposit ~> state_applied
-  ;; 1 is_valid_merkle_branch
+
+;; 파이프라인: 각 스텝은 함수(dec/def)로 정의
+rule ProcessBlock/main:
+  state block ~> state_6
+  -- if $process_block_header(state, block)                          = state_0
+  -- if $process_withdrawals(state_0, block.BODY.EXECUTION_PAYLOAD)  = state_1
+  -- if $process_execution_payload(state_1, block.BODY)              = state_2
+  -- if $process_randao(state_2, block.BODY)                         = state_3
+  -- if $process_eth1_data(state_3, block.BODY)                      = state_4
+  -- if $process_operations(state_4, block.BODY)                     = state_5
+  -- if $process_sync_aggregate(state_5, block.BODY.SYNC_AGGREGATE)  = state_6
+
+;;
+;; process_proposer_slashing
+;; 
+
+;; TODO
+
+
+;;
+;; process_attester_slashing
+;;
+
+;; TODO
+
+;;
+;; process_attestation
+;;
+
+;; TODO
+
+
+;; 
+;; process_deposit
+;;
+dec $process_deposit(beaconState, deposit) : beaconState
+
+def $process_deposit(state, deposit) = state_applied
   -- if $hash_tree_root_depositData(deposit.DATA) = root_leaf
   -- if $( $DEPOSIT_CONTRACT_TREE_DEPTH + 1 ) = uint64_depth_plus_1
   -- if $is_valid_merkle_branch(
@@ -1469,10 +1660,8 @@ rule ProcessDeposit/main:
          state.ETH1_DEPOSIT_INDEX,
          state.ETH1_DATA.DEPOSIT_ROOT
        ) = true
-  ;; 2 인덱스 증가
   -- if $(state.ETH1_DEPOSIT_INDEX + 1) = uint64_deposit_index_next
   -- if state_inc = state[.ETH1_DEPOSIT_INDEX = uint64_deposit_index_next]
-  ;; 3 apply_deposit 적용 (상태 반영)
   -- if state_applied =
        $apply_deposit(
          state_inc,
@@ -1482,87 +1671,48 @@ rule ProcessDeposit/main:
          deposit.DATA.SIGNATURE
        )
 
-
-;; ------------------------------------------------------------
-;; Decl only (no def)
-;; ------------------------------------------------------------
-dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
-dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
-
-
-;; ------------------------------------------------------------
+;; 
 ;; process_voluntary_exit
-;; ------------------------------------------------------------
-relation ProcessVoluntaryExit:
-  beaconState signedVoluntaryExit ~> beaconState
-  hint(input %0 %1)
+;; 
 
-rule ProcessVoluntaryExit/main:
-  state signedVoluntaryExit ~> state_after_exit
-  ;; 메시지, 인덱스, 검증 대상 validator 로컬 바인딩
+;; --- process_voluntary_exit as function ---
+dec $process_voluntary_exit(beaconState, signedVoluntaryExit) : beaconState
+
+def $process_voluntary_exit(state, signedVoluntaryExit) = state_after_exit
   -- if voluntaryExit = signedVoluntaryExit.MESSAGE
-  -- if validatorIndex_exit   = voluntaryExit.VALIDATOR_INDEX
-  -- if $as_nat_validatorIndex(validatorIndex_exit) = idx
-  -- if validator = $nth_<validator>(state.VALIDATORS, idx)
-  ;; 현재 epoch
+  -- if validatorIndex_exit = voluntaryExit.VALIDATOR_INDEX
+  -- if $(validatorIndex_exit < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_exit] = validator
   -- if $get_current_epoch(state) = epoch_cur
-  ;; 1 활성 검증자 확인
   -- if $is_active_validator(validator, epoch_cur) = true
-  ;; 2 아직 exit 시작 안 됨
   -- if $(validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)
-  ;; 3 voluntary exit epoch 도달
   -- if $(epoch_cur >= voluntaryExit.EPOCH)
-  ;; 4 활성 기간 
   -- if $(epoch_cur >= validator.ACTIVATION_EPOCH + $SHARD_COMMITTEE_PERIOD)
-  ;; 5 도메인 & 서명 루트
   -- if $get_domain(state, $DOMAIN_VOLUNTARY_EXIT, voluntaryExit.EPOCH) = domain_exit
   -- if $compute_signing_root_voluntary_exit(voluntaryExit, domain_exit) = root_vol_exit_signing_root
-  ;; 6 BLS 서명 검증
   -- if $bls_verify(validator.PUBKEY, root_vol_exit_signing_root, signedVoluntaryExit.SIGNATURE) = true
-  ;; 7 Exit 시작
   -- if state_after_exit = $initiate_validator_exit(state, validatorIndex_exit)
 
-;; ------------------------------------------------------------
-;; Decls needed by process_bls_to_execution_change
-;; ------------------------------------------------------------
-dec $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) : root
-dec $strip_first_byte(bytes32) : bytes32
-dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
 
-
-;; ------------------------------------------------------------
+;; 
 ;; process_bls_to_execution_change
-;; ------------------------------------------------------------
-relation ProcessBLSToExecutionChange:
-  beaconState signedBlsToExecutionChange ~> beaconState
-  hint(input %0 %1)
+;; 
+dec $process_bls_to_execution_change(beaconState, signedBlsToExecutionChange) : beaconState
 
-rule ProcessBLSToExecutionChange/main:
-  state signedBlsToExecutionChange ~> state_updated
-  ;; 메시지/인덱스/검증자 바인딩
+def $process_bls_to_execution_change(state, signedBlsToExecutionChange) = state_updated
   -- if blsToExecutionChange = signedBlsToExecutionChange.MESSAGE
   -- if validatorIndex_change = blsToExecutionChange.VALIDATOR_INDEX
-  -- if $as_nat_validatorIndex(validatorIndex_change) = idx
-  -- if $(idx < |state.VALIDATORS|)
-  -- if validator = $nth_<validator>(state.VALIDATORS, idx)
-  ;; 1 기존 크레덴셜이 BLS 타입인지 확인 (prefix = 0x00)
+  -- if $(validatorIndex_change < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_change] = validator
   -- if $get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $BLS_WITHDRAWAL_PREFIX
-  ;; 2 기존 크레덴셜의 [1:] 이 hash(pubkey)[1:] 와 같은지 확인
   -- if $hash_<blsPubkey>(blsToExecutionChange.FROM_BLS_PUBKEY) = bytes32_pk_hash
   -- if $strip_first_byte(validator.WITHDRAWAL_CREDENTIALS) = bytes32_wc_tail
   -- if $strip_first_byte(bytes32_pk_hash) = bytes32_pk_tail
   -- if $(bytes32_wc_tail = bytes32_pk_tail)
-  ;; 3 도메인 (genesis_validators_root 사용)
   -- if $compute_domain($DOMAIN_BLS_TO_EXECUTION_CHANGE, eps, state.GENESIS_VALIDATORS_ROOT) = domain_btec
   -- if $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain_btec) = root_sign
-  ;; 4 BLS 서명 검증
   -- if $bls_verify(blsToExecutionChange.FROM_BLS_PUBKEY, root_sign, signedBlsToExecutionChange.SIGNATURE) = true
-  ;; 5 ETH1 주소형 크레덴셜로 갱신: 0x01 ++ 0x00*11 ++ to_execution_address
   -- if $make_withdrawal_credentials_eth1(blsToExecutionChange.TO_EXECUTION_ADDRESS) = bytes32_new_wc
   -- if validator_updated = validator[.WITHDRAWAL_CREDENTIALS = bytes32_new_wc]
-  -- if validator_update* = $update_list_<validator>(state.VALIDATORS, idx, validator_updated)
+  -- if state.VALIDATORS[[validatorIndex_change] = validator_updated] = validator_update*
   -- if state_updated = state[.VALIDATORS = validator_update*]
-
-
-
-
