@@ -868,6 +868,9 @@ dec $pow2(nat) : nat
 ;; 리스트 set 함수(리스트 내 중복 제거)
 dec $to_set_<X>(X*) : X*
 
+;; 리스트 sum 함수
+dec $sum_<X>(X*) : X
+
 ;; --------------------------------------------
 ;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
 ;; --------------------------------------------
@@ -1163,7 +1166,6 @@ dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beacon
 
 
 dec $get_unslashed_participating_indices(beaconState, nat, epoch) : validatorIndex*
-dec $get_total_balance(beaconState, validatorIndex*) : gwei
 
 dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
 
@@ -1283,26 +1285,11 @@ def $get_beacon_committee(state, slot, committeeIndex) = validatorIndex_committe
          uint64_count
        ) = validatorIndex_committee*
 
-dec $sum_effective_balance(beaconState, validatorIndex*) : gwei
-
-;; if list is empty -> eps -> 0
-def $sum_effective_balance(state, eps) = 0
-
-;; (vi :: vt*)면 vi의 EFFECTIVE_BALANCE + 나머지 합
-def $sum_effective_balance(state, (validatorIndex_vi :: validatorIndex_t*)) = $(gwei_i + gwei_t)
-  -- if $(validatorIndex_vi < |state.VALIDATORS|)               
-  -- if state.VALIDATORS[validatorIndex_vi] = validator_i
-  -- if gwei_i = validator_i.EFFECTIVE_BALANCE
-  -- if $sum_effective_balance(state, validatorIndex_t*) = gwei_t
-
-
-;; --------------------------------------------
-;; get_total_balance(state, indices) : gwei
-;; --------------------------------------------
 dec $get_total_balance(beaconState, validatorIndex*) : gwei
 
-def $get_total_balance(state, validatorIndex_indices*) = gwei_total
-  -- if $sum_effective_balance(state, validatorIndex_indices*) = gwei_sum
+def $get_total_balance(state, validatorIndex*) = gwei_total
+  -- if (state.VALIDATORS[validatorIndex].EFFECTIVE_BALANCE = balance)*
+  -- if $sum_<gwei>(balance*) = gwei_sum
   -- if $max_uint64($EFFECTIVE_BALANCE_INCREMENT, gwei_sum) = gwei_total
 
 dec $get_total_active_balance(beaconState) : gwei
@@ -1368,180 +1355,249 @@ def $decrease_balance(state, validatorIndex_vi, gwei_delta) = state_updated
 ;;
 ;; process_justification_and_finalization
 ;;
+relation Process_justification_and_finalization:
+  beaconState ~> beaconState
+  hint(input %0)
 
-;; --- substep: justification_and_finalization (skip / main) ---
-dec $process_justification_and_finalization(beaconState) : beaconState
-
-def $process_justification_and_finalization(state) = state
-  -- if $get_current_epoch(state) = epoch_cur
+rule Process_justification_and_finalization/skip:
+  state_beaconState ~> state_beaconState
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
   -- if $(epoch_cur <= ($GENESIS_EPOCH + 1))
 
-def $process_justification_and_finalization(state) = state_weighed
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_prev_indices*
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_cur)  = validatorIndex_curr_indices*
-  -- if $get_total_active_balance(state) = gwei_total_active
-  -- if $get_total_balance(state, validatorIndex_prev_indices*) = gwei_prev_target_bal
-  -- if $get_total_balance(state, validatorIndex_curr_indices*) = gwei_curr_target_bal
-  -- if $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_target_bal, gwei_curr_target_bal) = state_weighed
+rule Process_justification_and_finalization/main:
+  state_beaconState ~> state_weighed
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  -- if $get_previous_epoch(state_beaconState) = epoch_prev
+  -- if $get_unslashed_participating_indices(state_beaconState, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_prev_indices*
+  -- if $get_unslashed_participating_indices(state_beaconState, $TIMELY_TARGET_FLAG_INDEX, epoch_cur)  = validatorIndex_curr_indices*
+  -- if $get_total_active_balance(state_beaconState) = gwei_total_active
+  -- if $get_total_balance(state_beaconState, validatorIndex_prev_indices*) = gwei_prev_target_bal
+  -- if $get_total_balance(state_beaconState, validatorIndex_curr_indices*) = gwei_curr_target_bal
+  -- if $weigh_justification_and_finalization(state_beaconState, gwei_total_active, gwei_prev_target_bal, gwei_curr_target_bal) = state_weighed
 
 
 ;;
 ;; process_inactivity_updates
 ;;
-dec $process_inactivity_updates(beaconState) : beaconState
+relation Process_inactivity_updates:
+  beaconState ~> beaconState
+  hint(input %0)
 
 
 ;;
 ;; process_rewards_and_penalties
 ;;
-dec $process_rewards_and_penalties(beaconState) : beaconState
+relation Process_rewards_and_penalties:
+  beaconState ~> beaconState
+  hint(input %0)
 
 
 ;;
 ;; process_registry_updates
 ;;
-dec $process_registry_updates(beaconState) : beaconState
+relation Process_registry_updates:
+  beaconState ~> beaconState
+  hint(input %0)
 
 ;;
 ;; process_slashings
 ;;
-dec $process_slashings(beaconState) : beaconState
+relation Process_slashings:
+  beaconState ~> beaconState
+  hint(input %0)
 
 
 ;;
 ;; process_eth1_data_reset
 ;;
-dec $process_eth1_data_reset(beaconState) : beaconState
+relation Process_eth1_data_reset:
+  beaconState ~> beaconState
+  hint(input %0)
 
-def $process_eth1_data_reset(state) = state_updated
-  -- if $($get_current_epoch(state) + 1) = epoch_next
+rule Process_eth1_data_reset/skip:
+  state_beaconState ~> state_beaconState
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = uint64_r
+  -- if ~(uint64_r = 0)
+
+rule Process_eth1_data_reset/main:
+  state_beaconState ~> state_updated
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
-  -- if state_updated = state[.ETH1_DATA_VOTES = eps]
+  -- if state_updated = state_beaconState[.ETH1_DATA_VOTES = eps]
 
 
 ;;
 ;; process_effective_balance_updates
 ;;
-dec $process_effective_balance_updates(beaconState) : beaconState
+relation Process_effective_balance_updates:
+  beaconState ~> beaconState
+  hint(input %0)
 
 
 ;;
 ;; process_slashings_reset
 ;;
-dec $process_slashings_reset(beaconState) : beaconState
+relation Process_slashings_reset:
+  beaconState ~> beaconState
+  hint(input %0)
 
-def $process_slashings_reset(state) = state_updated
-  -- if $($get_current_epoch(state) + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = n
-  -- if $(n < |state.SLASHINGS|)
-  -- if state.SLASHINGS[[n] = 0] = gwei_update*
-  -- if state_updated = state[.SLASHINGS = gwei_update*]
+rule Process_slashings_reset/skip:
+  state_beaconState ~> state_beaconState
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = uint64_n
+  -- if $(uint64_n >= |state_beaconState.SLASHINGS|)
+
+rule Process_slashings_reset/main:
+  state_beaconState ~> state_updated
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = uint64_n
+  -- if $(uint64_n < |state_beaconState.SLASHINGS|)
+  -- if state_beaconState.SLASHINGS[[uint64_n] = 0] = gwei_update*
+  -- if state_updated = state_beaconState[.SLASHINGS = gwei_update*]
+
 
 ;;
 ;; process_randao_mixes_reset
 ;;
-dec $process_randao_mixes_reset(beaconState) : beaconState
+relation Process_randao_mixes_reset:
+  beaconState ~> beaconState
+  hint(input %0)
 
-def $process_randao_mixes_reset(state) = state_updated
-  -- if $get_current_epoch(state) = epoch_current
+rule Process_randao_mixes_reset/skip:
+  state_beaconState ~> state_beaconState
+  -- if $get_current_epoch(state_beaconState) = epoch_current
   -- if $(epoch_current + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = n
-  -- if $get_randao_mix(state, epoch_current) = bytes32_mix
-  -- if $(n < |state.RANDAO_MIXES|)
-  -- if state.RANDAO_MIXES[[n] = bytes32_mix] = bytes32_randao_mixes_update*
-  -- if state_updated = state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
+  -- if $(uint64_n >= |state_beaconState.RANDAO_MIXES|)
+
+rule Process_randao_mixes_reset/main:
+  state_beaconState ~> state_updated
+  -- if $get_current_epoch(state_beaconState) = epoch_current
+  -- if $(epoch_current + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
+  -- if $get_randao_mix(state_beaconState, epoch_current) = bytes32_mix
+  -- if $(uint64_n < |state_beaconState.RANDAO_MIXES|)
+  -- if state_beaconState.RANDAO_MIXES[[uint64_n] = bytes32_mix] = bytes32_randao_mixes_update*
+  -- if state_updated = state_beaconState[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+
 
 
 ;;
 ;; process_historical_summaries_update
 ;;
-dec $process_historical_summaries_update(beaconState) : beaconState
+relation Process_historical_summaries_update:
+  beaconState ~> beaconState
+  hint(input %0)
 
-def $process_historical_summaries_update(state) = state_updated
-  -- if $get_current_epoch(state) = epoch_cur
+rule Process_historical_summaries_update/skip:
+  state_beaconState ~> state_beaconState
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
   -- if $(epoch_cur + 1) = epoch_next
-  -- if $( epoch_next \ ( $SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH ) ) = 0
-  -- if $hash_tree_root_roots(state.BLOCK_ROOTS) = root_block_summary
-  -- if $hash_tree_root_roots(state.STATE_ROOTS) = root_state_summary
+  -- if $(epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH)) = uint64_r
+  -- if ~(uint64_r = 0)
+
+rule Process_historical_summaries_update/main:
+  state_beaconState ~> state_updated
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  -- if $(epoch_cur + 1) = epoch_next
+  -- if $( epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH) ) = 0
+  -- if $hash_tree_root_roots(state_beaconState.BLOCK_ROOTS) = root_block_summary
+  -- if $hash_tree_root_roots(state_beaconState.STATE_ROOTS) = root_state_summary
   -- if { BLOCK_SUMMARY_ROOT root_block_summary, STATE_SUMMARY_ROOT root_state_summary } = historicalSummary_new
-  -- if state.HISTORICAL_SUMMARIES ++ [ historicalSummary_new ] = historicalSummary_update*
-  -- if state_updated = state[.HISTORICAL_SUMMARIES = historicalSummary_update*]
+  -- if state_beaconState.HISTORICAL_SUMMARIES ++ [ historicalSummary_new ] = historicalSummary_update*
+  -- if state_updated = state_beaconState[.HISTORICAL_SUMMARIES = historicalSummary_update*]
+
 
 ;;
 ;; process_participation_flag_updates
 ;;
-dec $process_participation_flag_updates(beaconState) : beaconState
+relation Process_participation_flag_updates:
+  beaconState ~> beaconState
+  hint(input %0)
 
 
 ;;
 ;; process_sync_committee_updates
 ;;
-dec $process_sync_committee_updates(beaconState) : beaconState
+relation Process_sync_committee_updates:
+  beaconState ~> beaconState
+  hint(input %0)
 
-def $process_sync_committee_updates(state) = state_updated
-  -- if $($get_current_epoch(state) + 1) = epoch_next
+rule Process_sync_committee_updates/skip:
+  state_beaconState ~> state_beaconState
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = uint64_r
+  -- if ~(uint64_r = 0)
+
+rule Process_sync_committee_updates/main:
+  state_beaconState ~> state_updated
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = 0
-  -- if syncCommittee_next = $get_next_sync_committee(state)
+  -- if syncCommittee_next = $get_next_sync_committee(state_beaconState)
   -- if state_updated =
-       state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
-           [.NEXT_SYNC_COMMITTEE    = syncCommittee_next]
+       state_beaconState[.CURRENT_SYNC_COMMITTEE = state_beaconState.NEXT_SYNC_COMMITTEE]
+                        [.NEXT_SYNC_COMMITTEE    = syncCommittee_next]
+
 
 
 ;;
 ;; process_block_header
 ;;
-dec $process_block_header(beaconState, beaconBlock) : beaconState
+relation Process_block_header:
+  beaconState beaconBlock ~> beaconState
+  hint(input %0 %1)
 
-def $process_block_header(state, block) = state_updated
-  -- if $(block.SLOT = state.SLOT)
-  -- if $(state.LATEST_BLOCK_HEADER.SLOT < block.SLOT)
-  -- if $get_beacon_proposer_index(state) = validatorIndex_prop_vi
-  -- if $(block.PROPOSER_INDEX = validatorIndex_prop_vi)
-  -- if root_parent_expected_root = $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER)
-  -- if $(block.PARENT_ROOT = root_parent_expected_root)
-  -- if root_body_root_new = $hash_tree_root_beaconBlockBody(block.BODY)
+rule Process_block_header/main:
+  state_beaconState block_beaconBlock ~> state_updated
+  -- if $(block_beaconBlock.SLOT = state_beaconState.SLOT)
+  -- if $(state_beaconState.LATEST_BLOCK_HEADER.SLOT < block_beaconBlock.SLOT)
+  -- if $get_beacon_proposer_index(state_beaconState) = validatorIndex_prop_vi
+  -- if $(block_beaconBlock.PROPOSER_INDEX = validatorIndex_prop_vi)
+  -- if root_parent_expected_root = $hash_tree_root_beaconBlockHeader(state_beaconState.LATEST_BLOCK_HEADER)
+  -- if $(block_beaconBlock.PARENT_ROOT = root_parent_expected_root)
+  -- if root_body_root_new = $hash_tree_root_beaconBlockBody(block_beaconBlock.BODY)
   -- if beaconBlockHeader_new =
-       { SLOT block.SLOT,
-         PROPOSER_INDEX block.PROPOSER_INDEX,
-         PARENT_ROOT block.PARENT_ROOT,
+       { SLOT block_beaconBlock.SLOT,
+         PROPOSER_INDEX block_beaconBlock.PROPOSER_INDEX,
+         PARENT_ROOT block_beaconBlock.PARENT_ROOT,
          STATE_ROOT $ZERO_ROOT,
          BODY_ROOT root_body_root_new }
-  -- if $(validatorIndex_prop_vi < |state.VALIDATORS|)
-  -- if state.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
+  -- if $(validatorIndex_prop_vi < |state_beaconState.VALIDATORS|)
+  -- if state_beaconState.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
   -- if $(validator_proposer.SLASHED = false)
-  -- if state_updated = state[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
+  -- if state_updated = state_beaconState[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
+
 
 ;;
 ;; process_withdrawals
 ;;   
 ;;
-dec $process_withdrawals(beaconState, executionPayload) : beaconState
+relation Process_withdrawals:
+  beaconState executionPayload ~> beaconState
+  hint(input %0 %1)
+
 
 
 ;;
 ;; process_execution_payload
 ;;
-dec $process_execution_payload(beaconState, beaconBlockBody) : beaconState
+relation Process_execution_payload:
+  beaconState beaconBlockBody ~> beaconState
+  hint(input %0 %1)
 
-def $process_execution_payload(state, body) = state_updated
-  -- if executionPayload_block = body.EXECUTION_PAYLOAD
-  ;; 1. 부모 해시 일치
-  -- if $(executionPayload_block.PARENT_HASH = state.LATEST_EXECUTION_PAYLOAD_HEADER.BLOCK_HASH)
-  ;; 2. prev_randao 일치
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $get_randao_mix(state, epoch_cur) = bytes32_randao_expected
+rule Process_execution_payload/main:
+  state_beaconState body_beaconBlockBody ~> state_updated
+  -- if executionPayload_block = body_beaconBlockBody.EXECUTION_PAYLOAD
+  -- if $(executionPayload_block.PARENT_HASH = state_beaconState.LATEST_EXECUTION_PAYLOAD_HEADER.BLOCK_HASH)
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  -- if $get_randao_mix(state_beaconState, epoch_cur) = bytes32_randao_expected
   -- if $(executionPayload_block.PREV_RANDAO = bytes32_randao_expected)
-  ;; 3. timestamp 일치
-  -- if $compute_time_at_slot(state, state.SLOT) = uint64_ts_expected
+  -- if $compute_time_at_slot(state_beaconState, state_beaconState.SLOT) = uint64_ts_expected
   -- if $(executionPayload_block.TIMESTAMP = uint64_ts_expected)
-  ;; 4. 실행 엔진 검증 (항상 true)
   -- if $ee_verify_and_notify_new_payload(executionPayload_block) = true
-  ;; 5. 헤더 캐싱용 루트 계산
-  -- if $hash_tree_root_tx(executionPayload_block.TRANSACTIONS)      = root_tx
+  -- if $hash_tree_root_tx(executionPayload_block.TRANSACTIONS) = root_tx
   -- if $hash_tree_root_withdrawals(executionPayload_block.WITHDRAWALS) = root_withdrawal
-  ;; 6. 새 헤더 구성 및 저장
   -- if executionPayloadHeader_new =
        { PARENT_HASH        executionPayload_block.PARENT_HASH,
          FEE_RECIPIENT      executionPayload_block.FEE_RECIPIENT,
@@ -1558,64 +1614,57 @@ def $process_execution_payload(state, body) = state_updated
          BLOCK_HASH         executionPayload_block.BLOCK_HASH,
          TRANSACTIONS_ROOT  root_tx,
          WITHDRAWALS_ROOT   root_withdrawal }
-  -- if state_updated = state[.LATEST_EXECUTION_PAYLOAD_HEADER = executionPayloadHeader_new]
+  -- if state_updated = state_beaconState[.LATEST_EXECUTION_PAYLOAD_HEADER = executionPayloadHeader_new]
+
 
 
 ;;
 ;; process_randao
 ;;
-dec $process_randao(beaconState, beaconBlockBody) : beaconState
+relation Process_randao:
+  beaconState beaconBlockBody ~> beaconState
+  hint(input %0 %1)
 
-def $process_randao(state, body) = state_updated
-  -- if $get_current_epoch(state) = epoch
-  -- if $get_beacon_proposer_index(state) = validatorIndex_prop_vi
-  -- if $(validatorIndex_prop_vi < |state.VALIDATORS|)
-  -- if state.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
-  -- if $get_domain(state, $DOMAIN_RANDAO, eps) = domain_randao
+rule Process_randao/main:
+  state_beaconState body_beaconBlockBody ~> state_updated
+  -- if $get_current_epoch(state_beaconState) = epoch
+  -- if $get_beacon_proposer_index(state_beaconState) = validatorIndex_prop_vi
+  -- if $(validatorIndex_prop_vi < |state_beaconState.VALIDATORS|)
+  -- if state_beaconState.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
+  -- if $get_domain(state_beaconState, $DOMAIN_RANDAO, eps) = domain_randao
   -- if $compute_signing_root(epoch, domain_randao) = root_signing
-  -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body.RANDAO_REVEAL) = true
-  -- if $get_randao_mix(state, epoch) = bytes32_mix_old
-  -- if $hash_<blsSignature>(body.RANDAO_REVEAL) = bytes32_hash_reveal
+  -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body_beaconBlockBody.RANDAO_REVEAL) = true
+  -- if $get_randao_mix(state_beaconState, epoch) = bytes32_mix_old
+  -- if $hash_<blsSignature>(body_beaconBlockBody.RANDAO_REVEAL) = bytes32_hash_reveal
   -- if $xor(bytes32_mix_old, bytes32_hash_reveal) = bytes32_mix_new
-  -- if $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR) = n
-  -- if state.RANDAO_MIXES[[n] = bytes32_mix_new] = bytes32_randao_mixes_update*
-  -- if state_updated = state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+  -- if $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
+  -- if state_beaconState.RANDAO_MIXES[[uint64_n] = bytes32_mix_new] = bytes32_randao_mixes_update*
+  -- if state_updated = state_beaconState[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+
 
 
 ;;
 ;; process_eth1_data
 ;;
-dec $process_eth1_data(beaconState, beaconBlockBody) : beaconState
+relation Process_eth1_data:
+  beaconState beaconBlockBody ~> beaconState
+  hint(input %0 %1)
 
-;; 과반수 → ETH1_DATA 갱신
-def $process_eth1_data(state, body) = state_updated
-  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
-  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occ
-  -- if $(n_occ * 2 > $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
-  -- if state_updated = state[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body.ETH1_DATA]
+rule Process_eth1_data/majority:
+  state_beaconState body_beaconBlockBody ~> state_updated
+  -- if state_beaconState.ETH1_DATA_VOTES ++ [ body_beaconBlockBody.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body_beaconBlockBody.ETH1_DATA) = nat_occ
+  -- if $(nat_occ * 2 > $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+  -- if state_updated = state_beaconState[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body_beaconBlockBody.ETH1_DATA]
 
-;; 과반수 미만 → 투표만 누적
-def $process_eth1_data(state, body) = state_updated
-  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
-  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = n_occ
-  -- if $(n_occ * 2 <= $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
-  -- if state_updated = state[.ETH1_DATA_VOTES = eth1Data_update*]
-
-
-;;
-;; process_operations
-;;   
-;; 이건 어떻게 관계를 표현?
-
-dec $process_operations(beaconState, beaconBlockBody) : beaconState
+rule Process_eth1_data/accumulate:
+  state_beaconState body_beaconBlockBody ~> state_updated
+  -- if state_beaconState.ETH1_DATA_VOTES ++ [ body_beaconBlockBody.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body_beaconBlockBody.ETH1_DATA) = nat_occ
+  -- if $(nat_occ * 2 <= $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
+  -- if state_updated = state_beaconState[.ETH1_DATA_VOTES = eth1Data_update*]
 
 
-
-;;
-;; process_sync_aggregate
-;; 
-;;
-dec $process_sync_aggregate(beaconState, syncAggregate) : beaconState
 
 
 ;;
@@ -1623,40 +1672,59 @@ dec $process_sync_aggregate(beaconState, syncAggregate) : beaconState
 ;;
 
 relation ProcessEpoch:
-  beaconState ~> beaconState
+  beaconState ~>* beaconState
   hint(input %0)
 
-;; 파이프라인: 각 스텝은 함수(dec/def)로 정의
 rule ProcessEpoch/main:
-  state ~> state_11
-  -- if $process_justification_and_finalization(state)     = state_0
-  -- if $process_inactivity_updates(state_0)               = state_1    
-  -- if $process_rewards_and_penalties(state_1)            = state_2    
-  -- if $process_registry_updates(state_2)                 = state_3    
-  -- if $process_slashings(state_3)                        = state_4  
-  -- if $process_eth1_data_reset(state_4)                  = state_5
-  -- if $process_effective_balance_updates(state_5)        = state_6     
-  -- if $process_slashings_reset(state_6)                  = state_7
-  -- if $process_randao_mixes_reset(state_7)               = state_8
-  -- if $process_historical_summaries_update(state_8)      = state_9
-  -- if $process_participation_flag_updates(state_9)       = state_10    
-  -- if $process_sync_committee_updates(state_10)          = state_11
+  state_beaconState ~>* state_11
+  -- Process_justification_and_finalization:  state_beaconState ~> state_0
+  -- Process_inactivity_updates:              state_0           ~> state_1
+  -- Process_rewards_and_penalties:           state_1           ~> state_2
+  -- Process_registry_updates:                state_2           ~> state_3
+  -- Process_slashings:                       state_3           ~> state_4
+  -- Process_eth1_data_reset:                 state_4           ~> state_5
+  -- Process_effective_balance_updates:       state_5           ~> state_6
+  -- Process_slashings_reset:                 state_6           ~> state_7
+  -- Process_randao_mixes_reset:              state_7           ~> state_8
+  -- Process_historical_summaries_update:     state_8           ~> state_9
+  -- Process_participation_flag_updates:      state_9           ~> state_10
+  -- Process_sync_committee_updates:          state_10          ~> state_11
 
-relation ProcessBlock:
-  beaconState beaconBlock ~> beaconState
+;;
+;; process_operations
+;;   
+
+relation Process_operations:
+  beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
 
+;;
+;; process_sync_aggregate
+;; 
+;;
+relation Process_sync_aggregate:
+  beaconState syncAggregate ~> beaconState
+  hint(input %0 %1)
 
-;; 파이프라인: 각 스텝은 함수(dec/def)로 정의
+;;
+;; process_block
+;;
+relation ProcessBlock:
+  beaconState beaconBlock ~>* beaconState
+  hint(input %0 %1)
+
 rule ProcessBlock/main:
-  state block ~> state_6
-  -- if $process_block_header(state, block)                          = state_0
-  -- if $process_withdrawals(state_0, block.BODY.EXECUTION_PAYLOAD)  = state_1
-  -- if $process_execution_payload(state_1, block.BODY)              = state_2
-  -- if $process_randao(state_2, block.BODY)                         = state_3
-  -- if $process_eth1_data(state_3, block.BODY)                      = state_4
-  -- if $process_operations(state_4, block.BODY)                     = state_5
-  -- if $process_sync_aggregate(state_5, block.BODY.SYNC_AGGREGATE)  = state_6
+  state_beaconState block_beaconBlock ~>* state_6
+  -- Process_block_header:     state_beaconState                   block_beaconBlock                     ~>  state_0
+  -- Process_withdrawals:      state_0                              block_beaconBlock.BODY.EXECUTION_PAYLOAD ~> state_1
+  -- Process_execution_payload: state_1                             block_beaconBlock.BODY                ~>  state_2
+  -- Process_randao:           state_2                              block_beaconBlock.BODY                ~>  state_3
+  -- Process_eth1_data:        state_3                              block_beaconBlock.BODY                ~>  state_4
+  -- Process_operations:       state_4                              block_beaconBlock.BODY                ~>  state_5
+  -- Process_sync_aggregate:   state_5                              block_beaconBlock.BODY.SYNC_AGGREGATE ~>  state_6
+
+
+
 
 ;;
 ;; process_proposer_slashing
@@ -1749,3 +1817,7 @@ def $process_bls_to_execution_change(state, signedBlsToExecutionChange) = state_
   -- if validator_updated = validator[.WITHDRAWAL_CREDENTIALS = bytes32_new_wc]
   -- if state.VALIDATORS[[validatorIndex_change] = validator_updated] = validator_update*
   -- if state_updated = state[.VALIDATORS = validator_update*]
+
+
+
+

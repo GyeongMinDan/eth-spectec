@@ -1,25 +1,13 @@
-dec $sum_effective_balance(beaconState, validatorIndex*) : gwei
-
-;; if list is empty -> eps -> 0
-def $sum_effective_balance(state, eps) = 0
-
-;; (validatorIndex :: validatorIndex_t*)(head, tail)면 validatorIndex의 EFFECTIVE_BALANCE + 나머지 합 으로 표현(재귀),
-def $sum_effective_balance(state, (validatorIndex_validatorIndex :: validatorIndex_t*)) = $(gwei_i + gwei_t)
-  -- if $(validatorIndex_validatorIndex < |state.VALIDATORS|)               
-  -- if state.VALIDATORS[validatorIndex_validatorIndex] = validator_i
-  -- if gwei_i = validator_i.EFFECTIVE_BALANCE
-  -- if $sum_effective_balance(state, validatorIndex_t*) = gwei_t
-
-
 ;; --------------------------------------------
 ;; get_total_balance(state, indices) : gwei
 ;; --------------------------------------------
+
 dec $get_total_balance(beaconState, validatorIndex*) : gwei
 
-def $get_total_balance(state, validatorIndex_indices*) = gwei_total
-  -- if $sum_effective_balance(state, validatorIndex_indices*) = gwei_sum
+def $get_total_balance(state, validatorIndex*) = gwei_total
+  -- if (state.VALIDATORS[validatorIndex].EFFECTIVE_BALANCE = balance)*
+  -- if $sum_<gwei>(balance*) = gwei_sum
   -- if $max_uint64($EFFECTIVE_BALANCE_INCREMENT, gwei_sum) = gwei_total
-
 
 dec $get_total_active_balance(beaconState) : gwei
 

@@ -49,3 +49,6 @@ dec $pow2(nat) : nat
 
 ;; 리스트 set 함수(리스트 내 중복 제거)
 dec $to_set_<X>(X*) : X*
+
+;; 리스트 sum 함수
+dec $sum_<X>(X*) : X
