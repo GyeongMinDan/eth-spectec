@@ -1,124 +1,186 @@
 ;;
 ;; process_justification_and_finalization
 ;;
+relation Process_justification_and_finalization:
+  beaconState ~> beaconState
+  hint(input %0)
 
-;; --- substep: justification_and_finalization (skip / main) ---
-dec $process_justification_and_finalization(beaconState) : beaconState
-
-def $process_justification_and_finalization(state) = state
-  -- if $get_current_epoch(state) = epoch_cur
+rule Process_justification_and_finalization/skip:
+  state_beaconState ~> state_beaconState
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
   -- if $(epoch_cur <= ($GENESIS_EPOCH + 1))
 
-def $process_justification_and_finalization(state) = state_weighed
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_prev_indices*
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_cur)  = validatorIndex_curr_indices*
-  -- if $get_total_active_balance(state) = gwei_total_active
-  -- if $get_total_balance(state, validatorIndex_prev_indices*) = gwei_prev_target_bal
-  -- if $get_total_balance(state, validatorIndex_curr_indices*) = gwei_curr_target_bal
-  -- if $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_target_bal, gwei_curr_target_bal) = state_weighed
+rule Process_justification_and_finalization/main:
+  state_beaconState ~> state_weighed
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  -- if $get_previous_epoch(state_beaconState) = epoch_prev
+  -- if $get_unslashed_participating_indices(state_beaconState, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_prev_indices*
+  -- if $get_unslashed_participating_indices(state_beaconState, $TIMELY_TARGET_FLAG_INDEX, epoch_cur)  = validatorIndex_curr_indices*
+  -- if $get_total_active_balance(state_beaconState) = gwei_total_active
+  -- if $get_total_balance(state_beaconState, validatorIndex_prev_indices*) = gwei_prev_target_bal
+  -- if $get_total_balance(state_beaconState, validatorIndex_curr_indices*) = gwei_curr_target_bal
+  -- if $weigh_justification_and_finalization(state_beaconState, gwei_total_active, gwei_prev_target_bal, gwei_curr_target_bal) = state_weighed
 
 
 ;;
 ;; process_inactivity_updates
 ;;
-dec $process_inactivity_updates(beaconState) : beaconState
+relation Process_inactivity_updates:
+  beaconState ~> beaconState
+  hint(input %0)
 
 
 ;;
 ;; process_rewards_and_penalties
 ;;
-dec $process_rewards_and_penalties(beaconState) : beaconState
+relation Process_rewards_and_penalties:
+  beaconState ~> beaconState
+  hint(input %0)
 
 
 ;;
 ;; process_registry_updates
 ;;
-dec $process_registry_updates(beaconState) : beaconState
+relation Process_registry_updates:
+  beaconState ~> beaconState
+  hint(input %0)
 
 ;;
 ;; process_slashings
 ;;
-dec $process_slashings(beaconState) : beaconState
+relation Process_slashings:
+  beaconState ~> beaconState
+  hint(input %0)
 
 
 ;;
 ;; process_eth1_data_reset
 ;;
-dec $process_eth1_data_reset(beaconState) : beaconState
+relation Process_eth1_data_reset:
+  beaconState ~> beaconState
+  hint(input %0)
 
-def $process_eth1_data_reset(state) = state_updated
-  -- if $($get_current_epoch(state) + 1) = epoch_next
+rule Process_eth1_data_reset/skip:
+  state_beaconState ~> state_beaconState
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = uint64_r
+  -- if ~(uint64_r = 0)
+
+rule Process_eth1_data_reset/main:
+  state_beaconState ~> state_updated
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
-  -- if state_updated = state[.ETH1_DATA_VOTES = eps]
+  -- if state_updated = state_beaconState[.ETH1_DATA_VOTES = eps]
 
 
 ;;
 ;; process_effective_balance_updates
 ;;
-dec $process_effective_balance_updates(beaconState) : beaconState
+relation Process_effective_balance_updates:
+  beaconState ~> beaconState
+  hint(input %0)
 
 
 ;;
 ;; process_slashings_reset
 ;;
-dec $process_slashings_reset(beaconState) : beaconState
+relation Process_slashings_reset:
+  beaconState ~> beaconState
+  hint(input %0)
 
-def $process_slashings_reset(state) = state_updated
-  -- if $($get_current_epoch(state) + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = n
-  -- if $(n < |state.SLASHINGS|)
-  -- if state.SLASHINGS[[n] = 0] = gwei_update*
-  -- if state_updated = state[.SLASHINGS = gwei_update*]
+rule Process_slashings_reset/skip:
+  state_beaconState ~> state_beaconState
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = uint64_n
+  -- if $(uint64_n >= |state_beaconState.SLASHINGS|)
+
+rule Process_slashings_reset/main:
+  state_beaconState ~> state_updated
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = uint64_n
+  -- if $(uint64_n < |state_beaconState.SLASHINGS|)
+  -- if state_beaconState.SLASHINGS[[uint64_n] = 0] = gwei_update*
+  -- if state_updated = state_beaconState[.SLASHINGS = gwei_update*]
+
 
 ;;
 ;; process_randao_mixes_reset
 ;;
-dec $process_randao_mixes_reset(beaconState) : beaconState
+relation Process_randao_mixes_reset:
+  beaconState ~> beaconState
+  hint(input %0)
 
-def $process_randao_mixes_reset(state) = state_updated
-  -- if $get_current_epoch(state) = epoch_current
+rule Process_randao_mixes_reset/skip:
+  state_beaconState ~> state_beaconState
+  -- if $get_current_epoch(state_beaconState) = epoch_current
   -- if $(epoch_current + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = n
-  -- if $get_randao_mix(state, epoch_current) = bytes32_mix
-  -- if $(n < |state.RANDAO_MIXES|)
-  -- if state.RANDAO_MIXES[[n] = bytes32_mix] = bytes32_randao_mixes_update*
-  -- if state_updated = state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
+  -- if $(uint64_n >= |state_beaconState.RANDAO_MIXES|)
+
+rule Process_randao_mixes_reset/main:
+  state_beaconState ~> state_updated
+  -- if $get_current_epoch(state_beaconState) = epoch_current
+  -- if $(epoch_current + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
+  -- if $get_randao_mix(state_beaconState, epoch_current) = bytes32_mix
+  -- if $(uint64_n < |state_beaconState.RANDAO_MIXES|)
+  -- if state_beaconState.RANDAO_MIXES[[uint64_n] = bytes32_mix] = bytes32_randao_mixes_update*
+  -- if state_updated = state_beaconState[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+
 
 
 ;;
 ;; process_historical_summaries_update
 ;;
-dec $process_historical_summaries_update(beaconState) : beaconState
+relation Process_historical_summaries_update:
+  beaconState ~> beaconState
+  hint(input %0)
 
-def $process_historical_summaries_update(state) = state_updated
-  -- if $get_current_epoch(state) = epoch_cur
+rule Process_historical_summaries_update/skip:
+  state_beaconState ~> state_beaconState
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
   -- if $(epoch_cur + 1) = epoch_next
-  -- if $( epoch_next \ ( $SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH ) ) = 0
-  -- if $hash_tree_root_roots(state.BLOCK_ROOTS) = root_block_summary
-  -- if $hash_tree_root_roots(state.STATE_ROOTS) = root_state_summary
+  -- if $(epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH)) = uint64_r
+  -- if ~(uint64_r = 0)
+
+rule Process_historical_summaries_update/main:
+  state_beaconState ~> state_updated
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  -- if $(epoch_cur + 1) = epoch_next
+  -- if $( epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH) ) = 0
+  -- if $hash_tree_root_roots(state_beaconState.BLOCK_ROOTS) = root_block_summary
+  -- if $hash_tree_root_roots(state_beaconState.STATE_ROOTS) = root_state_summary
   -- if { BLOCK_SUMMARY_ROOT root_block_summary, STATE_SUMMARY_ROOT root_state_summary } = historicalSummary_new
-  -- if state.HISTORICAL_SUMMARIES ++ [ historicalSummary_new ] = historicalSummary_update*
-  -- if state_updated = state[.HISTORICAL_SUMMARIES = historicalSummary_update*]
+  -- if state_beaconState.HISTORICAL_SUMMARIES ++ [ historicalSummary_new ] = historicalSummary_update*
+  -- if state_updated = state_beaconState[.HISTORICAL_SUMMARIES = historicalSummary_update*]
+
 
 ;;
 ;; process_participation_flag_updates
 ;;
-dec $process_participation_flag_updates(beaconState) : beaconState
+relation Process_participation_flag_updates:
+  beaconState ~> beaconState
+  hint(input %0)
 
 
 ;;
 ;; process_sync_committee_updates
 ;;
-dec $process_sync_committee_updates(beaconState) : beaconState
+relation Process_sync_committee_updates:
+  beaconState ~> beaconState
+  hint(input %0)
 
-def $process_sync_committee_updates(state) = state_updated
-  -- if $($get_current_epoch(state) + 1) = epoch_next
+rule Process_sync_committee_updates/skip:
+  state_beaconState ~> state_beaconState
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = uint64_r
+  -- if ~(uint64_r = 0)
+
+rule Process_sync_committee_updates/main:
+  state_beaconState ~> state_updated
+  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = 0
-  -- if syncCommittee_next = $get_next_sync_committee(state)
+  -- if syncCommittee_next = $get_next_sync_committee(state_beaconState)
   -- if state_updated =
-       state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
-           [.NEXT_SYNC_COMMITTEE    = syncCommittee_next]
-
-
+       state_beaconState[.CURRENT_SYNC_COMMITTEE = state_beaconState.NEXT_SYNC_COMMITTEE]
+                        [.NEXT_SYNC_COMMITTEE    = syncCommittee_next]

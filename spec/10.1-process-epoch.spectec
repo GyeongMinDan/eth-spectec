@@ -3,21 +3,20 @@
 ;;
 
 relation ProcessEpoch:
-  beaconState ~> beaconState
+  beaconState ~>* beaconState
   hint(input %0)
 
-;; 파이프라인: 각 스텝은 함수(dec/def)로 정의
 rule ProcessEpoch/main:
-  state ~> state_11
-  -- if $process_justification_and_finalization(state)     = state_0
-  -- if $process_inactivity_updates(state_0)               = state_1    
-  -- if $process_rewards_and_penalties(state_1)            = state_2    
-  -- if $process_registry_updates(state_2)                 = state_3    
-  -- if $process_slashings(state_3)                        = state_4  
-  -- if $process_eth1_data_reset(state_4)                  = state_5
-  -- if $process_effective_balance_updates(state_5)        = state_6     
-  -- if $process_slashings_reset(state_6)                  = state_7
-  -- if $process_randao_mixes_reset(state_7)               = state_8
-  -- if $process_historical_summaries_update(state_8)      = state_9
-  -- if $process_participation_flag_updates(state_9)       = state_10    
-  -- if $process_sync_committee_updates(state_10)          = state_11
+  state_beaconState ~>* state_11
+  -- Process_justification_and_finalization:  state_beaconState ~> state_0
+  -- Process_inactivity_updates:              state_0           ~> state_1
+  -- Process_rewards_and_penalties:           state_1           ~> state_2
+  -- Process_registry_updates:                state_2           ~> state_3
+  -- Process_slashings:                       state_3           ~> state_4
+  -- Process_eth1_data_reset:                 state_4           ~> state_5
+  -- Process_effective_balance_updates:       state_5           ~> state_6
+  -- Process_slashings_reset:                 state_6           ~> state_7
+  -- Process_randao_mixes_reset:              state_7           ~> state_8
+  -- Process_historical_summaries_update:     state_8           ~> state_9
+  -- Process_participation_flag_updates:      state_9           ~> state_10
+  -- Process_sync_committee_updates:          state_10          ~> state_11
