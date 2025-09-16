@@ -80,6 +80,16 @@ relation Process_effective_balance_updates:
   beaconState ~> beaconState
   hint(input %0)
 
+rule Process_effective_balance_updates/main:
+  state_beaconState ~> state_updated
+  -- if state_beaconState.VALIDATORS = validator_list*
+  -- if $enumerate_<validator>(validator_list*) = (n, validator_item)*
+  -- if $map_list_2_<(nat, validator), beaconState, validator>(
+         (n, validator_item)*,
+         state_beaconState,
+         def $rebalance_validator_enumerated
+       ) = validator_updated_list*
+  -- if state_updated = state_beaconState[.VALIDATORS = validator_updated_list*]
 
 ;;
 ;; process_slashings_reset
@@ -161,6 +171,14 @@ rule Process_historical_summaries_update/main:
 relation Process_participation_flag_updates:
   beaconState ~> beaconState
   hint(input %0)
+
+rule Process_participation_flag_updates/main:
+  state_beaconState ~> state_updated
+  -- if participationFlags_prev* = state_beaconState.CURRENT_EPOCH_PARTICIPATION
+  -- if $( |state_beaconState.VALIDATORS| ) = uint64_len_validators
+  -- if $repeat_<participationFlags>(0, uint64_len_validators) = participationFlags_zero*
+  -- if state_mid = state_beaconState[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_prev*]
+  -- if state_updated = state_mid[.CURRENT_EPOCH_PARTICIPATION = participationFlags_zero*]
 
 
 ;;

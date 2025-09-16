@@ -1,9 +1,11 @@
 ;;
 ;; process_proposer_slashing
 ;; 
+relation ProcessProposerSlashing:
+  beaconState proposerSlashing ~> beaconState
+  hint(input %0 %1)
 
-;; TODO
-
+;;TODO
 
 ;;
 ;; process_attester_slashing
@@ -21,9 +23,12 @@
 ;; 
 ;; process_deposit
 ;;
-dec $process_deposit(beaconState, deposit) : beaconState
+relation ProcessDeposit:
+  beaconState deposit ~> beaconState
+  hint(input %0 %1)
 
-def $process_deposit(state, deposit) = state_applied
+rule ProcessDeposit/main:
+  state deposit ~> state_applied
   -- if $hash_tree_root_depositData(deposit.DATA) = root_leaf
   -- if $( $DEPOSIT_CONTRACT_TREE_DEPTH + 1 ) = uint64_depth_plus_1
   -- if $is_valid_merkle_branch(
@@ -48,10 +53,12 @@ def $process_deposit(state, deposit) = state_applied
 ;; process_voluntary_exit
 ;; 
 
-;; --- process_voluntary_exit as function ---
-dec $process_voluntary_exit(beaconState, signedVoluntaryExit) : beaconState
+relation ProcessVoluntaryExit:
+  beaconState signedVoluntaryExit ~> beaconState
+  hint(input %0 %1)
 
-def $process_voluntary_exit(state, signedVoluntaryExit) = state_after_exit
+rule ProcessVoluntaryExit/main:
+  state signedVoluntaryExit ~> state_after_exit
   -- if voluntaryExit = signedVoluntaryExit.MESSAGE
   -- if validatorIndex_exit = voluntaryExit.VALIDATOR_INDEX
   -- if $(validatorIndex_exit < |state.VALIDATORS|)
@@ -66,13 +73,15 @@ def $process_voluntary_exit(state, signedVoluntaryExit) = state_after_exit
   -- if $bls_verify(validator.PUBKEY, root_vol_exit_signing_root, signedVoluntaryExit.SIGNATURE) = true
   -- if state_after_exit = $initiate_validator_exit(state, validatorIndex_exit)
 
-
 ;; 
 ;; process_bls_to_execution_change
 ;; 
-dec $process_bls_to_execution_change(beaconState, signedBlsToExecutionChange) : beaconState
+relation ProcessBLSToExecutionChange:
+  beaconState signedBlsToExecutionChange ~> beaconState
+  hint(input %0 %1)
 
-def $process_bls_to_execution_change(state, signedBlsToExecutionChange) = state_updated
+rule ProcessBLSToExecutionChange/main:
+  state signedBlsToExecutionChange ~> state_updated
   -- if blsToExecutionChange = signedBlsToExecutionChange.MESSAGE
   -- if validatorIndex_change = blsToExecutionChange.VALIDATOR_INDEX
   -- if $(validatorIndex_change < |state.VALIDATORS|)
