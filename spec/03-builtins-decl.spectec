@@ -52,3 +52,6 @@ dec $to_set_<X>(X*) : X*
 
 ;; 리스트 sum 함수
 dec $sum_<X>(X*) : X
+
+;; 리스트 값채우기
+dec $repeat_<X>(X, nat) : X*

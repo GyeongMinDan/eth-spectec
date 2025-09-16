@@ -12,6 +12,9 @@ def $min_uint64(uint64, uint64) = uint64
 def $min_uint64(uint64, uint64) = uint64
   -- otherwise
 
+;;
+;; helpers for get_active_validator_indices
+;;
 
 syntax enumerated_<X> = (nat, X)
 dec $enumerate_<X>(X*) : enumerated_<X>*
@@ -93,3 +96,59 @@ def $get_eligible_validator_indices(state) = n_eligible*
        epoch_prev,
        def $is_eligible_validator_enumerated
      ) = (n_eligible, validator_eligible)*
+
+;; --------------------------------------------
+;; helpers for filtering by flag / unslashed
+;; --------------------------------------------
+
+;; cond: has_flag?
+dec $has_flag_for_index(validatorIndex, (participationFlags*, nat)) : bool
+def $has_flag_for_index(validatorIndex_vi, (participationFlags_list*, nat_flag))
+  = $has_flag(participationFlags_list*[validatorIndex_vi], nat_flag)
+
+;; cond: is validator unslashed?
+dec $is_unslashed(validatorIndex, beaconState) : bool
+def $is_unslashed(validatorIndex_vi, state) = true
+  -- if $(validatorIndex_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_vi] = validator
+  -- if $(validator.SLASHED = false)
+def $is_unslashed(validatorIndex_vi, state) = false
+  -- otherwise
+
+;; --------------------------------------------
+;; get_unslashed_participating_indices
+;; --------------------------------------------
+dec $get_unslashed_participating_indices(beaconState, nat, epoch) : validatorIndex*
+;; case 1: epoch == current
+def $get_unslashed_participating_indices(state, nat_flag_index, epoch_epoch) = validatorIndex_set*
+  -- if $get_current_epoch(state) = epoch_epoch
+  -- if $get_active_validator_indices(state, epoch_epoch) = validatorIndex_active*
+  -- if $filter_list_2_<validatorIndex, (participationFlags*, nat)>(
+         validatorIndex_active*,
+         (state.CURRENT_EPOCH_PARTICIPATION, nat_flag_index),
+         def $has_flag_for_index
+       ) = validatorIndex_participating*
+  -- if $filter_list_2_<validatorIndex, beaconState>(
+         validatorIndex_participating*,
+         state,
+         def $is_unslashed
+       ) = validatorIndex_unslashed*
+  -- if $to_set_<validatorIndex>(validatorIndex_unslashed*) = validatorIndex_set*
+
+;; case 2: epoch == previous
+def $get_unslashed_participating_indices(state, nat_flag_index, epoch_epoch) = validatorIndex_set*
+  -- if $get_previous_epoch(state) = epoch_epoch
+  -- if $get_active_validator_indices(state, epoch_epoch) = validatorIndex_active*
+  -- if $filter_list_2_<validatorIndex, (participationFlags*, nat)>(
+         validatorIndex_active*,
+         (state.PREVIOUS_EPOCH_PARTICIPATION, nat_flag_index),
+         def $has_flag_for_index
+       ) = validatorIndex_participating*
+  -- if $filter_list_2_<validatorIndex, beaconState>(
+         validatorIndex_participating*,
+         state,
+         def $is_unslashed
+       ) = validatorIndex_unslashed*
+  -- if $to_set_<validatorIndex>(validatorIndex_unslashed*) = validatorIndex_set*
+
+

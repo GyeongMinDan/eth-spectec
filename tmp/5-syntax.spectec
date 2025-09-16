@@ -871,6 +871,9 @@ dec $to_set_<X>(X*) : X*
 ;; 리스트 sum 함수
 dec $sum_<X>(X*) : X
 
+;; 리스트 값채우기
+dec $repeat_<X>(X, nat) : X*
+
 ;; --------------------------------------------
 ;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
 ;; --------------------------------------------
@@ -1231,6 +1234,85 @@ def $get_committee_count_per_slot(state_beaconState, epoch_epoch) = uint64_commi
   -- if $min_uint64($MAX_COMMITTEES_PER_SLOT, uint64_estimate) = uint64_capped
   -- if $max_uint64(1, uint64_capped) = uint64_committees_per_slot
 
+;; --------------------------------------------
+;; eligible cond: active(v, prev) OR (v.SLASHED ∧ prev+1 < v.WITHDRAWABLE_EPOCH)
+;; almost same as get_active_validator_indices
+;; --------------------------------------------
+dec $is_eligible_validator_enumerated(enumerated_<validator>, epoch) : bool
+def $is_eligible_validator_enumerated((n, validator), epoch_prev) =
+  $is_active_validator(validator, epoch_prev)
+  \/
+  ( $(validator.SLASHED = true) /\ $(epoch_prev + 1 < validator.WITHDRAWABLE_EPOCH) )
+
+;; --------------------------------------------
+;; get_eligible_validator_indices(state) : validatorIndex*
+;; --------------------------------------------
+dec $get_eligible_validator_indices(beaconState) : validatorIndex*
+
+def $get_eligible_validator_indices(state) = n_eligible*
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if state.VALIDATORS = validator*
+  -- if $enumerate_<validator>(validator*) = (n, validator)*
+  -- if $filter_list_2_<(nat, validator), epoch>(
+       (n, validator)*,
+       epoch_prev,
+       def $is_eligible_validator_enumerated
+     ) = (n_eligible, validator_eligible)*
+
+;; --------------------------------------------
+;; helpers for filtering by flag / unslashed
+;; --------------------------------------------
+
+;; cond: has_flag?
+dec $has_flag_for_index(validatorIndex, (participationFlags*, nat)) : bool
+def $has_flag_for_index(validatorIndex_vi, (participationFlags_list*, nat_flag))
+  = $has_flag(participationFlags_list*[validatorIndex_vi], nat_flag)
+
+;; cond: is validator unslashed?
+dec $is_unslashed(validatorIndex, beaconState) : bool
+def $is_unslashed(validatorIndex_vi, state) = true
+  -- if $(validatorIndex_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_vi] = validator
+  -- if $(validator.SLASHED = false)
+def $is_unslashed(validatorIndex_vi, state) = false
+  -- otherwise
+
+;; --------------------------------------------
+;; get_unslashed_participating_indices
+;; --------------------------------------------
+
+;; case 1: epoch == current
+def $get_unslashed_participating_indices(state, nat_flag_index, epoch_epoch) = validatorIndex_set*
+  -- if $get_current_epoch(state) = epoch_epoch
+  -- if $get_active_validator_indices(state, epoch_epoch) = validatorIndex_active*
+  -- if $filter_list_2_<validatorIndex, (participationFlags*, nat)>(
+         validatorIndex_active*,
+         (state.CURRENT_EPOCH_PARTICIPATION, nat_flag_index),
+         def $has_flag_for_index
+       ) = validatorIndex_participating*
+  -- if $filter_list_2_<validatorIndex, beaconState>(
+         validatorIndex_participating*,
+         state,
+         def $is_unslashed
+       ) = validatorIndex_unslashed*
+  -- if $to_set_<validatorIndex>(validatorIndex_unslashed*) = validatorIndex_set*
+
+;; case 2: epoch == previous
+def $get_unslashed_participating_indices(state, nat_flag_index, epoch_epoch) = validatorIndex_set*
+  -- if $get_previous_epoch(state) = epoch_epoch
+  -- if $get_active_validator_indices(state, epoch_epoch) = validatorIndex_active*
+  -- if $filter_list_2_<validatorIndex, (participationFlags*, nat)>(
+         validatorIndex_active*,
+         (state.PREVIOUS_EPOCH_PARTICIPATION, nat_flag_index),
+         def $has_flag_for_index
+       ) = validatorIndex_participating*
+  -- if $filter_list_2_<validatorIndex, beaconState>(
+         validatorIndex_participating*,
+         state,
+         def $is_unslashed
+       ) = validatorIndex_unslashed*
+  -- if $to_set_<validatorIndex>(validatorIndex_unslashed*) = validatorIndex_set*
+
 ;; ------------------------------------------------------------
 ;; is_slashable_attestation_data
 ;; ------------------------------------------------------------
@@ -1323,6 +1405,56 @@ def $get_base_reward(state, validatorIndex_vi) = gwei_reward
   -- if $( validator_i.EFFECTIVE_BALANCE / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_increments
   -- if $get_base_reward_per_increment(state) = gwei_per_inc
   -- if $( uint64_increments * gwei_per_inc ) = gwei_reward
+
+;; for process_effective_balance_updates
+;; ------------------------------------------------------------
+;; map over a list with one extra captured argument
+;; X*  ×  Y  ×  (X,Y)->Z   ==>   Z*
+;; ------------------------------------------------------------
+dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
+
+
+;; predicate: apply update iff
+;;   balance + DOWNWARD_THRESHOLD < effective_balance
+;;   OR
+;;   effective_balance + UPWARD_THRESHOLD < balance
+dec $cond_hysteresis(gwei, gwei, uint64, uint64) : boolean
+
+def $cond_hysteresis(gwei_balance, gwei_eff, uint64_down_th, uint64_up_th) = true
+  -- if $( gwei_balance + uint64_down_th < gwei_eff )
+   \/
+       $( gwei_eff + uint64_up_th   < gwei_balance )
+
+def $cond_hysteresis(gwei_balance, gwei_eff, uint64_down_th, uint64_up_th) = false
+  -- otherwise
+
+;; ------------------------------------------------------------
+;; rebalance rule for a single (index, validator) pair
+;; (computes hysteresis thresholds and updates EFFECTIVE_BALANCE if needed)
+;; ------------------------------------------------------------
+dec $rebalance_validator_enumerated((nat, validator), beaconState) : validator
+
+def $rebalance_validator_enumerated((n, validator_v), state) = validator_updated
+  -- if $(n < |state.BALANCES|)
+  -- if state.BALANCES[n] = gwei_balance
+  -- if $( $EFFECTIVE_BALANCE_INCREMENT / $HYSTERESIS_QUOTIENT ) = uint64_hyst_inc
+  -- if $( uint64_hyst_inc * $HYSTERESIS_DOWNWARD_MULTIPLIER ) = uint64_down_th
+  -- if $( uint64_hyst_inc * $HYSTERESIS_UPWARD_MULTIPLIER )  = uint64_up_th
+  -- if $cond_hysteresis(
+         gwei_balance,
+         validator_v.EFFECTIVE_BALANCE,
+         uint64_down_th,
+         uint64_up_th
+       ) = true
+  -- if $( gwei_balance \ $EFFECTIVE_BALANCE_INCREMENT ) = gwei_mod
+  -- if $( gwei_balance - gwei_mod ) = gwei_floor_inc
+  -- if $min_uint64(gwei_floor_inc, $MAX_EFFECTIVE_BALANCE) = gwei_new_eff
+  -- if validator_updated = validator_v[.EFFECTIVE_BALANCE = gwei_new_eff]
+
+def $rebalance_validator_enumerated((n, validator_v), state) = validator_v
+  -- otherwise
+
+
 ;; 09-state-balance.spectec
 ;; Increase / Decrease balance as helpers
 
@@ -1434,6 +1566,17 @@ relation Process_effective_balance_updates:
   beaconState ~> beaconState
   hint(input %0)
 
+rule Process_effective_balance_updates/main:
+  state_beaconState ~> state_updated
+  -- if state_beaconState.VALIDATORS = validator_list*
+  -- if $enumerate_<validator>(validator_list*) = (n, validator_item)*
+  -- if $map_list_2_<(nat, validator), beaconState, validator>(
+         (n, validator_item)*,
+         state_beaconState,
+         def $rebalance_validator_enumerated
+       ) = validator_updated_list*
+  -- if state_updated = state_beaconState[.VALIDATORS = validator_updated_list*]
+
 
 ;;
 ;; process_slashings_reset
@@ -1515,6 +1658,14 @@ rule Process_historical_summaries_update/main:
 relation Process_participation_flag_updates:
   beaconState ~> beaconState
   hint(input %0)
+
+rule Process_participation_flag_updates/main:
+  state_beaconState ~> state_updated
+  -- if participationFlags_prev* = state_beaconState.CURRENT_EPOCH_PARTICIPATION
+  -- if $( |state_beaconState.VALIDATORS| ) = uint64_len_validators
+  -- if $repeat_<participationFlags>(0, uint64_len_validators) = participationFlags_zero*
+  -- if state_mid = state_beaconState[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_prev*]
+  -- if state_updated = state_mid[.CURRENT_EPOCH_PARTICIPATION = participationFlags_zero*]
 
 
 ;;
@@ -1698,60 +1849,15 @@ relation Process_operations:
   beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
 
-;;
-;; process_sync_aggregate
-;; 
-;;
-relation Process_sync_aggregate:
-  beaconState syncAggregate ~> beaconState
-  hint(input %0 %1)
-
-;;
-;; process_block
-;;
-relation ProcessBlock:
-  beaconState beaconBlock ~>* beaconState
-  hint(input %0 %1)
-
-rule ProcessBlock/main:
-  state_beaconState block_beaconBlock ~>* state_6
-  -- Process_block_header:     state_beaconState                   block_beaconBlock                     ~>  state_0
-  -- Process_withdrawals:      state_0                              block_beaconBlock.BODY.EXECUTION_PAYLOAD ~> state_1
-  -- Process_execution_payload: state_1                             block_beaconBlock.BODY                ~>  state_2
-  -- Process_randao:           state_2                              block_beaconBlock.BODY                ~>  state_3
-  -- Process_eth1_data:        state_3                              block_beaconBlock.BODY                ~>  state_4
-  -- Process_operations:       state_4                              block_beaconBlock.BODY                ~>  state_5
-  -- Process_sync_aggregate:   state_5                              block_beaconBlock.BODY.SYNC_AGGREGATE ~>  state_6
-
-
-
-
-;;
-;; process_proposer_slashing
-;; 
-
-;; TODO
-
-
-;;
-;; process_attester_slashing
-;;
-
-;; TODO
-
-;;
-;; process_attestation
-;;
-
-;; TODO
-
-
 ;; 
 ;; process_deposit
 ;;
-dec $process_deposit(beaconState, deposit) : beaconState
+relation ProcessDeposit:
+  beaconState deposit ~> beaconState
+  hint(input %0 %1)
 
-def $process_deposit(state, deposit) = state_applied
+rule ProcessDeposit/main:
+  state deposit ~> state_applied
   -- if $hash_tree_root_depositData(deposit.DATA) = root_leaf
   -- if $( $DEPOSIT_CONTRACT_TREE_DEPTH + 1 ) = uint64_depth_plus_1
   -- if $is_valid_merkle_branch(
@@ -1776,10 +1882,12 @@ def $process_deposit(state, deposit) = state_applied
 ;; process_voluntary_exit
 ;; 
 
-;; --- process_voluntary_exit as function ---
-dec $process_voluntary_exit(beaconState, signedVoluntaryExit) : beaconState
+relation ProcessVoluntaryExit:
+  beaconState signedVoluntaryExit ~> beaconState
+  hint(input %0 %1)
 
-def $process_voluntary_exit(state, signedVoluntaryExit) = state_after_exit
+rule ProcessVoluntaryExit/main:
+  state signedVoluntaryExit ~> state_after_exit
   -- if voluntaryExit = signedVoluntaryExit.MESSAGE
   -- if validatorIndex_exit = voluntaryExit.VALIDATOR_INDEX
   -- if $(validatorIndex_exit < |state.VALIDATORS|)
@@ -1794,13 +1902,15 @@ def $process_voluntary_exit(state, signedVoluntaryExit) = state_after_exit
   -- if $bls_verify(validator.PUBKEY, root_vol_exit_signing_root, signedVoluntaryExit.SIGNATURE) = true
   -- if state_after_exit = $initiate_validator_exit(state, validatorIndex_exit)
 
-
 ;; 
 ;; process_bls_to_execution_change
 ;; 
-dec $process_bls_to_execution_change(beaconState, signedBlsToExecutionChange) : beaconState
+relation ProcessBLSToExecutionChange:
+  beaconState signedBlsToExecutionChange ~> beaconState
+  hint(input %0 %1)
 
-def $process_bls_to_execution_change(state, signedBlsToExecutionChange) = state_updated
+rule ProcessBLSToExecutionChange/main:
+  state signedBlsToExecutionChange ~> state_updated
   -- if blsToExecutionChange = signedBlsToExecutionChange.MESSAGE
   -- if validatorIndex_change = blsToExecutionChange.VALIDATOR_INDEX
   -- if $(validatorIndex_change < |state.VALIDATORS|)
@@ -1818,6 +1928,29 @@ def $process_bls_to_execution_change(state, signedBlsToExecutionChange) = state_
   -- if state.VALIDATORS[[validatorIndex_change] = validator_updated] = validator_update*
   -- if state_updated = state[.VALIDATORS = validator_update*]
 
+;;
+;; process_sync_aggregate
+;; 
 
 
+;;
+relation Process_sync_aggregate:
+  beaconState syncAggregate ~> beaconState
+  hint(input %0 %1)
 
+;;
+;; process_block
+;;
+relation ProcessBlock:
+  beaconState beaconBlock ~>* beaconState
+  hint(input %0 %1)
+
+rule ProcessBlock/main:
+  state_beaconState block_beaconBlock ~>* state_6
+  -- Process_block_header:     state_beaconState                   block_beaconBlock                     ~>  state_0
+  -- Process_withdrawals:      state_0                              block_beaconBlock.BODY.EXECUTION_PAYLOAD ~> state_1
+  -- Process_execution_payload: state_1                             block_beaconBlock.BODY                ~>  state_2
+  -- Process_randao:           state_2                              block_beaconBlock.BODY                ~>  state_3
+  -- Process_eth1_data:        state_3                              block_beaconBlock.BODY                ~>  state_4
+  -- Process_operations:       state_4                              block_beaconBlock.BODY                ~>  state_5
+  -- Process_sync_aggregate:   state_5                              block_beaconBlock.BODY.SYNC_AGGREGATE ~>  state_6
