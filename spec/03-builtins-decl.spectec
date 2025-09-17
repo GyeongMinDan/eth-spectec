@@ -6,6 +6,7 @@
 ;; --- 해시/암호 ---
 dec $hash_<X>(X) : bytes32
 dec $bls_verify(blsPubkey, root, blsSignature) : boolean
+dec $bls_fast_aggregate_verify(blsPubkey*, root, blsSignature) : boolean
 
 ;; --- hash_tree_root 계열 ---
 dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
@@ -33,6 +34,8 @@ dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
 dec $compute_signing_root(epoch, domain) : root
 dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
 dec $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) : root
+dec $compute_signing_root_beaconBlockHeader(beaconBlockHeader, domain) : root
+dec $compute_signing_root_attestationData(attestationData, domain) : root
 
 ;; --- 머클 검증 ---
 dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
@@ -55,3 +58,15 @@ dec $sum_<X>(X*) : X
 
 ;; 리스트 값채우기
 dec $repeat_<X>(X, nat) : X*
+
+;; 리스트 정렬
+dec $sort_<X>(X*) : X*       
+
+;; 리스트 교집합 (set.intersection)
+dec $set_intersection_<X>(X*, X*) : X*
+
+;; set_or_append_list : X* × nat × X → X*
+;; if len(X*) == nat -> X*.append(X)
+;; else X*[nat] = X
+;; 를 타입마다 변수에 명시를 하면 복잡해지므로 그냥 dec로...
+dec $set_or_append_list_<X>(X*, nat, X) : X*

@@ -824,6 +824,7 @@ var balance : gwei
 ;; --- 해시/암호 ---
 dec $hash_<X>(X) : bytes32
 dec $bls_verify(blsPubkey, root, blsSignature) : boolean
+dec $bls_fast_aggregate_verify(blsPubkey*, root, blsSignature) : boolean
 
 ;; --- hash_tree_root 계열 ---
 dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
@@ -851,6 +852,9 @@ dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
 dec $compute_signing_root(epoch, domain) : root
 dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
 dec $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) : root
+dec $compute_signing_root_beaconBlockHeader(beaconBlockHeader, domain) : root
+dec $compute_signing_root_attestationData(attestationData, domain) : root
+
 
 ;; --- 머클 검증 ---
 dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
@@ -873,6 +877,18 @@ dec $sum_<X>(X*) : X
 
 ;; 리스트 값채우기
 dec $repeat_<X>(X, nat) : X*
+
+;; 리스트 정렬
+dec $sort_<X>(X*) : X*       
+
+;; 리스트 교집합 (set.intersection)
+dec $set_intersection_<X>(X*, X*) : X*
+
+;; set_or_append_list : X* × nat × X → X*
+;; if len(X*) == nat -> X*.append(X)
+;; else X*[nat] = X
+;; 를 타입마다 변수에 명시를 하면 복잡해지므로 그냥 dec로...
+dec $set_or_append_list_<X>(X*, nat, X) : X*
 
 ;; --------------------------------------------
 ;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
@@ -1095,6 +1111,31 @@ def $is_partially_withdrawable_validator(validator, balance) = true
 def $is_partially_withdrawable_validator(validator, balance) = false
   -- otherwise
 
+;; ------------------------------------------------------------
+;; get_index_for_new_validator
+;; ------------------------------------------------------------
+dec $get_index_for_new_validator(beaconState) : validatorIndex
+def $get_index_for_new_validator(state) =
+  $( |state.VALIDATORS| )
+
+;; ------------------------------------------------------------
+;; get_validator_from_deposit(pubkey, withdrawal_credentials, amount) : validator
+;; ------------------------------------------------------------
+dec $get_validator_from_deposit(blsPubkey, bytes32, uint64) : validator
+
+def $get_validator_from_deposit(blsPubkey_pk, bytes32_wc, uint64_amount) = validator_new
+  -- if $( uint64_amount \ $EFFECTIVE_BALANCE_INCREMENT ) = gwei_mod
+  -- if $( uint64_amount - gwei_mod ) = gwei_floor_inc
+  -- if $min_uint64(gwei_floor_inc, $MAX_EFFECTIVE_BALANCE) = gwei_effective
+  -- if validator_new =
+       { PUBKEY                       blsPubkey_pk,
+         WITHDRAWAL_CREDENTIALS       bytes32_wc,
+         EFFECTIVE_BALANCE            gwei_effective,
+         SLASHED                      false,
+         ACTIVATION_ELIGIBILITY_EPOCH $FAR_FUTURE_EPOCH,
+         ACTIVATION_EPOCH             $FAR_FUTURE_EPOCH,
+         EXIT_EPOCH                   $FAR_FUTURE_EPOCH,
+         WITHDRAWABLE_EPOCH           $FAR_FUTURE_EPOCH }
 ;; =======================================
 ;; 07-helpers-roots-mixes.spectec
 ;; roots & randao mixes & time/leak helpers
@@ -1145,16 +1186,16 @@ def $is_in_inactivity_leak(state) =
 
 ;; max for uint64
 dec $max_uint64(uint64, uint64) : uint64
-def $max_uint64(uint64, uint64) = uint64
-  -- if $(uint64 >= uint64)
-def $max_uint64(uint64, uint64) = uint64
+def $max_uint64(uint64_x, uint64_y) = uint64_x
+  -- if $(uint64_x >= uint64_y)
+def $max_uint64(uint64_x, uint64_y) = uint64_y
   -- otherwise
 
 ;; min for uint64
 dec $min_uint64(uint64, uint64) : uint64
-def $min_uint64(uint64, uint64) = uint64
-  -- if $(uint64 <= uint64)
-def $min_uint64(uint64, uint64) = uint64
+def $min_uint64(uint64_x, uint64_y) = uint64_x
+  -- if $(uint64_x <= uint64_y)
+def $min_uint64(uint64_x, uint64_y) = uint64_y
   -- otherwise
 
 ;;
@@ -1176,8 +1217,7 @@ dec $get_next_sync_committee(beaconState) : syncCommittee
 
 dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
 
-
-
+dec $slash_validator(beaconState, validatorIndex, validatorIndex?) : beaconState
 
 syntax enumerated_<X> = (nat, X)
 dec $enumerate_<X>(X*) : enumerated_<X>*
@@ -1322,6 +1362,58 @@ def $is_slashable_attestation_data(attd1, attd2) =
   \/
   ( $( attd1.SOURCE.EPOCH < attd2.SOURCE.EPOCH ) /\ $( attd2.TARGET.EPOCH < attd1.TARGET.EPOCH ) )
 
+;;
+;; is_valid_indexed_attestation
+;;
+dec $is_valid_indexed_attestation(beaconState, indexedAttestation) : boolean
+;; 1. empty list
+def $is_valid_indexed_attestation(state, indexedAttestation) = false
+  -- if validatorIndex_indices* = indexedAttestation.ATTESTING_INDICES
+  -- if $( |validatorIndex_indices*| = 0 )
+
+;; 2. not sorted
+def $is_valid_indexed_attestation(state, indexedAttestation) = false
+  -- if validatorIndex_indices* = indexedAttestation.ATTESTING_INDICES
+  -- if $to_set_<validatorIndex>(validatorIndex_indices*) = validatorIndex_set*
+  -- if $sort_<validatorIndex>(validatorIndex_set*)    = validatorIndex_sorted*
+  -- if ~( validatorIndex_sorted* = validatorIndex_indices* )
+
+;; 3. if is true
+def $is_valid_indexed_attestation(state, indexedAttestation) = true
+  -- if validatorIndex_indices* = indexedAttestation.ATTESTING_INDICES
+  -- if $to_set_<validatorIndex>(validatorIndex_indices*) = validatorIndex_set*
+  -- if $sort_<validatorIndex>(validatorIndex_set*) = validatorIndex_sorted*
+  -- if $( |validatorIndex_sorted*| > 0 )
+  -- if validatorIndex_sorted* = validatorIndex_indices*
+  -- if (state.VALIDATORS[validatorIndex_indices].PUBKEY = blsPubkey_pk)*
+  -- if $get_domain(state, $DOMAIN_BEACON_ATTESTER, indexedAttestation.DATA.TARGET.EPOCH) = domain_att
+  -- if $compute_signing_root_attestationData(indexedAttestation.DATA, domain_att) = root_sign
+  -- if $bls_fast_aggregate_verify(blsPubkey_pk*, root_sign, indexedAttestation.SIGNATURE) = true
+
+;; 상태 누적 -> is_slashable 로 모으고 모아서 slash
+dec $fold_list_2_<X, Y>(X*, Y, def $f(Y, X) : Y) : Y
+
+;; is_slashable?
+dec $is_slashable_now(validatorIndex, beaconState) : boolean
+
+def $is_slashable_now(validatorIndex_vi, state) = true
+  -- if $(validatorIndex_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_vi] = validator_v
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $is_slashable_validator(validator_v, epoch_cur) = true
+
+def $is_slashable_now(validatorIndex_vi, state) = false
+  -- otherwise
+
+;; if is_slashable -> slash
+dec $slash_if_eligible(beaconState, validatorIndex) : beaconState
+
+def $slash_if_eligible(state, validatorIndex_vi) = state_slashed
+  -- if $is_slashable_now(validatorIndex_vi, state) = true
+  -- if state_slashed = $slash_validator(state, validatorIndex_vi, eps)
+
+def $slash_if_eligible(state, validatorIndex_vi) = state
+  -- otherwise
 
 ;; ------------------------------------------------------------
 ;; get_seed
@@ -1845,9 +1937,76 @@ rule ProcessEpoch/main:
 ;; process_operations
 ;;   
 
+
+
 relation Process_operations:
   beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
+
+;;
+;; process_proposer_slashing
+;; 
+relation ProcessProposerSlashing:
+  beaconState proposerSlashing ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessProposerSlashing/main:
+  state_beaconState proposerSlashing_ps ~> state_slashed
+  -- if beaconBlockHeader_1 = proposerSlashing_ps.SIGNED_HEADER_1.MESSAGE
+  -- if beaconBlockHeader_2 = proposerSlashing_ps.SIGNED_HEADER_2.MESSAGE
+  -- if $(beaconBlockHeader_1.SLOT = beaconBlockHeader_2.SLOT)
+  -- if $(beaconBlockHeader_1.PROPOSER_INDEX = beaconBlockHeader_2.PROPOSER_INDEX)
+  -- if ~(beaconBlockHeader_1 = beaconBlockHeader_2)
+  -- if validatorIndex_prop = beaconBlockHeader_1.PROPOSER_INDEX
+  -- if $(validatorIndex_prop < |state_beaconState.VALIDATORS|)
+  -- if state_beaconState.VALIDATORS[validatorIndex_prop] = validator_prop
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  -- if $is_slashable_validator(validator_prop, epoch_cur) = true
+  -- if signedBeaconBlockHeader_header_1 = proposerSlashing_ps.SIGNED_HEADER_1
+  -- if $compute_epoch_at_slot(signedBeaconBlockHeader_header_1.MESSAGE.SLOT) = epoch_h1
+  -- if $get_domain(state_beaconState, $DOMAIN_BEACON_PROPOSER, epoch_h1) = domain_h1
+  -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_1.MESSAGE, domain_h1) = root_sign_h1
+  -- if $bls_verify(validator_prop.PUBKEY, root_sign_h1, signedBeaconBlockHeader_header_1.SIGNATURE) = true
+  -- if signedBeaconBlockHeader_header_2 = proposerSlashing_ps.SIGNED_HEADER_2
+  -- if $compute_epoch_at_slot(signedBeaconBlockHeader_header_2.MESSAGE.SLOT) = epoch_h2
+  -- if $get_domain(state_beaconState, $DOMAIN_BEACON_PROPOSER, epoch_h2) = domain_h2
+  -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_2.MESSAGE, domain_h2) = root_sign_h2
+  -- if $bls_verify(validator_prop.PUBKEY, root_sign_h2, signedBeaconBlockHeader_header_2.SIGNATURE) = true
+  -- if state_slashed = $slash_validator(state_beaconState, validatorIndex_prop, eps)
+
+;;
+;; process_attester_slashing
+;;
+relation ProcessAttesterSlashing:
+  beaconState attesterSlashing ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessAttesterSlashing/main:
+  state_beaconState attesterSlashing_as ~> state_after_slash
+  -- if indexedAttestation_1 = attesterSlashing_as.ATTESTATION_1
+  -- if indexedAttestation_2 = attesterSlashing_as.ATTESTATION_2
+  ;; assert is_slashable_attestation_data
+  -- if $is_slashable_attestation_data(indexedAttestation_1.DATA, indexedAttestation_2.DATA) = true
+  ;; assert is_valid_indexed_attestation
+  -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_1) = true
+  -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_2) = true
+  ;; set
+  -- if validatorIndex_list_1* = indexedAttestation_1.ATTESTING_INDICES
+  -- if validatorIndex_list_2* = indexedAttestation_2.ATTESTING_INDICES
+  -- if $to_set_<validatorIndex>(validatorIndex_list_1*) = validatorIndex_set_1*
+  -- if $to_set_<validatorIndex>(validatorIndex_list_2*) = validatorIndex_set_2*
+  -- if $set_intersection_<validatorIndex>(validatorIndex_set_1*, validatorIndex_set_2*) = validatorIndex_intersection*
+  -- if $sort_<validatorIndex>(validatorIndex_intersection*) = validatorIndex_sorted*
+  ;; assert slashed_any -> 1보다 큰 is_slashable 의 결과로 생각..
+  -- if $filter_list_2_<validatorIndex, beaconState>(validatorIndex_sorted*, state_beaconState, def $is_slashable_now) = validatorIndex_slashable_now*
+  -- if $( |validatorIndex_slashable_now*| > 0 )
+  ;; use fold_list_2
+  -- if state_after_slash =
+       $fold_list_2_<validatorIndex, beaconState>(
+         validatorIndex_sorted*,
+         state_beaconState,
+         def $slash_if_eligible
+       )
 
 ;; 
 ;; process_deposit

@@ -6,3 +6,56 @@ def $is_slashable_attestation_data(attd1, attd2) =
   ( ~(attd1 = attd2) /\ $( attd1.TARGET.EPOCH = attd2.TARGET.EPOCH ) )
   \/
   ( $( attd1.SOURCE.EPOCH < attd2.SOURCE.EPOCH ) /\ $( attd2.TARGET.EPOCH < attd1.TARGET.EPOCH ) )
+
+;;
+;; is_valid_indexed_attestation
+;;
+dec $is_valid_indexed_attestation(beaconState, indexedAttestation) : boolean
+;; 1. empty list
+def $is_valid_indexed_attestation(state, indexedAttestation) = false
+  -- if validatorIndex_indices* = indexedAttestation.ATTESTING_INDICES
+  -- if $( |validatorIndex_indices*| = 0 )
+
+;; 2. not sorted
+def $is_valid_indexed_attestation(state, indexedAttestation) = false
+  -- if validatorIndex_indices* = indexedAttestation.ATTESTING_INDICES
+  -- if $to_set_<validatorIndex>(validatorIndex_indices*) = validatorIndex_set*
+  -- if $sort_<validatorIndex>(validatorIndex_set*)    = validatorIndex_sorted*
+  -- if ~( validatorIndex_sorted* = validatorIndex_indices* )
+
+;; 3. if is true
+def $is_valid_indexed_attestation(state, indexedAttestation) = true
+  -- if validatorIndex_indices* = indexedAttestation.ATTESTING_INDICES
+  -- if $to_set_<validatorIndex>(validatorIndex_indices*) = validatorIndex_set*
+  -- if $sort_<validatorIndex>(validatorIndex_set*) = validatorIndex_sorted*
+  -- if $( |validatorIndex_sorted*| > 0 )
+  -- if validatorIndex_sorted* = validatorIndex_indices*
+  -- if (state.VALIDATORS[validatorIndex_indices].PUBKEY = blsPubkey_pk)*
+  -- if $get_domain(state, $DOMAIN_BEACON_ATTESTER, indexedAttestation.DATA.TARGET.EPOCH) = domain_att
+  -- if $compute_signing_root_attestationData(indexedAttestation.DATA, domain_att) = root_sign
+  -- if $bls_fast_aggregate_verify(blsPubkey_pk*, root_sign, indexedAttestation.SIGNATURE) = true
+
+;; 상태 누적 -> is_slashable 로 모으고 모아서 slash
+dec $fold_list_2_<X, Y>(X*, Y, def $f(Y, X) : Y) : Y
+
+;; is_slashable?
+dec $is_slashable_now(validatorIndex, beaconState) : boolean
+
+def $is_slashable_now(validatorIndex_vi, state) = true
+  -- if $(validatorIndex_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_vi] = validator_v
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $is_slashable_validator(validator_v, epoch_cur) = true
+
+def $is_slashable_now(validatorIndex_vi, state) = false
+  -- otherwise
+
+;; if is_slashable -> slash
+dec $slash_if_eligible(beaconState, validatorIndex) : beaconState
+
+def $slash_if_eligible(state, validatorIndex_vi) = state_slashed
+  -- if $is_slashable_now(validatorIndex_vi, state) = true
+  -- if state_slashed = $slash_validator(state, validatorIndex_vi, eps)
+
+def $slash_if_eligible(state, validatorIndex_vi) = state
+  -- otherwise

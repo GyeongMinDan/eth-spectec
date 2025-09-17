@@ -29,3 +29,17 @@ def $add_flag(participationFlags, n) = participationFlags
 
 def $add_flag(participationFlags, n) = $( participationFlags + $pow2(n) )
   -- if $( ((participationFlags / $pow2(n)) \ 2) = 0 )
+
+;; max for uint64
+dec $max_uint64(uint64, uint64) : uint64
+def $max_uint64(uint64_x, uint64_y) = uint64_x
+  -- if $(uint64_x >= uint64_y)
+def $max_uint64(uint64_x, uint64_y) = uint64_y
+  -- otherwise
+
+;; min for uint64
+dec $min_uint64(uint64, uint64) : uint64
+def $min_uint64(uint64_x, uint64_y) = uint64_x
+  -- if $(uint64_x <= uint64_y)
+def $min_uint64(uint64_x, uint64_y) = uint64_y
+  -- otherwise
