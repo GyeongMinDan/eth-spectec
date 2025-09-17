@@ -36,6 +36,7 @@ dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
 dec $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) : root
 dec $compute_signing_root_beaconBlockHeader(beaconBlockHeader, domain) : root
 dec $compute_signing_root_attestationData(attestationData, domain) : root
+dec $compute_signing_root_depositMessage(depositMessage, domain) : root
 
 ;; --- 머클 검증 ---
 dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean

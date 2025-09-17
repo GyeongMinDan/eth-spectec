@@ -1136,6 +1136,33 @@ def $get_validator_from_deposit(blsPubkey_pk, bytes32_wc, uint64_amount) = valid
          ACTIVATION_EPOCH             $FAR_FUTURE_EPOCH,
          EXIT_EPOCH                   $FAR_FUTURE_EPOCH,
          WITHDRAWABLE_EPOCH           $FAR_FUTURE_EPOCH }
+
+;; ------------------------------------------------------------
+;; add_validator_to_registry(state, pubkey, withdrawal_credentials, amount) : beaconState
+;; ------------------------------------------------------------
+
+dec $add_validator_to_registry(beaconState, blsPubkey, bytes32, uint64) : beaconState
+
+def $add_validator_to_registry(state_in, blsPubkey_pk, bytes32_wc, uint64_amount) = state_out
+  -- if $get_index_for_new_validator(state_in) = validatorIndex_idx
+  -- if $get_validator_from_deposit(blsPubkey_pk, bytes32_wc, uint64_amount) = validator_new
+  ;; 여기서부터 state의 내용이 업데이트
+  ;; validator 추가
+  -- if $set_or_append_list_<validator>(state_in.VALIDATORS, validatorIndex_idx, validator_new) = validator_list_updated*
+  -- if state_1 = state_in[.VALIDATORS = validator_list_updated*]
+  ;; balance 추가
+  -- if $set_or_append_list_<gwei>(state_1.BALANCES, validatorIndex_idx, uint64_amount) = balance_updated*
+  -- if state_2 = state_1[.BALANCES = balance_updated*]
+  ;; participationFlags 추가(previous)
+  -- if $set_or_append_list_<participationFlags>(state_2.PREVIOUS_EPOCH_PARTICIPATION, validatorIndex_idx, 0) = participationFlags_prev_updated*
+  -- if state_3 = state_2[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_prev_updated*]
+  ;; participationFlags 추가(previous)
+  -- if $set_or_append_list_<participationFlags>(state_3.CURRENT_EPOCH_PARTICIPATION, validatorIndex_idx, 0) = participationFlags_cur_updated*
+  -- if state_4 = state_3[.CURRENT_EPOCH_PARTICIPATION = participationFlags_cur_updated*]
+  ;; inactivity_scores 추가
+  -- if $set_or_append_list_<uint64>(state_4.INACTIVITY_SCORES, validatorIndex_idx, 0) = uint64_inactivity_updated*
+  -- if state_out = state_4[.INACTIVITY_SCORES = uint64_inactivity_updated*]
+  
 ;; =======================================
 ;; 07-helpers-roots-mixes.spectec
 ;; roots & randao mixes & time/leak helpers
@@ -1207,9 +1234,6 @@ dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIn
 dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
 
 dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beaconState
-
-
-dec $get_unslashed_participating_indices(beaconState, nat, epoch) : validatorIndex*
 
 dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
 
@@ -1320,6 +1344,8 @@ def $is_unslashed(validatorIndex_vi, state) = false
 ;; --------------------------------------------
 ;; get_unslashed_participating_indices
 ;; --------------------------------------------
+
+dec $get_unslashed_participating_indices(beaconState, nat, epoch) : validatorIndex*
 
 ;; case 1: epoch == current
 def $get_unslashed_participating_indices(state, nat_flag_index, epoch_epoch) = validatorIndex_set*
