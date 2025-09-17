@@ -1,17 +1,3 @@
-;; max for uint64
-dec $max_uint64(uint64, uint64) : uint64
-def $max_uint64(uint64, uint64) = uint64
-  -- if $(uint64 >= uint64)
-def $max_uint64(uint64, uint64) = uint64
-  -- otherwise
-
-;; min for uint64
-dec $min_uint64(uint64, uint64) : uint64
-def $min_uint64(uint64, uint64) = uint64
-  -- if $(uint64 <= uint64)
-def $min_uint64(uint64, uint64) = uint64
-  -- otherwise
-
 ;;
 ;; helpers for get_active_validator_indices
 ;;

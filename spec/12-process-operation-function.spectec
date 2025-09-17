@@ -5,13 +5,63 @@ relation ProcessProposerSlashing:
   beaconState proposerSlashing ~> beaconState
   hint(input %0 %1)
 
-;;TODO
+rule ProcessProposerSlashing/main:
+  state_beaconState proposerSlashing_ps ~> state_slashed
+  -- if beaconBlockHeader_1 = proposerSlashing_ps.SIGNED_HEADER_1.MESSAGE
+  -- if beaconBlockHeader_2 = proposerSlashing_ps.SIGNED_HEADER_2.MESSAGE
+  -- if $(beaconBlockHeader_1.SLOT = beaconBlockHeader_2.SLOT)
+  -- if $(beaconBlockHeader_1.PROPOSER_INDEX = beaconBlockHeader_2.PROPOSER_INDEX)
+  -- if ~(beaconBlockHeader_1 = beaconBlockHeader_2)
+  -- if validatorIndex_prop = beaconBlockHeader_1.PROPOSER_INDEX
+  -- if $(validatorIndex_prop < |state_beaconState.VALIDATORS|)
+  -- if state_beaconState.VALIDATORS[validatorIndex_prop] = validator_prop
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  -- if $is_slashable_validator(validator_prop, epoch_cur) = true
+  -- if signedBeaconBlockHeader_header_1 = proposerSlashing_ps.SIGNED_HEADER_1
+  -- if $compute_epoch_at_slot(signedBeaconBlockHeader_header_1.MESSAGE.SLOT) = epoch_h1
+  -- if $get_domain(state_beaconState, $DOMAIN_BEACON_PROPOSER, epoch_h1) = domain_h1
+  -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_1.MESSAGE, domain_h1) = root_sign_h1
+  -- if $bls_verify(validator_prop.PUBKEY, root_sign_h1, signedBeaconBlockHeader_header_1.SIGNATURE) = true
+  -- if signedBeaconBlockHeader_header_2 = proposerSlashing_ps.SIGNED_HEADER_2
+  -- if $compute_epoch_at_slot(signedBeaconBlockHeader_header_2.MESSAGE.SLOT) = epoch_h2
+  -- if $get_domain(state_beaconState, $DOMAIN_BEACON_PROPOSER, epoch_h2) = domain_h2
+  -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_2.MESSAGE, domain_h2) = root_sign_h2
+  -- if $bls_verify(validator_prop.PUBKEY, root_sign_h2, signedBeaconBlockHeader_header_2.SIGNATURE) = true
+  -- if state_slashed = $slash_validator(state_beaconState, validatorIndex_prop, eps)
 
 ;;
 ;; process_attester_slashing
 ;;
+relation ProcessAttesterSlashing:
+  beaconState attesterSlashing ~> beaconState
+  hint(input %0 %1)
 
-;; TODO
+rule ProcessAttesterSlashing/main:
+  state_beaconState attesterSlashing_as ~> state_after_slash
+  -- if indexedAttestation_1 = attesterSlashing_as.ATTESTATION_1
+  -- if indexedAttestation_2 = attesterSlashing_as.ATTESTATION_2
+  ;; assert is_slashable_attestation_data
+  -- if $is_slashable_attestation_data(indexedAttestation_1.DATA, indexedAttestation_2.DATA) = true
+  ;; assert is_valid_indexed_attestation
+  -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_1) = true
+  -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_2) = true
+  ;; set
+  -- if validatorIndex_list_1* = indexedAttestation_1.ATTESTING_INDICES
+  -- if validatorIndex_list_2* = indexedAttestation_2.ATTESTING_INDICES
+  -- if $to_set_<validatorIndex>(validatorIndex_list_1*) = validatorIndex_set_1*
+  -- if $to_set_<validatorIndex>(validatorIndex_list_2*) = validatorIndex_set_2*
+  -- if $set_intersection_<validatorIndex>(validatorIndex_set_1*, validatorIndex_set_2*) = validatorIndex_intersection*
+  -- if $sort_<validatorIndex>(validatorIndex_intersection*) = validatorIndex_sorted*
+  ;; assert slashed_any -> 1보다 큰 is_slashable 의 결과로 생각..
+  -- if $filter_list_2_<validatorIndex, beaconState>(validatorIndex_sorted*, state_beaconState, def $is_slashable_now) = validatorIndex_slashable_now*
+  -- if $( |validatorIndex_slashable_now*| > 0 )
+  ;; use fold_list_2
+  -- if state_after_slash =
+       $fold_list_2_<validatorIndex, beaconState>(
+         validatorIndex_sorted*,
+         state_beaconState,
+         def $slash_if_eligible
+       )
 
 ;;
 ;; process_attestation

@@ -95,3 +95,29 @@ def $is_partially_withdrawable_validator(validator, balance) = true
 
 def $is_partially_withdrawable_validator(validator, balance) = false
   -- otherwise
+
+;; ------------------------------------------------------------
+;; get_index_for_new_validator
+;; ------------------------------------------------------------
+dec $get_index_for_new_validator(beaconState) : validatorIndex
+def $get_index_for_new_validator(state) =
+  $( |state.VALIDATORS| )
+
+;; ------------------------------------------------------------
+;; get_validator_from_deposit(pubkey, withdrawal_credentials, amount) : validator
+;; ------------------------------------------------------------
+dec $get_validator_from_deposit(blsPubkey, bytes32, uint64) : validator
+
+def $get_validator_from_deposit(blsPubkey_pk, bytes32_wc, uint64_amount) = validator_new
+  -- if $( uint64_amount \ $EFFECTIVE_BALANCE_INCREMENT ) = gwei_mod
+  -- if $( uint64_amount - gwei_mod ) = gwei_floor_inc
+  -- if $min_uint64(gwei_floor_inc, $MAX_EFFECTIVE_BALANCE) = gwei_effective
+  -- if validator_new =
+       { PUBKEY                       blsPubkey_pk,
+         WITHDRAWAL_CREDENTIALS       bytes32_wc,
+         EFFECTIVE_BALANCE            gwei_effective,
+         SLASHED                      false,
+         ACTIVATION_ELIGIBILITY_EPOCH $FAR_FUTURE_EPOCH,
+         ACTIVATION_EPOCH             $FAR_FUTURE_EPOCH,
+         EXIT_EPOCH                   $FAR_FUTURE_EPOCH,
+         WITHDRAWABLE_EPOCH           $FAR_FUTURE_EPOCH }
