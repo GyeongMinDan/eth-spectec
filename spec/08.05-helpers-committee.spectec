@@ -1,0 +1,14 @@
+;; --------------------------------------------
+;; get_next_sync_committee(state) : SyncCommittee
+;; --------------------------------------------
+dec $get_next_sync_committee(beaconState) : syncCommittee
+
+def $get_next_sync_committee(state) = syncCommittee_ret
+  -- if $get_next_sync_committee_indices(state) = validatorIndex_indices*
+  ;; indices로 선택된 validator들의 PUBKEY 리스트 생성
+  -- if (state.VALIDATORS[validatorIndex_indices].PUBKEY = blsPubkey_list)*
+  ;; pubkey 집합을 BLS aggregate
+  -- if $eth_aggregate_pubkeys(blsPubkey_list*) = blsPubkey_agg
+  -- if syncCommittee_ret =
+       { PUBKEYS         blsPubkey_list*,
+         AGGREGATE_PUBKEY blsPubkey_agg }

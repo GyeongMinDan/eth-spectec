@@ -7,6 +7,7 @@
 dec $hash_<X>(X) : bytes32
 dec $bls_verify(blsPubkey, root, blsSignature) : boolean
 dec $bls_fast_aggregate_verify(blsPubkey*, root, blsSignature) : boolean
+dec $eth_aggregate_pubkeys(blsPubkey*) : blsPubkey
 
 ;; --- hash_tree_root 계열 ---
 dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
