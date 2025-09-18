@@ -147,4 +147,3 @@ def $add_validator_to_registry(state_in, blsPubkey_pk, bytes32_wc, uint64_amount
   ;; inactivity_scores 추가
   -- if $set_or_append_list_<uint64>(state_4.INACTIVITY_SCORES, validatorIndex_idx, 0) = uint64_inactivity_updated*
   -- if state_out = state_4[.INACTIVITY_SCORES = uint64_inactivity_updated*]
-

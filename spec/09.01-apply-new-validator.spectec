@@ -1,0 +1,30 @@
+;; ------------------------------------------------------------
+;; apply_deposit(state, pubkey, withdrawal_credentials, amount, signature) : beaconState
+;; ------------------------------------------------------------
+dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beaconState
+
+
+;; case 1: 신규 pubkey
+def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
+  -- if state_in.VALIDATORS = validator_list*
+  ;; validators의 pubkey 리스트 생성 (validator_list* → blsPubkey_list*)
+  -- if (validator_list.PUBKEY = blsPubkey_list)*
+  ;; membership: pubkey 가 리스트에 없는 경우
+  -- if ~( blsPubkey_pk <- blsPubkey_list* )
+  ;; PoP 검증
+  -- if depositMessage_msg = { PUBKEY blsPubkey_pk,
+                              WITHDRAWAL_CREDENTIALS bytes32_wc,
+                              AMOUNT gwei_amount }
+  -- if $compute_domain($DOMAIN_DEPOSIT, eps, eps) = domain_deposit
+  -- if $compute_signing_root_depositMessage(depositMessage_msg, domain_deposit) = root_sign
+  -- if $bls_verify(blsPubkey_pk, root_sign, blsSignature_sig) = true
+  -- if state_out =
+       $add_validator_to_registry(state_in, blsPubkey_pk, bytes32_wc, gwei_amount)
+
+;; case 2: 기존 pubkey
+def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
+  -- if state_in.VALIDATORS = validator_list*
+  -- if (validator_list.PUBKEY = blsPubkey_list)*
+  -- if ( blsPubkey_pk <- blsPubkey_list* )
+  -- if $index_of_pubkey(state_in, blsPubkey_pk) = validatorIndex_idx  ;; use index_of_pubkey
+  -- if state_out = $increase_balance(state_in, validatorIndex_idx, gwei_amount)
