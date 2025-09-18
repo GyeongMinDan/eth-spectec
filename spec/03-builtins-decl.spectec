@@ -71,3 +71,6 @@ dec $set_intersection_<X>(X*, X*) : X*
 ;; else X*[nat] = X
 ;; 를 타입마다 변수에 명시를 하면 복잡해지므로 그냥 dec로...
 dec $set_or_append_list_<X>(X*, nat, X) : X*
+
+;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
+dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
