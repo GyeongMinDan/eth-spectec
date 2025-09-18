@@ -825,6 +825,7 @@ var balance : gwei
 dec $hash_<X>(X) : bytes32
 dec $bls_verify(blsPubkey, root, blsSignature) : boolean
 dec $bls_fast_aggregate_verify(blsPubkey*, root, blsSignature) : boolean
+dec $eth_aggregate_pubkeys(blsPubkey*) -> blsPubkey:
 
 ;; --- hash_tree_root 계열 ---
 dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
@@ -889,6 +890,9 @@ dec $set_intersection_<X>(X*, X*) : X*
 ;; else X*[nat] = X
 ;; 를 타입마다 변수에 명시를 하면 복잡해지므로 그냥 dec로...
 dec $set_or_append_list_<X>(X*, nat, X) : X*
+
+;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
+dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
 
 ;; --------------------------------------------
 ;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
@@ -1239,9 +1243,13 @@ dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaco
 
 dec $get_next_sync_committee(beaconState) : syncCommittee
 
+dec $get_next_sync_committee_indices(beaconState) : validatorIndex*
+
 dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
 
 dec $slash_validator(beaconState, validatorIndex, validatorIndex?) : beaconState
+
+dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
 
 syntax enumerated_<X> = (nat, X)
 dec $enumerate_<X>(X*) : enumerated_<X>*
@@ -1572,6 +1580,18 @@ def $rebalance_validator_enumerated((n, validator_v), state) = validator_updated
 def $rebalance_validator_enumerated((n, validator_v), state) = validator_v
   -- otherwise
 
+;; --------------------------------------------
+;; get_next_sync_committee(state) : SyncCommittee
+;; --------------------------------------------
+def $get_next_sync_committee(state) = syncCommittee_ret
+  -- if $get_next_sync_committee_indices(state) = validatorIndex_indices*
+  ;; indices로 선택된 validator들의 PUBKEY 리스트 생성
+  -- if (state.VALIDATORS[validatorIndex_indices].PUBKEY = blsPubkey_list)*
+  ;; pubkey 집합을 BLS aggregate
+  -- if $eth_aggregate_pubkeys(blsPubkey_list*) = blsPubkey_agg
+  -- if syncCommittee_ret =
+       { PUBKEYS         blsPubkey_list*,
+         AGGREGATE_PUBKEY blsPubkey_agg }
 
 ;; 09-state-balance.spectec
 ;; Increase / Decrease balance as helpers
@@ -1601,6 +1621,37 @@ def $decrease_balance(state, validatorIndex_vi, gwei_delta) = state_updated
   -- if $(gwei_delta <= gwei_current)
   -- if state.BALANCES[[validatorIndex_vi] = $(gwei_current - gwei_delta)] = gwei_update*
   -- if state_updated = state[.BALANCES = gwei_update*]
+
+;; ------------------------------------------------------------
+;; apply_deposit(state, pubkey, withdrawal_credentials, amount, signature) : beaconState
+;; ------------------------------------------------------------
+dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beaconState
+
+
+;; case 1: 신규 pubkey
+def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
+  -- if state_in.VALIDATORS = validator_list*
+  ;; validators의 pubkey 리스트 생성 (validator_list* → blsPubkey_list*)
+  -- if (validator_list.PUBKEY = blsPubkey_list)*
+  ;; membership: pubkey 가 리스트에 없는 경우
+  -- if ~( blsPubkey_pk <- blsPubkey_list* )
+  ;; PoP 검증
+  -- if depositMessage_msg = { PUBKEY blsPubkey_pk,
+                              WITHDRAWAL_CREDENTIALS bytes32_wc,
+                              AMOUNT gwei_amount }
+  -- if $compute_domain($DOMAIN_DEPOSIT, eps, eps) = domain_deposit
+  -- if $compute_signing_root_depositMessage(depositMessage_msg, domain_deposit) = root_sign
+  -- if $bls_verify(blsPubkey_pk, root_sign, blsSignature_sig) = true
+  -- if state_out =
+       $add_validator_to_registry(state_in, blsPubkey_pk, bytes32_wc, gwei_amount)
+
+;; case 2: 기존 pubkey
+def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
+  -- if state_in.VALIDATORS = validator_list*
+  -- if (validator_list.PUBKEY = blsPubkey_list)*
+  -- if ( blsPubkey_pk <- blsPubkey_list* )
+  -- if $index_of_pubkey(state_in, blsPubkey_pk) = validatorIndex_idx  ;; use index_of_pubkey
+  -- if state_out = $increase_balance(state_in, validatorIndex_idx, gwei_amount)
 
 ;;
 ;; process_justification_and_finalization
