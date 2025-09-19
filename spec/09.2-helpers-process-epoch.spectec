@@ -1,0 +1,23 @@
+;; ========== helpers for this rule ==========
+;; (한 인덱스에 대해) 보상 패널티 반영
+dec $apply_one_delta(beaconState, (validatorIndex, gwei, gwei)) : beaconState
+def $apply_one_delta(state, (validatorIndex_vi, gwei_r, gwei_p)) = state_after
+  -- if state_r     = $increase_balance(state, validatorIndex_vi, gwei_r)
+  -- if state_after = $decrease_balance(state_r, validatorIndex_vi, gwei_p)
+
+;; 한 세트의 (reward*, penalty*)를 모든 인덱스에 적용 (안쪽 for = fold 1회)
+dec $apply_one_round(beaconState, (validatorIndex*, gwei*, gwei*)) : beaconState
+def $apply_one_round(state, (validatorIndex_vi*, gwei_r*, gwei_p*)) = state_after
+  -- if $fold_list_2_<(validatorIndex, gwei, gwei), beaconState>(
+         (validatorIndex_vi, gwei_r, gwei_p)*,
+         state,
+         def $apply_one_delta
+       ) = state_after
+
+;; 바깥 fold에서 항목을 받아 한 라운드 적용
+dec $apply_one_round_captured(beaconState, (validatorIndex*, (gwei*, gwei*))) : beaconState
+def $apply_one_round_captured(state, (validatorIndex_vi*, (gwei_rr*, gwei_pp*))) =
+  $apply_one_round(state, (validatorIndex_vi*, gwei_rr*, gwei_pp*))
+
+
+
