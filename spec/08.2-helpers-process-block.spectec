@@ -35,8 +35,15 @@ def $is_valid_indexed_attestation(state, indexedAttestation) = true
   -- if $compute_signing_root_attestationData(indexedAttestation.DATA, domain_att) = root_sign
   -- if $bls_fast_aggregate_verify(blsPubkey_pk*, root_sign, indexedAttestation.SIGNATURE) = true
 
-;; 상태 누적 -> is_slashable 로 모으고 모아서 slash
-dec $fold_list_2_<X, Y>(X*, Y, def $f(Y, X) : Y) : Y
+
+;; =========================
+;; Generic fold 
+;; =========================
+dec $fold_<X, Y>(def $fold_func(X, Y): X, X, Y*) : X
+def $fold_<X, Y>(def $fold_func, X, eps) = X
+def $fold_<X, Y>(def $fold_func, X, Y_h :: Y_t*)
+= $fold_<X, Y>(def $fold_func, $fold_func(X, Y_h), Y_t*)
+
 
 ;; is_slashable?
 dec $is_slashable_now(validatorIndex, beaconState) : boolean
@@ -59,3 +66,12 @@ def $slash_if_eligible(state, validatorIndex_vi) = state_slashed
 
 def $slash_if_eligible(state, validatorIndex_vi) = state
   -- otherwise
+
+;; 리스트 전체에 적용: fold_
+dec $apply_slashes(beaconState, validatorIndex*) : beaconState
+def $apply_slashes(state, validatorIndex_sorted*) = state_after
+  -- if $fold_<beaconState, validatorIndex>(
+         def $slash_if_eligible,
+         state,
+         validatorIndex_sorted*
+       ) = state_after

@@ -40,28 +40,19 @@ rule ProcessAttesterSlashing/main:
   state_beaconState attesterSlashing_as ~> state_after_slash
   -- if indexedAttestation_1 = attesterSlashing_as.ATTESTATION_1
   -- if indexedAttestation_2 = attesterSlashing_as.ATTESTATION_2
-  ;; assert is_slashable_attestation_data
   -- if $is_slashable_attestation_data(indexedAttestation_1.DATA, indexedAttestation_2.DATA) = true
-  ;; assert is_valid_indexed_attestation
   -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_1) = true
   -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_2) = true
-  ;; set
   -- if validatorIndex_list_1* = indexedAttestation_1.ATTESTING_INDICES
   -- if validatorIndex_list_2* = indexedAttestation_2.ATTESTING_INDICES
   -- if $to_set_<validatorIndex>(validatorIndex_list_1*) = validatorIndex_set_1*
   -- if $to_set_<validatorIndex>(validatorIndex_list_2*) = validatorIndex_set_2*
   -- if $set_intersection_<validatorIndex>(validatorIndex_set_1*, validatorIndex_set_2*) = validatorIndex_intersection*
   -- if $sort_<validatorIndex>(validatorIndex_intersection*) = validatorIndex_sorted*
-  ;; assert slashed_any -> 1보다 큰 is_slashable 의 결과로 생각..
+  ;; 지역변수 slashed_any 의 확인, 여기선 사전에 is_slashable 검사로 보장
   -- if $filter_list_2_<validatorIndex, beaconState>(validatorIndex_sorted*, state_beaconState, def $is_slashable_now) = validatorIndex_slashable_now*
   -- if $( |validatorIndex_slashable_now*| > 0 )
-  ;; use fold_list_2
-  -- if state_after_slash =
-       $fold_list_2_<validatorIndex, beaconState>(
-         validatorIndex_sorted*,
-         state_beaconState,
-         def $slash_if_eligible
-       )
+  -- if state_after_slash = $apply_slashes(state_beaconState, validatorIndex_sorted*)
 
 ;;
 ;; process_attestation
