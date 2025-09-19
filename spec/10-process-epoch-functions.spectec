@@ -54,11 +54,11 @@ rule Process_rewards_and_penalties/main:
   ;; 3 검증자 인덱스 목록 준비 
   -- if $range(|state.VALIDATORS|) = nat_idx*
   -- if validatorIndex_idx* = nat_idx*          
-  ;; 4 바깥 세트들에 대해 차례대로 적용 (바깥 for = fold 1회)
-  -- if $fold_list_2_<(validatorIndex*, (gwei*, gwei*)), beaconState>(
-         (validatorIndex_idx*, (gwei_reward_2d*, gwei_penalty_2d*))*,
+  ;; 4 바깥 세트(reward*, penalty*)들에 대해 차례대로 적용 (fold 1회)
+  -- if $fold_<beaconState, (validatorIndex*, (gwei*, gwei*))>(
+         def $apply_one_round_captured,
          state,
-         def $apply_one_round_captured
+         (validatorIndex_idx*, (gwei_reward_2d*, gwei_penalty_2d*))*
        ) = state_out
 
 ;;
