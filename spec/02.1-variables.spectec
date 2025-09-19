@@ -21,3 +21,6 @@ var curVer  : version
 var genRoot : root
 
 var balance : gwei
+
+var reward : gwei 
+var penalty : gwei

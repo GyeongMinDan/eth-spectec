@@ -75,3 +75,6 @@ dec $set_or_append_list_<X>(X*, nat, X) : X*
 
 ;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
 dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
+
+;; python for statement range funcs
+dec $range(nat) : nat*

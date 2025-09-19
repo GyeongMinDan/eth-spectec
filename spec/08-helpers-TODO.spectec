@@ -15,3 +15,8 @@ dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorInde
 dec $slash_validator(beaconState, validatorIndex, validatorIndex?) : beaconState
 
 dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
+
+;; return is tuple type
+dec $get_flag_index_deltas(beaconState, nat) : (gwei*, gwei*)
+
+dec $get_inactivity_penalty_deltas(beaconState) : (gwei*, gwei*)

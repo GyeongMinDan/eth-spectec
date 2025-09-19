@@ -816,6 +816,9 @@ var genRoot : root
 
 var balance : gwei
 
+var reward : gwei 
+var penalty : gwei
+
 ;; =========================
 ;; 03-builtins-decls.spectec
 ;; (dec-only: 인터프리터/런타임 제공)
@@ -884,6 +887,9 @@ dec $sort_<X>(X*) : X*
 
 ;; 리스트 교집합 (set.intersection)
 dec $set_intersection_<X>(X*, X*) : X*
+
+;; python for statement range funcs
+dec $range(nat) : nat*
 
 ;; set_or_append_list : X* × nat × X → X*
 ;; if len(X*) == nat -> X*.append(X)
@@ -1250,6 +1256,11 @@ dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorInde
 dec $slash_validator(beaconState, validatorIndex, validatorIndex?) : beaconState
 
 dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
+
+;; return is tuple type
+dec $get_flag_index_deltas(beaconState, nat) : (gwei*, gwei*)
+
+dec $get_inactivity_penalty_deltas(beaconState) : (gwei*, gwei*)
 
 syntax enumerated_<X> = (nat, X)
 dec $enumerate_<X>(X*) : enumerated_<X>*
@@ -1692,6 +1703,29 @@ relation Process_rewards_and_penalties:
   beaconState ~> beaconState
   hint(input %0)
 
+rule Process_rewards_and_penalties/skip_genesis:
+  state ~> state
+  -- if $get_current_epoch(state) = $GENESIS_EPOCH
+
+rule Process_rewards_and_penalties/main:
+  state ~> state_out
+  ;; 1 flag deltas 수집: 0..|PARTICIPATION_FLAG_WEIGHTS|-1
+  -- if $range(|$PARTICIPATION_FLAG_WEIGHTS|) = nat_flag_idx*
+  -- if ( $get_flag_index_deltas(state, nat_flag_idx) = (gwei_rf*, gwei_pf*) )*
+  ;;    ↑ 반복으로 gwei_rf** / gwei_pf** 생성
+  ;; 2 inactivity deltas 추가 → 총 4세트
+  -- if $get_inactivity_penalty_deltas(state) = (gwei_ri*, gwei_pi*)
+  -- if gwei_rf** ++ [gwei_ri*] = gwei_reward_2d**
+  -- if gwei_pf** ++ [gwei_pi*] = gwei_penalty_2d**
+  ;; 3 검증자 인덱스 목록 준비 
+  -- if $range(|state.VALIDATORS|) = nat_idx*
+  -- if validatorIndex_idx* = nat_idx*          
+  ;; 4 바깥 세트들에 대해 차례대로 적용 (바깥 for = fold 1회)
+  -- if $fold_list_2_<(validatorIndex*, (gwei*, gwei*)), beaconState>(
+         (validatorIndex_idx*, (gwei_reward_2d*, gwei_penalty_2d*))*,
+         state,
+         def $apply_one_round_captured
+       ) = state_out
 
 ;;
 ;; process_registry_updates
