@@ -78,3 +78,11 @@ dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
 
 ;; python for statement range funcs
 dec $range(nat) : nat*
+
+;; ------------------------------------------------------------
+;; map over a list with one extra captured argument
+;; X*  ×  Y  ×  (X,Y)->Z   ==>   Z*
+;; X* 의 원소 X 에 대해 Y 인자를 넘겨 f(X,Y) 를 적용하고 그 결과를 Z* 를 만든다.
+;; 라고 이해했는데.... 
+;; ------------------------------------------------------------
+dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*

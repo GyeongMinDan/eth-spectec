@@ -41,3 +41,48 @@ def $get_beacon_committee(state, slot, committeeIndex) = validatorIndex_committe
          uint64_index,
          uint64_count
        ) = validatorIndex_committee*
+
+;; --------------------------------------------
+;; is aggregation_bits[i] true?
+;; --------------------------------------------
+dec $bit_is_one_at_index((nat, validatorIndex), boolean*) : bool
+
+def $bit_is_one_at_index((n_i, validatorIndex_vi), boolean_bits*)
+  = true
+  -- if $(n_i < |boolean_bits*|)
+  -- if boolean_bits*[n_i] = true
+
+def $bit_is_one_at_index((n_i, validatorIndex_vi), boolean_bits*)
+  = false
+  -- otherwise
+
+;; --------------------------------------------
+;; validatorIndex 만 뽑기
+;; --------------------------------------------
+dec $project_vi((nat, validatorIndex), boolean*) : validatorIndex
+def $project_vi((n_i, validatorIndex_vi), boolean_bits*) = validatorIndex_vi
+
+;; --------------------------------------------
+;; get_attesting_indices(state, attestation) : validatorIndex*
+;; --------------------------------------------
+dec $get_attesting_indices(beaconState, attestation) : validatorIndex*
+
+def $get_attesting_indices(state, attestation_att) = validatorIndex_set*
+  -- if $get_beacon_committee(
+         state,
+         attestation_att.DATA.SLOT,
+         attestation_att.DATA.INDEX
+       ) = validatorIndex_committee*
+  -- if $enumerate_<validatorIndex>(validatorIndex_committee*)
+       = (n_i, validatorIndex_vi)*
+  -- if $filter_list_2_<(nat, validatorIndex), boolean*>(
+         (n_i, validatorIndex_vi)*,
+         attestation_att.AGGREGATION_BITS,
+         def $bit_is_one_at_index
+       ) = (n_sel, validatorIndex_sel)*
+  -- if $map_list_2_<(nat, validatorIndex), boolean*, validatorIndex>(
+         (n_sel, validatorIndex_sel)*,
+         attestation_att.AGGREGATION_BITS,
+         def $project_vi
+       ) = validatorIndex_list*
+  -- if $to_set_<validatorIndex>(validatorIndex_list*) = validatorIndex_set*
