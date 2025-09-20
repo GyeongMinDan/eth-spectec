@@ -136,5 +136,3 @@ def $get_unslashed_participating_indices(state, nat_flag_index, epoch_epoch) = v
          def $is_unslashed
        ) = validatorIndex_unslashed*
   -- if $to_set_<validatorIndex>(validatorIndex_unslashed*) = validatorIndex_set*
-
-

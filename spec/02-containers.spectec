@@ -312,5 +312,3 @@ syntax seedInput =
 syntax proposerSeedInput =
   { BASE bytes32,     ;; get_seed(state, epoch, DOMAIN_BEACON_PROPOSER)
     BYTES bytes }     ;; uint_to_bytes(state.SLOT)
-
-

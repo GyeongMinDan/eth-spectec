@@ -75,3 +75,84 @@ def $apply_slashes(state, validatorIndex_sorted*) = state_after
          state,
          validatorIndex_sorted*
        ) = state_after
+
+;; ============================================
+;; SOURCE 플래그 판단 (조건 만족 시 [TIMELY_SOURCE_FLAG_INDEX], 아니면 eps)
+;; ============================================
+dec $source_flag_list(beaconState, attestationData, checkpoint, uint64) : nat*
+
+def $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
+  -- if $integer_squareroot($SLOTS_PER_EPOCH) = uint64_sqrt_slots_per_epoch
+  -- if $(attestationData_data.SOURCE = checkpoint_jc)
+  -- if $(uint64_inclusion_delay <= uint64_sqrt_slots_per_epoch)
+  -- if nat_flags_source* = [ $TIMELY_SOURCE_FLAG_INDEX ]
+
+def $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = eps
+  -- otherwise
+
+
+;; ============================================
+;; TARGET 플래그 판단 (조건 만족 시 [TIMELY_TARGET_FLAG_INDEX], 아니면 eps)
+;; ============================================
+dec $target_flag_list(beaconState, attestationData, uint64) : nat*
+
+def $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_target*
+  -- if $get_block_root(state_beaconState, attestationData_data.TARGET.EPOCH) = root_target_epoch
+  -- if $(attestationData_data.TARGET.ROOT = root_target_epoch)
+  -- if $(uint64_inclusion_delay <= $SLOTS_PER_EPOCH)
+  -- if nat_flags_target* = [ $TIMELY_TARGET_FLAG_INDEX ]
+
+def $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = eps
+  -- otherwise
+
+
+;; ============================================
+;; HEAD 플래그 판단 (조건 만족 시 [TIMELY_HEAD_FLAG_INDEX], 아니면 eps)
+;; (HEAD는 TARGET 매칭이 선행되어야 하므로 TARGET 매칭도 함께 확인)
+;; ============================================
+dec $head_flag_list(beaconState, attestationData, uint64) : nat*
+
+def $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_head*
+  -- if $get_block_root(state_beaconState, attestationData_data.TARGET.EPOCH) = root_target_epoch
+  -- if $(attestationData_data.TARGET.ROOT = root_target_epoch)
+  -- if $get_block_root_at_slot(state_beaconState, attestationData_data.SLOT) = root_at_slot
+  -- if $(attestationData_data.BEACON_BLOCK_ROOT = root_at_slot)
+  -- if $(uint64_inclusion_delay = $MIN_ATTESTATION_INCLUSION_DELAY)
+  -- if nat_flags_head* = [ $TIMELY_HEAD_FLAG_INDEX ]
+
+def $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = eps
+  -- otherwise
+
+;;
+;; get_attestation_participation_flag_indices
+;;
+dec $get_attestation_participation_flag_indices(beaconState, attestationData, uint64) : nat*
+
+;; case 1: data.TARGET.EPOCH == get_current_epoch(state)
+def $get_attestation_participation_flag_indices(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flag_indices*
+  -- if $get_current_epoch(state_beaconState) = epoch_current
+  -- if $(attestationData_data.TARGET.EPOCH = epoch_current)
+  -- if checkpoint_jc = state_beaconState.CURRENT_JUSTIFIED_CHECKPOINT
+  ;; assert is_matching_source
+  -- if $(attestationData_data.SOURCE = checkpoint_jc)
+  ;; 개별 플래그 리스트 계산
+  -- if $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
+  -- if $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_target*
+  -- if $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay)   = nat_flags_head*
+  ;; 합치기
+  -- if nat_flag_indices* = nat_flags_source* ++ nat_flags_target* ++ nat_flags_head*
+
+
+;; case 2: data.TARGET.EPOCH != get_current_epoch(state)  (⇒ previous 사용)
+def $get_attestation_participation_flag_indices(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flag_indices*
+  -- if $get_current_epoch(state_beaconState) = epoch_current
+  -- if ~( $(attestationData_data.TARGET.EPOCH = epoch_current) )
+  -- if checkpoint_jc = state_beaconState.PREVIOUS_JUSTIFIED_CHECKPOINT
+  ;; assert is_matching_source
+  -- if $(attestationData_data.SOURCE = checkpoint_jc)
+  ;; 개별 플래그 리스트 계산
+  -- if $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
+  -- if $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_target*
+  -- if $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay)   = nat_flags_head*
+  ;; 합치기
+  -- if nat_flag_indices* = nat_flags_source* ++ nat_flags_target* ++ nat_flags_head*

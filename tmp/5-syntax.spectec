@@ -791,7 +791,6 @@ syntax proposerSeedInput =
   { BASE bytes32,     ;; get_seed(state, epoch, DOMAIN_BEACON_PROPOSER)
     BYTES bytes }     ;; uint_to_bytes(state.SLOT)
 
-
 ;;
 ;; Variables
 ;;
@@ -828,7 +827,7 @@ var penalty : gwei
 dec $hash_<X>(X) : bytes32
 dec $bls_verify(blsPubkey, root, blsSignature) : boolean
 dec $bls_fast_aggregate_verify(blsPubkey*, root, blsSignature) : boolean
-dec $eth_aggregate_pubkeys(blsPubkey*) -> blsPubkey:
+dec $eth_aggregate_pubkeys(blsPubkey*) : blsPubkey
 
 ;; --- hash_tree_root 계열 ---
 dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
@@ -858,7 +857,7 @@ dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
 dec $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) : root
 dec $compute_signing_root_beaconBlockHeader(beaconBlockHeader, domain) : root
 dec $compute_signing_root_attestationData(attestationData, domain) : root
-
+dec $compute_signing_root_depositMessage(depositMessage, domain) : root
 
 ;; --- 머클 검증 ---
 dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
@@ -888,9 +887,6 @@ dec $sort_<X>(X*) : X*
 ;; 리스트 교집합 (set.intersection)
 dec $set_intersection_<X>(X*, X*) : X*
 
-;; python for statement range funcs
-dec $range(nat) : nat*
-
 ;; set_or_append_list : X* × nat × X → X*
 ;; if len(X*) == nat -> X*.append(X)
 ;; else X*[nat] = X
@@ -899,6 +895,9 @@ dec $set_or_append_list_<X>(X*, nat, X) : X*
 
 ;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
 dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
+
+;; python for statement range funcs
+dec $range(nat) : nat*
 
 ;; --------------------------------------------
 ;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
@@ -932,6 +931,19 @@ def $add_flag(participationFlags, n) = participationFlags
 def $add_flag(participationFlags, n) = $( participationFlags + $pow2(n) )
   -- if $( ((participationFlags / $pow2(n)) \ 2) = 0 )
 
+;; max for uint64
+dec $max_uint64(uint64, uint64) : uint64
+def $max_uint64(uint64_x, uint64_y) = uint64_x
+  -- if $(uint64_x >= uint64_y)
+def $max_uint64(uint64_x, uint64_y) = uint64_y
+  -- otherwise
+
+;; min for uint64
+dec $min_uint64(uint64, uint64) : uint64
+def $min_uint64(uint64_x, uint64_y) = uint64_x
+  -- if $(uint64_x <= uint64_y)
+def $min_uint64(uint64_x, uint64_y) = uint64_y
+  -- otherwise
 
 ;; =========================
 ;; 04-helpers-epoch.spectec
@@ -1172,7 +1184,7 @@ def $add_validator_to_registry(state_in, blsPubkey_pk, bytes32_wc, uint64_amount
   ;; inactivity_scores 추가
   -- if $set_or_append_list_<uint64>(state_4.INACTIVITY_SCORES, validatorIndex_idx, 0) = uint64_inactivity_updated*
   -- if state_out = state_4[.INACTIVITY_SCORES = uint64_inactivity_updated*]
-  
+
 ;; =======================================
 ;; 07-helpers-roots-mixes.spectec
 ;; roots & randao mixes & time/leak helpers
@@ -1221,20 +1233,6 @@ dec $is_in_inactivity_leak(beaconState) : boolean
 def $is_in_inactivity_leak(state) =
   $( $get_finality_delay(state) > $MIN_EPOCHS_TO_INACTIVITY_PENALTY )
 
-;; max for uint64
-dec $max_uint64(uint64, uint64) : uint64
-def $max_uint64(uint64_x, uint64_y) = uint64_x
-  -- if $(uint64_x >= uint64_y)
-def $max_uint64(uint64_x, uint64_y) = uint64_y
-  -- otherwise
-
-;; min for uint64
-dec $min_uint64(uint64, uint64) : uint64
-def $min_uint64(uint64_x, uint64_y) = uint64_x
-  -- if $(uint64_x <= uint64_y)
-def $min_uint64(uint64_x, uint64_y) = uint64_y
-  -- otherwise
-
 ;;
 ;; helper functions that have to be defined
 ;;
@@ -1243,11 +1241,7 @@ dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIn
 
 dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
 
-dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beaconState
-
 dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
-
-dec $get_next_sync_committee(beaconState) : syncCommittee
 
 dec $get_next_sync_committee_indices(beaconState) : validatorIndex*
 
@@ -1261,6 +1255,10 @@ dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
 dec $get_flag_index_deltas(beaconState, nat) : (gwei*, gwei*)
 
 dec $get_inactivity_penalty_deltas(beaconState) : (gwei*, gwei*)
+
+;;
+;; helpers for get_active_validator_indices
+;;
 
 syntax enumerated_<X> = (nat, X)
 dec $enumerate_<X>(X*) : enumerated_<X>*
@@ -1317,6 +1315,7 @@ def $get_committee_count_per_slot(state_beaconState, epoch_epoch) = uint64_commi
   -- if $min_uint64($MAX_COMMITTEES_PER_SLOT, uint64_estimate) = uint64_capped
   -- if $max_uint64(1, uint64_capped) = uint64_committees_per_slot
 
+
 ;; --------------------------------------------
 ;; eligible cond: active(v, prev) OR (v.SLASHED ∧ prev+1 < v.WITHDRAWABLE_EPOCH)
 ;; almost same as get_active_validator_indices
@@ -1363,9 +1362,7 @@ def $is_unslashed(validatorIndex_vi, state) = false
 ;; --------------------------------------------
 ;; get_unslashed_participating_indices
 ;; --------------------------------------------
-
 dec $get_unslashed_participating_indices(beaconState, nat, epoch) : validatorIndex*
-
 ;; case 1: epoch == current
 def $get_unslashed_participating_indices(state, nat_flag_index, epoch_epoch) = validatorIndex_set*
   -- if $get_current_epoch(state) = epoch_epoch
@@ -1435,8 +1432,15 @@ def $is_valid_indexed_attestation(state, indexedAttestation) = true
   -- if $compute_signing_root_attestationData(indexedAttestation.DATA, domain_att) = root_sign
   -- if $bls_fast_aggregate_verify(blsPubkey_pk*, root_sign, indexedAttestation.SIGNATURE) = true
 
-;; 상태 누적 -> is_slashable 로 모으고 모아서 slash
-dec $fold_list_2_<X, Y>(X*, Y, def $f(Y, X) : Y) : Y
+
+;; =========================
+;; Generic fold 
+;; =========================
+dec $fold_<X, Y>(def $fold_func(X, Y): X, X, Y*) : X
+def $fold_<X, Y>(def $fold_func, X, eps) = X
+def $fold_<X, Y>(def $fold_func, X, Y_h :: Y_t*)
+= $fold_<X, Y>(def $fold_func, $fold_func(X, Y_h), Y_t*)
+
 
 ;; is_slashable?
 dec $is_slashable_now(validatorIndex, beaconState) : boolean
@@ -1459,6 +1463,96 @@ def $slash_if_eligible(state, validatorIndex_vi) = state_slashed
 
 def $slash_if_eligible(state, validatorIndex_vi) = state
   -- otherwise
+
+;; 리스트 전체에 적용: fold_
+dec $apply_slashes(beaconState, validatorIndex*) : beaconState
+def $apply_slashes(state, validatorIndex_sorted*) = state_after
+  -- if $fold_<beaconState, validatorIndex>(
+         def $slash_if_eligible,
+         state,
+         validatorIndex_sorted*
+       ) = state_after
+
+;; ============================================
+;; SOURCE 플래그 판단 (조건 만족 시 [TIMELY_SOURCE_FLAG_INDEX], 아니면 eps)
+;; ============================================
+dec $source_flag_list(beaconState, attestationData, checkpoint, uint64) : nat*
+
+def $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
+  -- if $integer_squareroot($SLOTS_PER_EPOCH) = uint64_sqrt_slots_per_epoch
+  -- if $(attestationData_data.SOURCE = checkpoint_jc)
+  -- if $(uint64_inclusion_delay <= uint64_sqrt_slots_per_epoch)
+  -- if nat_flags_source* = [ $TIMELY_SOURCE_FLAG_INDEX ]
+
+def $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = eps
+  -- otherwise
+
+
+;; ============================================
+;; TARGET 플래그 판단 (조건 만족 시 [TIMELY_TARGET_FLAG_INDEX], 아니면 eps)
+;; ============================================
+dec $target_flag_list(beaconState, attestationData, uint64) : nat*
+
+def $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_target*
+  -- if $get_block_root(state_beaconState, attestationData_data.TARGET.EPOCH) = root_target_epoch
+  -- if $(attestationData_data.TARGET.ROOT = root_target_epoch)
+  -- if $(uint64_inclusion_delay <= $SLOTS_PER_EPOCH)
+  -- if nat_flags_target* = [ $TIMELY_TARGET_FLAG_INDEX ]
+
+def $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = eps
+  -- otherwise
+
+
+;; ============================================
+;; HEAD 플래그 판단 (조건 만족 시 [TIMELY_HEAD_FLAG_INDEX], 아니면 eps)
+;; (HEAD는 TARGET 매칭이 선행되어야 하므로 TARGET 매칭도 함께 확인)
+;; ============================================
+dec $head_flag_list(beaconState, attestationData, uint64) : nat*
+
+def $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_head*
+  -- if $get_block_root(state_beaconState, attestationData_data.TARGET.EPOCH) = root_target_epoch
+  -- if $(attestationData_data.TARGET.ROOT = root_target_epoch)
+  -- if $get_block_root_at_slot(state_beaconState, attestationData_data.SLOT) = root_at_slot
+  -- if $(attestationData_data.BEACON_BLOCK_ROOT = root_at_slot)
+  -- if $(uint64_inclusion_delay = $MIN_ATTESTATION_INCLUSION_DELAY)
+  -- if nat_flags_head* = [ $TIMELY_HEAD_FLAG_INDEX ]
+
+def $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = eps
+  -- otherwise
+
+;;
+;; get_attestation_participation_flag_indices
+;;
+dec $get_attestation_participation_flag_indices(beaconState, attestationData, uint64) : nat*
+
+;; case 1: data.TARGET.EPOCH == get_current_epoch(state)
+def $get_attestation_participation_flag_indices(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flag_indices*
+  -- if $get_current_epoch(state_beaconState) = epoch_current
+  -- if $(attestationData_data.TARGET.EPOCH = epoch_current)
+  -- if checkpoint_jc = state_beaconState.CURRENT_JUSTIFIED_CHECKPOINT
+  ;; assert is_matching_source
+  -- if $(attestationData_data.SOURCE = checkpoint_jc)
+  ;; 개별 플래그 리스트 계산
+  -- if $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
+  -- if $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_target*
+  -- if $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay)   = nat_flags_head*
+  ;; 합치기
+  -- if nat_flag_indices* = nat_flags_source* ++ nat_flags_target* ++ nat_flags_head*
+
+
+;; case 2: data.TARGET.EPOCH != get_current_epoch(state)  (⇒ previous 사용)
+def $get_attestation_participation_flag_indices(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flag_indices*
+  -- if $get_current_epoch(state_beaconState) = epoch_current
+  -- if ~( $(attestationData_data.TARGET.EPOCH = epoch_current) )
+  -- if checkpoint_jc = state_beaconState.PREVIOUS_JUSTIFIED_CHECKPOINT
+  ;; assert is_matching_source
+  -- if $(attestationData_data.SOURCE = checkpoint_jc)
+  ;; 개별 플래그 리스트 계산
+  -- if $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
+  -- if $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_target*
+  -- if $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay)   = nat_flags_head*
+  ;; 합치기
+  -- if nat_flag_indices* = nat_flags_source* ++ nat_flags_target* ++ nat_flags_head*
 
 ;; ------------------------------------------------------------
 ;; get_seed
@@ -1504,6 +1598,55 @@ def $get_beacon_committee(state, slot, committeeIndex) = validatorIndex_committe
          uint64_count
        ) = validatorIndex_committee*
 
+;; --------------------------------------------
+;; is aggregation_bits[i] true?
+;; --------------------------------------------
+dec $bit_is_one_at_index((nat, validatorIndex), boolean*) : bool
+
+def $bit_is_one_at_index((n_i, validatorIndex_vi), boolean_bits*)
+  = true
+  -- if $(n_i < |boolean_bits*|)
+  -- if boolean_bits*[n_i] = true
+
+def $bit_is_one_at_index((n_i, validatorIndex_vi), boolean_bits*)
+  = false
+  -- otherwise
+
+;; --------------------------------------------
+;; validatorIndex 만 뽑기
+;; --------------------------------------------
+dec $project_vi((nat, validatorIndex), boolean*) : validatorIndex
+def $project_vi((n_i, validatorIndex_vi), boolean_bits*) = validatorIndex_vi
+
+;; --------------------------------------------
+;; get_attesting_indices(state, attestation) : validatorIndex*
+;; --------------------------------------------
+dec $get_attesting_indices(beaconState, attestation) : validatorIndex*
+
+def $get_attesting_indices(state, attestation_att) = validatorIndex_set*
+  -- if $get_beacon_committee(
+         state,
+         attestation_att.DATA.SLOT,
+         attestation_att.DATA.INDEX
+       ) = validatorIndex_committee*
+  -- if $enumerate_<validatorIndex>(validatorIndex_committee*)
+       = (n_i, validatorIndex_vi)*
+  -- if $filter_list_2_<(nat, validatorIndex), boolean*>(
+         (n_i, validatorIndex_vi)*,
+         attestation_att.AGGREGATION_BITS,
+         def $bit_is_one_at_index
+       ) = (n_sel, validatorIndex_sel)*
+  -- if $map_list_2_<(nat, validatorIndex), boolean*, validatorIndex>(
+         (n_sel, validatorIndex_sel)*,
+         attestation_att.AGGREGATION_BITS,
+         def $project_vi
+       ) = validatorIndex_list*
+  -- if $to_set_<validatorIndex>(validatorIndex_list*) = validatorIndex_set*
+
+;; --------------------------------------------
+;; get_total_balance(state, indices) : gwei
+;; --------------------------------------------
+
 dec $get_total_balance(beaconState, validatorIndex*) : gwei
 
 def $get_total_balance(state, validatorIndex*) = gwei_total
@@ -1543,10 +1686,13 @@ def $get_base_reward(state, validatorIndex_vi) = gwei_reward
   -- if $get_base_reward_per_increment(state) = gwei_per_inc
   -- if $( uint64_increments * gwei_per_inc ) = gwei_reward
 
+
 ;; for process_effective_balance_updates
 ;; ------------------------------------------------------------
 ;; map over a list with one extra captured argument
 ;; X*  ×  Y  ×  (X,Y)->Z   ==>   Z*
+;; X* 의 원소 X 에 대해 Y 인자를 넘겨 f(X,Y) 를 적용하고 그 결과를 Z* 를 만든다.
+;; 라고 이해했는데.... 
 ;; ------------------------------------------------------------
 dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
 
@@ -1594,6 +1740,8 @@ def $rebalance_validator_enumerated((n, validator_v), state) = validator_v
 ;; --------------------------------------------
 ;; get_next_sync_committee(state) : SyncCommittee
 ;; --------------------------------------------
+dec $get_next_sync_committee(beaconState) : syncCommittee
+
 def $get_next_sync_committee(state) = syncCommittee_ret
   -- if $get_next_sync_committee_indices(state) = validatorIndex_indices*
   ;; indices로 선택된 validator들의 PUBKEY 리스트 생성
@@ -1664,6 +1812,27 @@ def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature
   -- if $index_of_pubkey(state_in, blsPubkey_pk) = validatorIndex_idx  ;; use index_of_pubkey
   -- if state_out = $increase_balance(state_in, validatorIndex_idx, gwei_amount)
 
+;; ========== helpers for this rule ==========
+;; (한 인덱스에 대해) 보상 → 패널티 적용
+dec $apply_one_delta(beaconState, (validatorIndex, gwei, gwei)) : beaconState
+def $apply_one_delta(state, (validatorIndex_vi, gwei_r, gwei_p)) = state_after
+  -- if state_r     = $increase_balance(state, validatorIndex_vi, gwei_r)
+  -- if state_after = $decrease_balance(state_r, validatorIndex_vi, gwei_p)
+
+;; 한 세트의 (reward*, penalty*)를 모든 인덱스에 적용 (안쪽 for = fold 1회)
+dec $apply_one_round(beaconState, (validatorIndex*, gwei*, gwei*)) : beaconState
+def $apply_one_round(state, (validatorIndex_vi*, gwei_r*, gwei_p*)) = state_after
+  -- if $fold_<beaconState, (validatorIndex, gwei, gwei)>(
+         def $apply_one_delta,
+         state,
+         (validatorIndex_vi, gwei_r, gwei_p)*
+       ) = state_after
+
+;; 바깥 fold에서 항목을 받아 한 라운드 적용
+dec $apply_one_round_captured(beaconState, (validatorIndex*, (gwei*, gwei*))) : beaconState
+def $apply_one_round_captured(state, (validatorIndex_vi*, (gwei_rr*, gwei_pp*))) =
+  $apply_one_round(state, (validatorIndex_vi*, gwei_rr*, gwei_pp*))
+
 ;;
 ;; process_justification_and_finalization
 ;;
@@ -1720,11 +1889,11 @@ rule Process_rewards_and_penalties/main:
   ;; 3 검증자 인덱스 목록 준비 
   -- if $range(|state.VALIDATORS|) = nat_idx*
   -- if validatorIndex_idx* = nat_idx*          
-  ;; 4 바깥 세트들에 대해 차례대로 적용 (바깥 for = fold 1회)
-  -- if $fold_list_2_<(validatorIndex*, (gwei*, gwei*)), beaconState>(
-         (validatorIndex_idx*, (gwei_reward_2d*, gwei_penalty_2d*))*,
+  ;; 4 바깥 세트(reward*, penalty*)들에 대해 차례대로 적용 (fold 1회)
+  -- if $fold_<beaconState, (validatorIndex*, (gwei*, gwei*))>(
+         def $apply_one_round_captured,
          state,
-         def $apply_one_round_captured
+         (validatorIndex_idx*, (gwei_reward_2d*, gwei_penalty_2d*))*
        ) = state_out
 
 ;;
@@ -1779,7 +1948,6 @@ rule Process_effective_balance_updates/main:
          def $rebalance_validator_enumerated
        ) = validator_updated_list*
   -- if state_updated = state_beaconState[.VALIDATORS = validator_updated_list*]
-
 
 ;;
 ;; process_slashings_reset
@@ -1893,7 +2061,28 @@ rule Process_sync_committee_updates/main:
        state_beaconState[.CURRENT_SYNC_COMMITTEE = state_beaconState.NEXT_SYNC_COMMITTEE]
                         [.NEXT_SYNC_COMMITTEE    = syncCommittee_next]
 
+;;
+;; Epoch processing 
+;;
 
+relation ProcessEpoch:
+  beaconState ~>* beaconState
+  hint(input %0)
+
+rule ProcessEpoch/main:
+  state_beaconState ~>* state_11
+  -- Process_justification_and_finalization:  state_beaconState ~> state_0
+  -- Process_inactivity_updates:              state_0           ~> state_1
+  -- Process_rewards_and_penalties:           state_1           ~> state_2
+  -- Process_registry_updates:                state_2           ~> state_3
+  -- Process_slashings:                       state_3           ~> state_4
+  -- Process_eth1_data_reset:                 state_4           ~> state_5
+  -- Process_effective_balance_updates:       state_5           ~> state_6
+  -- Process_slashings_reset:                 state_6           ~> state_7
+  -- Process_randao_mixes_reset:              state_7           ~> state_8
+  -- Process_historical_summaries_update:     state_8           ~> state_9
+  -- Process_participation_flag_updates:      state_9           ~> state_10
+  -- Process_sync_committee_updates:          state_10          ~> state_11
 
 ;;
 ;; process_block_header
@@ -2018,41 +2207,38 @@ rule Process_eth1_data/accumulate:
   -- if $(nat_occ * 2 <= $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
   -- if state_updated = state_beaconState[.ETH1_DATA_VOTES = eth1Data_update*]
 
-
-
-
-;;
-;; Epoch processing 
-;;
-
-relation ProcessEpoch:
-  beaconState ~>* beaconState
-  hint(input %0)
-
-rule ProcessEpoch/main:
-  state_beaconState ~>* state_11
-  -- Process_justification_and_finalization:  state_beaconState ~> state_0
-  -- Process_inactivity_updates:              state_0           ~> state_1
-  -- Process_rewards_and_penalties:           state_1           ~> state_2
-  -- Process_registry_updates:                state_2           ~> state_3
-  -- Process_slashings:                       state_3           ~> state_4
-  -- Process_eth1_data_reset:                 state_4           ~> state_5
-  -- Process_effective_balance_updates:       state_5           ~> state_6
-  -- Process_slashings_reset:                 state_6           ~> state_7
-  -- Process_randao_mixes_reset:              state_7           ~> state_8
-  -- Process_historical_summaries_update:     state_8           ~> state_9
-  -- Process_participation_flag_updates:      state_9           ~> state_10
-  -- Process_sync_committee_updates:          state_10          ~> state_11
-
 ;;
 ;; process_operations
 ;;   
-
-
-
 relation Process_operations:
   beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
+
+
+;;
+;; process_sync_aggregate
+;; 
+;;
+relation Process_sync_aggregate:
+  beaconState syncAggregate ~> beaconState
+  hint(input %0 %1)
+
+;;
+;; process_block
+;;
+relation ProcessBlock:
+  beaconState beaconBlock ~>* beaconState
+  hint(input %0 %1)
+
+rule ProcessBlock/main:
+  state_beaconState block_beaconBlock ~>* state_6
+  -- Process_block_header:     state_beaconState                   block_beaconBlock                     ~>  state_0
+  -- Process_withdrawals:      state_0                              block_beaconBlock.BODY.EXECUTION_PAYLOAD ~> state_1
+  -- Process_execution_payload: state_1                             block_beaconBlock.BODY                ~>  state_2
+  -- Process_randao:           state_2                              block_beaconBlock.BODY                ~>  state_3
+  -- Process_eth1_data:        state_3                              block_beaconBlock.BODY                ~>  state_4
+  -- Process_operations:       state_4                              block_beaconBlock.BODY                ~>  state_5
+  -- Process_sync_aggregate:   state_5                              block_beaconBlock.BODY.SYNC_AGGREGATE ~>  state_6
 
 ;;
 ;; process_proposer_slashing
@@ -2096,28 +2282,26 @@ rule ProcessAttesterSlashing/main:
   state_beaconState attesterSlashing_as ~> state_after_slash
   -- if indexedAttestation_1 = attesterSlashing_as.ATTESTATION_1
   -- if indexedAttestation_2 = attesterSlashing_as.ATTESTATION_2
-  ;; assert is_slashable_attestation_data
   -- if $is_slashable_attestation_data(indexedAttestation_1.DATA, indexedAttestation_2.DATA) = true
-  ;; assert is_valid_indexed_attestation
   -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_1) = true
   -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_2) = true
-  ;; set
   -- if validatorIndex_list_1* = indexedAttestation_1.ATTESTING_INDICES
   -- if validatorIndex_list_2* = indexedAttestation_2.ATTESTING_INDICES
   -- if $to_set_<validatorIndex>(validatorIndex_list_1*) = validatorIndex_set_1*
   -- if $to_set_<validatorIndex>(validatorIndex_list_2*) = validatorIndex_set_2*
   -- if $set_intersection_<validatorIndex>(validatorIndex_set_1*, validatorIndex_set_2*) = validatorIndex_intersection*
   -- if $sort_<validatorIndex>(validatorIndex_intersection*) = validatorIndex_sorted*
-  ;; assert slashed_any -> 1보다 큰 is_slashable 의 결과로 생각..
+  ;; 지역변수 slashed_any 의 확인, 여기선 사전에 is_slashable 검사로 보장
   -- if $filter_list_2_<validatorIndex, beaconState>(validatorIndex_sorted*, state_beaconState, def $is_slashable_now) = validatorIndex_slashable_now*
   -- if $( |validatorIndex_slashable_now*| > 0 )
-  ;; use fold_list_2
-  -- if state_after_slash =
-       $fold_list_2_<validatorIndex, beaconState>(
-         validatorIndex_sorted*,
-         state_beaconState,
-         def $slash_if_eligible
-       )
+  -- if state_after_slash = $apply_slashes(state_beaconState, validatorIndex_sorted*)
+
+;;
+;; process_attestation
+;;
+
+;; TODO
+
 
 ;; 
 ;; process_deposit
@@ -2197,30 +2381,3 @@ rule ProcessBLSToExecutionChange/main:
   -- if validator_updated = validator[.WITHDRAWAL_CREDENTIALS = bytes32_new_wc]
   -- if state.VALIDATORS[[validatorIndex_change] = validator_updated] = validator_update*
   -- if state_updated = state[.VALIDATORS = validator_update*]
-
-;;
-;; process_sync_aggregate
-;; 
-
-
-;;
-relation Process_sync_aggregate:
-  beaconState syncAggregate ~> beaconState
-  hint(input %0 %1)
-
-;;
-;; process_block
-;;
-relation ProcessBlock:
-  beaconState beaconBlock ~>* beaconState
-  hint(input %0 %1)
-
-rule ProcessBlock/main:
-  state_beaconState block_beaconBlock ~>* state_6
-  -- Process_block_header:     state_beaconState                   block_beaconBlock                     ~>  state_0
-  -- Process_withdrawals:      state_0                              block_beaconBlock.BODY.EXECUTION_PAYLOAD ~> state_1
-  -- Process_execution_payload: state_1                             block_beaconBlock.BODY                ~>  state_2
-  -- Process_randao:           state_2                              block_beaconBlock.BODY                ~>  state_3
-  -- Process_eth1_data:        state_3                              block_beaconBlock.BODY                ~>  state_4
-  -- Process_operations:       state_4                              block_beaconBlock.BODY                ~>  state_5
-  -- Process_sync_aggregate:   state_5                              block_beaconBlock.BODY.SYNC_AGGREGATE ~>  state_6

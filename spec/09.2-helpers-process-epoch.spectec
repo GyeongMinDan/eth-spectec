@@ -18,6 +18,3 @@ def $apply_one_round(state, (validatorIndex_vi*, gwei_r*, gwei_p*)) = state_afte
 dec $apply_one_round_captured(beaconState, (validatorIndex*, (gwei*, gwei*))) : beaconState
 def $apply_one_round_captured(state, (validatorIndex_vi*, (gwei_rr*, gwei_pp*))) =
   $apply_one_round(state, (validatorIndex_vi*, gwei_rr*, gwei_pp*))
-
-
-
