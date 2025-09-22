@@ -1615,8 +1615,8 @@ def $bit_is_one_at_index((n_i, validatorIndex_vi), boolean_bits*)
 ;; --------------------------------------------
 ;; validatorIndex 만 뽑기
 ;; --------------------------------------------
-dec $project_vi((nat, validatorIndex), boolean*) : validatorIndex
-def $project_vi((n_i, validatorIndex_vi), boolean_bits*) = validatorIndex_vi
+dec $collect_vi((nat, validatorIndex), boolean*) : validatorIndex
+def $collect_vi((n_i, validatorIndex_vi), boolean_bits*) = validatorIndex_vi
 
 ;; --------------------------------------------
 ;; get_attesting_indices(state, attestation) : validatorIndex*
@@ -1639,7 +1639,7 @@ def $get_attesting_indices(state, attestation_att) = validatorIndex_set*
   -- if $map_list_2_<(nat, validatorIndex), boolean*, validatorIndex>(
          (n_sel, validatorIndex_sel)*,
          attestation_att.AGGREGATION_BITS,
-         def $project_vi
+         def $collect_vi
        ) = validatorIndex_list*
   -- if $to_set_<validatorIndex>(validatorIndex_list*) = validatorIndex_set*
 
@@ -1770,6 +1770,7 @@ def $decrease_balance(state, validatorIndex_vi, gwei_delta) = state_updated
   -- if $(validatorIndex_vi < |state.BALANCES|)
   -- if state.BALANCES[validatorIndex_vi] = gwei_current
   -- if $(gwei_delta > gwei_current)
+  ;; to make 0, use x - x = 0
   -- if state.BALANCES[[validatorIndex_vi] = $(gwei_current - gwei_current)] = gwei_update*
   -- if state_updated = state[.BALANCES = gwei_update*]
 
@@ -1833,6 +1834,77 @@ dec $apply_one_round_captured(beaconState, (validatorIndex*, (gwei*, gwei*))) : 
 def $apply_one_round_captured(state, (validatorIndex_vi*, (gwei_rr*, gwei_pp*))) =
   $apply_one_round(state, (validatorIndex_vi*, gwei_rr*, gwei_pp*))
 
+;; ------------------------------------------------------------
+;; per-index inactivity score update
+;; ------------------------------------------------------------
+dec $update_inactivity_one(beaconState, validatorIndex) : beaconState
+
+;; case A: index ∈ unslashed participating (prev epoch)
+def $update_inactivity_one(state, validatorIndex_vi) = state_after
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_participating_prev*
+  -- if ( validatorIndex_vi <- validatorIndex_participating_prev* )
+  -- if $(validatorIndex_vi < |state.INACTIVITY_SCORES|)
+  -- if state.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s0
+  -- if $min_uint64(1, uint64_s0) = uint64_dec1
+  -- if $(uint64_s0 - uint64_dec1) = uint64_s1
+  -- if state.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s1] = uint64_scores_mid*
+  -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
+  ;; leak-free 추가 회복(감소)
+  -- if $is_in_inactivity_leak(state) = false
+  -- if state_mid.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s1_read
+  -- if $min_uint64($INACTIVITY_SCORE_RECOVERY_RATE, uint64_s1_read) = uint64_dec2
+  -- if $(uint64_s1_read - uint64_dec2) = uint64_s2
+  -- if state_mid.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s2] = uint64_scores_after*
+  -- if state_after = state_mid[.INACTIVITY_SCORES = uint64_scores_after*]
+
+def $update_inactivity_one(state, validatorIndex_vi) = state_mid
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_participating_prev*
+  -- if ( validatorIndex_vi <- validatorIndex_participating_prev* )
+  -- if $(validatorIndex_vi < |state.INACTIVITY_SCORES|)
+  -- if state.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s0
+  -- if $min_uint64(1, uint64_s0) = uint64_dec1
+  -- if $(uint64_s0 - uint64_dec1) = uint64_s1
+  -- if state.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s1] = uint64_scores_mid*
+  -- if $is_in_inactivity_leak(state) = true
+  -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
+
+;; case B: index ∉ unslashed participating (prev epoch)
+def $update_inactivity_one(state, validatorIndex_vi) = state_after
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_participating_prev*
+  -- if ~( validatorIndex_vi <- validatorIndex_participating_prev* )
+  -- if $(validatorIndex_vi < |state.INACTIVITY_SCORES|)
+  -- if state.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s0
+  -- if $(uint64_s0 + $INACTIVITY_SCORE_BIAS) = uint64_s1
+  -- if state.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s1] = uint64_scores_mid*
+  -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
+  ;; leak-free 추가 회복(감소)
+  -- if $is_in_inactivity_leak(state) = false
+  -- if state_mid.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s1_read
+  -- if $min_uint64($INACTIVITY_SCORE_RECOVERY_RATE, uint64_s1_read) = uint64_dec2
+  -- if $(uint64_s1_read - uint64_dec2) = uint64_s2
+  -- if state_mid.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s2] = uint64_scores_after*
+  -- if state_after = state_mid[.INACTIVITY_SCORES = uint64_scores_after*]
+
+def $update_inactivity_one(state, validatorIndex_vi) = state_mid
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_participating_prev*
+  -- if ~( validatorIndex_vi <- validatorIndex_participating_prev* )
+  -- if $(validatorIndex_vi < |state.INACTIVITY_SCORES|)
+  -- if state.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s0
+  -- if $(uint64_s0 + $INACTIVITY_SCORE_BIAS) = uint64_s1
+  -- if state.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s1] = uint64_scores_mid*
+  -- if $is_in_inactivity_leak(state) = true
+  -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
+
+
+;; fold helper (beaconState, validatorIndex) -> beaconState
+dec $apply_inactivity_one(beaconState, validatorIndex) : beaconState
+def $apply_inactivity_one(state, validatorIndex_vi) = state_updated
+  -- if state_updated = $update_inactivity_one(state, validatorIndex_vi)
+
 ;;
 ;; process_justification_and_finalization
 ;;
@@ -1863,6 +1935,21 @@ rule Process_justification_and_finalization/main:
 relation Process_inactivity_updates:
   beaconState ~> beaconState
   hint(input %0)
+
+rule Process_inactivity_updates/skip_genesis:
+  state_beaconState ~> state_beaconState
+  -- if $get_current_epoch(state_beaconState) = $GENESIS_EPOCH
+
+rule Process_inactivity_updates/main:
+  state_beaconState ~> state_updated
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  -- if ~(epoch_cur = $GENESIS_EPOCH)
+  -- if $get_eligible_validator_indices(state_beaconState) = validatorIndex_eligible*
+  -- if $fold_<beaconState, validatorIndex>(
+         def $apply_inactivity_one,
+         state_beaconState,
+         validatorIndex_eligible*
+       ) = state_updated
 
 
 ;;

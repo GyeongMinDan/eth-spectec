@@ -29,6 +29,21 @@ relation Process_inactivity_updates:
   beaconState ~> beaconState
   hint(input %0)
 
+rule Process_inactivity_updates/skip_genesis:
+  state_beaconState ~> state_beaconState
+  -- if $get_current_epoch(state_beaconState) = $GENESIS_EPOCH
+
+rule Process_inactivity_updates/main:
+  state_beaconState ~> state_updated
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  -- if ~(epoch_cur = $GENESIS_EPOCH)
+  -- if $get_eligible_validator_indices(state_beaconState) = validatorIndex_eligible*
+  -- if $fold_<beaconState, validatorIndex>(
+         def $apply_inactivity_one,
+         state_beaconState,
+         validatorIndex_eligible*
+       ) = state_updated
+
 
 ;;
 ;; process_rewards_and_penalties
@@ -74,6 +89,8 @@ relation Process_registry_updates:
 relation Process_slashings:
   beaconState ~> beaconState
   hint(input %0)
+
+
 
 
 ;;

@@ -59,8 +59,8 @@ def $bit_is_one_at_index((n_i, validatorIndex_vi), boolean_bits*)
 ;; --------------------------------------------
 ;; validatorIndex 만 뽑기
 ;; --------------------------------------------
-dec $project_vi((nat, validatorIndex), boolean*) : validatorIndex
-def $project_vi((n_i, validatorIndex_vi), boolean_bits*) = validatorIndex_vi
+dec $collect_vi((nat, validatorIndex), boolean*) : validatorIndex
+def $collect_vi((n_i, validatorIndex_vi), boolean_bits*) = validatorIndex_vi
 
 ;; --------------------------------------------
 ;; get_attesting_indices(state, attestation) : validatorIndex*
@@ -83,6 +83,6 @@ def $get_attesting_indices(state, attestation_att) = validatorIndex_set*
   -- if $map_list_2_<(nat, validatorIndex), boolean*, validatorIndex>(
          (n_sel, validatorIndex_sel)*,
          attestation_att.AGGREGATION_BITS,
-         def $project_vi
+         def $collect_vi
        ) = validatorIndex_list*
   -- if $to_set_<validatorIndex>(validatorIndex_list*) = validatorIndex_set*
