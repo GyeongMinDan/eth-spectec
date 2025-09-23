@@ -89,3 +89,42 @@ def $update_inactivity_one(state, validatorIndex_vi) = state_mid
 dec $apply_inactivity_one(beaconState, validatorIndex) : beaconState
 def $apply_inactivity_one(state, validatorIndex_vi) = state_updated
   -- if state_updated = $update_inactivity_one(state, validatorIndex_vi)
+
+;; --------------------------------------------
+;; predicate: (i, v)가 이번 epoch에 슬래시 벌점 집행 대상인가?
+;;  v.SLASHED = true  ∧  epoch + (EPOCHS_PER_SLASHINGS_VECTOR / 2) = v.WITHDRAWABLE_EPOCH
+;; --------------------------------------------
+dec $is_due_slashing_en(enumerated_<validator>, epoch) : boolean
+
+def $is_due_slashing_en((nat_i, validator_v), epoch_cur) = true
+  -- if $(validator_v.SLASHED = true)
+  -- if $( epoch_cur + ($EPOCHS_PER_SLASHINGS_VECTOR / 2) = validator_v.WITHDRAWABLE_EPOCH )
+
+def $is_due_slashing_en((nat_i, validator_v), epoch_cur) = false
+  -- otherwise
+
+
+;; --------------------------------------------
+;; map: (i, v) ↦ (ValidatorIndex(i), penalty)
+;; capture: (gwei_adj_total_slash, gwei_total_active)
+;; penalty = ((v.EFFECTIVE_BALANCE / INC) * gwei_adj_total_slash / gwei_total_active) * INC
+;; --------------------------------------------
+dec $compute_slash_penalty_en((nat, validator), (gwei, gwei)) : (validatorIndex, gwei)
+
+def $compute_slash_penalty_en((nat_i, validator_v), (gwei_adj_total_slash, gwei_total_active))
+  = (validatorIndex_vi, gwei_penalty)
+  -- if validatorIndex_vi = nat_i                 ;; nat → validatorIndex
+  -- if $EFFECTIVE_BALANCE_INCREMENT = gwei_inc 
+  -- if $( validator_v.EFFECTIVE_BALANCE / gwei_inc ) = uint64_incs 
+  -- if $( uint64_incs * gwei_adj_total_slash ) = gwei_pen_num 
+  -- if $( gwei_pen_num / gwei_total_active ) = gwei_pen_div 
+  -- if $( gwei_pen_div * gwei_inc ) = gwei_penalty 
+
+
+;; --------------------------------------------
+;; fold 함수: 한 건의 (vi, penalty)를 state에 적용
+;; --------------------------------------------
+dec $apply_one_decrease(beaconState, (validatorIndex, gwei)) : beaconState
+
+def $apply_one_decrease(state_in, (validatorIndex_vi, gwei_penalty)) = state_out
+  -- if state_out = $decrease_balance(state_in, validatorIndex_vi, gwei_penalty)

@@ -15,8 +15,7 @@ def $filter_list_<X>(X_h :: X_t*, def $cond)
   = $filter_list_<X>(X_t*, def $cond)
   -- if $cond(X_h) = false
 
-dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool)
-  : X*
+dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool) : X*
 
 
 dec $is_active_validator_enumerated(enumerated_<validator>, epoch) : bool

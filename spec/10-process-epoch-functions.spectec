@@ -29,7 +29,7 @@ relation Process_inactivity_updates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_inactivity_updates/skip_genesis:
+rule Process_inactivity_updates/skip:
   state_beaconState ~> state_beaconState
   -- if $get_current_epoch(state_beaconState) = $GENESIS_EPOCH
 
@@ -52,7 +52,7 @@ relation Process_rewards_and_penalties:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_rewards_and_penalties/skip_genesis:
+rule Process_rewards_and_penalties/skip:
   state ~> state
   -- if $get_current_epoch(state) = $GENESIS_EPOCH
 
@@ -90,7 +90,34 @@ relation Process_slashings:
   beaconState ~> beaconState
   hint(input %0)
 
-
+rule Process_slashings:
+  state_in ~> state_out
+  ;; 1 계산에 사용할 값들 
+  -- if $get_current_epoch(state_in) = epoch_cur 
+  -- if $get_total_active_balance(state_in) = gwei_total_active
+  -- if $sum_<gwei>(state_in.SLASHINGS) = gwei_slash_sum 
+  -- if $( gwei_slash_sum * $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX ) = gwei_scaled
+  -- if $min_uint64(gwei_scaled, gwei_total_active) = gwei_adj_total_slash
+  ;; 2 validator 인덱스 for 문으로 inices 뽑고, 그 안에서 slashing 할 조건으로 index 추출
+  -- if validator_list* = state_in.VALIDATORS
+  -- if $enumerate_<validator>(validator_list*) = (nat_i, validator_v)*
+  -- if $filter_list_2_<(nat, validator), epoch>(
+         (nat_i, validator_v)*,
+         epoch_cur,
+         def $is_due_slashing_en
+       ) = (nat_due, validator_due)*
+  ;; 3 penalty 계산(map, (adj_total_slash, total_active))
+  -- if $map_list_2_<(nat, validator), (gwei, gwei), (validatorIndex, gwei)>(
+         (nat_due, validator_due)*,
+         (gwei_adj_total_slash, gwei_total_active),
+         def $compute_slash_penalty_en
+       ) = (validatorIndex_vi, gwei_penalty)*
+  ;; 4 fold 로 적용
+  -- if $fold_<beaconState, (validatorIndex, gwei)>(
+         def $apply_one_decrease,
+         state_in,
+         (validatorIndex_vi, gwei_penalty)*
+       ) = state_out
 
 
 ;;
@@ -120,7 +147,7 @@ relation Process_effective_balance_updates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_effective_balance_updates/main:
+rule Process_effective_balance_updates:
   state_beaconState ~> state_updated
   -- if state_beaconState.VALIDATORS = validator_list*
   -- if $enumerate_<validator>(validator_list*) = (n, validator_item)*
@@ -212,7 +239,7 @@ relation Process_participation_flag_updates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_participation_flag_updates/main:
+rule Process_participation_flag_updates:
   state_beaconState ~> state_updated
   -- if participationFlags_prev* = state_beaconState.CURRENT_EPOCH_PARTICIPATION
   -- if $( |state_beaconState.VALIDATORS| ) = uint64_len_validators

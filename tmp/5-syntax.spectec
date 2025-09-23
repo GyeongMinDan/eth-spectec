@@ -1273,8 +1273,7 @@ def $filter_list_<X>(X_h :: X_t*, def $cond)
   = $filter_list_<X>(X_t*, def $cond)
   -- if $cond(X_h) = false
 
-dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool)
-  : X*
+dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool) : X*
 
 
 dec $is_active_validator_enumerated(enumerated_<validator>, epoch) : bool
@@ -1905,6 +1904,45 @@ dec $apply_inactivity_one(beaconState, validatorIndex) : beaconState
 def $apply_inactivity_one(state, validatorIndex_vi) = state_updated
   -- if state_updated = $update_inactivity_one(state, validatorIndex_vi)
 
+;; --------------------------------------------
+;; predicate: (i, v)가 이번 epoch에 슬래시 벌점 집행 대상인가?
+;;  v.SLASHED = true  ∧  epoch + (EPOCHS_PER_SLASHINGS_VECTOR / 2) = v.WITHDRAWABLE_EPOCH
+;; --------------------------------------------
+dec $is_due_slashing_en(enumerated_<validator>, epoch) : boolean
+
+def $is_due_slashing_en((nat_i, validator_v), epoch_cur) = true
+  -- if $(validator_v.SLASHED = true)
+  -- if $( epoch_cur + ($EPOCHS_PER_SLASHINGS_VECTOR / 2) = validator_v.WITHDRAWABLE_EPOCH )
+
+def $is_due_slashing_en((nat_i, validator_v), epoch_cur) = false
+  -- otherwise
+
+
+;; --------------------------------------------
+;; map: (i, v) ↦ (ValidatorIndex(i), penalty)
+;; capture: (gwei_adj_total_slash, gwei_total_active)
+;; penalty = ((v.EFFECTIVE_BALANCE / INC) * gwei_adj_total_slash / gwei_total_active) * INC
+;; --------------------------------------------
+dec $compute_slash_penalty_en((nat, validator), (gwei, gwei)) : (validatorIndex, gwei)
+
+def $compute_slash_penalty_en((nat_i, validator_v), (gwei_adj_total_slash, gwei_total_active))
+  = (validatorIndex_vi, gwei_penalty)
+  -- if validatorIndex_vi = nat_i                 ;; nat → validatorIndex
+  -- if $EFFECTIVE_BALANCE_INCREMENT = gwei_inc 
+  -- if $( validator_v.EFFECTIVE_BALANCE / gwei_inc ) = uint64_incs 
+  -- if $( uint64_incs * gwei_adj_total_slash ) = gwei_pen_num 
+  -- if $( gwei_pen_num / gwei_total_active ) = gwei_pen_div 
+  -- if $( gwei_pen_div * gwei_inc ) = gwei_penalty 
+
+
+;; --------------------------------------------
+;; fold 함수: 한 건의 (vi, penalty)를 state에 적용
+;; --------------------------------------------
+dec $apply_one_decrease(beaconState, (validatorIndex, gwei)) : beaconState
+
+def $apply_one_decrease(state_in, (validatorIndex_vi, gwei_penalty)) = state_out
+  -- if state_out = $decrease_balance(state_in, validatorIndex_vi, gwei_penalty)
+
 ;;
 ;; process_justification_and_finalization
 ;;
@@ -1996,6 +2034,35 @@ relation Process_registry_updates:
 relation Process_slashings:
   beaconState ~> beaconState
   hint(input %0)
+
+rule Process_slashings:
+  state_in ~> state_out
+  ;; 1 계산에 사용할 값들 
+  -- if $get_current_epoch(state_in) = epoch_cur 
+  -- if $get_total_active_balance(state_in) = gwei_total_active
+  -- if $sum_<gwei>(state_in.SLASHINGS) = gwei_slash_sum 
+  -- if $( gwei_slash_sum * $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX ) = gwei_scaled
+  -- if $min_uint64(gwei_scaled, gwei_total_active) = gwei_adj_total_slash
+  ;; 2 validator 인덱스 for 문으로 inices 뽑고, 그 안에서 slashing 할 조건으로 index 추출
+  -- if validator_list* = state_in.VALIDATORS
+  -- if $enumerate_<validator>(validator_list*) = (nat_i, validator_v)*
+  -- if $filter_list_2_<(nat, validator), epoch>(
+         (nat_i, validator_v)*,
+         epoch_cur,
+         def $is_due_slashing_en
+       ) = (nat_due, validator_due)*
+  ;; 3 penalty 계산(map, (adj_total_slash, total_active))
+  -- if $map_list_2_<(nat, validator), (gwei, gwei), (validatorIndex, gwei)>(
+         (nat_due, validator_due)*,
+         (gwei_adj_total_slash, gwei_total_active),
+         def $compute_slash_penalty_en
+       ) = (validatorIndex_vi, gwei_penalty)*
+  ;; 4 fold 로 적용
+  -- if $fold_<beaconState, (validatorIndex, gwei)>(
+         def $apply_one_decrease,
+         state_in,
+         (validatorIndex_vi, gwei_penalty)*
+       ) = state_out
 
 
 ;;
