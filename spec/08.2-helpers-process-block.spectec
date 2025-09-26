@@ -156,3 +156,57 @@ def $get_attestation_participation_flag_indices(state_beaconState, attestationDa
   -- if $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay)   = nat_flags_head*
   ;; 합치기
   -- if nat_flag_indices* = nat_flags_source* ++ nat_flags_target* ++ nat_flags_head*
+
+
+;; --------------------------------------------
+;; 내부 루프: i를 증가시키며 브레이크 조건이 만족될 때 candidate 반환
+;; while 문은 재귀로 처리함 -> 종료되지 않으면 그냥 재귀로 호출
+;; compute_proposer_index_loop(state, indices*, seed, total, i) : validatorIndex
+;; --------------------------------------------
+dec $compute_proposer_index_loop(beaconState, validatorIndex*, bytes32, uint64, uint64) : validatorIndex
+
+;; break case: if effective_balance * 255 >= MAX_EFFECTIVE_BALANCE * random_byte
+def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, uint64_i)
+  = validatorIndex_candidate
+  ;; 1 후보자 선택: shuffled(i % total)
+  -- if $(uint64_i \ uint64_total) = uint64_mod
+  -- if $compute_shuffled_index(uint64_mod, uint64_total, bytes32_seed) = uint64_shuffled
+  -- if validatorIndex_indices*[uint64_shuffled] = validatorIndex_candidate
+  ;; 2 random_byte = hash(seed || uint_to_bytes(i//32))[i%32]
+  -- if $(uint64_i / 32) = uint64_chunk
+  -- if $uint_to_bytes(uint64_chunk) = bytes_chunk
+  ;; fix hash(bytes32 + bytes)
+  -- if $bytes32_to_bytes(bytes32_seed) = bytes_seed_bytes
+  -- if $concat_bytes(bytes_seed_bytes, bytes_chunk) = bytes_msg
+  -- if $hash_<bytes>(bytes_msg) = bytes32_h
+  -- if $(uint64_i \ 32) = nat_b                          ;; 0..31
+  -- if $bytes32_to_bytes1_list(bytes32_h) = bytes1_list_32*
+  -- if bytes1_list_32*[nat_b] = bytes1_rb                    ;; bytes1 값 하나 선택
+  -- if $bytes1_to_uint64(bytes1_rb) = uint64_random_byte
+  ;; 3 effective_balance 조회
+  -- if state_beaconState.VALIDATORS[validatorIndex_candidate] = validator_v
+  -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
+  ;; 4 break 조건
+  -- if $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
+
+;; continue case: 위 조건 미충족 → i+1 로 재귀
+def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, uint64_i)
+  = $compute_proposer_index_loop(
+      state_beaconState,
+      validatorIndex_indices*,
+      bytes32_seed,
+      uint64_total,
+      $(uint64_i + 1)
+    )
+  -- otherwise
+
+;; --------------------------------------------
+;; compute_proposer_index(state, indices*, seed) : validatorIndex
+;; (원본 while 무한루프를 재귀로 표현)
+;; --------------------------------------------
+dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex
+
+def $compute_proposer_index(state_beaconState, validatorIndex_indices*, bytes32_seed) = validatorIndex_ret
+  -- if $( |validatorIndex_indices*| ) = uint64_total
+  -- if $( uint64_total > 0 )
+  -- if $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, 0) = validatorIndex_ret

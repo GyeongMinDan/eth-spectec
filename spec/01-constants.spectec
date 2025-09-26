@@ -429,3 +429,9 @@ def $CAPELLA_FORK_EPOCH = 194048
 ;; not defined in eth2spec but needed
 dec $ZERO_ROOT : root
 def $ZERO_ROOT = 0
+
+
+;; MAX_RANDOM_BYTE = 255
+;; not defined in eth2spec but needed
+dec $MAX_RANDOM_BYTE : uint64
+def $MAX_RANDOM_BYTE = 255

@@ -1,3 +1,74 @@
+;; next_sync_committee_indices_loop:
+;; state, 활성검증자목록, seed, 활성수, i, 누적리스트  ->  누적리스트(길이 = SYNC_COMMITTEE_SIZE)
+dec $next_sync_committee_indices_loop(
+  beaconState, validatorIndex*, bytes32, uint64, uint64, validatorIndex*
+) : validatorIndex*
+
+;; while 종료 조건은 acc 길이 < SYNC_COMMITTEE_SIZE 이므로 같아지면 종료
+def $next_sync_committee_indices_loop(
+  state_beaconState, validatorIndex_active*, bytes32_seed, uint64_active_cnt, uint64_i, validatorIndex_acc*
+) = validatorIndex_acc*
+  -- if $( |validatorIndex_acc*| ) = uint64_len_acc
+  -- if $( uint64_len_acc >= $SYNC_COMMITTEE_SIZE )
+
+;; 계속: 한 번 시도하고(합격 시 append), i+1로 재귀
+def $next_sync_committee_indices_loop(
+  state_beaconState, validatorIndex_active*, bytes32_seed, uint64_active_cnt, uint64_i, validatorIndex_acc*
+) = validatorIndex_ret*
+  ;; 1 shuffled_index = compute_shuffled_index(i % active_cnt, active_cnt, seed)
+  -- if $(uint64_i \ uint64_active_cnt) = uint64_mod
+  -- if $compute_shuffled_index(uint64_mod, uint64_active_cnt, bytes32_seed) = uint64_shuf
+  -- if validatorIndex_active*[uint64_shuf] = validatorIndex_candidate
+  ;; 2 random_byte = hash(seed || uint_to_bytes(i//32))[i%32]
+  -- if $(uint64_i / 32) = uint64_chunk
+  -- if $uint_to_bytes(uint64_chunk) = bytes_chunk
+  ;; fix hash(bytes32 + bytes)
+  -- if $bytes32_to_bytes(bytes32_seed) = bytes_seed_bytes
+  -- if $concat_bytes(bytes_seed_bytes, bytes_chunk) = bytes_msg
+  -- if $hash_<bytes>(bytes_msg) = bytes32_h
+  -- if $(uint64_i \ 32) = nat_b                      ;; 0..31
+  -- if $bytes32_to_bytes1_list(bytes32_h) = bytes1_list_32*
+  -- if bytes1_list_32*[nat_b] = bytes1_rb            ;; bytes1
+  -- if $bytes1_to_uint64(bytes1_rb) = uint64_random_byte
+  ;; 3 effective_balance 읽기
+  -- if state_beaconState.VALIDATORS[validatorIndex_candidate] = validator_v
+  -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
+  ;; 4 합격이면 append, 아니면 그대로
+  -- if $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
+  -- if validatorIndex_acc_sel* = ( validatorIndex_acc* ++ [ validatorIndex_candidate ] )
+  -- if ~( $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte ) )
+  -- if validatorIndex_acc_sel* = validatorIndex_acc*
+  ;; 5 재귀(i+1)
+  -- if $next_sync_committee_indices_loop(
+         state_beaconState,
+         validatorIndex_active*,
+         bytes32_seed,
+         uint64_active_cnt,
+         $(uint64_i + 1),
+         validatorIndex_acc_sel*
+       ) = validatorIndex_ret*
+
+
+;; --------------------------------------------
+;; get_next_sync_committee_indices(state) : validatorIndex*
+;; --------------------------------------------
+dec $get_next_sync_committee_indices(beaconState) : validatorIndex*
+
+def $get_next_sync_committee_indices(state) = validatorIndex_out*
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if epoch_next = $( epoch_cur + 1 )
+  -- if $get_active_validator_indices(state, epoch_next) = validatorIndex_active*
+  -- if $( |validatorIndex_active*| ) = uint64_active_cnt
+  -- if $get_seed(state, epoch_next, $DOMAIN_SYNC_COMMITTEE) = bytes32_seed
+  -- if $next_sync_committee_indices_loop(
+         state,
+         validatorIndex_active*,
+         bytes32_seed,
+         uint64_active_cnt,
+         0,
+         eps ;; 빈 리스트 초기화 해서 넘기니까 그냥 eps 으로 넘김
+       ) = validatorIndex_out*
+
 ;; --------------------------------------------
 ;; get_next_sync_committee(state) : SyncCommittee
 ;; --------------------------------------------

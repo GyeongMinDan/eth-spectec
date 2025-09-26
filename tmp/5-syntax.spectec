@@ -476,6 +476,11 @@ def $CAPELLA_FORK_EPOCH = 194048
 dec $ZERO_ROOT : root
 def $ZERO_ROOT = 0
 
+;; MAX_RANDOM_BYTE = 255
+;; not defined in eth2spec but needed
+dec $MAX_RANDOM_BYTE : uint64
+def $MAX_RANDOM_BYTE = 255
+
 ;;
 ;; Containers: defined as SpecTec struct types
 ;;
@@ -787,9 +792,6 @@ syntax seedInput =
     BYTES bytes,
     MIX bytes32 }
 
-syntax proposerSeedInput =
-  { BASE bytes32,     ;; get_seed(state, epoch, DOMAIN_BEACON_PROPOSER)
-    BYTES bytes }     ;; uint_to_bytes(state.SLOT)
 
 ;;
 ;; Variables
@@ -898,6 +900,35 @@ dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
 
 ;; python for statement range funcs
 dec $range(nat) : nat*
+
+;; for process_effective_balance_updates
+;; ------------------------------------------------------------
+;; map over a list with one extra captured argument
+;; X*  ×  Y  ×  (X,Y)->Z   ==>   Z*
+;; X* 의 원소 X 에 대해 Y 인자를 넘겨 f(X,Y) 를 적용하고 그 결과를 Z* 를 만든다.
+;; 라고 이해했는데.... 
+;; ------------------------------------------------------------
+dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
+
+;; --------------------------------------------
+;; bytes32 → 32개의 bytes1 리스트로 변환 (인덱싱용)
+;; --------------------------------------------
+dec $bytes32_to_bytes1_list(bytes32) : bytes1*
+
+;; --------------------------------------------
+;; bytes1 의 값을 uint64 로 바꾸는 것 (0~255 사이의 값)
+;; --------------------------------------------
+;; bytes1 -> uint64 
+dec $bytes1_to_uint64(bytes1) : uint64
+
+;; bytes 끼리 concat
+dec $concat_bytes(bytes, bytes) : bytes
+
+;; bytes32 -> 그냥 bytes로
+dec $bytes32_to_bytes(bytes32) : bytes
+
+;; bytes4 -> 그냥 bytes로
+dec $bytes4_to_bytes(bytes4) : bytes 
 
 ;; --------------------------------------------
 ;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
@@ -1237,13 +1268,9 @@ def $is_in_inactivity_leak(state) =
 ;; helper functions that have to be defined
 ;;
 
-dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex
-
 dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
 
 dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
-
-dec $get_next_sync_committee_indices(beaconState) : validatorIndex*
 
 dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
 
@@ -1553,6 +1580,60 @@ def $get_attestation_participation_flag_indices(state_beaconState, attestationDa
   ;; 합치기
   -- if nat_flag_indices* = nat_flags_source* ++ nat_flags_target* ++ nat_flags_head*
 
+
+;; --------------------------------------------
+;; 내부 루프: i를 증가시키며 브레이크 조건이 만족될 때 candidate 반환
+;; while 문은 재귀로 처리함 -> 종료되지 않으면 그냥 재귀로 호출
+;; compute_proposer_index_loop(state, indices*, seed, total, i) : validatorIndex
+;; --------------------------------------------
+dec $compute_proposer_index_loop(beaconState, validatorIndex*, bytes32, uint64, uint64) : validatorIndex
+
+;; break case: if effective_balance * 255 >= MAX_EFFECTIVE_BALANCE * random_byte
+def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, uint64_i)
+  = validatorIndex_candidate
+  ;; 1 후보자 선택: shuffled(i % total)
+  -- if $(uint64_i \ uint64_total) = uint64_mod
+  -- if $compute_shuffled_index(uint64_mod, uint64_total, bytes32_seed) = uint64_shuffled
+  -- if validatorIndex_indices*[uint64_shuffled] = validatorIndex_candidate
+  ;; 2 random_byte = hash(seed || uint_to_bytes(i//32))[i%32]
+  -- if $(uint64_i / 32) = uint64_chunk
+  -- if $uint_to_bytes(uint64_chunk) = bytes_chunk
+    ;; fix hash(bytes32 + bytes)
+  -- if $bytes32_to_bytes(bytes32_seed) = bytes_seed_bytes
+  -- if $concat_bytes(bytes_seed_bytes, bytes_chunk) = bytes_msg
+  -- if $hash_<bytes>(bytes_msg) = bytes32_h
+  -- if $(uint64_i \ 32) = nat_b                          ;; 0..31
+  -- if $bytes32_to_bytes1_list(bytes32_h) = bytes1_list_32*
+  -- if bytes1_list_32*[nat_b] = bytes1_rb                    ;; bytes1 값 하나 선택
+  -- if $bytes1_to_uint64(bytes1_rb) = uint64_random_byte
+  ;; 3 effective_balance 조회
+  -- if state_beaconState.VALIDATORS[validatorIndex_candidate] = validator_v
+  -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
+  ;; 4 break 조건
+  -- if $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
+
+;; continue case: 위 조건 미충족 → i+1 로 재귀
+def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, uint64_i)
+  = $compute_proposer_index_loop(
+      state_beaconState,
+      validatorIndex_indices*,
+      bytes32_seed,
+      uint64_total,
+      $(uint64_i + 1)
+    )
+  -- otherwise
+
+;; --------------------------------------------
+;; compute_proposer_index(state, indices*, seed) : validatorIndex
+;; (원본 while 무한루프를 재귀로 표현)
+;; --------------------------------------------
+dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex
+
+def $compute_proposer_index(state_beaconState, validatorIndex_indices*, bytes32_seed) = validatorIndex_ret
+  -- if $( |validatorIndex_indices*| ) = uint64_total
+  -- if $( uint64_total > 0 )
+  -- if $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, 0) = validatorIndex_ret
+
 ;; ------------------------------------------------------------
 ;; get_seed
 ;; ------------------------------------------------------------
@@ -1561,9 +1642,12 @@ dec $get_seed(beaconState, epoch, domainType) : bytes32
 def $get_seed(state, epoch, domainType) = bytes32_seed
   -- if $(epoch + $EPOCHS_PER_HISTORICAL_VECTOR - $MIN_SEED_LOOKAHEAD - 1) = epoch_mix_source
   -- if $get_randao_mix(state, epoch_mix_source) = bytes32_mix
-  -- if $uint_to_bytes(epoch) = bytes_epoch
-  -- if seedInput_pre = { DOMAIN domainType, BYTES bytes_epoch, MIX bytes32_mix }
-  -- if $hash_<seedInput>(seedInput_pre) = bytes32_seed
+  -- if $bytes4_to_bytes(domainType) = bytes_domain                                           
+  -- if $uint_to_bytes(epoch) = bytes_epoch                                                
+  -- if $bytes32_to_bytes(bytes32_mix) = bytes_mix                                               
+  -- if $concat_bytes(bytes_domain, bytes_epoch) = bytes_dom_epoch                               
+  -- if $concat_bytes(bytes_dom_epoch, bytes_mix) = bytes_msg                                    
+  -- if $hash_<bytes>(bytes_msg) = bytes32_seed
 
 ;; ------------------------------------------------------------
 ;; get_beacon_proposer_index
@@ -1574,10 +1658,12 @@ def $get_beacon_proposer_index(state) = validatorIndex_prop
   -- if $get_current_epoch(state) = epoch_cur
   -- if $get_seed(state, epoch_cur, $DOMAIN_BEACON_PROPOSER) = bytes32_seed_base
   -- if $uint_to_bytes(state.SLOT) = bytes_slot
-  -- if proposerSeedInput_pre = { BASE bytes32_seed_base, BYTES bytes_slot }
-  -- if $hash_<proposerSeedInput>(proposerSeedInput_pre) = bytes32_seed
+  ;; fix hash(bytes32 + bytes)
+  -- if $bytes32_to_bytes(bytes32_seed_base) = bytes_seed_bytes
+  -- if $concat_bytes(bytes_seed_bytes, bytes_slot) = bytes_msg
+  -- if $hash_<bytes>(bytes_msg) = bytes32_h
   -- if $get_active_validator_indices(state, epoch_cur) = validatorIndex_indices*
-  -- if $compute_proposer_index(state, validatorIndex_indices*, bytes32_seed) = validatorIndex_prop
+  -- if $compute_proposer_index(state, validatorIndex_indices*, bytes32_h) = validatorIndex_prop
 
 ;; ------------------------------------------------------------
 ;; get_beacon_committee
@@ -1685,17 +1771,6 @@ def $get_base_reward(state, validatorIndex_vi) = gwei_reward
   -- if $get_base_reward_per_increment(state) = gwei_per_inc
   -- if $( uint64_increments * gwei_per_inc ) = gwei_reward
 
-
-;; for process_effective_balance_updates
-;; ------------------------------------------------------------
-;; map over a list with one extra captured argument
-;; X*  ×  Y  ×  (X,Y)->Z   ==>   Z*
-;; X* 의 원소 X 에 대해 Y 인자를 넘겨 f(X,Y) 를 적용하고 그 결과를 Z* 를 만든다.
-;; 라고 이해했는데.... 
-;; ------------------------------------------------------------
-dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
-
-
 ;; predicate: apply update iff
 ;;   balance + DOWNWARD_THRESHOLD < effective_balance
 ;;   OR
@@ -1735,6 +1810,77 @@ def $rebalance_validator_enumerated((n, validator_v), state) = validator_updated
 
 def $rebalance_validator_enumerated((n, validator_v), state) = validator_v
   -- otherwise
+
+;; next_sync_committee_indices_loop:
+;; state, 활성검증자목록, seed, 활성수, i, 누적리스트  ->  누적리스트(길이 = SYNC_COMMITTEE_SIZE)
+dec $next_sync_committee_indices_loop(
+  beaconState, validatorIndex*, bytes32, uint64, uint64, validatorIndex*
+) : validatorIndex*
+
+;; 종료: 충분히 모였으면(acc 길이 == SYNC_COMMITTEE_SIZE) 그대로 반환
+def $next_sync_committee_indices_loop(
+  state_beaconState, validatorIndex_active*, bytes32_seed, uint64_active_cnt, uint64_i, validatorIndex_acc*
+) = validatorIndex_acc*
+  -- if $( |validatorIndex_acc*| ) = uint64_len_acc
+  -- if $( uint64_len_acc >= $SYNC_COMMITTEE_SIZE )
+
+;; 계속: 한 번 시도하고(합격 시 append), i+1로 재귀
+def $next_sync_committee_indices_loop(
+  state_beaconState, validatorIndex_active*, bytes32_seed, uint64_active_cnt, uint64_i, validatorIndex_acc*
+) = validatorIndex_ret*
+  ;; 1 shuffled_index = compute_shuffled_index(i % active_cnt, active_cnt, seed)
+  -- if $(uint64_i \ uint64_active_cnt) = uint64_mod
+  -- if $compute_shuffled_index(uint64_mod, uint64_active_cnt, bytes32_seed) = uint64_shuf
+  -- if validatorIndex_active*[uint64_shuf] = validatorIndex_candidate
+  ;; 2 random_byte = hash(seed || uint_to_bytes(i//32))[i%32]
+  -- if $(uint64_i / 32) = uint64_chunk
+  -- if $uint_to_bytes(uint64_chunk) = bytes_chunk
+  ;; fix hash(bytes32 + bytes)
+  -- if $bytes32_to_bytes(bytes32_seed) = bytes_seed_bytes
+  -- if $concat_bytes(bytes_seed_bytes, bytes_chunk) = bytes_msg
+  -- if $hash_<bytes>(bytes_msg) = bytes32_h
+  -- if $(uint64_i \ 32) = nat_b                      ;; 0..31
+  -- if $bytes32_to_bytes1_list(bytes32_h) = bytes1_list_32*
+  -- if bytes1_list_32*[nat_b] = bytes1_rb            ;; bytes1
+  -- if $bytes1_to_uint64(bytes1_rb) = uint64_random_byte
+  ;; 3 effective_balance 읽기
+  -- if state_beaconState.VALIDATORS[validatorIndex_candidate] = validator_v
+  -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
+  ;; 4 가중치 필터(합격이면 append, 아니면 그대로)
+  -- if $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
+  -- if validatorIndex_acc_sel* = ( validatorIndex_acc* ++ [ validatorIndex_candidate ] )
+  -- if ~( $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte ) )
+  -- if validatorIndex_acc_sel* = validatorIndex_acc*
+  ;; 5 재귀(i+1)
+  -- if $next_sync_committee_indices_loop(
+         state_beaconState,
+         validatorIndex_active*,
+         bytes32_seed,
+         uint64_active_cnt,
+         $(uint64_i + 1),
+         validatorIndex_acc_sel*
+       ) = validatorIndex_ret*
+
+
+;; --------------------------------------------
+;; get_next_sync_committee_indices(state) : validatorIndex*
+;; --------------------------------------------
+dec $get_next_sync_committee_indices(beaconState) : validatorIndex*
+
+def $get_next_sync_committee_indices(state) = validatorIndex_out*
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if epoch_next = $( epoch_cur + 1 )
+  -- if $get_active_validator_indices(state, epoch_next) = validatorIndex_active*
+  -- if $( |validatorIndex_active*| ) = uint64_active_cnt
+  -- if $get_seed(state, epoch_next, $DOMAIN_SYNC_COMMITTEE) = bytes32_seed
+  -- if $next_sync_committee_indices_loop(
+         state,
+         validatorIndex_active*,
+         bytes32_seed,
+         uint64_active_cnt,
+         0,
+         eps ;; 빈 리스트 초기화 해서 넘기니까 그냥 eps 으로 넘김
+       ) = validatorIndex_out*
 
 ;; --------------------------------------------
 ;; get_next_sync_committee(state) : SyncCommittee

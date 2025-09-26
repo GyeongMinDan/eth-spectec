@@ -86,3 +86,24 @@ dec $range(nat) : nat*
 ;; 라고 이해했는데.... 
 ;; ------------------------------------------------------------
 dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
+
+
+;; --------------------------------------------
+;; bytes32 → 32개의 bytes1 리스트로 변환 (인덱싱용)
+;; --------------------------------------------
+dec $bytes32_to_bytes1_list(bytes32) : bytes1*
+
+;; --------------------------------------------
+;; bytes1 의 값을 uint64 로 바꾸는 것 (0~255 사이의 값)
+;; --------------------------------------------
+;; bytes1 -> uint64 
+dec $bytes1_to_uint64(bytes1) : uint64
+
+;; bytes 끼리 concat
+dec $concat_bytes(bytes, bytes) : bytes
+
+;; bytes32 -> 그냥 bytes로
+dec $bytes32_to_bytes(bytes32) : bytes
+
+;; bytes4 -> 그냥 bytes로
+dec $bytes4_to_bytes(bytes4) : bytes 
