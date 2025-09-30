@@ -910,6 +910,15 @@ dec $range(nat) : nat*
 ;; ------------------------------------------------------------
 dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
 
+;; =========================
+;; 단항 map (X* -> Z*)
+;; =========================
+dec $map_list_1_<X, Z>(X*, def $f(X) : Z) : Z*
+def $map_list_1_<X, Z>(eps, def $f) = eps
+def $map_list_1_<X, Z>(X_h :: X_t*, def $f)
+  = $f(X_h) :: $map_list_1_<X, Z>(X_t*, def $f)
+
+
 ;; --------------------------------------------
 ;; bytes32 → 32개의 bytes1 리스트로 변환 (인덱싱용)
 ;; --------------------------------------------
@@ -1272,16 +1281,20 @@ dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
 
 dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
 
-dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
-
 dec $slash_validator(beaconState, validatorIndex, validatorIndex?) : beaconState
-
-dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
 
 ;; return is tuple type
 dec $get_flag_index_deltas(beaconState, nat) : (gwei*, gwei*)
 
 dec $get_inactivity_penalty_deltas(beaconState) : (gwei*, gwei*)
+
+;; =========================
+;; Generic fold 
+;; =========================
+dec $fold_<X, Y>(def $fold_func(X, Y): X, X, Y*) : X
+def $fold_<X, Y>(def $fold_func, X, eps) = X
+def $fold_<X, Y>(def $fold_func, X, Y_h :: Y_t*)
+= $fold_<X, Y>(def $fold_func, $fold_func(X, Y_h), Y_t*)
 
 ;;
 ;; helpers for get_active_validator_indices
@@ -1421,6 +1434,187 @@ def $get_unslashed_participating_indices(state, nat_flag_index, epoch_epoch) = v
        ) = validatorIndex_unslashed*
   -- if $to_set_<validatorIndex>(validatorIndex_unslashed*) = validatorIndex_set*
 
+;; --------------------------------------------
+;; choose_index : nat_bit==1 이면 flip, 아니면 그대로
+;; --------------------------------------------
+dec $choose_index(uint64, uint64, nat) : uint64
+def $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_flip
+  -- if $(nat_bit = 1)
+def $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_index_in
+  -- otherwise
+
+
+;; --------------------------------------------
+;; attach_capture_round : round ∧ (seed, n) → (seed, n, round)
+;; (fold에서 캡처를 건네주기 위한 유틸)
+;; --------------------------------------------
+dec $attach_capture_round(uint64, (bytes32, uint64)) : (bytes32, uint64, uint64)
+def $attach_capture_round(uint64_r, (bytes32_s, uint64_n)) = (bytes32_s, uint64_n, uint64_r)
+
+
+;; --------------------------------------------
+;; apply_shuffle_round : (acc_index, (seed, n, round)) → acc_index'
+;;  - 한번의 반복문 사이클을 표현
+;;  >> 시프트 연산은 양의정수 uint64 범위 내에서 byte 값을 2**k로 나눈 몫을 사용하고 최하위 비트는 모듈러 2 연산을 사용하여 동일한 의미로 구현
+;;  bit = (byte // (2^k)) % 2  로 구현
+;; --------------------------------------------
+dec $apply_shuffle_round(uint64, (bytes32, uint64, uint64)) : uint64
+
+def $apply_shuffle_round(uint64_index_in, (bytes32_seed, uint64_n, uint64_round)) = uint64_index_out
+  ;; 1 round_hash = hash(seed || uint8(round))
+  -- if $bytes32_to_bytes(bytes32_seed) = bytes_seed
+  -- if $(uint64_round \ 256) = nat_round8
+  -- if $uint_to_bytes(nat_round8) = bytes_round8
+  -- if $concat_bytes(bytes_seed, bytes_round8) = bytes_msg_r
+  -- if $hash_<bytes>(bytes_msg_r) = bytes32_round_hash
+  ;; 2 pivot = bytes_to_uint64(round_hash) % n
+  -- if $bytes_to_uint64(bytes32_round_hash) = uint64_pivot_raw
+  -- if $(uint64_pivot_raw \ uint64_n) = uint64_pivot
+  ;; 3 flip / position
+  -- if $(uint64_pivot + uint64_n) = uint64_sum
+  -- if $(uint64_sum - uint64_index_in) = uint64_tmp
+  -- if $(uint64_tmp \ uint64_n) = uint64_flip
+  -- if $max_uint64(uint64_index_in, uint64_flip) = uint64_position
+  ;; 4 source = hash(seed || uint8(round) || uint32(bucket))
+  -- if $(uint64_position / 256) = uint64_bucket
+  -- if $uint_to_bytes(uint64_bucket) = bytes_bucket
+  -- if $concat_bytes(bytes_seed, bytes_round8) = bytes_seed_round
+  -- if $concat_bytes(bytes_seed_round, bytes_bucket) = bytes_msg_src
+  -- if $hash_<bytes>(bytes_msg_src) = bytes32_source
+  ;; 5 바이트/비트 좌표 (position % 256 → byte_index, k)
+  -- if $(uint64_position \ 256) = nat_pos_in_bucket              ;; 0..255
+  -- if $(nat_pos_in_bucket / 8) = nat_byte_index                 ;; 0..31
+  -- if $(nat_pos_in_bucket \ 8) = nat_k                          ;; 0..7
+  ;; 6 byte 선택 및 bit 추출:  bit = (byte // 2^k) % 2
+  -- if $bytes32_to_bytes1_list(bytes32_source) = bytes1_list_32*
+  -- if bytes1_list_32*[nat_byte_index] = bytes1_b
+  -- if $bytes1_to_uint64(bytes1_b) = uint64_byte                  ;; 0..255
+  -- if $pow2(nat_k) = nat_two_pow_k                               ;; 2^k
+  -- if $(uint64_byte / nat_two_pow_k) = uint64_q                  ;; byte // 2^k
+  -- if $(uint64_q \ 2) = nat_bit                                  ;; (..)%2  ∈ {0,1}
+  ;; 7 스왑 여부 그리고 출력
+  -- if $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_index_out 
+
+
+;; --------------------------------------------
+;; compute_shuffled_index : for-loop
+;;  - rounds = [0 .. SHUFFLE_ROUND_COUNT-1]
+;;  - 각 round에 (seed, n)을 캡처로 붙여서 fold
+;; --------------------------------------------
+dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
+
+def $compute_shuffled_index(uint64_index, uint64_index_count, bytes32_seed) = uint64_index_out
+  -- if $range($SHUFFLE_ROUND_COUNT) = uint64_rounds*
+  -- if $map_list_2_<uint64, (bytes32, uint64), (bytes32, uint64, uint64)>(
+         uint64_rounds*,
+         (bytes32_seed, uint64_index_count),
+         def $attach_capture_round
+       ) = (bytes32_seed_c, uint64_n_c, uint64_round_c)*
+  -- if $fold_<uint64, (bytes32, uint64, uint64)>(
+         def $apply_shuffle_round,
+         uint64_index,
+         (bytes32_seed_c, uint64_n_c, uint64_round_c)*
+       ) = uint64_index_out
+
+;; 구간 보정: nat x + uint64 start → uint64
+dec $add_offset_nat_uint64(nat, uint64) : uint64
+def $add_offset_nat_uint64(nat_x, uint64_start) = $(uint64_start + nat_x)
+
+;; 하나의 i에 대해 셔플 인덱스를 통해 validatorIndex 뽑기
+;; capture: (indices*, seed, len)
+dec $pick_shuffled_vi(uint64, (validatorIndex*, bytes32, uint64)) : validatorIndex
+def $pick_shuffled_vi(uint64_i, (validatorIndex_indices*, bytes32_seed, uint64_len)) = validatorIndex_vi
+  -- if $compute_shuffled_index(uint64_i, uint64_len, bytes32_seed) = uint64_shuf
+  -- if validatorIndex_indices*[uint64_shuf] = validatorIndex_vi
+
+
+;; --------------------------------------------
+;; compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
+;; --------------------------------------------
+
+dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
+
+def $compute_committee(validatorIndex_indices*, bytes32_seed, uint64_index, uint64_count) = validatorIndex_committee*
+  -- if $( |validatorIndex_indices*| ) = uint64_len
+  -- if $( (uint64_len * uint64_index) / uint64_count ) = uint64_start
+  -- if $(uint64_index + 1) = uint64_plus_index
+  -- if $( (uint64_len * uint64_plus_index) / uint64_count ) = uint64_end
+  -- if $( uint64_end - uint64_start ) = uint64_span
+  ;; [0..span-1] 만들고 → 각 원소에 start를 더해 [start..end-1] i-리스트 만들기
+  -- if $range(uint64_span) = nat_r*
+  -- if $map_list_2_<nat, uint64, uint64>(nat_r*, uint64_start, def $add_offset_nat_uint64) = uint64_i_list*
+  ;; 각 i에 대해 indices[shuffle(i, len, seed)] 선택
+  -- if $map_list_2_<uint64, (validatorIndex*, bytes32, uint64), validatorIndex>(
+         uint64_i_list*,
+         (validatorIndex_indices*, bytes32_seed, uint64_len),
+         def $pick_shuffled_vi
+       ) = validatorIndex_committee*
+
+;; ----------------------------
+;; helpers for exit-epoch lists
+;; ----------------------------
+dec $exit_epoch_not_far_future(validator) : boolean
+def $exit_epoch_not_far_future(validator_v) = true
+  -- if ~( validator_v.EXIT_EPOCH = $FAR_FUTURE_EPOCH )
+def $exit_epoch_not_far_future(validator_v) = false
+  -- otherwise
+
+dec $exit_epoch_eq(validator, epoch) : boolean
+def $exit_epoch_eq(validator_v, epoch_e) = true
+  -- if $( validator_v.EXIT_EPOCH = epoch_e )
+def $exit_epoch_eq(validator_v, epoch_e) = false
+  -- otherwise
+
+dec $exit_epoch_of(validator) : epoch
+def $exit_epoch_of(validator_v) = validator_v.EXIT_EPOCH
+
+;; fold for max over epochs 
+dec $fold_max_epoch(epoch, epoch) : epoch
+def $fold_max_epoch(epoch_acc, epoch_x) = $max_uint64(epoch_acc, epoch_x)
+
+;; --------------------------------------------
+;; initiate_validator_exit(state, index) : state
+;; --------------------------------------------
+dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
+
+;; if 조건 만족 시 그대로 반환
+def $initiate_validator_exit(state_in, validatorIndex_idx) = state_in
+  -- if $(validatorIndex_idx < |state_in.VALIDATORS|)
+  -- if state_in.VALIDATORS[validatorIndex_idx] = validator_v
+  -- if ~( validator_v.EXIT_EPOCH = $FAR_FUTURE_EPOCH )
+
+;; 메인 로직
+def $initiate_validator_exit(state_in, validatorIndex_idx) = state_out
+  -- if $(validatorIndex_idx < |state_in.VALIDATORS|)
+  -- if state_in.VALIDATORS[validatorIndex_idx] = validator_v
+  -- if $( validator_v.EXIT_EPOCH = $FAR_FUTURE_EPOCH )
+  ;; (1) exit_epochs = [v.exit_epoch for v in state.validators if v.exit_epoch != FAR_FUTURE_EPOCH]
+  -- if validator_list* = state_in.VALIDATORS
+  -- if $filter_list_<validator>(validator_list*, def $exit_epoch_not_far_future) = validator_list_nf*
+  -- if $map_list_1_<validator, epoch>(validator_list_nf*, def $exit_epoch_of) = epoch_exit_list*
+  ;; (2) epoch_act_exit = compute_activation_exit_epoch(get_current_epoch(state))
+  -- if $get_current_epoch(state_in) = epoch_cur
+  -- if $compute_activation_exit_epoch(epoch_cur) = epoch_act_exit
+  ;; (3) exit_queue_epoch_0 = max(exit_epochs + [epoch_act_exit])
+  -- if epoch_exit_list* ++ [ epoch_act_exit ] = epoch_all*
+  -- if $fold_<epoch, epoch>(def $fold_max_epoch, 0, epoch_all*) = epoch_exit_queue_0
+  ;; (4) exit_queue_churn = len([v for v in state.validators if v.exit_epoch == exit_queue_epoch_0])
+  -- if $filter_list_2_<validator, epoch>(validator_list*, epoch_exit_queue_0, def $exit_epoch_eq) = validator_list_eq*
+  -- if $( |validator_list_eq*| ) = uint64_exit_queue_churn
+  ;; (5) 한도 초과면 큐 epoch + 1
+  -- if $get_validator_churn_limit(state_in) = uint64_churn_limit
+  -- if $( uint64_exit_queue_churn >= uint64_churn_limit )
+  -- if epoch_exit_queue = $( epoch_exit_queue_0 + 1 )
+  -- if ~( $( uint64_exit_queue_churn >= uint64_churn_limit ) )
+  -- if epoch_exit_queue = epoch_exit_queue_0
+  ;; (6) validator.exit_epoch / withdrawable_epoch 설정
+  -- if epoch_withdrawable = $( epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY )
+  -- if validator_updated =
+       validator_v[.EXIT_EPOCH         = epoch_exit_queue]
+                  [.WITHDRAWABLE_EPOCH = epoch_withdrawable]
+  -- if state_in.VALIDATORS[[validatorIndex_idx] = validator_updated] = validator_update*
+  -- if state_out = state_in[.VALIDATORS = validator_update*]
+
 ;; ------------------------------------------------------------
 ;; is_slashable_attestation_data
 ;; ------------------------------------------------------------
@@ -1457,15 +1651,6 @@ def $is_valid_indexed_attestation(state, indexedAttestation) = true
   -- if $get_domain(state, $DOMAIN_BEACON_ATTESTER, indexedAttestation.DATA.TARGET.EPOCH) = domain_att
   -- if $compute_signing_root_attestationData(indexedAttestation.DATA, domain_att) = root_sign
   -- if $bls_fast_aggregate_verify(blsPubkey_pk*, root_sign, indexedAttestation.SIGNATURE) = true
-
-
-;; =========================
-;; Generic fold 
-;; =========================
-dec $fold_<X, Y>(def $fold_func(X, Y): X, X, Y*) : X
-def $fold_<X, Y>(def $fold_func, X, eps) = X
-def $fold_<X, Y>(def $fold_func, X, Y_h :: Y_t*)
-= $fold_<X, Y>(def $fold_func, $fold_func(X, Y_h), Y_t*)
 
 
 ;; is_slashable?

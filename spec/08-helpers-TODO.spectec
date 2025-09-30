@@ -2,15 +2,9 @@
 ;; helper functions that have to be defined
 ;;
 
-dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
-
 dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
 
-dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
-
 dec $slash_validator(beaconState, validatorIndex, validatorIndex?) : beaconState
-
-dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
 
 ;; return is tuple type
 dec $get_flag_index_deltas(beaconState, nat) : (gwei*, gwei*)
