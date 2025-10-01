@@ -1,0 +1,343 @@
+dec $is_active_validator_enumerated(enumerated_<validator>, epoch) : bool
+def $is_active_validator_enumerated((n, validator), epoch) = $is_active_validator(validator, epoch)
+
+dec $get_active_validator_indices(beaconState, epoch) : validatorIndex*
+def $get_active_validator_indices(state, epoch) = n_active*
+  -- if state.VALIDATORS = validator*
+  -- if $enumerate_<validator>(validator*) = (n, validator)*
+  -- if $filter_list_2_<(nat, validator), epoch>(
+      (n, validator)*,
+      epoch,
+      def $is_active_validator_enumerated
+    )
+    = (n_active, validator_active)*
+
+;; ------------------------------------------------------------
+;; get_validator_churn_limit
+;; ------------------------------------------------------------
+dec $get_validator_churn_limit(beaconState) : uint64
+def $get_validator_churn_limit(state_beaconState) = uint64_churn_limit
+  -- if $get_current_epoch(state_beaconState) = epoch_current
+  -- if $get_active_validator_indices(state_beaconState, epoch_current) = validatorIndex_active*
+  -- if $( |validatorIndex_active*| ) = uint64_len_active
+  -- if $(uint64_len_active / $CHURN_LIMIT_QUOTIENT) = uint64_quota
+  -- if $max_uint64($MIN_PER_EPOCH_CHURN_LIMIT, uint64_quota) = uint64_churn_limit
+
+;; --------------------------------------------
+;; choose_index : nat_bit==1 이면 flip, 아니면 그대로
+;; --------------------------------------------
+dec $choose_index(uint64, uint64, nat) : uint64
+def $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_flip
+  -- if $(nat_bit = 1)
+def $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_index_in
+  -- otherwise
+
+
+;; --------------------------------------------
+;; attach_capture_round : round ∧ (seed, n) → (seed, n, round)
+;; (fold에서 캡처를 건네주기 위한 유틸)
+;; --------------------------------------------
+dec $attach_capture_round(uint64, (bytes32, uint64)) : (bytes32, uint64, uint64)
+def $attach_capture_round(uint64_r, (bytes32_s, uint64_n)) = (bytes32_s, uint64_n, uint64_r)
+
+
+;; --------------------------------------------
+;; apply_shuffle_round : (acc_index, (seed, n, round)) → acc_index'
+;;  - 한번의 반복문 사이클을 표현
+;;  >> 시프트 연산은 양의정수 uint64 범위 내에서 byte 값을 2**k로 나눈 몫을 사용하고 최하위 비트는 모듈러 2 연산을 사용하여 동일한 의미로 구현
+;;  bit = (byte // (2^k)) % 2  로 구현
+;; --------------------------------------------
+dec $apply_shuffle_round(uint64, (bytes32, uint64, uint64)) : uint64
+
+def $apply_shuffle_round(uint64_index_in, (bytes32_seed, uint64_n, uint64_round)) = uint64_index_out
+  ;; 1 round_hash = hash(seed || uint8(round))
+  -- if $bytes32_to_bytes(bytes32_seed) = bytes_seed
+  -- if $(uint64_round \ 256) = nat_round8
+  -- if $uint_to_bytes(nat_round8) = bytes_round8
+  -- if $concat_bytes(bytes_seed, bytes_round8) = bytes_msg_r
+  -- if $hash_<bytes>(bytes_msg_r) = bytes32_round_hash
+  ;; 2 pivot = bytes_to_uint64(round_hash) % n
+  -- if $bytes_to_uint64(bytes32_round_hash) = uint64_pivot_raw
+  -- if $(uint64_pivot_raw \ uint64_n) = uint64_pivot
+  ;; 3 flip / position
+  -- if $(uint64_pivot + uint64_n) = uint64_sum
+  -- if $(uint64_sum - uint64_index_in) = uint64_tmp
+  -- if $(uint64_tmp \ uint64_n) = uint64_flip
+  -- if $max_uint64(uint64_index_in, uint64_flip) = uint64_position
+  ;; 4 source = hash(seed || uint8(round) || uint32(bucket))
+  -- if $(uint64_position / 256) = uint64_bucket
+  -- if $uint_to_bytes(uint64_bucket) = bytes_bucket
+  -- if $concat_bytes(bytes_seed, bytes_round8) = bytes_seed_round
+  -- if $concat_bytes(bytes_seed_round, bytes_bucket) = bytes_msg_src
+  -- if $hash_<bytes>(bytes_msg_src) = bytes32_source
+  ;; 5 바이트/비트 좌표 (position % 256 → byte_index, k)
+  -- if $(uint64_position \ 256) = nat_pos_in_bucket              ;; 0..255
+  -- if $(nat_pos_in_bucket / 8) = nat_byte_index                 ;; 0..31
+  -- if $(nat_pos_in_bucket \ 8) = nat_k                          ;; 0..7
+  ;; 6 byte 선택 및 bit 추출:  bit = (byte // 2^k) % 2
+  -- if $bytes32_to_bytes1_list(bytes32_source) = bytes1_list_32*
+  -- if bytes1_list_32*[nat_byte_index] = bytes1_b
+  -- if $bytes1_to_uint64(bytes1_b) = uint64_byte                  ;; 0..255
+  -- if $pow2(nat_k) = nat_two_pow_k                               ;; 2^k
+  -- if $(uint64_byte / nat_two_pow_k) = uint64_q                  ;; byte // 2^k
+  -- if $(uint64_q \ 2) = nat_bit                                  ;; (..)%2  ∈ {0,1}
+  ;; 7 스왑 여부 그리고 출력
+  -- if $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_index_out 
+
+
+;; --------------------------------------------
+;; compute_shuffled_index : for-loop
+;;  - rounds = [0 .. SHUFFLE_ROUND_COUNT-1]
+;;  - 각 round에 (seed, n)을 캡처로 붙여서 fold
+;; --------------------------------------------
+dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
+
+def $compute_shuffled_index(uint64_index, uint64_index_count, bytes32_seed) = uint64_index_out
+  -- if $range($SHUFFLE_ROUND_COUNT) = uint64_rounds*
+  -- if $map_list_2_<uint64, (bytes32, uint64), (bytes32, uint64, uint64)>(
+         uint64_rounds*,
+         (bytes32_seed, uint64_index_count),
+         def $attach_capture_round
+       ) = (bytes32_seed_c, uint64_n_c, uint64_round_c)*
+  -- if $fold_<uint64, (bytes32, uint64, uint64)>(
+         def $apply_shuffle_round,
+         uint64_index,
+         (bytes32_seed_c, uint64_n_c, uint64_round_c)*
+       ) = uint64_index_out
+
+;; --------------------------------------------
+;; 내부 루프: i를 증가시키며 브레이크 조건이 만족될 때 candidate 반환
+;; while 문은 재귀로 처리함 -> 종료되지 않으면 그냥 재귀로 호출
+;; compute_proposer_index_loop(state, indices*, seed, total, i) : validatorIndex
+;; --------------------------------------------
+dec $compute_proposer_index_loop(beaconState, validatorIndex*, bytes32, uint64, uint64) : validatorIndex
+
+;; break case: if effective_balance * 255 >= MAX_EFFECTIVE_BALANCE * random_byte
+def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, uint64_i)
+  = validatorIndex_candidate
+  ;; 1 후보자 선택: shuffled(i % total)
+  -- if $(uint64_i \ uint64_total) = uint64_mod
+  -- if $compute_shuffled_index(uint64_mod, uint64_total, bytes32_seed) = uint64_shuffled
+  -- if validatorIndex_indices*[uint64_shuffled] = validatorIndex_candidate
+  ;; 2 random_byte = hash(seed || uint_to_bytes(i//32))[i%32]
+  -- if $(uint64_i / 32) = uint64_chunk
+  -- if $uint_to_bytes(uint64_chunk) = bytes_chunk
+  ;; fix hash(bytes32 + bytes)
+  -- if $bytes32_to_bytes(bytes32_seed) = bytes_seed_bytes
+  -- if $concat_bytes(bytes_seed_bytes, bytes_chunk) = bytes_msg
+  -- if $hash_<bytes>(bytes_msg) = bytes32_h
+  -- if $(uint64_i \ 32) = nat_b                          ;; 0..31
+  -- if $bytes32_to_bytes1_list(bytes32_h) = bytes1_list_32*
+  -- if bytes1_list_32*[nat_b] = bytes1_rb                    ;; bytes1 값 하나 선택
+  -- if $bytes1_to_uint64(bytes1_rb) = uint64_random_byte
+  ;; 3 effective_balance 조회
+  -- if state_beaconState.VALIDATORS[validatorIndex_candidate] = validator_v
+  -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
+  ;; 4 break 조건
+  -- if $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
+
+;; continue case: 위 조건 미충족 → i+1 로 재귀
+def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, uint64_i)
+  = $compute_proposer_index_loop(
+      state_beaconState,
+      validatorIndex_indices*,
+      bytes32_seed,
+      uint64_total,
+      $(uint64_i + 1)
+    )
+  -- otherwise
+
+;; --------------------------------------------
+;; compute_proposer_index(state, indices*, seed) : validatorIndex
+;; (원본 while 무한루프를 재귀로 표현)
+;; --------------------------------------------
+dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex
+
+def $compute_proposer_index(state_beaconState, validatorIndex_indices*, bytes32_seed) = validatorIndex_ret
+  -- if $( |validatorIndex_indices*| ) = uint64_total
+  -- if $( uint64_total > 0 )
+  -- if $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, 0) = validatorIndex_ret
+
+;; ------------------------------------------------------------
+;; get_seed
+;; seed = hash( domain_type(4B) ++ uint_to_bytes(epoch)(8B LE) ++ mix(32B) )
+;; ------------------------------------------------------------
+dec $get_seed(beaconState, epoch, domainType) : bytes32
+
+def $get_seed(state, epoch, domainType) = bytes32_seed
+  -- if $(epoch + $EPOCHS_PER_HISTORICAL_VECTOR - $MIN_SEED_LOOKAHEAD - 1) = epoch_mix_source
+  -- if $get_randao_mix(state, epoch_mix_source) = bytes32_mix
+  -- if $bytes4_to_bytes(domainType) = bytes_domain                                           
+  -- if $uint_to_bytes(epoch) = bytes_epoch                                                
+  -- if $bytes32_to_bytes(bytes32_mix) = bytes_mix                                               
+  -- if $concat_bytes(bytes_domain, bytes_epoch) = bytes_dom_epoch                               
+  -- if $concat_bytes(bytes_dom_epoch, bytes_mix) = bytes_msg                                    
+  -- if $hash_<bytes>(bytes_msg) = bytes32_seed
+
+;; ------------------------------------------------------------
+;; get_beacon_proposer_index
+;; ------------------------------------------------------------
+dec $get_beacon_proposer_index(beaconState) : validatorIndex
+
+def $get_beacon_proposer_index(state) = validatorIndex_prop
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $get_seed(state, epoch_cur, $DOMAIN_BEACON_PROPOSER) = bytes32_seed_base
+  -- if $uint_to_bytes(state.SLOT) = bytes_slot
+  ;; fix hash(bytes32 + bytes)
+  -- if $bytes32_to_bytes(bytes32_seed_base) = bytes_seed_bytes
+  -- if $concat_bytes(bytes_seed_bytes, bytes_slot) = bytes_msg
+  -- if $hash_<bytes>(bytes_msg) = bytes32_h
+  -- if $get_active_validator_indices(state, epoch_cur) = validatorIndex_indices*
+  -- if $compute_proposer_index(state, validatorIndex_indices*, bytes32_h) = validatorIndex_prop
+
+;; 09-state-balance.spectec
+;; Increase / Decrease balance as helpers
+
+dec $increase_balance(beaconState, validatorIndex, gwei) : beaconState
+def $increase_balance(state, validatorIndex_vi, gwei_delta) = state_updated
+  -- if $(validatorIndex_vi < |state.BALANCES|)
+  -- if state.BALANCES[validatorIndex_vi] = gwei_current
+  -- if $(gwei_current + gwei_delta) = gwei_new
+  -- if state.BALANCES[[validatorIndex_vi] = gwei_new] = gwei_update*
+  -- if state_updated = state[.BALANCES = gwei_update*]
+
+dec $decrease_balance(beaconState, validatorIndex, gwei) : beaconState
+
+;; case 1: delta > current ⇒ set to 0
+def $decrease_balance(state, validatorIndex_vi, gwei_delta) = state_updated
+  -- if $(validatorIndex_vi < |state.BALANCES|)
+  -- if state.BALANCES[validatorIndex_vi] = gwei_current
+  -- if $(gwei_delta > gwei_current)
+  ;; to make 0, use x - x = 0
+  -- if state.BALANCES[[validatorIndex_vi] = $(gwei_current - gwei_current)] = gwei_update*
+  -- if state_updated = state[.BALANCES = gwei_update*]
+
+;; case 2: delta ≤ current ⇒ decrease delta
+def $decrease_balance(state, validatorIndex_vi, gwei_delta) = state_updated
+  -- if $(validatorIndex_vi < |state.BALANCES|)
+  -- if state.BALANCES[validatorIndex_vi] = gwei_current
+  -- if $(gwei_delta <= gwei_current)
+  -- if state.BALANCES[[validatorIndex_vi] = $(gwei_current - gwei_delta)] = gwei_update*
+  -- if state_updated = state[.BALANCES = gwei_update*]
+
+;; ----------------------------
+;; helpers for exit-epoch lists
+;; ----------------------------
+dec $exit_epoch_not_far_future(validator) : boolean
+def $exit_epoch_not_far_future(validator_v) = true
+  -- if ~( validator_v.EXIT_EPOCH = $FAR_FUTURE_EPOCH )
+def $exit_epoch_not_far_future(validator_v) = false
+  -- otherwise
+
+dec $exit_epoch_eq(validator, epoch) : boolean
+def $exit_epoch_eq(validator_v, epoch_e) = true
+  -- if $( validator_v.EXIT_EPOCH = epoch_e )
+def $exit_epoch_eq(validator_v, epoch_e) = false
+  -- otherwise
+
+dec $exit_epoch_of(validator) : epoch
+def $exit_epoch_of(validator_v) = validator_v.EXIT_EPOCH
+
+;; fold for max over epochs 
+dec $fold_max_epoch(epoch, epoch) : epoch
+def $fold_max_epoch(epoch_acc, epoch_x) = $max_uint64(epoch_acc, epoch_x)
+
+;; --------------------------------------------
+;; initiate_validator_exit(state, index) : state
+;; --------------------------------------------
+dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
+
+;; if 조건 만족 시 그대로 반환
+def $initiate_validator_exit(state_in, validatorIndex_idx) = state_in
+  -- if $(validatorIndex_idx < |state_in.VALIDATORS|)
+  -- if state_in.VALIDATORS[validatorIndex_idx] = validator_v
+  -- if ~( validator_v.EXIT_EPOCH = $FAR_FUTURE_EPOCH )
+
+;; 메인 로직
+def $initiate_validator_exit(state_in, validatorIndex_idx) = state_out
+  -- if $(validatorIndex_idx < |state_in.VALIDATORS|)
+  -- if state_in.VALIDATORS[validatorIndex_idx] = validator_v
+  -- if $( validator_v.EXIT_EPOCH = $FAR_FUTURE_EPOCH )
+  ;; (1) exit_epochs = [v.exit_epoch for v in state.validators if v.exit_epoch != FAR_FUTURE_EPOCH]
+  -- if validator_list* = state_in.VALIDATORS
+  -- if $filter_list_<validator>(validator_list*, def $exit_epoch_not_far_future) = validator_list_nf*
+  -- if $map_list_1_<validator, epoch>(validator_list_nf*, def $exit_epoch_of) = epoch_exit_list*
+  ;; (2) epoch_act_exit = compute_activation_exit_epoch(get_current_epoch(state))
+  -- if $get_current_epoch(state_in) = epoch_cur
+  -- if $compute_activation_exit_epoch(epoch_cur) = epoch_act_exit
+  ;; (3) exit_queue_epoch_0 = max(exit_epochs + [epoch_act_exit])
+  -- if epoch_exit_list* ++ [ epoch_act_exit ] = epoch_all*
+  -- if $fold_<epoch, epoch>(def $fold_max_epoch, 0, epoch_all*) = epoch_exit_queue_0
+  ;; (4) exit_queue_churn = len([v for v in state.validators if v.exit_epoch == exit_queue_epoch_0])
+  -- if $filter_list_2_<validator, epoch>(validator_list*, epoch_exit_queue_0, def $exit_epoch_eq) = validator_list_eq*
+  -- if $( |validator_list_eq*| ) = uint64_exit_queue_churn
+  ;; (5) 한도 초과면 큐 epoch + 1
+  -- if $get_validator_churn_limit(state_in) = uint64_churn_limit
+  -- if $( uint64_exit_queue_churn >= uint64_churn_limit )
+  -- if epoch_exit_queue = $( epoch_exit_queue_0 + 1 )
+  -- if ~( $( uint64_exit_queue_churn >= uint64_churn_limit ) )
+  -- if epoch_exit_queue = epoch_exit_queue_0
+  ;; (6) validator.exit_epoch / withdrawable_epoch 설정
+  -- if epoch_withdrawable = $( epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY )
+  -- if validator_updated =
+       validator_v[.EXIT_EPOCH         = epoch_exit_queue]
+                  [.WITHDRAWABLE_EPOCH = epoch_withdrawable]
+  -- if state_in.VALIDATORS[[validatorIndex_idx] = validator_updated] = validator_update*
+  -- if state_out = state_in[.VALIDATORS = validator_update*]
+
+;; ========== 공통 내부 단계 (exit, slashed 플래그/withdrawable 갱신, slashings집계, 기본 패널티) ==========
+;; helper: 내부 공통 전처리(state_in, slashed_idx) → (state_after_penalty, validator_snapshot, proposer_index)
+dec $slash_core_prepare(beaconState, validatorIndex) : (beaconState, validator, validatorIndex)
+
+def $slash_core_prepare(state_in, validatorIndex_slashed) = (state_after_penalty, validator_v, validatorIndex_prop)
+  -- if $(validatorIndex_slashed < |state_in.VALIDATORS|)
+  -- if $initiate_validator_exit(state_in, validatorIndex_slashed) = state_0
+  -- if state_0.VALIDATORS[validatorIndex_slashed] = validator_old
+  ;; mark slashed
+  -- if validator_marked = validator_old[.SLASHED = true]
+  ;; withdrawable_epoch = max(old, epoch + EPOCHS_PER_SLASHINGS_VECTOR)
+  -- if $get_current_epoch(state_0) = epoch_cur
+  -- if $( epoch_cur + $EPOCHS_PER_SLASHINGS_VECTOR ) = epoch_lock
+  -- if $max_uint64(validator_marked.WITHDRAWABLE_EPOCH, epoch_lock) = epoch_withdrawable_new
+  -- if validator_updated = validator_marked[.WITHDRAWABLE_EPOCH = epoch_withdrawable_new]
+  -- if state_1 = state_0[.VALIDATORS = state_0.VALIDATORS[[validatorIndex_slashed] = validator_updated]]
+  ;; accumulate slashings[epoch % EPOCHS_PER_SLASHINGS_VECTOR] += effective_balance
+  -- if $( epoch_cur \ $EPOCHS_PER_SLASHINGS_VECTOR ) = uint64_bucket
+  -- if state_1.SLASHINGS[uint64_bucket] = gwei_bucket_old
+  -- if $( gwei_bucket_old + validator_updated.EFFECTIVE_BALANCE ) = gwei_bucket_new
+  -- if state_2 = state_1[.SLASHINGS = state_1.SLASHINGS[[uint64_bucket] = gwei_bucket_new]]
+  ;; base slashing penalty (Bellatrix)
+  -- if $( validator_updated.EFFECTIVE_BALANCE / $MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX ) = gwei_penalty
+  -- if $decrease_balance(state_2, validatorIndex_slashed, gwei_penalty) = state_3
+  ;; proposer index (현재 state 기준)
+  -- if validatorIndex_prop = $get_beacon_proposer_index(state_3)
+  -- if state_after_penalty = state_3
+  -- if validator_v = validator_updated
+
+;; ------------------------------------------------------------
+;; slash_validator(state, slashed_index, whistleblower_index = None) : beaconState
+;; ------------------------------------------------------------
+dec $slash_validator(beaconState, validatorIndex, validatorIndex?) : beaconState
+
+;; ========== whistleblower_index가 생략된(eps) 경우: proposer가 whistleblower ==========
+def $slash_validator(state_in, validatorIndex_slashed, eps) = state_out
+  -- if (state_mid, validator_v, validatorIndex_prop) = $slash_core_prepare(state_in, validatorIndex_slashed)
+  ;; rewards
+  -- if $( validator_v.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT ) = gwei_whistleblower_reward
+  -- if $( gwei_whistleblower_reward * $PROPOSER_WEIGHT ) = gwei_prop_num
+  -- if $( gwei_prop_num / $WEIGHT_DENOMINATOR ) = gwei_proposer_reward
+  -- if state_r1 = $increase_balance(state_mid, validatorIndex_prop, gwei_proposer_reward)
+  -- if $( gwei_whistleblower_reward - gwei_proposer_reward ) = gwei_whistleblower_rest
+  -- if state_out = $increase_balance(state_r1, validatorIndex_prop, gwei_whistleblower_rest)
+
+;; ========== whistleblower_index가 명시된 경우 ==========
+def $slash_validator(state_in, validatorIndex_slashed, validatorIndex_wb) = state_out
+  -- if (state_mid, validator_v, validatorIndex_prop) = $slash_core_prepare(state_in, validatorIndex_slashed)
+  ;; rewards
+  -- if $( validator_v.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT ) = gwei_whistleblower_reward
+  -- if $( gwei_whistleblower_reward * $PROPOSER_WEIGHT ) = gwei_prop_num
+  -- if $( gwei_prop_num / $WEIGHT_DENOMINATOR ) = gwei_proposer_reward
+  -- if state_r1 = $increase_balance(state_mid, validatorIndex_prop, gwei_proposer_reward)
+  -- if $( gwei_whistleblower_reward - gwei_proposer_reward ) = gwei_whistleblower_rest
+  -- if state_out = $increase_balance(state_r1, validatorIndex_wb, gwei_whistleblower_rest)
+

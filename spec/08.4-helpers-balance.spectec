@@ -80,3 +80,116 @@ def $rebalance_validator_enumerated((n, validator_v), state) = validator_updated
 
 def $rebalance_validator_enumerated((n, validator_v), state) = validator_v
   -- otherwise
+
+;; --------------------------------------------
+;; per-index inactivity penalty
+;; capture: (state, matching_set*, eligible_set*, denom)
+;; rewards 는 건드는 코드 없으므로 penalty 에 대해 0으로 갈지 아니면 조건을 만족하여 값을 바꿀지만 결정되면 됨.
+;; --------------------------------------------
+dec $inact_penalty_one(nat, (beaconState, validatorIndex*, validatorIndex*, uint64)) : gwei
+
+def $inact_penalty_one(nat_i, (state_beaconState, validatorIndex_matching*, validatorIndex_eligible*, uint64_den))
+  = gwei_penalty
+  -- if validatorIndex_vi = nat_i
+  -- if ( validatorIndex_vi <- validatorIndex_eligible* )
+  -- if ~( validatorIndex_vi <- validatorIndex_matching* )
+  -- if $(validatorIndex_vi < |state_beaconState.VALIDATORS|)
+  -- if state_beaconState.VALIDATORS[validatorIndex_vi] = validator_v
+  -- if gwei_eff = validator_v.EFFECTIVE_BALANCE
+  -- if $(validatorIndex_vi < |state_beaconState.INACTIVITY_SCORES|)
+  -- if state_beaconState.INACTIVITY_SCORES[validatorIndex_vi] = uint64_score
+  -- if $( gwei_eff * uint64_score ) = uint64_num
+  -- if $( uint64_num / uint64_den ) = gwei_penalty
+
+def $inact_penalty_one(nat_i, (state_beaconState, validatorIndex_matching*, validatorIndex_eligible*, uint64_den))
+  = 0
+  -- otherwise
+
+;; --------------------------------------------
+;; get_inactivity_penalty_deltas(state) : (rewards*, penalties*)
+;; --------------------------------------------
+def $get_inactivity_penalty_deltas(state_beaconState) = (gwei_rewards*, gwei_penalties*)
+  -- if $( |state_beaconState.VALIDATORS| ) = uint64_N
+  -- if $repeat_<gwei>(0, uint64_N) = gwei_rewards*                 ;; rewards = [0]*N
+  -- if $range(uint64_N) = nat_idx*                                 ;; 0..N-1
+  -- if $get_previous_epoch(state_beaconState) = epoch_prev
+  -- if $get_unslashed_participating_indices(
+         state_beaconState, $TIMELY_TARGET_FLAG_INDEX, epoch_prev
+       ) = validatorIndex_matching*
+  -- if $get_eligible_validator_indices(state_beaconState) = validatorIndex_eligible*
+  -- if $( $INACTIVITY_SCORE_BIAS * $INACTIVITY_PENALTY_QUOTIENT_BELLATRIX ) = uint64_den
+  -- if $map_list_2_<nat, (beaconState, validatorIndex*, validatorIndex*, uint64), gwei>(
+         nat_idx*,
+         (state_beaconState, validatorIndex_matching*, validatorIndex_eligible*, uint64_den),
+         def $inact_penalty_one
+       ) = gwei_penalties*
+
+
+;; --------------------------------------------
+;; flag-delta per-index helpers
+;; --------------------------------------------
+
+;; 보상 항목: 참여했고(leak 아님)일 때만 값, 그 외 0
+;; capture: (state, unslashed_set*, weight, up_incs, active_incs)
+dec $flag_reward_one(nat, (beaconState, validatorIndex*, uint64, uint64, uint64)) : gwei
+
+def $flag_reward_one(nat_i, (state_beaconState, validatorIndex_unslashed*, uint64_weight, uint64_up_incs, uint64_active_incs))
+  = gwei_reward
+  -- if validatorIndex_vi = nat_i
+  -- if ( validatorIndex_vi <- validatorIndex_unslashed* )
+  -- if $is_in_inactivity_leak(state_beaconState) = false
+  -- if $get_base_reward(state_beaconState, validatorIndex_vi) = gwei_base_reward
+  -- if $( gwei_base_reward * uint64_weight ) = uint64_mul_w
+  -- if $( uint64_mul_w * uint64_up_incs ) = uint64_num
+  -- if $( uint64_active_incs * $WEIGHT_DENOMINATOR ) = uint64_den
+  -- if $( uint64_num / uint64_den ) = gwei_reward
+
+def $flag_reward_one(nat_i, (state_beaconState, validatorIndex_unslashed*, uint64_weight, uint64_up_incs, uint64_active_incs))
+  = 0
+  -- otherwise
+
+
+;; 패널티 항목: 미참여이고 HEAD 플래그가 아닐 때만 값, 그 외 0
+;; capture: (state, unslashed_set*, weight, flag_index)
+dec $flag_penalty_one(nat, (beaconState, validatorIndex*, uint64, nat)) : gwei
+
+def $flag_penalty_one(nat_i, (state_beaconState, validatorIndex_unslashed*, uint64_weight, nat_flag_index))
+  = gwei_penalty
+  -- if validatorIndex_vi = nat_i
+  -- if ~( validatorIndex_vi <- validatorIndex_unslashed* )
+  -- if ~( nat_flag_index = $TIMELY_HEAD_FLAG_INDEX )
+  -- if $get_base_reward(state_beaconState, validatorIndex_vi) = gwei_base_reward
+  -- if $( gwei_base_reward * uint64_weight ) = uint64_num
+  -- if $( uint64_num / $WEIGHT_DENOMINATOR ) = gwei_penalty
+
+def $flag_penalty_one(nat_i, (state_beaconState, validatorIndex_unslashed*, uint64_weight, nat_flag_index))
+  = 0
+  -- otherwise
+
+;; --------------------------------------------
+;; get_flag_index_deltas(state, flag_index) : (rewards*, penalties*)
+;; --------------------------------------------
+def $get_flag_index_deltas(state_beaconState, nat_flag_index) = (gwei_rewards*, gwei_penalties*)
+  -- if $( |state_beaconState.VALIDATORS| ) = uint64_N
+  -- if $range(uint64_N) = nat_idx*
+  -- if $get_previous_epoch(state_beaconState) = epoch_prev
+  -- if $get_unslashed_participating_indices(
+         state_beaconState, nat_flag_index, epoch_prev
+       ) = validatorIndex_unslashed*
+  -- if $PARTICIPATION_FLAG_WEIGHTS[nat_flag_index] = uint64_weight
+  -- if $get_total_balance(state_beaconState, validatorIndex_unslashed*) = gwei_unslashed_bal
+  -- if $( gwei_unslashed_bal / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_up_incs
+  -- if $get_total_active_balance(state_beaconState) = gwei_total_active
+  -- if $( gwei_total_active / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_active_incs
+  ;; rewards: 참여 & (¬leak) 에만 분배
+  -- if $map_list_2_<nat, (beaconState, validatorIndex*, uint64, uint64, uint64), gwei>(
+         nat_idx*,
+         (state_beaconState, validatorIndex_unslashed*, uint64_weight, uint64_up_incs, uint64_active_incs),
+         def $flag_reward_one
+       ) = gwei_rewards*
+  ;; penalties: 미참여 & (flag != HEAD) 에만 부과
+  -- if $map_list_2_<nat, (beaconState, validatorIndex*, uint64, nat), gwei>(
+         nat_idx*,
+         (state_beaconState, validatorIndex_unslashed*, uint64_weight, nat_flag_index),
+         def $flag_penalty_one
+       ) = gwei_penalties*

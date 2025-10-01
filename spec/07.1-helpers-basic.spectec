@@ -1,0 +1,35 @@
+;; =========================
+;; Generic fold 
+;; =========================
+dec $fold_<X, Y>(def $fold_func(X, Y): X, X, Y*) : X
+def $fold_<X, Y>(def $fold_func, X, eps) = X
+def $fold_<X, Y>(def $fold_func, X, Y_h :: Y_t*)
+= $fold_<X, Y>(def $fold_func, $fold_func(X, Y_h), Y_t*)
+
+;;
+;; helpers for get_active_validator_indices
+;;
+dec $enumerate_<X>(X*) : enumerated_<X>*
+
+dec $filter_list_<X>(X*, def $cond(X) : bool)
+  : X*
+def $filter_list_<X>(eps, def $cond) = eps
+def $filter_list_<X>(X_h :: X_t*, def $cond)
+  = X_h :: $filter_list_<X>(X_t*, def $cond)
+  -- if $cond(X_h) = true
+def $filter_list_<X>(X_h :: X_t*, def $cond)
+  = $filter_list_<X>(X_t*, def $cond)
+  -- if $cond(X_h) = false
+
+dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool) : X*
+
+;;
+;; helper functions that have to be defined
+;;
+
+dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
+
+;; return is tuple type
+dec $get_flag_index_deltas(beaconState, nat) : (gwei*, gwei*)
+
+dec $get_inactivity_penalty_deltas(beaconState) : (gwei*, gwei*)
