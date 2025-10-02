@@ -1,5 +1,5 @@
 ;; =========================
-;; 03-builtins-decls.spectec
+;; builtins-decls.spectec
 ;; (dec-only: 인터프리터/런타임 제공)
 ;; =========================
 
@@ -79,22 +79,8 @@ dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
 ;; python for statement range funcs
 dec $range(nat) : nat*
 
-;; ------------------------------------------------------------
-;; map over a list with one extra captured argument
-;; X*  ×  Y  ×  (X,Y)->Z   ==>   Z*
-;; X* 의 원소 X 에 대해 Y 인자를 넘겨 f(X,Y) 를 적용하고 그 결과를 Z* 를 만든다.
-;; 라고 이해했는데.... 
-;; ------------------------------------------------------------
-dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
-
-;; =========================
-;; 단항 map (X* -> Z*)
-;; =========================
-dec $map_list_1_<X, Z>(X*, def $f(X) : Z) : Z*
-def $map_list_1_<X, Z>(eps, def $f) = eps
-def $map_list_1_<X, Z>(X_h :: X_t*, def $f)
-  = $f(X_h) :: $map_list_1_<X, Z>(X_t*, def $f)
-
+;; enumerate
+dec $enumerate_<X>(X*) : enumerated_<X>*
 
 ;; --------------------------------------------
 ;; bytes32 → 32개의 bytes1 리스트로 변환 (인덱싱용)
@@ -115,3 +101,14 @@ dec $bytes32_to_bytes(bytes32) : bytes
 
 ;; bytes4 -> 그냥 bytes로
 dec $bytes4_to_bytes(bytes4) : bytes 
+
+;; ------------------------------------------------------------
+;; map over a list with one extra captured argument
+;; X*  ×  Y  ×  (X,Y)->Z   ==>   Z*
+;; X* 의 원소 X 에 대해 Y 인자를 넘겨 f(X,Y) 를 적용하고 그 결과를 Z* 를 만든다.
+;; 라고 이해했는데.... 
+;; ------------------------------------------------------------
+dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
+
+dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool) : X*
+

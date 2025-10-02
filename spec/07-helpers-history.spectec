@@ -1,6 +1,5 @@
 ;; =======================================
-;; 07-helpers-roots-mixes.spectec
-;; roots & randao mixes & time/leak helpers
+;; roots & randao mixes & inactivity helpers
 ;; =======================================
 
 ;; ------------------------------------------------------------

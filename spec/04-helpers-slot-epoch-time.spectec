@@ -1,8 +1,6 @@
 ;; =========================
-;; 04-helpers-epoch.spectec
 ;; epoch / slot / time helpers
 ;; =========================
-
 
 ;; compute_epoch_at_slot : slot -> epoch
 dec $compute_epoch_at_slot(slot) : epoch
