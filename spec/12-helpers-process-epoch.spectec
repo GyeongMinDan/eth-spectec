@@ -566,3 +566,72 @@ def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev
   -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
   -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
   -- if state_out = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
+
+;; ============================================
+;; helpers for process_registry_updates (fixed)
+;; ============================================
+
+;; (i, v)가 activation 자격인가?  (state 캡처)
+dec $is_eligible_activation_en((nat, validator), beaconState) : boolean
+def $is_eligible_activation_en((nat_i, validator_v), state) =
+  $is_eligible_for_activation(state, validator_v)
+
+;; (i, v) ↦ (v.ACTIVATION_ELIGIBILITY_EPOCH, ValidatorIndex(i))  (state 캡처 안 씀)
+dec $activation_key_en((nat, validator), beaconState) : (epoch, validatorIndex)
+def $activation_key_en((nat_i, validator_v), state) = (epoch_key, validatorIndex_vi)
+  -- if epoch_key = validator_v.ACTIVATION_ELIGIBILITY_EPOCH
+  -- if validatorIndex_vi = nat_i
+
+;; (epoch, vi) → vi   (단항 맵으로 변경)
+dec $pick_vi_from_key_1((epoch, validatorIndex)) : validatorIndex
+def $pick_vi_from_key_1((epoch_e, validatorIndex_vi)) = validatorIndex_vi
+
+;; enumerate 결과 (n, vi)에서 n < limit ?
+dec $idx_lt_limit((nat, validatorIndex), uint64) : boolean
+def $idx_lt_limit((nat_i, validatorIndex_vi), uint64_lim) = true
+  -- if $(nat_i < uint64_lim)
+def $idx_lt_limit((nat_i, validatorIndex_vi), uint64_lim) = false
+  -- otherwise
+
+;; dequeue 대상 하나에 대해 ACTIVATION_EPOCH 세팅
+dec $activate_one(beaconState, validatorIndex) : beaconState
+def $activate_one(state_in, validatorIndex_vi) = state_out
+  -- if $get_current_epoch(state_in) = epoch_cur
+  -- if $compute_activation_exit_epoch(epoch_cur) = epoch_act
+  -- if $(validatorIndex_vi < |state_in.VALIDATORS|)
+  -- if validator_old = state_in.VALIDATORS[validatorIndex_vi]
+  -- if validator_new = validator_old[.ACTIVATION_EPOCH = epoch_act]
+  -- if state_out = state_in[.VALIDATORS = state_in.VALIDATORS[[validatorIndex_vi] = validator_new]]
+
+;; (i, v) 한 쌍 처리: eligibility_epoch 설정 및 eject
+dec $process_registry_one(beaconState, (nat, validator)) : beaconState
+
+;; case 1: activation queue 자격 → eligibility_epoch 갱신, 그리고 eject 검사
+def $process_registry_one(state_in, (nat_i, validator_v)) = state_after
+  -- if $get_current_epoch(state_in) = epoch_cur
+  -- if $is_eligible_for_activation_queue(validator_v) = true
+  -- if epoch_elig = $(epoch_cur + 1)
+  -- if validator_set_elig = validator_v[.ACTIVATION_ELIGIBILITY_EPOCH = epoch_elig]
+  -- if state_elig = state_in[.VALIDATORS = state_in.VALIDATORS[[nat_i] = validator_set_elig]]
+  -- if state_elig.VALIDATORS[nat_i] = validator_read
+  -- if $is_active_validator(validator_read, epoch_cur) = true
+  -- if $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE)
+  -- if state_after = $initiate_validator_exit(state_elig, nat_i)
+
+;; case 2: 자격 아님 → eject 검사만
+def $process_registry_one(state_in, (nat_i, validator_v)) = state_after
+  -- if $get_current_epoch(state_in) = epoch_cur
+  -- if $is_eligible_for_activation_queue(validator_v) = false
+  -- if state_mid = state_in
+  -- if state_mid.VALIDATORS[nat_i] = validator_read
+  -- if $is_active_validator(validator_read, epoch_cur) = true
+  -- if $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE) = true
+  -- if state_after = $initiate_validator_exit(state_mid, nat_i)
+
+;; case 3: 그 외 → 변화 없음
+def $process_registry_one(state_in, (nat_i, validator_v)) = state_in
+  -- otherwise
+
+;; enumerate 결과에서 index만 뽑기
+dec $pick_vi_from_enumerated_1((nat, validatorIndex)) : validatorIndex
+def $pick_vi_from_enumerated_1((nat_i, validatorIndex_vi)) = validatorIndex_vi

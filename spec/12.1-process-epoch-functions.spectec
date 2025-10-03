@@ -83,6 +83,53 @@ relation Process_registry_updates:
   beaconState ~> beaconState
   hint(input %0)
 
+rule Process_registry_updates/main:
+  state_in ~> state_out
+  ;; (1) 1차 패스: eligibility_epoch 설정 및 eject 처리 (for each validator)
+  -- if validator_list* = state_in.VALIDATORS
+  -- if $enumerate_<validator>(validator_list*) = (nat_i, validator_v)*
+  -- if state_pass1 = $fold_<beaconState, (nat, validator)>(
+         def $process_registry_one,
+         state_in,
+         (nat_i, validator_v)*
+       )
+  ;; (2) activation 후보 인덱스 수집 + (elig_epoch, index) 키로 정렬
+  -- if validator_list1* = state_pass1.VALIDATORS
+  -- if $enumerate_<validator>(validator_list1*) = (nat_j, validator_w)*
+  -- if $filter_list_2_<(nat, validator), beaconState>(
+         (nat_j, validator_w)*,
+         state_pass1,
+         def $is_eligible_activation_en
+       ) = (nat_elg, validator_elg)*
+  -- if $map_list_2_<(nat, validator), beaconState, (epoch, validatorIndex)>(
+         (nat_elg, validator_elg)*,
+         state_pass1,
+         def $activation_key_en
+       ) = (epoch_key, validatorIndex_vi)*
+  -- if $sort_<(epoch, validatorIndex)>((epoch_key, validatorIndex_vi)*) =
+         (epoch_sorted, validatorIndex_sorted_vi)*
+  -- if $map_list_1_<(epoch, validatorIndex), validatorIndex>(
+         (epoch_sorted, validatorIndex_sorted_vi)*,
+         def $pick_vi_from_key_1
+       ) = validatorIndex_sorted*
+  ;; (3) churn limit 만큼만 dequeue → ACTIVATION_EPOCH 세팅
+  -- if $get_validator_churn_limit(state_pass1) = uint64_churn_limit
+  -- if $enumerate_<validatorIndex>(validatorIndex_sorted*) = (nat_idx, validatorIndex_q)*
+  -- if $filter_list_2_<(nat, validatorIndex), uint64>(
+        (nat_idx, validatorIndex_q)*,
+        uint64_churn_limit,
+        def $idx_lt_limit
+      ) = (nat_take, validatorIndex_take)*
+  -- if $map_list_1_<(nat, validatorIndex), validatorIndex>(
+        (nat_take, validatorIndex_take)*,
+        def $pick_vi_from_enumerated_1
+      ) = validatorIndex_to_activate*
+  -- if state_out = $fold_<beaconState, validatorIndex>(
+        def $activate_one,
+        state_pass1,
+        validatorIndex_to_activate*
+      )
+
 ;;
 ;; process_slashings
 ;;
