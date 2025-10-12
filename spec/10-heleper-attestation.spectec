@@ -344,3 +344,15 @@ def $get_next_sync_committee(state) = syncCommittee_ret
          AGGREGATE_PUBKEY blsPubkey_agg }
 
 
+;; --------------------------------------------
+;; get_indexed_attestation(state, attestation) : indexedAttestation
+;; --------------------------------------------
+dec $get_indexed_attestation(beaconState, attestation) : indexedAttestation
+
+def $get_indexed_attestation(state, attestation_att) = indexedAttestation_ret
+  -- if $get_attesting_indices(state, attestation_att) = validatorIndex_set*
+  -- if $sort_<validatorIndex>(validatorIndex_set*) = validatorIndex_sorted*
+  -- if indexedAttestation_ret =
+       { ATTESTING_INDICES validatorIndex_sorted*,
+         DATA               attestation_att.DATA,
+         SIGNATURE          attestation_att.SIGNATURE }

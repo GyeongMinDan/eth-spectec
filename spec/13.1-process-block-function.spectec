@@ -34,6 +34,82 @@ relation Process_withdrawals:
   beaconState executionPayload ~> beaconState
   hint(input %0 %1)
 
+;; ========== len(expected) = 0 ==========
+rule Process_withdrawals/len0:
+  state_in executionPayload_payload ~> state_out
+  -- if $get_expected_withdrawals(state_in) = withdrawal_exp*
+  -- if executionPayload_payload.WITHDRAWALS = withdrawal_exp*
+  -- if $fold_<beaconState, withdrawal>(
+         def $apply_withdrawal_one,
+         state_in,
+         withdrawal_exp*
+       ) = state_after_debits
+  -- if $( |withdrawal_exp*| ) = uint64_len
+  -- if $( uint64_len = 0 )
+  -- if $( |state_after_debits.VALIDATORS| ) = uint64_N
+  -- if $( state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX
+         + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP ) = uint64_next
+  -- if $( uint64_next \ uint64_N ) = validatorIndex_next
+  -- if state_out =
+       state_after_debits
+         [.NEXT_WITHDRAWAL_VALIDATOR_INDEX = validatorIndex_next]
+
+;; ========== len(expected) = MAX_WITHDRAWALS_PER_PAYLOAD ==========
+rule Process_withdrawals/lenMax:
+  state_in executionPayload_payload ~> state_out
+  -- if $get_expected_withdrawals(state_in) = withdrawal_exp*
+  -- if executionPayload_payload.WITHDRAWALS = withdrawal_exp*
+  -- if $fold_<beaconState, withdrawal>(
+         def $apply_withdrawal_one,
+         state_in,
+         withdrawal_exp*
+       ) = state_after_debits
+  -- if $( |withdrawal_exp*| ) = uint64_len
+  -- if $( uint64_len = $MAX_WITHDRAWALS_PER_PAYLOAD )
+  -- if $( uint64_len - 1 ) = uint64_last
+  -- if withdrawal_exp*[uint64_last] = withdrawal_latest
+  ;; next_withdrawal_index = latest.index + 1
+  -- if withdrawal_latest.INDEX = withdrawalIndex_last
+  -- if $( withdrawalIndex_last + 1 ) = withdrawalIndex_next
+  ;; next_withdrawal_validator_index = (latest.validator_index + 1) % N
+  -- if $( |state_after_debits.VALIDATORS| ) = uint64_N
+  -- if withdrawal_latest.VALIDATOR_INDEX = validatorIndex_last_vi
+  -- if $( validatorIndex_last_vi + 1 ) = uint64_next_vi_raw
+  -- if $( uint64_next_vi_raw \ uint64_N ) = validatorIndex_next_vi
+  -- if state_out =
+       state_after_debits
+         [.NEXT_WITHDRAWAL_INDEX           = withdrawalIndex_next]
+         [.NEXT_WITHDRAWAL_VALIDATOR_INDEX = validatorIndex_next_vi]
+
+;; ========== 0 < len(expected) < MAX_WITHDRAWALS_PER_PAYLOAD ==========
+rule Process_withdrawals/lenPartial:
+  state_in executionPayload_payload ~> state_out
+  -- if $get_expected_withdrawals(state_in) = withdrawal_exp*
+  -- if executionPayload_payload.WITHDRAWALS = withdrawal_exp*
+  -- if $fold_<beaconState, withdrawal>(
+         def $apply_withdrawal_one,
+         state_in,
+         withdrawal_exp*
+       ) = state_after_debits
+  -- if $( |withdrawal_exp*| ) = uint64_len
+  -- if $( 0 < uint64_len )
+  -- if ~( $( uint64_len = $MAX_WITHDRAWALS_PER_PAYLOAD ) )
+  -- if $( uint64_len - 1 ) = uint64_last
+  -- if withdrawal_exp*[uint64_last] = withdrawal_latest
+  ;; next_withdrawal_index = latest.index + 1
+  -- if $( withdrawal_latest.INDEX + 1 ) = withdrawalIndex_next
+  ;; next_withdrawal_validator_index = (state.next_withdrawal_validator_index + SWEEP) % N
+  -- if $( |state_after_debits.VALIDATORS| ) = uint64_N
+  -- if $( state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX
+         + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP ) = uint64_next_raw
+  -- if $( uint64_next_raw \ uint64_N ) = validatorIndex_next_vi
+  -- if state_mid =
+       state_after_debits
+         [.NEXT_WITHDRAWAL_INDEX = withdrawalIndex_next]
+  -- if state_out =
+       state_mid
+         [.NEXT_WITHDRAWAL_VALIDATOR_INDEX = validatorIndex_next_vi]
+
 
 
 ;;
@@ -128,6 +204,15 @@ relation Process_operations:
   beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
 
+rule Process_operations/main:
+  state_beaconState body_beaconBlockBody ~> state_updated
+
+  -- if $( state_in.ETH1_DATA.DEPOSIT_COUNT - state_in.ETH1_DEPOSIT_INDEX ) = uint64_remaining
+  -- if $( $MAX_DEPOSITS ) = uint64_max
+  -- if $min_uint64(uint64_max, uint64_remaining) = uint64_expected
+  -- if $( |body.DEPOSITS| ) = uint64_len_deposits
+  -- if $( uint64_len_deposits = uint64_expected )
+
 
 ;;
 ;; process_sync_aggregate
@@ -136,3 +221,126 @@ relation Process_operations:
 relation Process_sync_aggregate:
   beaconState syncAggregate ~> beaconState
   hint(input %0 %1)
+
+;; -------- Case A: state.SLOT = 0  → previous_slot = 0 --------
+rule Process_sync_aggregate/slot0:
+  state_in syncAggregate_sa ~> state_updated
+  -- if $(state_in.SLOT = 0)
+  ;; (1) 서명 참가자(pubkey) 집합 추출 (committee ∩ bits==1)
+  -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
+  -- if $enumerate_<blsPubkey>(blsPubkey_committee*) = (n_pk, blsPubkey_pk)*
+  -- if $filter_list_2_<enumerated_<blsPubkey>, boolean*>(
+        (n_pk, blsPubkey_pk)*,
+        syncAggregate_sa.SYNC_COMMITTEE_BITS,
+        def $bit_is_one_en_blsPubkey
+      ) = (n_pk_sel, blsPubkey_sel)*
+  -- if $map_list_2_<enumerated_<blsPubkey>, boolean*, blsPubkey>(
+        (n_pk_sel, blsPubkey_sel)*,
+        syncAggregate_sa.SYNC_COMMITTEE_BITS,
+        def $pick_second_en_blsPubkey
+      ) = blsPubkey_participants*
+  ;; (2) 도메인/서명루트 (previous_slot = 0)
+  -- if slot_prev = 0
+  -- if $compute_epoch_at_slot(slot_prev) = epoch_prev
+  -- if $get_domain(state_in, $DOMAIN_SYNC_COMMITTEE, epoch_prev) = domain_sc
+  -- if $get_block_root_at_slot(state_in, slot_prev) = root_prev_block
+  -- if $compute_signing_root_block_root(root_prev_block, domain_sc) = root_sign
+  ;; (3) 빠른 집계 검증 (빈 집합 허용)
+  -- if $eth_fast_aggregate_verify(
+         blsPubkey_participants*,
+         root_sign,
+         syncAggregate_sa.SYNC_COMMITTEE_SIGNATURE
+       ) = true
+  ;; (4) 리워드/패널티 상수 계산
+  -- if $get_total_active_balance(state_in) = gwei_total_active
+  -- if $( gwei_total_active / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_total_incs
+  -- if $get_base_reward_per_increment(state_in) = gwei_base_per_inc
+  -- if $( gwei_base_per_inc * uint64_total_incs ) = gwei_total_base_rewards
+  -- if $( gwei_total_base_rewards * $SYNC_REWARD_WEIGHT ) = uint64_num_0
+  -- if $( uint64_num_0 / $WEIGHT_DENOMINATOR ) = gwei_tmp_0
+  -- if $( gwei_tmp_0 / $SLOTS_PER_EPOCH ) = gwei_max_participant_rewards
+  -- if $( gwei_max_participant_rewards / $SYNC_COMMITTEE_SIZE ) = gwei_participant_reward
+  -- if $( $WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT ) = uint64_den_prop
+  -- if $( gwei_participant_reward * $PROPOSER_WEIGHT ) = uint64_num_prop
+  -- if $( uint64_num_prop / uint64_den_prop ) = gwei_proposer_reward
+  ;; (5) 전체 위원(pubkey)→validatorIndex 매핑, enumerate, capture 부착 후 fold 적용
+  -- if $map_list_2_<blsPubkey, beaconState, validatorIndex>(
+         blsPubkey_committee*,
+         state_in,
+         def $index_of_pubkey_captured
+       ) = validatorIndex_committee*
+  -- if $enumerate_<validatorIndex>(validatorIndex_committee*) = (n_i, validatorIndex_vi)*
+  -- if $get_beacon_proposer_index(state_in) = validatorIndex_prop
+  -- if $map_list_2_<(nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex), ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
+         (n_i, validatorIndex_vi)*,
+         (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop),
+         def $attach_capture_sync
+       ) = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
+  -- if state_updated =
+       $fold_<beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
+         def $apply_sync_one,
+         state_in,
+         ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
+       )
+
+
+;; -------- Case B: state.SLOT > 0  → previous_slot = state.SLOT - 1 --------
+rule Process_sync_aggregate/slot_pos:
+  state_in syncAggregate_sa ~> state_updated
+  -- if $(state_in.SLOT > 0)
+  ;; (1) 서명 참가자(pubkey) 집합 추출
+  -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
+  -- if $enumerate_<blsPubkey>(blsPubkey_committee*) = (n_pk, blsPubkey_pk)*
+  -- if $filter_list_2_<enumerated_<blsPubkey>, boolean*>(
+         (n_pk, blsPubkey_pk)*,
+         syncAggregate_sa.SYNC_COMMITTEE_BITS,
+         def $bit_is_one_en_blsPubkey
+       ) = (n_pk_sel, blsPubkey_sel)*
+  -- if $map_list_2_<enumerated_<blsPubkey>, boolean*, blsPubkey>(
+         (n_pk_sel, blsPubkey_sel)*,
+         syncAggregate_sa.SYNC_COMMITTEE_BITS,
+         def $pick_second_en_blsPubkey
+       ) = blsPubkey_participants*
+  ;; (2) 도메인/서명루트 (previous_slot = state.SLOT - 1)
+  -- if $( state_in.SLOT - 1 ) = slot_prev
+  -- if $compute_epoch_at_slot(slot_prev) = epoch_prev
+  -- if $get_domain(state_in, $DOMAIN_SYNC_COMMITTEE, epoch_prev) = domain_sc
+  -- if $get_block_root_at_slot(state_in, slot_prev) = root_prev_block
+  -- if $compute_signing_root_block_root(root_prev_block, domain_sc) = root_sign
+  ;; (3) 서명 검증
+  -- if $eth_fast_aggregate_verify(
+         blsPubkey_participants*,
+         root_sign,
+         syncAggregate_sa.SYNC_COMMITTEE_SIGNATURE
+       ) = true
+  ;; (4) 리워드/패널티 상수 계산
+  -- if $get_total_active_balance(state_in) = gwei_total_active
+  -- if $( gwei_total_active / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_total_incs
+  -- if $get_base_reward_per_increment(state_in) = gwei_base_per_inc
+  -- if $( gwei_base_per_inc * uint64_total_incs ) = gwei_total_base_rewards
+  -- if $( gwei_total_base_rewards * $SYNC_REWARD_WEIGHT ) = uint64_num_0
+  -- if $( uint64_num_0 / $WEIGHT_DENOMINATOR ) = gwei_tmp_0
+  -- if $( gwei_tmp_0 / $SLOTS_PER_EPOCH ) = gwei_max_participant_rewards
+  -- if $( gwei_max_participant_rewards / $SYNC_COMMITTEE_SIZE ) = gwei_participant_reward
+  -- if $( $WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT ) = uint64_den_prop
+  -- if $( gwei_participant_reward * $PROPOSER_WEIGHT ) = uint64_num_prop
+  -- if $( uint64_num_prop / uint64_den_prop ) = gwei_proposer_reward
+  ;; (5) 전체 위원(pubkey)→validatorIndex 매핑, enumerate, capture 부착 후 fold 적용
+  -- if $map_list_2_<blsPubkey, beaconState, validatorIndex>(
+         blsPubkey_committee*,
+         state_in,
+         def $index_of_pubkey_captured
+       ) = validatorIndex_committee*
+  -- if $enumerate_<validatorIndex>(validatorIndex_committee*) = (n_i, validatorIndex_vi)*
+  -- if $get_beacon_proposer_index(state_in) = validatorIndex_prop
+  -- if $map_list_2_<(nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex), ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
+         (n_i, validatorIndex_vi)*,
+         (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop),
+         def $attach_capture_sync
+       ) = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
+  -- if state_updated =
+       $fold_<beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
+         def $apply_sync_one,
+         state_in,
+         ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
+       )

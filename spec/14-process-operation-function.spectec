@@ -58,7 +58,71 @@ rule ProcessAttesterSlashing/main:
 ;; process_attestation
 ;;
 
-;; TODO
+relation Process_attestation:
+  (beaconState, attestation) ~> beaconState
+  hint(input %0 %1)
+
+rule Process_attestation/current:
+  (state_in, attestation_att) ~> state_out
+  -- if attestationData_data = attestation_att.DATA
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if ( attestationData_data.TARGET.EPOCH = epoch_prev \/ attestationData_data.TARGET.EPOCH = epoch_cur )
+  -- if $( attestationData_data.TARGET.EPOCH = $compute_epoch_at_slot(attestationData_data.SLOT) )
+  -- if $( attestationData_data.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state_in.SLOT )
+  -- if $( state_in.SLOT <= attestationData_data.SLOT + $SLOTS_PER_EPOCH )
+  -- if $( attestationData_data.INDEX < $get_committee_count_per_slot(state_in, attestationData_data.TARGET.EPOCH) )
+  -- if validatorIndex_committee* = $get_beacon_committee(state_in, attestationData_data.SLOT, attestationData_data.INDEX)
+  -- if $( |attestation_att.AGGREGATION_BITS| = |validatorIndex_committee*| )
+  -- if $is_valid_indexed_attestation(state_in, $get_indexed_attestation(state_in, attestation_att)) = true
+  ;; 현재 epoch 분기
+  -- if $( attestationData_data.TARGET.EPOCH = epoch_cur )
+  -- if $( state_in.SLOT - attestationData_data.SLOT ) = uint64_inclusion_delay
+  -- if nat_flag_indices* = $get_attestation_participation_flag_indices(state_in, attestationData_data, uint64_inclusion_delay)
+  ;; 바깥 for: vi 리스트 만들기
+  -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
+  -- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
+         validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
+       ) = (validatorIndex_vi, nat_flags_vi*)*
+  ;; fold over vi: (state, num) 누적
+  -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
+         def $process_one_vi_current,
+         (state_in, 0),
+         (validatorIndex_vi, nat_flags_vi*)*
+       ) = (state_after_flags, gwei_num)
+  ;; proposer 보상 지급
+  -- if $compute_proposer_reward(gwei_num) = gwei_prop
+  -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
+
+rule Process_attestation/previous:
+  (state_in, attestation_att) ~> state_out
+  -- if attestationData_data = attestation_att.DATA
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if ( attestationData_data.TARGET.EPOCH = epoch_prev \/ attestationData_data.TARGET.EPOCH = epoch_cur )
+  -- if $( attestationData_data.TARGET.EPOCH = $compute_epoch_at_slot(attestationData_data.SLOT) )
+  -- if $( attestationData_data.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state_in.SLOT )
+  -- if $( state_in.SLOT <= attestationData_data.SLOT + $SLOTS_PER_EPOCH )
+  -- if $( attestationData_data.INDEX < $get_committee_count_per_slot(state_in, attestationData_data.TARGET.EPOCH) )
+  -- if validatorIndex_committee* = $get_beacon_committee(state_in, attestationData_data.SLOT, attestationData_data.INDEX)
+  -- if $( |attestation_att.AGGREGATION_BITS| = |validatorIndex_committee*| )
+  -- if $is_valid_indexed_attestation(state_in, $get_indexed_attestation(state_in, attestation_att)) = true
+  ;; 이전 epoch 분기
+  -- if $( attestationData_data.TARGET.EPOCH = epoch_prev )
+  -- if $( state_in.SLOT - attestationData_data.SLOT ) = uint64_inclusion_delay
+  -- if nat_flag_indices* = $get_attestation_participation_flag_indices(state_in, attestationData_data, uint64_inclusion_delay)
+  -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
+  -- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
+         validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
+       ) = (validatorIndex_vi, nat_flags_vi*)*
+  -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
+         def $process_one_vi_previous,
+         (state_in, 0),
+         (validatorIndex_vi, nat_flags_vi*)*
+       ) = (state_after_flags, gwei_num)
+  -- if $compute_proposer_reward(gwei_num) = gwei_prop
+  -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
+
 
 
 ;; 

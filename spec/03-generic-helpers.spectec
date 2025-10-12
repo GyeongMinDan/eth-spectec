@@ -84,3 +84,17 @@ def $min_uint64(uint64_x, uint64_y) = uint64_x
   -- if $(uint64_x <= uint64_y)
 def $min_uint64(uint64_x, uint64_y) = uint64_y
   -- otherwise
+
+
+;; ------------------------------------------------------------
+;; eth_fast_aggregate_verify
+;; ------------------------------------------------------------
+dec $eth_fast_aggregate_verify(blsPubkey*, bytes32, blsSignature) : boolean
+
+def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) = true
+  -- if $( |blsPubkey_list*| = 0 )
+  -- if $( blsSignature_sig = $G2_POINT_AT_INFINITY )
+
+def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) =
+  $bls_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig)
+  -- otherwise
