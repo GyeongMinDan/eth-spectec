@@ -3,12 +3,13 @@
 ;; (dec-only: 인터프리터/런타임 제공)
 ;; =========================
 
-;; --- 해시/암호 ---
-dec $hash_<X>(X) : bytes32
+;; --- BLS cryptography ---
 dec $bls_verify(blsPubkey, root, blsSignature) : boolean
 dec $bls_fast_aggregate_verify(blsPubkey*, root, blsSignature) : boolean
 dec $eth_aggregate_pubkeys(blsPubkey*) : blsPubkey
 
+;; --- hash ---
+dec $hash_<X>(X) : bytes32
 ;; --- hash_tree_root 계열 ---
 dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
 dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
@@ -46,11 +47,13 @@ dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
 ;; --- 수치 유틸  ---
 dec $integer_squareroot(uint64) : uint64
 
-;; --- 리스트 안에 원소 개수 세기 ---
+;; --- 한 리스트 안에 겹치는 원소 개수 세기 ---
+;; X* = [1, 2, 3] -> count_occurrences_<1>(X*, 1) -> how many 1 in X* ??
 ;; count occurrences of element in list
 dec $count_occurrences_<X>(X*, X) : nat
 
 ;; --- 2의 제곱 연산 --- 
+;; --- pow2(nat) -> 2 ^ nat --- 
 dec $pow2(nat) : nat
 
 ;; 리스트 set 함수(리스트 내 중복 제거)
@@ -60,12 +63,14 @@ dec $to_set_<X>(X*) : X*
 dec $sum_<X>(X*) : X
 
 ;; 리스트 값채우기
+;; repeat_<gwei>(gwei, 0) -> gwei가 0 인 리스트가 생성
 dec $repeat_<X>(X, nat) : X*
 
-;; 리스트 정렬
+;; 리스트 오름차순 정렬
 dec $sort_<X>(X*) : X*       
 
 ;; 리스트 교집합 (set.intersection)
+;; 단순 concat 이 아니라 중복되는 것은 제거하여 합침
 dec $set_intersection_<X>(X*, X*) : X*
 
 ;; set_or_append_list : X* × nat × X → X*
@@ -75,6 +80,7 @@ dec $set_intersection_<X>(X*, X*) : X*
 dec $set_or_append_list_<X>(X*, nat, X) : X*
 
 ;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
+;; 
 dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
 
 ;; python for statement range funcs
@@ -103,6 +109,10 @@ dec $bytes32_to_bytes(bytes32) : bytes
 ;; bytes4 -> 그냥 bytes로
 dec $bytes4_to_bytes(bytes4) : bytes 
 
+;; bytes32 withdrawal_credentials → executionAddress(마지막 20B) 추출
+;; bytes32 X -> X[12:] -> 마지막 20B 추출
+dec $extract_execution_address(bytes32) : executionAddress
+
 ;; ------------------------------------------------------------
 ;; map over a list with one extra captured argument
 ;; X*  ×  Y  ×  (X,Y)->Z   ==>   Z*
@@ -112,10 +122,3 @@ dec $bytes4_to_bytes(bytes4) : bytes
 dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
 
 dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool) : X*
-
-;; --------------------------------------------
-;; helpers for withdrawals
-;; --------------------------------------------
-
-;; bytes32 withdrawal_credentials → executionAddress(마지막 20B) 추출
-dec $extract_execution_address(bytes32) : executionAddress
