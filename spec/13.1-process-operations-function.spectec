@@ -58,12 +58,12 @@ rule ProcessAttesterSlashing/main:
 ;; process_attestation
 ;;
 
-relation Process_attestation:
-  (beaconState, attestation) ~> beaconState
+relation ProcessAttestation:
+  beaconState attestation ~> beaconState
   hint(input %0 %1)
 
-rule Process_attestation/current:
-  (state_in, attestation_att) ~> state_out
+rule ProcessAttestation/current:
+  state_in attestation_att ~> state_out
   -- if attestationData_data = attestation_att.DATA
   -- if $get_previous_epoch(state_in) = epoch_prev
   -- if $get_current_epoch(state_in)  = epoch_cur
@@ -94,8 +94,8 @@ rule Process_attestation/current:
   -- if $compute_proposer_reward(gwei_num) = gwei_prop
   -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
 
-rule Process_attestation/previous:
-  (state_in, attestation_att) ~> state_out
+rule ProcessAttestation/previous:
+  state_in attestation_att ~> state_out
   -- if attestationData_data = attestation_att.DATA
   -- if $get_previous_epoch(state_in) = epoch_prev
   -- if $get_current_epoch(state_in)  = epoch_cur
@@ -203,3 +203,89 @@ rule ProcessBLSToExecutionChange/main:
   -- if validator_updated = validator[.WITHDRAWAL_CREDENTIALS = bytes32_new_wc]
   -- if state.VALIDATORS[[validatorIndex_change] = validator_updated] = validator_update*
   -- if state_updated = state[.VALIDATORS = validator_update*]
+
+
+;; apply proposer_slahsings
+relation Apply_proposer_slashings:
+  beaconState proposerSlashing* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_proposer_slashings/base:
+  state_in eps ~> state_in
+
+rule Apply_proposer_slashings/step:
+  state_in (proposerSlashing_h :: proposerSlashing_t*) ~> state_out
+  -- ProcessProposerSlashing: state_in proposerSlashing_h ~> state_mid
+  -- Apply_proposer_slashings:  state_mid proposerSlashing_t* ~> state_out
+
+
+;; apply attester_slashings
+relation Apply_attester_slashings:
+  beaconState attesterSlashing* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_attester_slashings/base:
+  state_in eps ~> state_in
+
+rule Apply_attester_slashings/step:
+  state_in (attesterSlashing_h :: attesterSlashing_t*) ~> state_out
+  -- ProcessAttesterSlashing: state_in attesterSlashing_h ~> state_mid
+  -- Apply_attester_slashings:  state_mid attesterSlashing_t* ~> state_out
+
+
+;; apply attestations
+relation Apply_attestations:
+  beaconState attestation* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_attestations/base:
+  state_in eps ~> state_in
+
+rule Apply_attestations/step:
+  state_in (attestation_h :: attestation_t*) ~> state_out
+  -- ProcessAttestation: state_in attestation_h ~> state_mid
+  -- Apply_attestations:  state_mid attestation_t* ~> state_out
+
+
+;; apply deposits
+relation Apply_deposits:
+  beaconState deposit* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_deposits/base:
+  state_in eps ~> state_in
+
+rule Apply_deposits/step:
+  state_in (deposit_h :: deposit_t*) ~> state_out
+  -- ProcessDeposit: state_in deposit_h ~> state_mid
+  -- Apply_deposits:  state_mid deposit_t* ~> state_out
+
+
+
+;; apply voluntary_exits
+relation Apply_voluntary_exits:
+  beaconState signedVoluntaryExit* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_voluntary_exits/base:
+  state_in eps ~> state_in
+
+rule Apply_voluntary_exits/step:
+  state_in (signedVoluntaryExit_h :: signedVoluntaryExit_t*) ~> state_out
+  -- ProcessVoluntaryExit: state_in signedVoluntaryExit_h ~> state_mid
+  -- Apply_voluntary_exits:  state_mid signedVoluntaryExit_t* ~> state_out
+
+
+
+;; apply bls_to_execution_changes
+relation Apply_bls_to_execution_changes:
+  beaconState signedBlsToExecutionChange* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_bls_to_execution_changes/base:
+  state_in eps ~> state_in
+
+rule Apply_bls_to_execution_changes/step:
+  state_in (signedBlsToExecutionChange_h :: signedBlsToExecutionChange_t*) ~> state_out
+  -- ProcessBLSToExecutionChange: state_in signedBlsToExecutionChange_h ~> state_mid
+  -- Apply_bls_to_execution_changes:  state_mid signedBlsToExecutionChange_t* ~> state_out

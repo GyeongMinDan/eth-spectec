@@ -39,6 +39,7 @@ dec $compute_signing_root_beaconBlockHeader(beaconBlockHeader, domain) : root
 dec $compute_signing_root_attestationData(attestationData, domain) : root
 dec $compute_signing_root_depositMessage(depositMessage, domain) : root
 dec $compute_signing_root_block_root(bytes32, domain) : root
+dec $compute_signing_root_beaconBlock(beaconBlock, domain) : root
 
 
 ;; --- 머클 검증 ---

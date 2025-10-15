@@ -199,19 +199,26 @@ rule Process_eth1_data/accumulate:
 
 ;;
 ;; process_operations
-;;   
+;;
+
 relation Process_operations:
   beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
 
 rule Process_operations/main:
-  state_beaconState body_beaconBlockBody ~> state_updated
-
+  state_in body_in ~> state_out
+  -- if $( |body_in.DEPOSITS| ) = uint64_len_deposits
   -- if $( state_in.ETH1_DATA.DEPOSIT_COUNT - state_in.ETH1_DEPOSIT_INDEX ) = uint64_remaining
-  -- if $( $MAX_DEPOSITS ) = uint64_max
-  -- if $min_uint64(uint64_max, uint64_remaining) = uint64_expected
-  -- if $( |body.DEPOSITS| ) = uint64_len_deposits
-  -- if $( uint64_len_deposits = uint64_expected )
+  -- if $( $MAX_DEPOSITS ) = uint64_max_deposits
+  -- if $min_uint64(uint64_max_deposits, uint64_remaining) = uint64_min_req
+  -- if $( uint64_len_deposits = uint64_min_req )
+  ;; proposer_slashings → attester_slashings → attestations → deposits → voluntary_exits → bls_to_execution_changes               
+  -- Apply_proposer_slashings:        state_in body_in.PROPOSER_SLASHINGS        ~> state_ps
+  -- Apply_attester_slashings:        state_ps body_in.ATTESTER_SLASHINGS        ~> state_as
+  -- Apply_attestations:              state_as body_in.ATTESTATIONS              ~> state_att
+  -- Apply_deposits:                  state_att body_in.DEPOSITS                 ~> state_dep
+  -- Apply_voluntary_exits:           state_dep body_in.VOLUNTARY_EXITS          ~> state_ve
+  -- Apply_bls_to_execution_changes:  state_ve body_in.BLS_TO_EXECUTION_CHANGES  ~> state_out
 
 
 ;;

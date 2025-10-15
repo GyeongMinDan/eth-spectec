@@ -284,7 +284,7 @@ syntax beaconBlockBody =
     ATTESTER_SLASHINGS attesterSlashing*,
     ATTESTATIONS attestation*,
     DEPOSITS deposit*,
-    VOLUNTARY_EXITS voluntaryExit*,
+    VOLUNTARY_EXITS signedVoluntaryExit*,
     ;; [Altair] sync committee aggregation
     SYNC_AGGREGATE syncAggregate,
     ;; [Bellatrix/Capella] execution-layer payload

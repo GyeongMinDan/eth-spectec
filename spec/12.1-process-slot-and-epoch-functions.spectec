@@ -1,4 +1,55 @@
 ;;
+;; process_slot
+;;
+relation Process_slot:
+  beaconState ~> beaconState
+  hint(input %0)
+
+;; ------------------------------------------------------------
+;; case 1: LATEST_BLOCK_HEADER.STATE_ROOT 가 비어있음($ZERO_ROOT)
+;;   - state root 캐시
+;;   - 헤더의 STATE_ROOT 채우기
+;;   - block root 캐시
+;; ------------------------------------------------------------
+rule Process_slot/header_root_empty:
+  state_in ~> state_out
+  -- if $hash_<beaconState>(state_in) = root_state_prev
+  -- if $( state_in.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
+  ;; STATE_ROOTS[slot % SLOTS_PER_HISTORICAL_ROOT] ← root_state_prev
+  -- if state_in.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
+  -- if state_sr = state_in[.STATE_ROOTS = root_state_list_updated*]
+  ;; 헤더의 STATE_ROOT 가 비어있으면 채움
+  -- if state_sr.LATEST_BLOCK_HEADER = beaconBlockHeader_old
+  -- if $( beaconBlockHeader_old.STATE_ROOT = $ZERO_ROOT )
+  -- if beaconBlockHeader_new = beaconBlockHeader_old[.STATE_ROOT = root_state_prev]
+  -- if state_hdr = state_sr[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
+  ;; 이전 블록 루트 계산 및 BLOCK_ROOTS에 캐시
+  -- if $hash_tree_root_beaconBlockHeader(state_hdr.LATEST_BLOCK_HEADER) = root_block_prev
+  -- if state_hdr.BLOCK_ROOTS[[uint64_idx] = root_block_prev] = root_block_list_updated*
+  -- if state_out = state_hdr[.BLOCK_ROOTS = root_block_list_updated*]
+
+;; ------------------------------------------------------------
+;; case 2: LATEST_BLOCK_HEADER.STATE_ROOT 가 이미 설정됨
+;;   - state root 캐시
+;;   - 헤더는 그대로
+;;   - block root 캐시
+;; ------------------------------------------------------------
+rule Process_slot/header_root_present:
+  state_in ~> state_out
+  -- if $hash_<beaconState>(state_in) = root_state_prev
+  -- if $( state_in.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
+  -- if state_in.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
+  ;; STATE_ROOTS[slot % SLOTS_PER_HISTORICAL_ROOT] ← root_state_prev
+  -- if state_sr = state_in[.STATE_ROOTS = root_state_list_updated*]
+  -- if state_sr.LATEST_BLOCK_HEADER = beaconBlockHeader_read
+  -- if ~( beaconBlockHeader_read.STATE_ROOT = $ZERO_ROOT )
+  ;; 이전 블록 루트 계산 및 BLOCK_ROOTS에 캐시
+  -- if $hash_tree_root_beaconBlockHeader(beaconBlockHeader_read) = root_block_prev
+  -- if state_sr.BLOCK_ROOTS[[uint64_idx] = root_block_prev] = root_block_list_updated*
+  -- if state_out = state_sr[.BLOCK_ROOTS = root_block_list_updated*]
+
+
+;;
 ;; process_justification_and_finalization
 ;;
 relation Process_justification_and_finalization:

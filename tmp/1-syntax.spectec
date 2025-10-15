@@ -325,13 +325,13 @@ def $BYTES_PER_LOGS_BLOOM = 256
 dec $MAX_EXTRA_DATA_BYTES : nat
 def $MAX_EXTRA_DATA_BYTES = 32
 
-dec $MAX_BLS_TO_EXECUTION_CHANGES : nat
+dec $MAX_BLS_TO_EXECUTION_CHANGES : uint64
 def $MAX_BLS_TO_EXECUTION_CHANGES = 16
 
 dec $MAX_WITHDRAWALS_PER_PAYLOAD : uint64
 def $MAX_WITHDRAWALS_PER_PAYLOAD = 16
 
-dec $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP : nat
+dec $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP : uint64
 def $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP = 16384
 
 ;; Configuration-derived constants (parameterless functions)
@@ -768,7 +768,7 @@ syntax beaconBlockBody =
     ATTESTER_SLASHINGS attesterSlashing*,
     ATTESTATIONS attestation*,
     DEPOSITS deposit*,
-    VOLUNTARY_EXITS voluntaryExit*,
+    VOLUNTARY_EXITS signedVoluntaryExit*,
     ;; [Altair] sync committee aggregation
     SYNC_AGGREGATE syncAggregate,
     ;; [Bellatrix/Capella] execution-layer payload
@@ -823,7 +823,7 @@ var reward : gwei
 var penalty : gwei
 
 ;; =========================
-;; 03-builtins-decls.spectec
+;; builtins-decls.spectec
 ;; (dec-only: 인터프리터/런타임 제공)
 ;; =========================
 
@@ -863,6 +863,7 @@ dec $compute_signing_root_beaconBlockHeader(beaconBlockHeader, domain) : root
 dec $compute_signing_root_attestationData(attestationData, domain) : root
 dec $compute_signing_root_depositMessage(depositMessage, domain) : root
 dec $compute_signing_root_block_root(bytes32, domain) : root
+dec $compute_signing_root_beaconBlock(beaconBlock, domain) : root
 
 
 ;; --- 머클 검증 ---
@@ -1032,6 +1033,7 @@ def $min_uint64(uint64_x, uint64_y) = uint64_x
 def $min_uint64(uint64_x, uint64_y) = uint64_y
   -- otherwise
 
+
 ;; ------------------------------------------------------------
 ;; eth_fast_aggregate_verify
 ;; ------------------------------------------------------------
@@ -1044,7 +1046,7 @@ def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) =
 def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) =
   $bls_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig)
   -- otherwise
-  
+
 ;; =========================
 ;; epoch / slot / time helpers
 ;; =========================
@@ -1131,6 +1133,20 @@ def $get_domain(state, domainType, epoch) =
 def $get_domain(state, domainType, epoch) =
   $compute_domain(domainType, state.FORK.CURRENT_VERSION, state.GENESIS_VALIDATORS_ROOT)
   -- if $(state.FORK.EPOCH <= epoch)
+
+;; ------------------------------------------------------------
+;; verify_block_signature
+;; ------------------------------------------------------------
+dec $verify_block_signature(beaconState, signedBeaconBlock) : boolean
+
+def $verify_block_signature(state, signedBeaconBlock) = true
+  -- if validator_prop = state.VALIDATORS[signedBeaconBlock.MESSAGE.PROPOSER_INDEX]
+  -- if $get_domain(state, $DOMAIN_BEACON_PROPOSER, eps) = domain_prop
+  -- if $compute_signing_root_beaconBlock(signedBeaconBlock.MESSAGE, domain_prop) = root_sign
+  -- if $bls_verify(validator_prop.PUBKEY, root_sign, signedBeaconBlock.SIGNATURE) = true
+
+def $verify_block_signature(state, signedBeaconBlock) = false
+  -- otherwise
 
 ;; ================================
 ;; validator predicates & helpers
@@ -2143,6 +2159,7 @@ def $get_next_sync_committee(state) = syncCommittee_ret
        { PUBKEYS         blsPubkey_list*,
          AGGREGATE_PUBKEY blsPubkey_agg }
 
+
 ;; --------------------------------------------
 ;; get_indexed_attestation(state, attestation) : indexedAttestation
 ;; --------------------------------------------
@@ -2998,6 +3015,57 @@ dec $pick_vi_from_enumerated_1((nat, validatorIndex)) : validatorIndex
 def $pick_vi_from_enumerated_1((nat_i, validatorIndex_vi)) = validatorIndex_vi
 
 ;;
+;; process_slot
+;;
+relation Process_slot:
+  beaconState ~> beaconState
+  hint(input %0)
+
+;; ------------------------------------------------------------
+;; case 1: LATEST_BLOCK_HEADER.STATE_ROOT 가 비어있음($ZERO_ROOT)
+;;   - state root 캐시
+;;   - 헤더의 STATE_ROOT 채우기
+;;   - block root 캐시
+;; ------------------------------------------------------------
+rule Process_slot/header_root_empty:
+  state_in ~> state_out
+  -- if $hash_<beaconState>(state_in) = root_state_prev
+  -- if $( state_in.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
+  ;; STATE_ROOTS[slot % SLOTS_PER_HISTORICAL_ROOT] ← root_state_prev
+  -- if state_in.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
+  -- if state_sr = state_in[.STATE_ROOTS = root_state_list_updated*]
+  ;; 헤더의 STATE_ROOT 가 비어있으면 채움
+  -- if state_sr.LATEST_BLOCK_HEADER = beaconBlockHeader_old
+  -- if $( beaconBlockHeader_old.STATE_ROOT = $ZERO_ROOT )
+  -- if beaconBlockHeader_new = beaconBlockHeader_old[.STATE_ROOT = root_state_prev]
+  -- if state_hdr = state_sr[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
+  ;; 이전 블록 루트 계산 및 BLOCK_ROOTS에 캐시
+  -- if $hash_tree_root_beaconBlockHeader(state_hdr.LATEST_BLOCK_HEADER) = root_block_prev
+  -- if state_hdr.BLOCK_ROOTS[[uint64_idx] = root_block_prev] = root_block_list_updated*
+  -- if state_out = state_hdr[.BLOCK_ROOTS = root_block_list_updated*]
+
+;; ------------------------------------------------------------
+;; case 2: LATEST_BLOCK_HEADER.STATE_ROOT 가 이미 설정됨
+;;   - state root 캐시
+;;   - 헤더는 그대로
+;;   - block root 캐시
+;; ------------------------------------------------------------
+rule Process_slot/header_root_present:
+  state_in ~> state_out
+  -- if $hash_<beaconState>(state_in) = root_state_prev
+  -- if $( state_in.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
+  -- if state_in.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
+  ;; STATE_ROOTS[slot % SLOTS_PER_HISTORICAL_ROOT] ← root_state_prev
+  -- if state_sr = state_in[.STATE_ROOTS = root_state_list_updated*]
+  -- if state_sr.LATEST_BLOCK_HEADER = beaconBlockHeader_read
+  -- if ~( beaconBlockHeader_read.STATE_ROOT = $ZERO_ROOT )
+  ;; 이전 블록 루트 계산 및 BLOCK_ROOTS에 캐시
+  -- if $hash_tree_root_beaconBlockHeader(beaconBlockHeader_read) = root_block_prev
+  -- if state_sr.BLOCK_ROOTS[[uint64_idx] = root_block_prev] = root_block_list_updated*
+  -- if state_out = state_sr[.BLOCK_ROOTS = root_block_list_updated*]
+
+
+;;
 ;; process_justification_and_finalization
 ;;
 relation Process_justification_and_finalization:
@@ -3128,7 +3196,6 @@ rule Process_registry_updates/main:
         state_pass1,
         validatorIndex_to_activate*
       )
-
 
 ;;
 ;; process_slashings
@@ -3340,6 +3407,52 @@ rule ProcessEpoch/main:
   -- Process_participation_flag_updates:      state_9           ~> state_10
   -- Process_sync_committee_updates:          state_10          ~> state_11
 
+;;
+;; process_slots
+;;
+relation Process_slots_loop:
+  beaconState slot ~> beaconState
+  hint(input %0 %1)
+
+;; 종료: state.SLOT >= slot_target
+rule Process_slots_loop/base:
+  state_in slot_target ~> state_in
+  -- if $( state_in.SLOT < slot_target ) = false
+
+;; step (epoch 경계 아님)
+rule Process_slots_loop/step-no-epoch:
+  state_in slot_target ~> state_out
+  -- if $( state_in.SLOT < slot_target ) = true
+  -- Process_slot: state_in ~> state_after_slot
+  -- if slot_cur = state_after_slot.SLOT
+  -- if $( slot_cur + 1 ) = slot_next
+  -- if $( slot_next \ $SLOTS_PER_EPOCH ) = nat_mod
+  -- if ~( nat_mod = 0 )
+  -- if state_inc = state_after_slot[.SLOT = slot_next]
+  -- Process_slots_loop: state_inc slot_target ~> state_out
+
+;; step (epoch 경계)
+rule Process_slots_loop/step-epoch:
+  state_in slot_target ~> state_out
+  -- if $( state_in.SLOT < slot_target ) = true
+  -- Process_slot: state_in ~> state_after_slot
+  -- if slot_cur = state_after_slot.SLOT
+  -- if $( slot_cur + 1 ) = slot_next
+  -- if $( slot_next \ $SLOTS_PER_EPOCH ) = 0
+  -- ProcessEpoch: state_after_slot ~>* state_after_epoch
+  -- if state_inc = state_after_epoch[.SLOT = slot_next]
+  -- Process_slots_loop: state_inc slot_target ~> state_out
+
+
+relation Process_slots:
+  beaconState slot ~> beaconState
+  hint(input %0 %1)
+
+rule Process_slots/main:
+  state_in slot_target ~> state_out
+  -- if $( state_in.SLOT < slot_target )
+  -- Process_slots_loop: state_in slot_target ~> state_out
+
 ;; --------------------------------------------
 ;; helpers for withdrawals
 ;; --------------------------------------------
@@ -3531,6 +3644,7 @@ def $reward_proposer(state_in, gwei_prop) = state_out
   -- if validatorIndex_prop = $get_beacon_proposer_index(state_in)
   -- if state_out = $increase_balance(state_in, validatorIndex_prop, gwei_prop)
 
+
 ;; process_sync_aggregate 용
 ;; enumerate (n, X) 에서 bits[n] == 1
 dec $bit_is_one_en_blsPubkey(enumerated_<blsPubkey>, boolean*) : bool
@@ -3568,6 +3682,297 @@ dec $attach_capture_sync((nat, validatorIndex), (gwei, gwei, boolean*, validator
 def $attach_capture_sync((nat_i, validatorIndex_vi), (gwei_part, gwei_prop, boolean_bits*, validatorIndex_prop))
   = ((nat_i, validatorIndex_vi), (gwei_part, gwei_prop, boolean_bits*, validatorIndex_prop))
 
+;;
+;; process_proposer_slashing
+;; 
+relation ProcessProposerSlashing:
+  beaconState proposerSlashing ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessProposerSlashing/main:
+  state_beaconState proposerSlashing_ps ~> state_slashed
+  -- if beaconBlockHeader_1 = proposerSlashing_ps.SIGNED_HEADER_1.MESSAGE
+  -- if beaconBlockHeader_2 = proposerSlashing_ps.SIGNED_HEADER_2.MESSAGE
+  -- if $(beaconBlockHeader_1.SLOT = beaconBlockHeader_2.SLOT)
+  -- if $(beaconBlockHeader_1.PROPOSER_INDEX = beaconBlockHeader_2.PROPOSER_INDEX)
+  -- if ~(beaconBlockHeader_1 = beaconBlockHeader_2)
+  -- if validatorIndex_prop = beaconBlockHeader_1.PROPOSER_INDEX
+  -- if $(validatorIndex_prop < |state_beaconState.VALIDATORS|)
+  -- if state_beaconState.VALIDATORS[validatorIndex_prop] = validator_prop
+  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  -- if $is_slashable_validator(validator_prop, epoch_cur) = true
+  -- if signedBeaconBlockHeader_header_1 = proposerSlashing_ps.SIGNED_HEADER_1
+  -- if $compute_epoch_at_slot(signedBeaconBlockHeader_header_1.MESSAGE.SLOT) = epoch_h1
+  -- if $get_domain(state_beaconState, $DOMAIN_BEACON_PROPOSER, epoch_h1) = domain_h1
+  -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_1.MESSAGE, domain_h1) = root_sign_h1
+  -- if $bls_verify(validator_prop.PUBKEY, root_sign_h1, signedBeaconBlockHeader_header_1.SIGNATURE) = true
+  -- if signedBeaconBlockHeader_header_2 = proposerSlashing_ps.SIGNED_HEADER_2
+  -- if $compute_epoch_at_slot(signedBeaconBlockHeader_header_2.MESSAGE.SLOT) = epoch_h2
+  -- if $get_domain(state_beaconState, $DOMAIN_BEACON_PROPOSER, epoch_h2) = domain_h2
+  -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_2.MESSAGE, domain_h2) = root_sign_h2
+  -- if $bls_verify(validator_prop.PUBKEY, root_sign_h2, signedBeaconBlockHeader_header_2.SIGNATURE) = true
+  -- if state_slashed = $slash_validator(state_beaconState, validatorIndex_prop, eps)
+
+;;
+;; process_attester_slashing
+;;
+relation ProcessAttesterSlashing:
+  beaconState attesterSlashing ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessAttesterSlashing/main:
+  state_beaconState attesterSlashing_as ~> state_after_slash
+  -- if indexedAttestation_1 = attesterSlashing_as.ATTESTATION_1
+  -- if indexedAttestation_2 = attesterSlashing_as.ATTESTATION_2
+  -- if $is_slashable_attestation_data(indexedAttestation_1.DATA, indexedAttestation_2.DATA) = true
+  -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_1) = true
+  -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_2) = true
+  -- if validatorIndex_list_1* = indexedAttestation_1.ATTESTING_INDICES
+  -- if validatorIndex_list_2* = indexedAttestation_2.ATTESTING_INDICES
+  -- if $to_set_<validatorIndex>(validatorIndex_list_1*) = validatorIndex_set_1*
+  -- if $to_set_<validatorIndex>(validatorIndex_list_2*) = validatorIndex_set_2*
+  -- if $set_intersection_<validatorIndex>(validatorIndex_set_1*, validatorIndex_set_2*) = validatorIndex_intersection*
+  -- if $sort_<validatorIndex>(validatorIndex_intersection*) = validatorIndex_sorted*
+  ;; 지역변수 slashed_any 의 확인, 여기선 사전에 is_slashable 검사로 보장
+  -- if $filter_list_2_<validatorIndex, beaconState>(validatorIndex_sorted*, state_beaconState, def $is_slashable_now) = validatorIndex_slashable_now*
+  -- if $( |validatorIndex_slashable_now*| > 0 )
+  -- if state_after_slash = $apply_slashes(state_beaconState, validatorIndex_sorted*)
+
+;;
+;; process_attestation
+;;
+
+relation ProcessAttestation:
+  beaconState attestation ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessAttestation/current:
+  state_in attestation_att ~> state_out
+  -- if attestationData_data = attestation_att.DATA
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if ( attestationData_data.TARGET.EPOCH = epoch_prev \/ attestationData_data.TARGET.EPOCH = epoch_cur )
+  -- if $( attestationData_data.TARGET.EPOCH = $compute_epoch_at_slot(attestationData_data.SLOT) )
+  -- if $( attestationData_data.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state_in.SLOT )
+  -- if $( state_in.SLOT <= attestationData_data.SLOT + $SLOTS_PER_EPOCH )
+  -- if $( attestationData_data.INDEX < $get_committee_count_per_slot(state_in, attestationData_data.TARGET.EPOCH) )
+  -- if validatorIndex_committee* = $get_beacon_committee(state_in, attestationData_data.SLOT, attestationData_data.INDEX)
+  -- if $( |attestation_att.AGGREGATION_BITS| = |validatorIndex_committee*| )
+  -- if $is_valid_indexed_attestation(state_in, $get_indexed_attestation(state_in, attestation_att)) = true
+  ;; 현재 epoch 분기
+  -- if $( attestationData_data.TARGET.EPOCH = epoch_cur )
+  -- if $( state_in.SLOT - attestationData_data.SLOT ) = uint64_inclusion_delay
+  -- if nat_flag_indices* = $get_attestation_participation_flag_indices(state_in, attestationData_data, uint64_inclusion_delay)
+  ;; 바깥 for: vi 리스트 만들기
+  -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
+  -- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
+         validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
+       ) = (validatorIndex_vi, nat_flags_vi*)*
+  ;; fold over vi: (state, num) 누적
+  -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
+         def $process_one_vi_current,
+         (state_in, 0),
+         (validatorIndex_vi, nat_flags_vi*)*
+       ) = (state_after_flags, gwei_num)
+  ;; proposer 보상 지급
+  -- if $compute_proposer_reward(gwei_num) = gwei_prop
+  -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
+
+rule ProcessAttestation/previous:
+  state_in attestation_att ~> state_out
+  -- if attestationData_data = attestation_att.DATA
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if ( attestationData_data.TARGET.EPOCH = epoch_prev \/ attestationData_data.TARGET.EPOCH = epoch_cur )
+  -- if $( attestationData_data.TARGET.EPOCH = $compute_epoch_at_slot(attestationData_data.SLOT) )
+  -- if $( attestationData_data.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state_in.SLOT )
+  -- if $( state_in.SLOT <= attestationData_data.SLOT + $SLOTS_PER_EPOCH )
+  -- if $( attestationData_data.INDEX < $get_committee_count_per_slot(state_in, attestationData_data.TARGET.EPOCH) )
+  -- if validatorIndex_committee* = $get_beacon_committee(state_in, attestationData_data.SLOT, attestationData_data.INDEX)
+  -- if $( |attestation_att.AGGREGATION_BITS| = |validatorIndex_committee*| )
+  -- if $is_valid_indexed_attestation(state_in, $get_indexed_attestation(state_in, attestation_att)) = true
+  ;; 이전 epoch 분기
+  -- if $( attestationData_data.TARGET.EPOCH = epoch_prev )
+  -- if $( state_in.SLOT - attestationData_data.SLOT ) = uint64_inclusion_delay
+  -- if nat_flag_indices* = $get_attestation_participation_flag_indices(state_in, attestationData_data, uint64_inclusion_delay)
+  -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
+  -- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
+         validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
+       ) = (validatorIndex_vi, nat_flags_vi*)*
+  -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
+         def $process_one_vi_previous,
+         (state_in, 0),
+         (validatorIndex_vi, nat_flags_vi*)*
+       ) = (state_after_flags, gwei_num)
+  -- if $compute_proposer_reward(gwei_num) = gwei_prop
+  -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
+
+
+
+;; 
+;; process_deposit
+;;
+relation ProcessDeposit:
+  beaconState deposit ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessDeposit/main:
+  state deposit ~> state_applied
+  -- if $hash_tree_root_depositData(deposit.DATA) = root_leaf
+  -- if $( $DEPOSIT_CONTRACT_TREE_DEPTH + 1 ) = uint64_depth_plus_1
+  -- if $is_valid_merkle_branch(
+         root_leaf,
+         deposit.PROOF,
+         uint64_depth_plus_1,
+         state.ETH1_DEPOSIT_INDEX,
+         state.ETH1_DATA.DEPOSIT_ROOT
+       ) = true
+  -- if $(state.ETH1_DEPOSIT_INDEX + 1) = uint64_deposit_index_next
+  -- if state_inc = state[.ETH1_DEPOSIT_INDEX = uint64_deposit_index_next]
+  -- if state_applied =
+       $apply_deposit(
+         state_inc,
+         deposit.DATA.PUBKEY,
+         deposit.DATA.WITHDRAWAL_CREDENTIALS,
+         deposit.DATA.AMOUNT,
+         deposit.DATA.SIGNATURE
+       )
+
+;; 
+;; process_voluntary_exit
+;; 
+
+relation ProcessVoluntaryExit:
+  beaconState signedVoluntaryExit ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessVoluntaryExit/main:
+  state signedVoluntaryExit ~> state_after_exit
+  -- if voluntaryExit = signedVoluntaryExit.MESSAGE
+  -- if validatorIndex_exit = voluntaryExit.VALIDATOR_INDEX
+  -- if $(validatorIndex_exit < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_exit] = validator
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $is_active_validator(validator, epoch_cur) = true
+  -- if $(validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)
+  -- if $(epoch_cur >= voluntaryExit.EPOCH)
+  -- if $(epoch_cur >= validator.ACTIVATION_EPOCH + $SHARD_COMMITTEE_PERIOD)
+  -- if $get_domain(state, $DOMAIN_VOLUNTARY_EXIT, voluntaryExit.EPOCH) = domain_exit
+  -- if $compute_signing_root_voluntary_exit(voluntaryExit, domain_exit) = root_vol_exit_signing_root
+  -- if $bls_verify(validator.PUBKEY, root_vol_exit_signing_root, signedVoluntaryExit.SIGNATURE) = true
+  -- if state_after_exit = $initiate_validator_exit(state, validatorIndex_exit)
+
+;; 
+;; process_bls_to_execution_change
+;; 
+relation ProcessBLSToExecutionChange:
+  beaconState signedBlsToExecutionChange ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessBLSToExecutionChange/main:
+  state signedBlsToExecutionChange ~> state_updated
+  -- if blsToExecutionChange = signedBlsToExecutionChange.MESSAGE
+  -- if validatorIndex_change = blsToExecutionChange.VALIDATOR_INDEX
+  -- if $(validatorIndex_change < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_change] = validator
+  -- if $get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $BLS_WITHDRAWAL_PREFIX
+  -- if $hash_<blsPubkey>(blsToExecutionChange.FROM_BLS_PUBKEY) = bytes32_pk_hash
+  -- if $strip_first_byte(validator.WITHDRAWAL_CREDENTIALS) = bytes32_wc_tail
+  -- if $strip_first_byte(bytes32_pk_hash) = bytes32_pk_tail
+  -- if $(bytes32_wc_tail = bytes32_pk_tail)
+  -- if $compute_domain($DOMAIN_BLS_TO_EXECUTION_CHANGE, eps, state.GENESIS_VALIDATORS_ROOT) = domain_btec
+  -- if $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain_btec) = root_sign
+  -- if $bls_verify(blsToExecutionChange.FROM_BLS_PUBKEY, root_sign, signedBlsToExecutionChange.SIGNATURE) = true
+  -- if $make_withdrawal_credentials_eth1(blsToExecutionChange.TO_EXECUTION_ADDRESS) = bytes32_new_wc
+  -- if validator_updated = validator[.WITHDRAWAL_CREDENTIALS = bytes32_new_wc]
+  -- if state.VALIDATORS[[validatorIndex_change] = validator_updated] = validator_update*
+  -- if state_updated = state[.VALIDATORS = validator_update*]
+
+
+;; apply proposer_slahsings
+relation Apply_proposer_slashings:
+  beaconState proposerSlashing* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_proposer_slashings/base:
+  state_in eps ~> state_in
+
+rule Apply_proposer_slashings/step:
+  state_in (proposerSlashing_h :: proposerSlashing_t*) ~> state_out
+  -- ProcessProposerSlashing: state_in proposerSlashing_h ~> state_mid
+  -- Apply_proposer_slashings:  state_mid proposerSlashing_t* ~> state_out
+
+
+;; apply attester_slashings
+relation Apply_attester_slashings:
+  beaconState attesterSlashing* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_attester_slashings/base:
+  state_in eps ~> state_in
+
+rule Apply_attester_slashings/step:
+  state_in (attesterSlashing_h :: attesterSlashing_t*) ~> state_out
+  -- ProcessAttesterSlashing: state_in attesterSlashing_h ~> state_mid
+  -- Apply_attester_slashings:  state_mid attesterSlashing_t* ~> state_out
+
+
+;; apply attestations
+relation Apply_attestations:
+  beaconState attestation* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_attestations/base:
+  state_in eps ~> state_in
+
+rule Apply_attestations/step:
+  state_in (attestation_h :: attestation_t*) ~> state_out
+  -- ProcessAttestation: state_in attestation_h ~> state_mid
+  -- Apply_attestations:  state_mid attestation_t* ~> state_out
+
+
+;; apply deposits
+relation Apply_deposits:
+  beaconState deposit* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_deposits/base:
+  state_in eps ~> state_in
+
+rule Apply_deposits/step:
+  state_in (deposit_h :: deposit_t*) ~> state_out
+  -- ProcessDeposit: state_in deposit_h ~> state_mid
+  -- Apply_deposits:  state_mid deposit_t* ~> state_out
+
+
+
+;; apply voluntary_exits
+relation Apply_voluntary_exits:
+  beaconState signedVoluntaryExit* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_voluntary_exits/base:
+  state_in eps ~> state_in
+
+rule Apply_voluntary_exits/step:
+  state_in (signedVoluntaryExit_h :: signedVoluntaryExit_t*) ~> state_out
+  -- ProcessVoluntaryExit: state_in signedVoluntaryExit_h ~> state_mid
+  -- Apply_voluntary_exits:  state_mid signedVoluntaryExit_t* ~> state_out
+
+
+
+;; apply bls_to_execution_changes
+relation Apply_bls_to_execution_changes:
+  beaconState signedBlsToExecutionChange* ~> beaconState
+  hint(input %0 %1)
+
+rule Apply_bls_to_execution_changes/base:
+  state_in eps ~> state_in
+
+rule Apply_bls_to_execution_changes/step:
+  state_in (signedBlsToExecutionChange_h :: signedBlsToExecutionChange_t*) ~> state_out
+  -- ProcessBLSToExecutionChange: state_in signedBlsToExecutionChange_h ~> state_mid
+  -- Apply_bls_to_execution_changes:  state_mid signedBlsToExecutionChange_t* ~> state_out
 
 ;;
 ;; process_block_header
@@ -3770,10 +4175,26 @@ rule Process_eth1_data/accumulate:
 
 ;;
 ;; process_operations
-;;   
+;;
+
 relation Process_operations:
   beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
+
+rule Process_operations/main:
+  state_in body_in ~> state_out
+  -- if $( |body_in.DEPOSITS| ) = uint64_len_deposits
+  -- if $( state_in.ETH1_DATA.DEPOSIT_COUNT - state_in.ETH1_DEPOSIT_INDEX ) = uint64_remaining
+  -- if $( $MAX_DEPOSITS ) = uint64_max_deposits
+  -- if $min_uint64(uint64_max_deposits, uint64_remaining) = uint64_min_req
+  -- if $( uint64_len_deposits = uint64_min_req )
+  ;; proposer_slashings → attester_slashings → attestations → deposits → voluntary_exits → bls_to_execution_changes               
+  -- Apply_proposer_slashings:        state_in body_in.PROPOSER_SLASHINGS        ~> state_ps
+  -- Apply_attester_slashings:        state_ps body_in.ATTESTER_SLASHINGS        ~> state_as
+  -- Apply_attestations:              state_as body_in.ATTESTATIONS              ~> state_att
+  -- Apply_deposits:                  state_att body_in.DEPOSITS                 ~> state_dep
+  -- Apply_voluntary_exits:           state_dep body_in.VOLUNTARY_EXITS          ~> state_ve
+  -- Apply_bls_to_execution_changes:  state_ve body_in.BLS_TO_EXECUTION_CHANGES  ~> state_out
 
 
 ;;
@@ -3786,7 +4207,7 @@ relation Process_sync_aggregate:
 
 ;; -------- Case A: state.SLOT = 0  → previous_slot = 0 --------
 rule Process_sync_aggregate/slot0:
-  state_in syncAggregate_sa ~> state_out
+  state_in syncAggregate_sa ~> state_updated
   -- if $(state_in.SLOT = 0)
   ;; (1) 서명 참가자(pubkey) 집합 추출 (committee ∩ bits==1)
   -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
@@ -3838,7 +4259,7 @@ rule Process_sync_aggregate/slot0:
          (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop),
          def $attach_capture_sync
        ) = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
-  -- if state_out =
+  -- if state_updated =
        $fold_<beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
          def $apply_sync_one,
          state_in,
@@ -3848,7 +4269,7 @@ rule Process_sync_aggregate/slot0:
 
 ;; -------- Case B: state.SLOT > 0  → previous_slot = state.SLOT - 1 --------
 rule Process_sync_aggregate/slot_pos:
-  state_in syncAggregate_sa ~> state_out
+  state_in syncAggregate_sa ~> state_updated
   -- if $(state_in.SLOT > 0)
   ;; (1) 서명 참가자(pubkey) 집합 추출
   -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
@@ -3900,7 +4321,7 @@ rule Process_sync_aggregate/slot_pos:
          (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop),
          def $attach_capture_sync
        ) = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
-  -- if state_out =
+  -- if state_updated =
        $fold_<beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
          def $apply_sync_one,
          state_in,
@@ -3925,209 +4346,31 @@ rule ProcessBlock/main:
   -- Process_sync_aggregate:   state_5                              block_beaconBlock.BODY.SYNC_AGGREGATE ~>  state_6
 
 ;;
-;; process_proposer_slashing
-;; 
-relation ProcessProposerSlashing:
-  beaconState proposerSlashing ~> beaconState
-  hint(input %0 %1)
-
-rule ProcessProposerSlashing/main:
-  state_beaconState proposerSlashing_ps ~> state_slashed
-  -- if beaconBlockHeader_1 = proposerSlashing_ps.SIGNED_HEADER_1.MESSAGE
-  -- if beaconBlockHeader_2 = proposerSlashing_ps.SIGNED_HEADER_2.MESSAGE
-  -- if $(beaconBlockHeader_1.SLOT = beaconBlockHeader_2.SLOT)
-  -- if $(beaconBlockHeader_1.PROPOSER_INDEX = beaconBlockHeader_2.PROPOSER_INDEX)
-  -- if ~(beaconBlockHeader_1 = beaconBlockHeader_2)
-  -- if validatorIndex_prop = beaconBlockHeader_1.PROPOSER_INDEX
-  -- if $(validatorIndex_prop < |state_beaconState.VALIDATORS|)
-  -- if state_beaconState.VALIDATORS[validatorIndex_prop] = validator_prop
-  -- if $get_current_epoch(state_beaconState) = epoch_cur
-  -- if $is_slashable_validator(validator_prop, epoch_cur) = true
-  -- if signedBeaconBlockHeader_header_1 = proposerSlashing_ps.SIGNED_HEADER_1
-  -- if $compute_epoch_at_slot(signedBeaconBlockHeader_header_1.MESSAGE.SLOT) = epoch_h1
-  -- if $get_domain(state_beaconState, $DOMAIN_BEACON_PROPOSER, epoch_h1) = domain_h1
-  -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_1.MESSAGE, domain_h1) = root_sign_h1
-  -- if $bls_verify(validator_prop.PUBKEY, root_sign_h1, signedBeaconBlockHeader_header_1.SIGNATURE) = true
-  -- if signedBeaconBlockHeader_header_2 = proposerSlashing_ps.SIGNED_HEADER_2
-  -- if $compute_epoch_at_slot(signedBeaconBlockHeader_header_2.MESSAGE.SLOT) = epoch_h2
-  -- if $get_domain(state_beaconState, $DOMAIN_BEACON_PROPOSER, epoch_h2) = domain_h2
-  -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_2.MESSAGE, domain_h2) = root_sign_h2
-  -- if $bls_verify(validator_prop.PUBKEY, root_sign_h2, signedBeaconBlockHeader_header_2.SIGNATURE) = true
-  -- if state_slashed = $slash_validator(state_beaconState, validatorIndex_prop, eps)
-
-;;
-;; process_attester_slashing
-;;
-relation ProcessAttesterSlashing:
-  beaconState attesterSlashing ~> beaconState
-  hint(input %0 %1)
-
-rule ProcessAttesterSlashing/main:
-  state_beaconState attesterSlashing_as ~> state_after_slash
-  -- if indexedAttestation_1 = attesterSlashing_as.ATTESTATION_1
-  -- if indexedAttestation_2 = attesterSlashing_as.ATTESTATION_2
-  -- if $is_slashable_attestation_data(indexedAttestation_1.DATA, indexedAttestation_2.DATA) = true
-  -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_1) = true
-  -- if $is_valid_indexed_attestation(state_beaconState, indexedAttestation_2) = true
-  -- if validatorIndex_list_1* = indexedAttestation_1.ATTESTING_INDICES
-  -- if validatorIndex_list_2* = indexedAttestation_2.ATTESTING_INDICES
-  -- if $to_set_<validatorIndex>(validatorIndex_list_1*) = validatorIndex_set_1*
-  -- if $to_set_<validatorIndex>(validatorIndex_list_2*) = validatorIndex_set_2*
-  -- if $set_intersection_<validatorIndex>(validatorIndex_set_1*, validatorIndex_set_2*) = validatorIndex_intersection*
-  -- if $sort_<validatorIndex>(validatorIndex_intersection*) = validatorIndex_sorted*
-  ;; 지역변수 slashed_any 의 확인, 여기선 사전에 is_slashable 검사로 보장
-  -- if $filter_list_2_<validatorIndex, beaconState>(validatorIndex_sorted*, state_beaconState, def $is_slashable_now) = validatorIndex_slashable_now*
-  -- if $( |validatorIndex_slashable_now*| > 0 )
-  -- if state_after_slash = $apply_slashes(state_beaconState, validatorIndex_sorted*)
-
-;;
-;; process_attestation
+;; state_transition(state, signed_block, validate_result) : beaconState
 ;;
 
-relation Process_attestation:
-  (beaconState, attestation) ~> beaconState
-  hint(input %0 %1)
+relation State_transition:
+  beaconState signedBeaconBlock boolean ~>* beaconState
+  hint(input %0 %1 %2)
 
-rule Process_attestation/current:
-  (state_in, attestation_att) ~> state_out
-  -- if attestationData_data = attestation_att.DATA
-  -- if $get_previous_epoch(state_in) = epoch_prev
-  -- if $get_current_epoch(state_in)  = epoch_cur
-  -- if ( attestationData_data.TARGET.EPOCH = epoch_prev \/ attestationData_data.TARGET.EPOCH = epoch_cur )
-  -- if $( attestationData_data.TARGET.EPOCH = $compute_epoch_at_slot(attestationData_data.SLOT) )
-  -- if $( attestationData_data.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state_in.SLOT )
-  -- if $( state_in.SLOT <= attestationData_data.SLOT + $SLOTS_PER_EPOCH )
-  -- if $( attestationData_data.INDEX < $get_committee_count_per_slot(state_in, attestationData_data.TARGET.EPOCH) )
-  -- if validatorIndex_committee* = $get_beacon_committee(state_in, attestationData_data.SLOT, attestationData_data.INDEX)
-  -- if $( |attestation_att.AGGREGATION_BITS| = |validatorIndex_committee*| )
-  -- if $is_valid_indexed_attestation(state_in, $get_indexed_attestation(state_in, attestation_att)) = true
-  ;; 현재 epoch 분기
-  -- if $( attestationData_data.TARGET.EPOCH = epoch_cur )
-  -- if $( state_in.SLOT - attestationData_data.SLOT ) = uint64_inclusion_delay
-  -- if nat_flag_indices* = $get_attestation_participation_flag_indices(state_in, attestationData_data, uint64_inclusion_delay)
-  ;; 바깥 for: vi 리스트 만들기
-  -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
-  -- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
-         validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
-       ) = (validatorIndex_vi, nat_flags_vi*)*
-  ;; fold over vi: (state, num) 누적
-  -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
-         def $process_one_vi_current,
-         (state_in, 0),
-         (validatorIndex_vi, nat_flags_vi*)*
-       ) = (state_after_flags, gwei_num)
-  ;; proposer 보상 지급
-  -- if $compute_proposer_reward(gwei_num) = gwei_prop
-  -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
+;; -----------------------------
+;; validate_result = true
+;; -----------------------------
+rule State_transition/validate:
+  state_in signedBeaconBlock true ~>* state_out
+  -- if beaconBlock_block = signedBeaconBlock.MESSAGE
+  -- Process_slots: state_in beaconBlock_block.SLOT ~> state_after_slots
+  -- if $verify_block_signature(state_after_slots, signedBeaconBlock) = true
+  -- ProcessBlock: state_after_slots beaconBlock_block ~>* state_after_block
+  -- if $hash_<beaconState>(state_after_block) = root_after
+  -- if $( beaconBlock_block.STATE_ROOT = root_after )
+  -- if state_out = state_after_block
 
-rule Process_attestation/previous:
-  (state_in, attestation_att) ~> state_out
-  -- if attestationData_data = attestation_att.DATA
-  -- if $get_previous_epoch(state_in) = epoch_prev
-  -- if $get_current_epoch(state_in)  = epoch_cur
-  -- if ( attestationData_data.TARGET.EPOCH = epoch_prev \/ attestationData_data.TARGET.EPOCH = epoch_cur )
-  -- if $( attestationData_data.TARGET.EPOCH = $compute_epoch_at_slot(attestationData_data.SLOT) )
-  -- if $( attestationData_data.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state_in.SLOT )
-  -- if $( state_in.SLOT <= attestationData_data.SLOT + $SLOTS_PER_EPOCH )
-  -- if $( attestationData_data.INDEX < $get_committee_count_per_slot(state_in, attestationData_data.TARGET.EPOCH) )
-  -- if validatorIndex_committee* = $get_beacon_committee(state_in, attestationData_data.SLOT, attestationData_data.INDEX)
-  -- if $( |attestation_att.AGGREGATION_BITS| = |validatorIndex_committee*| )
-  -- if $is_valid_indexed_attestation(state_in, $get_indexed_attestation(state_in, attestation_att)) = true
-  ;; 이전 epoch 분기
-  -- if $( attestationData_data.TARGET.EPOCH = epoch_prev )
-  -- if $( state_in.SLOT - attestationData_data.SLOT ) = uint64_inclusion_delay
-  -- if nat_flag_indices* = $get_attestation_participation_flag_indices(state_in, attestationData_data, uint64_inclusion_delay)
-  -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
-  -- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
-         validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
-       ) = (validatorIndex_vi, nat_flags_vi*)*
-  -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
-         def $process_one_vi_previous,
-         (state_in, 0),
-         (validatorIndex_vi, nat_flags_vi*)*
-       ) = (state_after_flags, gwei_num)
-  -- if $compute_proposer_reward(gwei_num) = gwei_prop
-  -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
-
-
-;; 
-;; process_deposit
-;;
-relation ProcessDeposit:
-  beaconState deposit ~> beaconState
-  hint(input %0 %1)
-
-rule ProcessDeposit/main:
-  state deposit ~> state_applied
-  -- if $hash_tree_root_depositData(deposit.DATA) = root_leaf
-  -- if $( $DEPOSIT_CONTRACT_TREE_DEPTH + 1 ) = uint64_depth_plus_1
-  -- if $is_valid_merkle_branch(
-         root_leaf,
-         deposit.PROOF,
-         uint64_depth_plus_1,
-         state.ETH1_DEPOSIT_INDEX,
-         state.ETH1_DATA.DEPOSIT_ROOT
-       ) = true
-  -- if $(state.ETH1_DEPOSIT_INDEX + 1) = uint64_deposit_index_next
-  -- if state_inc = state[.ETH1_DEPOSIT_INDEX = uint64_deposit_index_next]
-  -- if state_applied =
-       $apply_deposit(
-         state_inc,
-         deposit.DATA.PUBKEY,
-         deposit.DATA.WITHDRAWAL_CREDENTIALS,
-         deposit.DATA.AMOUNT,
-         deposit.DATA.SIGNATURE
-       )
-
-;; 
-;; process_voluntary_exit
-;; 
-
-relation ProcessVoluntaryExit:
-  beaconState signedVoluntaryExit ~> beaconState
-  hint(input %0 %1)
-
-rule ProcessVoluntaryExit/main:
-  state signedVoluntaryExit ~> state_after_exit
-  -- if voluntaryExit = signedVoluntaryExit.MESSAGE
-  -- if validatorIndex_exit = voluntaryExit.VALIDATOR_INDEX
-  -- if $(validatorIndex_exit < |state.VALIDATORS|)
-  -- if state.VALIDATORS[validatorIndex_exit] = validator
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $is_active_validator(validator, epoch_cur) = true
-  -- if $(validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)
-  -- if $(epoch_cur >= voluntaryExit.EPOCH)
-  -- if $(epoch_cur >= validator.ACTIVATION_EPOCH + $SHARD_COMMITTEE_PERIOD)
-  -- if $get_domain(state, $DOMAIN_VOLUNTARY_EXIT, voluntaryExit.EPOCH) = domain_exit
-  -- if $compute_signing_root_voluntary_exit(voluntaryExit, domain_exit) = root_vol_exit_signing_root
-  -- if $bls_verify(validator.PUBKEY, root_vol_exit_signing_root, signedVoluntaryExit.SIGNATURE) = true
-  -- if state_after_exit = $initiate_validator_exit(state, validatorIndex_exit)
-
-;; 
-;; process_bls_to_execution_change
-;; 
-relation ProcessBLSToExecutionChange:
-  beaconState signedBlsToExecutionChange ~> beaconState
-  hint(input %0 %1)
-
-rule ProcessBLSToExecutionChange/main:
-  state signedBlsToExecutionChange ~> state_updated
-  -- if blsToExecutionChange = signedBlsToExecutionChange.MESSAGE
-  -- if validatorIndex_change = blsToExecutionChange.VALIDATOR_INDEX
-  -- if $(validatorIndex_change < |state.VALIDATORS|)
-  -- if state.VALIDATORS[validatorIndex_change] = validator
-  -- if $get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $BLS_WITHDRAWAL_PREFIX
-  -- if $hash_<blsPubkey>(blsToExecutionChange.FROM_BLS_PUBKEY) = bytes32_pk_hash
-  -- if $strip_first_byte(validator.WITHDRAWAL_CREDENTIALS) = bytes32_wc_tail
-  -- if $strip_first_byte(bytes32_pk_hash) = bytes32_pk_tail
-  -- if $(bytes32_wc_tail = bytes32_pk_tail)
-  -- if $compute_domain($DOMAIN_BLS_TO_EXECUTION_CHANGE, eps, state.GENESIS_VALIDATORS_ROOT) = domain_btec
-  -- if $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain_btec) = root_sign
-  -- if $bls_verify(blsToExecutionChange.FROM_BLS_PUBKEY, root_sign, signedBlsToExecutionChange.SIGNATURE) = true
-  -- if $make_withdrawal_credentials_eth1(blsToExecutionChange.TO_EXECUTION_ADDRESS) = bytes32_new_wc
-  -- if validator_updated = validator[.WITHDRAWAL_CREDENTIALS = bytes32_new_wc]
-  -- if state.VALIDATORS[[validatorIndex_change] = validator_updated] = validator_update*
-  -- if state_updated = state[.VALIDATORS = validator_update*]
-
-;; TODO
-;; for process_operations for_ops
+;; -----------------------------
+;; validate_result = false
+;; -----------------------------
+rule State_transition/skip-validate:
+  state_in signedBeaconBlock false ~>* state_out
+  -- if beaconBlock_block = signedBeaconBlock.MESSAGE
+  -- Process_slots: state_in beaconBlock_block.SLOT ~> state_after_slots
+  -- ProcessBlock: state_after_slots beaconBlock_block ~>* state_out
