@@ -98,3 +98,7 @@ def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) =
 def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) =
   $bls_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig)
   -- otherwise
+
+;; --- 실행 엔진 ---
+dec $ee_verify_and_notify_new_payload(executionPayload) : boolean
+def $ee_verify_and_notify_new_payload(executionPayload) = true
