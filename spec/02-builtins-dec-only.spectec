@@ -26,7 +26,7 @@ dec $xor(bytes32, bytes32) : bytes32
 dec $first_28_bytes(bytes32) : bytes28
 dec $concat_domain(domainType, bytes28) : domain
 dec $get_first_byte(bytes32) : bytes1
-dec $strip_first_byte(bytes32) : bytes32
+dec $strip_first_byte(bytes32) : bytes31
 dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
 
 ;; --- 서명 루트 계산 ---

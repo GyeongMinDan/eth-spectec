@@ -9,6 +9,7 @@ syntax bytes1 = int
 syntax bytes8 = int
 syntax bytes20 = int
 syntax bytes28 = int
+syntax bytes31 = int
 syntax bytes48 = int
 syntax bytes96 = int
 syntax bytes256 = int

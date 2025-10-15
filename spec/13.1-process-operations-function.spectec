@@ -193,9 +193,9 @@ rule ProcessBLSToExecutionChange/main:
   -- if state.VALIDATORS[validatorIndex_change] = validator
   -- if $get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $BLS_WITHDRAWAL_PREFIX
   -- if $hash_<blsPubkey>(blsToExecutionChange.FROM_BLS_PUBKEY) = bytes32_pk_hash
-  -- if $strip_first_byte(validator.WITHDRAWAL_CREDENTIALS) = bytes32_wc_tail
-  -- if $strip_first_byte(bytes32_pk_hash) = bytes32_pk_tail
-  -- if $(bytes32_wc_tail = bytes32_pk_tail)
+  -- if $strip_first_byte(validator.WITHDRAWAL_CREDENTIALS) = bytes31_wc_tail
+  -- if $strip_first_byte(bytes32_pk_hash) = bytes31_pk_tail
+  -- if $(bytes31_wc_tail = bytes31_pk_tail)
   -- if $compute_domain($DOMAIN_BLS_TO_EXECUTION_CHANGE, eps, state.GENESIS_VALIDATORS_ROOT) = domain_btec
   -- if $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain_btec) = root_sign
   -- if $bls_verify(blsToExecutionChange.FROM_BLS_PUBKEY, root_sign, signedBlsToExecutionChange.SIGNATURE) = true
