@@ -65,7 +65,7 @@ def view_to_jsonable(v: Any) -> Any:
     return str(v)
 
 def main():
-    # Usage: python SignedBeaconBlockSSZToJson.py --in /path/to/signed_beacon_block_input.ssz --out /path/to/signed_beacon_block_output.json
+    # Usage: python SignedBeaconBlockSSZToJson.py --in /path/to/signed_beacon_block_input.ssz --out /path/to/signedBeaconBlock_output.json
 
     p = argparse.ArgumentParser(description="Convert SignedBeaconBlock SSZ to JSON using remerkleable types.")
     p.add_argument("--type-module", default="eth2spec.capella.mainnet", help="Python module path containing the remerkleable type (default: eth2spec.capella.mainnet)")
