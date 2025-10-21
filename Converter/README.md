@@ -89,7 +89,7 @@ python SSZToJson/SignedBeaconBlockSSZToJson.py --in block.ssz --out block.json
 
 ### Test Case Selection Criteria
 
-The `OfficialTestSuite` directory contains test cases extracted from [Ethereum Consensus Spec Tests v1.5.0](https://github.com/ethereum/consensus-spec-tests).
+The `OfficialTestSuite` directory contains test cases extracted from [Ethereum Consensus Spec Tests v1.5.0](https://github.com/ethereum/consensus-spec-tests/releases). This is Latest Version.
 
 **Selected Test Categories:**
 - `random/`: Random test cases
