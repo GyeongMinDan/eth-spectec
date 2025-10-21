@@ -49,25 +49,7 @@ python snappyDecompressor.py <input_file> <output_file>
 python snappyDecompressor.py compressed.ssz_snappy decompressed.ssz
 ```
 
-### 3. JSON → SSZ Conversion
-
-#### BeaconState JSON → SSZ
-```bash
-python JsonToSSZ/BeaconStateJsonToSSZ.py --in <input_json> --out <output_ssz> [--type-module <module>] [--type <type_name>]
-
-# Example
-python JsonToSSZ/BeaconStateJsonToSSZ.py --in beaconstate.json --out beaconstate.ssz
-```
-
-#### SignedBeaconBlock JSON → SSZ
-```bash
-python JsonToSSZ/SignedBeaconBlockJsonToSSZ.py --in <input_json> --out <output_ssz> [--type-module <module>] [--type <type_name>]
-
-# Example
-python JsonToSSZ/SignedBeaconBlockJsonToSSZ.py --in block.json --out block.ssz
-```
-
-### 4. SSZ → JSON Conversion
+### 3. SSZ → JSON Conversion
 
 #### BeaconState SSZ → JSON
 ```bash
@@ -83,6 +65,24 @@ python SSZToJson/SignedBeaconBlockSSZToJson.py --in <input_ssz> --out <output_js
 
 # Example
 python SSZToJson/SignedBeaconBlockSSZToJson.py --in block.ssz --out block.json
+```
+
+### 4. JSON → SSZ Conversion
+
+#### BeaconState JSON → SSZ
+```bash
+python JsonToSSZ/BeaconStateJsonToSSZ.py --in <input_json> --out <output_ssz> [--type-module <module>] [--type <type_name>]
+
+# Example
+python JsonToSSZ/BeaconStateJsonToSSZ.py --in beaconstate.json --out beaconstate.ssz
+```
+
+#### SignedBeaconBlock JSON → SSZ
+```bash
+python JsonToSSZ/SignedBeaconBlockJsonToSSZ.py --in <input_json> --out <output_ssz> [--type-module <module>] [--type <type_name>]
+
+# Example
+python JsonToSSZ/SignedBeaconBlockJsonToSSZ.py --in block.json --out block.ssz
 ```
 
 ## Official Test Suite (OfficialTestSuite)
