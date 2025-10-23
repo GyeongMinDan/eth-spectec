@@ -73,11 +73,8 @@ dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
 
 def $compute_shuffled_index(uint64_index, uint64_index_count, bytes32_seed) = uint64_index_out
   -- if $range($SHUFFLE_ROUND_COUNT) = uint64_rounds*
-  -- if $map_list_2_<uint64, (bytes32, uint64), (bytes32, uint64, uint64)>(
-         uint64_rounds*,
-         (bytes32_seed, uint64_index_count),
-         def $attach_capture_round
-       ) = (bytes32_seed_c, uint64_n_c, uint64_round_c)*
+  ;; change map_list_2_
+  -- if ($attach_capture_round(uint64_rounds, (bytes32_seed, uint64_index_count)) = (bytes32_seed_c, uint64_n_c, uint64_round_c))*
   -- if $fold_<uint64, (bytes32, uint64, uint64)>(
          def $apply_shuffle_round,
          uint64_index,

@@ -123,11 +123,9 @@ def $get_inactivity_penalty_deltas(state_beaconState) = (gwei_rewards*, gwei_pen
        ) = validatorIndex_matching*
   -- if $get_eligible_validator_indices(state_beaconState) = validatorIndex_eligible*
   -- if $( $INACTIVITY_SCORE_BIAS * $INACTIVITY_PENALTY_QUOTIENT_BELLATRIX ) = uint64_den
-  -- if $map_list_2_<nat, (beaconState, validatorIndex*, validatorIndex*, uint64), gwei>(
-         nat_idx*,
-         (state_beaconState, validatorIndex_matching*, validatorIndex_eligible*, uint64_den),
-         def $inact_penalty_one
-       ) = gwei_penalties*
+  ;; change map_list_2_
+  -- if ($inact_penalty_one(nat_idx, (state_beaconState, validatorIndex_matching*, validatorIndex_eligible*, uint64_den)) = gwei_penalties)*
+
 
 
 ;; --------------------------------------------
@@ -189,14 +187,9 @@ def $get_flag_index_deltas(state_beaconState, nat_flag_index) = (gwei_rewards*, 
   -- if $get_total_active_balance(state_beaconState) = gwei_total_active
   -- if $( gwei_total_active / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_active_incs
   ;; rewards: 참여 & (¬leak) 에만 분배
-  -- if $map_list_2_<nat, (beaconState, validatorIndex*, uint64, uint64, uint64), gwei>(
-         nat_idx*,
-         (state_beaconState, validatorIndex_unslashed*, uint64_weight, uint64_up_incs, uint64_active_incs),
-         def $flag_reward_one
-       ) = gwei_rewards*
+  ;; change map_list_2_
+  -- if ($flag_reward_one(nat_idx, (state_beaconState, validatorIndex_unslashed*, uint64_weight, uint64_up_incs, uint64_active_incs)) = gwei_rewards)*
   ;; penalties: 미참여 & (flag != HEAD) 에만 부과
-  -- if $map_list_2_<nat, (beaconState, validatorIndex*, uint64, nat), gwei>(
-         nat_idx*,
-         (state_beaconState, validatorIndex_unslashed*, uint64_weight, nat_flag_index),
-         def $flag_penalty_one
-       ) = gwei_penalties*
+  ;; change map_list_2_
+  -- if ($flag_penalty_one(nat_idx, (state_beaconState, validatorIndex_unslashed*, uint64_weight, nat_flag_index)) = gwei_penalties)*
+

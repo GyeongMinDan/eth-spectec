@@ -141,11 +141,8 @@ def $process_one_vi_current((state_in, gwei_num), (validatorIndex_vi, nat_flags*
   = (state_out, gwei_num_out)
   -- if $(validatorIndex_vi < |state_in.CURRENT_EPOCH_PARTICIPATION|) 
   -- if state_in.CURRENT_EPOCH_PARTICIPATION[validatorIndex_vi] = participationFlags_old
-  -- if $map_list_2_<nat, (beaconState, validatorIndex), (nat, (beaconState, validatorIndex))>(
-         nat_flags*,
-         (state_in, validatorIndex_vi),
-         def $attach_capture_flag
-       ) = (nat_flag_i, (state_in_c, validatorIndex_vi_c))*
+  ;; change map_list_2_
+  -- if ($attach_capture_flag(nat_flags, (state_in, validatorIndex_vi)) = (nat_flag_i, (state_in_c, validatorIndex_vi_c)))*
   -- if $fold_<(participationFlags, gwei), (nat, (beaconState, validatorIndex))>(
          def $apply_flag_once,
          (participationFlags_old, 0),
@@ -163,11 +160,8 @@ def $process_one_vi_previous((state_in, gwei_num), (validatorIndex_vi, nat_flags
   = (state_out, gwei_num_out)
   -- if $(validatorIndex_vi < |state_in.PREVIOUS_EPOCH_PARTICIPATION|) 
   -- if state_in.PREVIOUS_EPOCH_PARTICIPATION[validatorIndex_vi] = participationFlags_old
-  -- if $map_list_2_<nat, (beaconState, validatorIndex), (nat, (beaconState, validatorIndex))>(
-         nat_flags*,
-         (state_in, validatorIndex_vi),
-         def $attach_capture_flag
-       ) = (nat_flag_i, (state_in_c, validatorIndex_vi_c))*
+  ;; change map_list_2_
+  -- if ($attach_capture_flag(nat_flags, (state_in, validatorIndex_vi)) = (nat_flag_i, (state_in_c, validatorIndex_vi_c)))*
   -- if $fold_<(participationFlags, gwei), (nat, (beaconState, validatorIndex))>(
          def $apply_flag_once,
          (participationFlags_old, 0),

@@ -3,14 +3,6 @@
 ;; =========================
 
 ;; =========================
-;; map (X* -> Z*)
-;; =========================
-dec $map_list_1_<X, Z>(X*, def $f(X) : Z) : Z*
-def $map_list_1_<X, Z>(eps, def $f) = eps
-def $map_list_1_<X, Z>(X_h :: X_t*, def $f)
-  = $f(X_h) :: $map_list_1_<X, Z>(X_t*, def $f)
-
-;; =========================
 ;; filter_list (if bool) (X* -> X*)
 ;; =========================
 dec $filter_list_<X>(X*, def $cond(X) : bool)

@@ -936,7 +936,7 @@ dec $bytes4_to_bytes(bytes4) : bytes
 ;; X* 의 원소 X 에 대해 Y 인자를 넘겨 f(X,Y) 를 적용하고 그 결과를 Z* 를 만든다.
 ;; 라고 이해했는데.... 
 ;; ------------------------------------------------------------
-dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
+;;dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
 
 dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool) : X*
 
@@ -954,10 +954,10 @@ dec $extract_execution_address(bytes32) : executionAddress
 ;; =========================
 ;; map (X* -> Z*)
 ;; =========================
-dec $map_list_1_<X, Z>(X*, def $f(X) : Z) : Z*
-def $map_list_1_<X, Z>(eps, def $f) = eps
-def $map_list_1_<X, Z>(X_h :: X_t*, def $f)
-  = $f(X_h) :: $map_list_1_<X, Z>(X_t*, def $f)
+;;dec $map_list_1_<X, Z>(X*, def $f(X) : Z) : Z*
+;;def $map_list_1_<X, Z>(eps, def $f) = eps
+;;def $map_list_1_<X, Z>(X_h :: X_t*, def $f)
+;;  = $f(X_h) :: $map_list_1_<X, Z>(X_t*, def $f)
 
 ;; =========================
 ;; filter_list (if bool) (X* -> X*)
@@ -1527,11 +1527,13 @@ dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
 
 def $compute_shuffled_index(uint64_index, uint64_index_count, bytes32_seed) = uint64_index_out
   -- if $range($SHUFFLE_ROUND_COUNT) = uint64_rounds*
-  -- if $map_list_2_<uint64, (bytes32, uint64), (bytes32, uint64, uint64)>(
-         uint64_rounds*,
-         (bytes32_seed, uint64_index_count),
-         def $attach_capture_round
-       ) = (bytes32_seed_c, uint64_n_c, uint64_round_c)*
+  ;;-- if $map_list_2_<uint64, (bytes32, uint64), (bytes32, uint64, uint64)>(
+  ;;       uint64_rounds*,
+  ;;       (bytes32_seed, uint64_index_count),
+  ;;       def $attach_capture_round
+  ;;     ) = (bytes32_seed_c, uint64_n_c, uint64_round_c)*
+  ;; change map_list_2_
+  -- if ($attach_capture_round(uint64_rounds, (bytes32_seed, uint64_index_count)) = (bytes32_seed_c, uint64_n_c, uint64_round_c))*
   -- if $fold_<uint64, (bytes32, uint64, uint64)>(
          def $apply_shuffle_round,
          uint64_index,
@@ -1703,7 +1705,9 @@ def $initiate_validator_exit(state_in, validatorIndex_idx) = state_out
   ;; (1) exit_epochs = [v.exit_epoch for v in state.validators if v.exit_epoch != FAR_FUTURE_EPOCH]
   -- if validator_list* = state_in.VALIDATORS
   -- if $filter_list_<validator>(validator_list*, def $exit_epoch_not_far_future) = validator_list_nf*
-  -- if $map_list_1_<validator, epoch>(validator_list_nf*, def $exit_epoch_of) = epoch_exit_list*
+  ;; -- if $map_list_1_<validator, epoch>(validator_list_nf*, def $exit_epoch_of) = epoch_exit_list*
+  ;; change map_list_1_
+  -- if ($exit_epoch_of(validator_list_nf) = epoch_exit_list)*       
   ;; (2) epoch_act_exit = compute_activation_exit_epoch(get_current_epoch(state))
   -- if $get_current_epoch(state_in) = epoch_cur
   -- if $compute_activation_exit_epoch(epoch_cur) = epoch_act_exit
@@ -1841,13 +1845,17 @@ def $compute_committee(validatorIndex_indices*, bytes32_seed, uint64_index, uint
   -- if $( uint64_end - uint64_start ) = uint64_span
   ;; [0..span-1] 만들고 → 각 원소에 start를 더해 [start..end-1] i-리스트 만들기
   -- if $range(uint64_span) = nat_r*
-  -- if $map_list_2_<nat, uint64, uint64>(nat_r*, uint64_start, def $add_offset_nat_uint64) = uint64_i_list*
+  ;; -- if $map_list_2_<nat, uint64, uint64>(nat_r*, uint64_start, def $add_offset_nat_uint64) = uint64_i_list*
+  ;; change map_list_2_
+  -- if ($add_offset_nat_uint64(nat_r, uint64_start) = uint64_i_list)*
   ;; 각 i에 대해 indices[shuffle(i, len, seed)] 선택
-  -- if $map_list_2_<uint64, (validatorIndex*, bytes32, uint64), validatorIndex>(
-         uint64_i_list*,
-         (validatorIndex_indices*, bytes32_seed, uint64_len),
-         def $pick_shuffled_vi
-       ) = validatorIndex_committee*
+  ;;-- if $map_list_2_<uint64, (validatorIndex*, bytes32, uint64), validatorIndex>(
+  ;;       uint64_i_list*,
+  ;;       (validatorIndex_indices*, bytes32_seed, uint64_len),
+  ;;       def $pick_shuffled_vi
+  ;;     ) = validatorIndex_committee*
+  ;; change map_list_2_
+  -- if ($pick_shuffled_vi(uint64_i_list, (validatorIndex_indices*, bytes32_seed, uint64_len)) = validatorIndex_committee)*
 
 ;; ------------------------------------------------------------
 ;; get_committee_count_per_slot
@@ -1917,11 +1925,13 @@ def $get_attesting_indices(state, attestation_att) = validatorIndex_set*
          attestation_att.AGGREGATION_BITS,
          def $bit_is_one_at_index
        ) = (n_sel, validatorIndex_sel)*
-  -- if $map_list_2_<(nat, validatorIndex), boolean*, validatorIndex>(
-         (n_sel, validatorIndex_sel)*,
-         attestation_att.AGGREGATION_BITS,
-         def $collect_vi
-       ) = validatorIndex_list*
+  ;;-- if $map_list_2_<(nat, validatorIndex), boolean*, validatorIndex>(
+  ;;       (n_sel, validatorIndex_sel)*,
+  ;;       attestation_att.AGGREGATION_BITS,
+  ;;       def $collect_vi
+  ;;     ) = validatorIndex_list*
+  ;; chagne map_list_2_
+  -- if ($collect_vi((n_sel, validatorIndex_sel), attestation_att.AGGREGATION_BITS) = validatorIndex_list)*
   -- if $to_set_<validatorIndex>(validatorIndex_list*) = validatorIndex_set*
 
 ;; ------------------------------------------------------------
@@ -2299,12 +2309,13 @@ def $get_inactivity_penalty_deltas(state_beaconState) = (gwei_rewards*, gwei_pen
        ) = validatorIndex_matching*
   -- if $get_eligible_validator_indices(state_beaconState) = validatorIndex_eligible*
   -- if $( $INACTIVITY_SCORE_BIAS * $INACTIVITY_PENALTY_QUOTIENT_BELLATRIX ) = uint64_den
-  -- if $map_list_2_<nat, (beaconState, validatorIndex*, validatorIndex*, uint64), gwei>(
-         nat_idx*,
-         (state_beaconState, validatorIndex_matching*, validatorIndex_eligible*, uint64_den),
-         def $inact_penalty_one
-       ) = gwei_penalties*
-
+  ;;-- if $map_list_2_<nat, (beaconState, validatorIndex*, validatorIndex*, uint64), gwei>(
+  ;;       nat_idx*,
+  ;;      (state_beaconState, validatorIndex_matching*, validatorIndex_eligible*, uint64_den),
+  ;;       def $inact_penalty_one
+  ;;     ) = gwei_penalties*
+  ;; change map_list_2_
+  -- if ($inact_penalty_one(nat_idx, (state_beaconState, validatorIndex_matching*, validatorIndex_eligible*, uint64_den)) = gwei_penalties)*
 
 ;; --------------------------------------------
 ;; flag-delta per-index helpers
@@ -2365,17 +2376,21 @@ def $get_flag_index_deltas(state_beaconState, nat_flag_index) = (gwei_rewards*, 
   -- if $get_total_active_balance(state_beaconState) = gwei_total_active
   -- if $( gwei_total_active / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_active_incs
   ;; rewards: 참여 & (¬leak) 에만 분배
-  -- if $map_list_2_<nat, (beaconState, validatorIndex*, uint64, uint64, uint64), gwei>(
-         nat_idx*,
-         (state_beaconState, validatorIndex_unslashed*, uint64_weight, uint64_up_incs, uint64_active_incs),
-         def $flag_reward_one
-       ) = gwei_rewards*
+  ;;-- if $map_list_2_<nat, (beaconState, validatorIndex*, uint64, uint64, uint64), gwei>(
+  ;;       nat_idx*,
+  ;;       (state_beaconState, validatorIndex_unslashed*, uint64_weight, uint64_up_incs, uint64_active_incs),
+  ;;       def $flag_reward_one
+  ;;     ) = gwei_rewards*
+  ;; change map_list_2_
+  -- if ($flag_reward_one(nat_idx, (state_beaconState, validatorIndex_unslashed*, uint64_weight, uint64_up_incs, uint64_active_incs)) = gwei_rewards)*
   ;; penalties: 미참여 & (flag != HEAD) 에만 부과
-  -- if $map_list_2_<nat, (beaconState, validatorIndex*, uint64, nat), gwei>(
-         nat_idx*,
-         (state_beaconState, validatorIndex_unslashed*, uint64_weight, nat_flag_index),
-         def $flag_penalty_one
-       ) = gwei_penalties*
+  ;;-- if $map_list_2_<nat, (beaconState, validatorIndex*, uint64, nat), gwei>(
+  ;;       nat_idx*,
+  ;;       (state_beaconState, validatorIndex_unslashed*, uint64_weight, nat_flag_index),
+  ;;       def $flag_penalty_one
+  ;;     ) = gwei_penalties*
+  ;; change map_list_2_
+  -- if ($flag_penalty_one(nat_idx, (state_beaconState, validatorIndex_unslashed*, uint64_weight, nat_flag_index)) = gwei_penalties)*
 
 ;; =========================
 ;; helper funcs in process_epoch 
@@ -3169,17 +3184,21 @@ rule Process_registry_updates/main:
          state_pass1,
          def $is_eligible_activation_en
        ) = (nat_elg, validator_elg)*
-  -- if $map_list_2_<(nat, validator), beaconState, (epoch, validatorIndex)>(
-         (nat_elg, validator_elg)*,
-         state_pass1,
-         def $activation_key_en
-       ) = (epoch_key, validatorIndex_vi)*
+  ;;-- if $map_list_2_<(nat, validator), beaconState, (epoch, validatorIndex)>(
+  ;;       (nat_elg, validator_elg)*,
+  ;;       state_pass1,
+  ;;       def $activation_key_en
+  ;;     ) = (epoch_key, validatorIndex_vi)*
+  ;; change map_list_2_
+  -- if ($activation_key_en((nat_elg, validator_elg), state_pass1) = (epoch_key, validatorIndex_vi))*
   -- if $sort_<(epoch, validatorIndex)>((epoch_key, validatorIndex_vi)*) =
          (epoch_sorted, validatorIndex_sorted_vi)*
-  -- if $map_list_1_<(epoch, validatorIndex), validatorIndex>(
-         (epoch_sorted, validatorIndex_sorted_vi)*,
-         def $pick_vi_from_key_1
-       ) = validatorIndex_sorted*
+  ;; change map_list_1_       
+  ;;-- if $map_list_1_<(epoch, validatorIndex), validatorIndex>(
+  ;;       (epoch_sorted, validatorIndex_sorted_vi)*,
+  ;;       def $pick_vi_from_key_1
+  ;;     ) = validatorIndex_sorted*
+  -- if ($pick_vi_from_key_1((epoch_sorted, validatorIndex_sorted_vi)) = validatorIndex_sorted)*
   ;; (3) churn limit 만큼만 dequeue → ACTIVATION_EPOCH 세팅
   -- if $get_validator_churn_limit(state_pass1) = uint64_churn_limit
   -- if $enumerate_<validatorIndex>(validatorIndex_sorted*) = (nat_idx, validatorIndex_q)*
@@ -3188,10 +3207,12 @@ rule Process_registry_updates/main:
         uint64_churn_limit,
         def $idx_lt_limit
       ) = (nat_take, validatorIndex_take)*
-  -- if $map_list_1_<(nat, validatorIndex), validatorIndex>(
-        (nat_take, validatorIndex_take)*,
-        def $pick_vi_from_enumerated_1
-      ) = validatorIndex_to_activate*
+  ;; change map_list_1_   
+  ;;-- if $map_list_1_<(nat, validatorIndex), validatorIndex>(
+  ;;      (nat_take, validatorIndex_take)*,
+  ;;      def $pick_vi_from_enumerated_1
+  ;;   ) = validatorIndex_to_activate*
+  -- if ($pick_vi_from_enumerated_1((nat_take, validatorIndex_take)) = validatorIndex_to_activate)*
   -- if state_out = $fold_<beaconState, validatorIndex>(
         def $activate_one,
         state_pass1,
@@ -3222,11 +3243,13 @@ rule Process_slashings:
          def $is_due_slashing_en
        ) = (nat_due, validator_due)*
   ;; 3 penalty 계산(map, (adj_total_slash, total_active))
-  -- if $map_list_2_<(nat, validator), (gwei, gwei), (validatorIndex, gwei)>(
-         (nat_due, validator_due)*,
-         (gwei_adj_total_slash, gwei_total_active),
-         def $compute_slash_penalty_en
-       ) = (validatorIndex_vi, gwei_penalty)*
+  ;;-- if $map_list_2_<(nat, validator), (gwei, gwei), (validatorIndex, gwei)>(
+  ;;       (nat_due, validator_due)*,
+  ;;       (gwei_adj_total_slash, gwei_total_active),
+  ;;       def $compute_slash_penalty_en
+  ;;     ) = (validatorIndex_vi, gwei_penalty)*
+  ;; change map_list_2_
+  -- if ($compute_slash_penalty_en((nat_due, validator_due), (gwei_adj_total_slash, gwei_total_active)) = (validatorIndex_vi, gwei_penalty))*
   ;; 4 fold 로 적용
   -- if $fold_<beaconState, (validatorIndex, gwei)>(
          def $apply_one_decrease,
@@ -3266,11 +3289,13 @@ rule Process_effective_balance_updates:
   state_beaconState ~> state_updated
   -- if state_beaconState.VALIDATORS = validator_list*
   -- if $enumerate_<validator>(validator_list*) = (n, validator_item)*
-  -- if $map_list_2_<(nat, validator), beaconState, validator>(
-         (n, validator_item)*,
-         state_beaconState,
-         def $rebalance_validator_enumerated
-       ) = validator_updated_list*
+  ;;-- if $map_list_2_<(nat, validator), beaconState, validator>(
+  ;;       (n, validator_item)*,
+  ;;       state_beaconState,
+  ;;       def $rebalance_validator_enumerated
+  ;;     ) = validator_updated_list*
+  ;; change_map_list_2_
+  -- if ($rebalance_validator_enumerated((n, validator_item), state_beaconState) = validator_updated_list)*
   -- if state_updated = state_beaconState[.VALIDATORS = validator_updated_list*]
 
 ;;
@@ -3597,11 +3622,13 @@ def $process_one_vi_current((state_in, gwei_num), (validatorIndex_vi, nat_flags*
   = (state_out, gwei_num_out)
   -- if $(validatorIndex_vi < |state_in.CURRENT_EPOCH_PARTICIPATION|) 
   -- if state_in.CURRENT_EPOCH_PARTICIPATION[validatorIndex_vi] = participationFlags_old
-  -- if $map_list_2_<nat, (beaconState, validatorIndex), (nat, (beaconState, validatorIndex))>(
-         nat_flags*,
-         (state_in, validatorIndex_vi),
-         def $attach_capture_flag
-       ) = (nat_flag_i, (state_in_c, validatorIndex_vi_c))*
+  ;;-- if $map_list_2_<nat, (beaconState, validatorIndex), (nat, (beaconState, validatorIndex))>(
+  ;;       nat_flags*,
+  ;;       (state_in, validatorIndex_vi),
+  ;;      def $attach_capture_flag
+  ;;     ) = (nat_flag_i, (state_in_c, validatorIndex_vi_c))*
+  ;; change map_list_2_
+  -- if ($attach_capture_flag(nat_flags, (state_in, validatorIndex_vi)) = (nat_flag_i, (state_in_c, validatorIndex_vi_c)))*
   -- if $fold_<(participationFlags, gwei), (nat, (beaconState, validatorIndex))>(
          def $apply_flag_once,
          (participationFlags_old, 0),
@@ -3619,11 +3646,13 @@ def $process_one_vi_previous((state_in, gwei_num), (validatorIndex_vi, nat_flags
   = (state_out, gwei_num_out)
   -- if $(validatorIndex_vi < |state_in.PREVIOUS_EPOCH_PARTICIPATION|) 
   -- if state_in.PREVIOUS_EPOCH_PARTICIPATION[validatorIndex_vi] = participationFlags_old
-  -- if $map_list_2_<nat, (beaconState, validatorIndex), (nat, (beaconState, validatorIndex))>(
-         nat_flags*,
-         (state_in, validatorIndex_vi),
-         def $attach_capture_flag
-       ) = (nat_flag_i, (state_in_c, validatorIndex_vi_c))*
+  ;;-- if $map_list_2_<nat, (beaconState, validatorIndex), (nat, (beaconState, validatorIndex))>(
+  ;;       nat_flags*,
+  ;;       (state_in, validatorIndex_vi),
+  ;;       def $attach_capture_flag
+  ;;     ) = (nat_flag_i, (state_in_c, validatorIndex_vi_c))*
+  ;; change map_list_2_
+  -- if ($attach_capture_flag(nat_flags, (state_in, validatorIndex_vi)) = (nat_flag_i, (state_in_c, validatorIndex_vi_c)))*
   -- if $fold_<(participationFlags, gwei), (nat, (beaconState, validatorIndex))>(
          def $apply_flag_once,
          (participationFlags_old, 0),
@@ -3766,9 +3795,11 @@ rule ProcessAttestation/current:
   -- if nat_flag_indices* = $get_attestation_participation_flag_indices(state_in, attestationData_data, uint64_inclusion_delay)
   ;; 바깥 for: vi 리스트 만들기
   -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
-  -- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
-         validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
-       ) = (validatorIndex_vi, nat_flags_vi*)*
+  ;;-- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
+  ;;       validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
+  ;;     ) = (validatorIndex_vi, nat_flags_vi*)*
+  ;; change map_list_2_
+  -- if ($attach_flags_to_vi(validatorIndex_attesting, nat_flag_indices*) = (validatorIndex_vi, nat_flags_vi*))*
   ;; fold over vi: (state, num) 누적
   -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
          def $process_one_vi_current,
@@ -3797,9 +3828,11 @@ rule ProcessAttestation/previous:
   -- if $( state_in.SLOT - attestationData_data.SLOT ) = uint64_inclusion_delay
   -- if nat_flag_indices* = $get_attestation_participation_flag_indices(state_in, attestationData_data, uint64_inclusion_delay)
   -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
-  -- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
-         validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
-       ) = (validatorIndex_vi, nat_flags_vi*)*
+  ;;-- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
+  ;;      validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
+  ;;     ) = (validatorIndex_vi, nat_flags_vi*)*
+  ;; change map_list_2_
+  -- if ($attach_flags_to_vi(validatorIndex_attesting, nat_flag_indices*) = (validatorIndex_vi, nat_flags_vi*))*
   -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
          def $process_one_vi_previous,
          (state_in, 0),
@@ -4218,11 +4251,13 @@ rule Process_sync_aggregate/slot0:
         syncAggregate_sa.SYNC_COMMITTEE_BITS,
         def $bit_is_one_en_blsPubkey
       ) = (n_pk_sel, blsPubkey_sel)*
-  -- if $map_list_2_<enumerated_<blsPubkey>, boolean*, blsPubkey>(
-        (n_pk_sel, blsPubkey_sel)*,
-        syncAggregate_sa.SYNC_COMMITTEE_BITS,
-        def $pick_second_en_blsPubkey
-      ) = blsPubkey_participants*
+  ;;-- if $map_list_2_<enumerated_<blsPubkey>, boolean*, blsPubkey>(
+  ;;     (n_pk_sel, blsPubkey_sel)*,
+  ;;      syncAggregate_sa.SYNC_COMMITTEE_BITS,
+  ;;     def $pick_second_en_blsPubkey
+  ;;    ) = blsPubkey_participants*
+  ;; change map_list_2_
+  -- if ($pick_second_en_blsPubkey((n_pk_sel, blsPubkey_sel), syncAggregate_sa.SYNC_COMMITTEE_BITS) = blsPubkey_participants)*
   ;; (2) 도메인/서명루트 (previous_slot = 0)
   -- if slot_prev = 0
   -- if $compute_epoch_at_slot(slot_prev) = epoch_prev
@@ -4248,18 +4283,24 @@ rule Process_sync_aggregate/slot0:
   -- if $( gwei_participant_reward * $PROPOSER_WEIGHT ) = uint64_num_prop
   -- if $( uint64_num_prop / uint64_den_prop ) = gwei_proposer_reward
   ;; (5) 전체 위원(pubkey)→validatorIndex 매핑, enumerate, capture 부착 후 fold 적용
-  -- if $map_list_2_<blsPubkey, beaconState, validatorIndex>(
-         blsPubkey_committee*,
-         state_in,
-         def $index_of_pubkey_captured
-       ) = validatorIndex_committee*
+  ;;-- if $map_list_2_<blsPubkey, beaconState, validatorIndex>(
+  ;;      blsPubkey_committee*,
+  ;;       state_in,
+  ;;       def $index_of_pubkey_captured
+  ;;     ) = validatorIndex_committee*
+  ;; change map_list_2_
+  -- if ($index_of_pubkey_captured(blsPubkey_committee, state_in) = validatorIndex_committee)*
   -- if $enumerate_<validatorIndex>(validatorIndex_committee*) = (n_i, validatorIndex_vi)*
   -- if $get_beacon_proposer_index(state_in) = validatorIndex_prop
-  -- if $map_list_2_<(nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex), ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
-         (n_i, validatorIndex_vi)*,
-         (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop),
-         def $attach_capture_sync
-       ) = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
+  ;;-- if $map_list_2_<(nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex), ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
+  ;;       (n_i, validatorIndex_vi)*,
+  ;;       (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop),
+  ;;       def $attach_capture_sync
+  ;;     ) = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
+  ;; change map_list_2_
+  -- if ($attach_capture_sync((n_i, validatorIndex_vi), 
+                              (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop)) 
+                              = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c)))*
   -- if state_updated =
        $fold_<beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
          def $apply_sync_one,
@@ -4280,11 +4321,13 @@ rule Process_sync_aggregate/slot_pos:
          syncAggregate_sa.SYNC_COMMITTEE_BITS,
          def $bit_is_one_en_blsPubkey
        ) = (n_pk_sel, blsPubkey_sel)*
-  -- if $map_list_2_<enumerated_<blsPubkey>, boolean*, blsPubkey>(
-         (n_pk_sel, blsPubkey_sel)*,
-         syncAggregate_sa.SYNC_COMMITTEE_BITS,
-         def $pick_second_en_blsPubkey
-       ) = blsPubkey_participants*
+  ;;-- if $map_list_2_<enumerated_<blsPubkey>, boolean*, blsPubkey>(
+  ;;       (n_pk_sel, blsPubkey_sel)*,
+  ;;       syncAggregate_sa.SYNC_COMMITTEE_BITS,
+  ;;       def $pick_second_en_blsPubkey
+  ;;     ) = blsPubkey_participants*
+  ;; change map_list_2_
+  -- if ($pick_second_en_blsPubkey((n_pk_sel, blsPubkey_sel), syncAggregate_sa.SYNC_COMMITTEE_BITS) = blsPubkey_participants)*
   ;; (2) 도메인/서명루트 (previous_slot = state.SLOT - 1)
   -- if $( state_in.SLOT - 1 ) = slot_prev
   -- if $compute_epoch_at_slot(slot_prev) = epoch_prev
@@ -4310,18 +4353,24 @@ rule Process_sync_aggregate/slot_pos:
   -- if $( gwei_participant_reward * $PROPOSER_WEIGHT ) = uint64_num_prop
   -- if $( uint64_num_prop / uint64_den_prop ) = gwei_proposer_reward
   ;; (5) 전체 위원(pubkey)→validatorIndex 매핑, enumerate, capture 부착 후 fold 적용
-  -- if $map_list_2_<blsPubkey, beaconState, validatorIndex>(
-         blsPubkey_committee*,
-         state_in,
-         def $index_of_pubkey_captured
-       ) = validatorIndex_committee*
+  ;;-- if $map_list_2_<blsPubkey, beaconState, validatorIndex>(
+  ;;       blsPubkey_committee*,
+  ;;       state_in,
+  ;;       def $index_of_pubkey_captured
+  ;;     ) = validatorIndex_committee*
+  ;; change map_list_2_
+  -- if ($index_of_pubkey_captured(blsPubkey_committee, state_in) = validatorIndex_committee)*
   -- if $enumerate_<validatorIndex>(validatorIndex_committee*) = (n_i, validatorIndex_vi)*
   -- if $get_beacon_proposer_index(state_in) = validatorIndex_prop
-  -- if $map_list_2_<(nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex), ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
-         (n_i, validatorIndex_vi)*,
-         (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop),
-         def $attach_capture_sync
-       ) = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
+  ;;-- if $map_list_2_<(nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex), ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
+  ;;       (n_i, validatorIndex_vi)*,
+  ;;       (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop),
+  ;;       def $attach_capture_sync
+  ;;     ) = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
+  ;; change map_list_2_
+  -- if ($attach_capture_sync((n_i, validatorIndex_vi), 
+                              (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop)) 
+                              = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c)))*
   -- if state_updated =
        $fold_<beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
          def $apply_sync_one,

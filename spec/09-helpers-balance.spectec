@@ -77,7 +77,9 @@ def $initiate_validator_exit(state_in, validatorIndex_idx) = state_out
   ;; (1) exit_epochs = [v.exit_epoch for v in state.validators if v.exit_epoch != FAR_FUTURE_EPOCH]
   -- if validator_list* = state_in.VALIDATORS
   -- if $filter_list_<validator>(validator_list*, def $exit_epoch_not_far_future) = validator_list_nf*
-  -- if $map_list_1_<validator, epoch>(validator_list_nf*, def $exit_epoch_of) = epoch_exit_list*
+  ;; -- if $map_list_1_<validator, epoch>(validator_list_nf*, def $exit_epoch_of) = epoch_exit_list*
+  ;; change map_list_1_
+  -- if ($exit_epoch_of(validator_list_nf) = epoch_exit_list)*       
   ;; (2) epoch_act_exit = compute_activation_exit_epoch(get_current_epoch(state))
   -- if $get_current_epoch(state_in) = epoch_cur
   -- if $compute_activation_exit_epoch(epoch_cur) = epoch_act_exit

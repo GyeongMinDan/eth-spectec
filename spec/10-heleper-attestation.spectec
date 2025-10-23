@@ -24,13 +24,12 @@ def $compute_committee(validatorIndex_indices*, bytes32_seed, uint64_index, uint
   -- if $( uint64_end - uint64_start ) = uint64_span
   ;; [0..span-1] 만들고 → 각 원소에 start를 더해 [start..end-1] i-리스트 만들기
   -- if $range(uint64_span) = nat_r*
-  -- if $map_list_2_<nat, uint64, uint64>(nat_r*, uint64_start, def $add_offset_nat_uint64) = uint64_i_list*
+  ;; change map_list_2_
+  -- if ($add_offset_nat_uint64(nat_r, uint64_start) = uint64_i_list)*
   ;; 각 i에 대해 indices[shuffle(i, len, seed)] 선택
-  -- if $map_list_2_<uint64, (validatorIndex*, bytes32, uint64), validatorIndex>(
-         uint64_i_list*,
-         (validatorIndex_indices*, bytes32_seed, uint64_len),
-         def $pick_shuffled_vi
-       ) = validatorIndex_committee*
+  ;; change map_list_2_
+  -- if ($pick_shuffled_vi(uint64_i_list, (validatorIndex_indices*, bytes32_seed, uint64_len)) = validatorIndex_committee)*
+
 
 ;; ------------------------------------------------------------
 ;; get_committee_count_per_slot
@@ -100,11 +99,8 @@ def $get_attesting_indices(state, attestation_att) = validatorIndex_set*
          attestation_att.AGGREGATION_BITS,
          def $bit_is_one_at_index
        ) = (n_sel, validatorIndex_sel)*
-  -- if $map_list_2_<(nat, validatorIndex), boolean*, validatorIndex>(
-         (n_sel, validatorIndex_sel)*,
-         attestation_att.AGGREGATION_BITS,
-         def $collect_vi
-       ) = validatorIndex_list*
+  ;; chagne map_list_2_
+  -- if ($collect_vi((n_sel, validatorIndex_sel), attestation_att.AGGREGATION_BITS) = validatorIndex_list)*
   -- if $to_set_<validatorIndex>(validatorIndex_list*) = validatorIndex_set*
 
 ;; ------------------------------------------------------------

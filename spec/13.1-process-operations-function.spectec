@@ -81,9 +81,8 @@ rule ProcessAttestation/current:
   -- if nat_flag_indices* = $get_attestation_participation_flag_indices(state_in, attestationData_data, uint64_inclusion_delay)
   ;; 바깥 for: vi 리스트 만들기
   -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
-  -- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
-         validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
-       ) = (validatorIndex_vi, nat_flags_vi*)*
+  ;; change map_list_2_
+  -- if ($attach_flags_to_vi(validatorIndex_attesting, nat_flag_indices*) = (validatorIndex_vi, nat_flags_vi*))*
   ;; fold over vi: (state, num) 누적
   -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
          def $process_one_vi_current,
@@ -112,9 +111,8 @@ rule ProcessAttestation/previous:
   -- if $( state_in.SLOT - attestationData_data.SLOT ) = uint64_inclusion_delay
   -- if nat_flag_indices* = $get_attestation_participation_flag_indices(state_in, attestationData_data, uint64_inclusion_delay)
   -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
-  -- if $map_list_2_<validatorIndex, nat*, (validatorIndex, nat*)>(
-         validatorIndex_attesting*, nat_flag_indices*, def $attach_flags_to_vi
-       ) = (validatorIndex_vi, nat_flags_vi*)*
+  ;; change map_list_2_
+  -- if ($attach_flags_to_vi(validatorIndex_attesting, nat_flag_indices*) = (validatorIndex_vi, nat_flags_vi*))*
   -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
          def $process_one_vi_previous,
          (state_in, 0),

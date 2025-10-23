@@ -152,17 +152,12 @@ rule Process_registry_updates/main:
          state_pass1,
          def $is_eligible_activation_en
        ) = (nat_elg, validator_elg)*
-  -- if $map_list_2_<(nat, validator), beaconState, (epoch, validatorIndex)>(
-         (nat_elg, validator_elg)*,
-         state_pass1,
-         def $activation_key_en
-       ) = (epoch_key, validatorIndex_vi)*
+  ;; change map_list_2_
+  -- if ($activation_key_en((nat_elg, validator_elg), state_pass1) = (epoch_key, validatorIndex_vi))*
   -- if $sort_<(epoch, validatorIndex)>((epoch_key, validatorIndex_vi)*) =
          (epoch_sorted, validatorIndex_sorted_vi)*
-  -- if $map_list_1_<(epoch, validatorIndex), validatorIndex>(
-         (epoch_sorted, validatorIndex_sorted_vi)*,
-         def $pick_vi_from_key_1
-       ) = validatorIndex_sorted*
+  ;; change map_list_1_       
+  -- if ($pick_vi_from_key_1((epoch_sorted, validatorIndex_sorted_vi)) = validatorIndex_sorted)*
   ;; (3) churn limit 만큼만 dequeue → ACTIVATION_EPOCH 세팅
   -- if $get_validator_churn_limit(state_pass1) = uint64_churn_limit
   -- if $enumerate_<validatorIndex>(validatorIndex_sorted*) = (nat_idx, validatorIndex_q)*
@@ -171,10 +166,8 @@ rule Process_registry_updates/main:
         uint64_churn_limit,
         def $idx_lt_limit
       ) = (nat_take, validatorIndex_take)*
-  -- if $map_list_1_<(nat, validatorIndex), validatorIndex>(
-        (nat_take, validatorIndex_take)*,
-        def $pick_vi_from_enumerated_1
-      ) = validatorIndex_to_activate*
+  ;; change map_list_1_   
+  -- if ($pick_vi_from_enumerated_1((nat_take, validatorIndex_take)) = validatorIndex_to_activate)*
   -- if state_out = $fold_<beaconState, validatorIndex>(
         def $activate_one,
         state_pass1,
@@ -205,11 +198,8 @@ rule Process_slashings:
          def $is_due_slashing_en
        ) = (nat_due, validator_due)*
   ;; 3 penalty 계산(map, (adj_total_slash, total_active))
-  -- if $map_list_2_<(nat, validator), (gwei, gwei), (validatorIndex, gwei)>(
-         (nat_due, validator_due)*,
-         (gwei_adj_total_slash, gwei_total_active),
-         def $compute_slash_penalty_en
-       ) = (validatorIndex_vi, gwei_penalty)*
+  ;; change map_list_2_
+  -- if ($compute_slash_penalty_en((nat_due, validator_due), (gwei_adj_total_slash, gwei_total_active)) = (validatorIndex_vi, gwei_penalty))*
   ;; 4 fold 로 적용
   -- if $fold_<beaconState, (validatorIndex, gwei)>(
          def $apply_one_decrease,
@@ -249,13 +239,9 @@ rule Process_effective_balance_updates:
   state_beaconState ~> state_updated
   -- if state_beaconState.VALIDATORS = validator_list*
   -- if $enumerate_<validator>(validator_list*) = (n, validator_item)*
-  -- if $map_list_2_<(nat, validator), beaconState, validator>(
-         (n, validator_item)*,
-         state_beaconState,
-         def $rebalance_validator_enumerated
-       ) = validator_updated_list*
+  ;; change_map_list_2_
+  -- if ($rebalance_validator_enumerated((n, validator_item), state_beaconState) = validator_updated_list)*
   -- if state_updated = state_beaconState[.VALIDATORS = validator_updated_list*]
-
 ;;
 ;; process_slashings_reset
 ;;
