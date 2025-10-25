@@ -32,6 +32,13 @@ module T1 : sig
     'b Arg.t ->
     (at:region -> targ -> 'a -> 'b -> (Value.t, Err.t) result) ->
     t
+
+  val a3 :
+    'a Arg.t ->
+    'b Arg.t ->
+    'c Arg.t ->
+    (at:region -> targ -> 'a -> 'b -> 'c -> (Value.t, Err.t) result) ->
+    t
 end
 
 (* Builtins with two type arguments *)
