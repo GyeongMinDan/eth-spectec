@@ -19,17 +19,6 @@ dec $hash_tree_root_tx(bytes32*) : root
 dec $hash_tree_root_withdrawals(withdrawal*) : root
 dec $hash_tree_root_roots(root*) : root
 
-
-;; --- 바이트/도메인 유틸 ---
-dec $bytes_to_uint64(bytes32) : uint64
-dec $uint_to_bytes(uint) : bytes
-dec $xor(bytes32, bytes32) : bytes32
-dec $first_28_bytes(bytes32) : bytes28
-dec $concat_domain(domainType, bytes28) : domain
-dec $get_first_byte(bytes32) : bytes1
-dec $strip_first_byte(bytes32) : bytes31
-dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
-
 ;; --- 서명 루트 계산 ---
 dec $compute_signing_root(epoch, domain) : root
 dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
@@ -40,10 +29,11 @@ dec $compute_signing_root_depositMessage(depositMessage, domain) : root
 dec $compute_signing_root_block_root(bytes32, domain) : root
 dec $compute_signing_root_beaconBlock(beaconBlock, domain) : root
 
-
 ;; --- 머클 검증 ---
 dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
 
+
+;; --- 기본 유틸 ---
 ;; --- 수치 유틸  ---
 dec $integer_squareroot(uint64) : uint64
 
@@ -88,6 +78,17 @@ dec $range(nat) : nat*
 
 ;; enumerate
 dec $enumerate_<X>(X*) : enumerated_<X>*
+
+
+;; --- 바이트 유틸 ---
+dec $bytes_to_uint64(bytes32) : uint64
+dec $uint_to_bytes(uint) : bytes
+dec $xor(bytes32, bytes32) : bytes32
+dec $first_28_bytes(bytes32) : bytes28
+dec $concat_domain(domainType, bytes28) : domain
+dec $get_first_byte(bytes32) : bytes1
+dec $strip_first_byte(bytes32) : bytes31
+dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
 
 ;; --------------------------------------------
 ;; bytes32 → 32개의 bytes1 리스트로 변환 (인덱싱용)
