@@ -106,6 +106,9 @@ let int (i : Bigint.t) : t = Make.int Typ.int i
 let text (s : string) : t = Make.text Typ.text s
 let func (id : id) : t = FuncV id |> make_val Typ.func
 
+let record (tid : string) (fields : valuefield list) : t =
+  Make.record (Typ.var tid []) fields
+
 let tuple (vs : t list) : t =
   let typs = List.map (fun v -> v.note.typ $ no_region) vs in
   TupleV vs |> make_val (Typ.tuple typs)

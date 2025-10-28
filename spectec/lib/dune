@@ -10,6 +10,7 @@
   (re_export elaborate)
   (re_export sl)
   (re_export structure)
+  (re_export interface_json)
   (re_export runtime_dynamic)
   (re_export runtime_dynamic_il)
   (re_export runtime_dynamic_sl)
