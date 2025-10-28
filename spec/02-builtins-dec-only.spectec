@@ -85,9 +85,9 @@ dec $bytes_to_uint64(bytes32) : uint64
 dec $uint_to_bytes(uint) : bytes
 dec $xor(bytes32, bytes32) : bytes32
 dec $first_28_bytes(bytes32) : bytes28
-dec $concat_domain(domainType, bytes28) : domain
 dec $get_first_byte(bytes32) : bytes1
 dec $strip_first_byte(bytes32) : bytes31
+dec $concat_domain(domainType, bytes28) : domain
 dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
 
 ;; --------------------------------------------

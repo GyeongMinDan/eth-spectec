@@ -15,6 +15,7 @@ let funcs : Define.t StringMap.t =
       Maps.builtins;
       Numerics.builtins;
       Math.builtins;
+      Bytes.builtins;
       Fresh.builtins;
     ]
     |> List.concat
