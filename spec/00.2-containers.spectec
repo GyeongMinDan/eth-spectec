@@ -159,13 +159,13 @@ syntax executionPayloadHeader =
     FEE_RECIPIENT executionAddress,
     STATE_ROOT bytes32,
     RECEIPTS_ROOT bytes32,
-    LOGS_BLOOM bytes32*,
+    LOGS_BLOOM bytes256,
     PREV_RANDAO bytes32,
     BLOCK_NUMBER uint64,
     GAS_LIMIT uint64,
     GAS_USED uint64,
     TIMESTAMP uint64,
-    EXTRA_DATA bytes32*,
+    EXTRA_DATA bytes,
     BASE_FEE_PER_GAS uint256,
     BLOCK_HASH hash32,
     TRANSACTIONS_ROOT root,
@@ -218,16 +218,16 @@ syntax executionPayload =
     FEE_RECIPIENT executionAddress,
     STATE_ROOT bytes32,
     RECEIPTS_ROOT bytes32,
-    LOGS_BLOOM bytes32*,
+    LOGS_BLOOM bytes256,
     PREV_RANDAO bytes32,
     BLOCK_NUMBER uint64,
     GAS_LIMIT uint64,
     GAS_USED uint64,
     TIMESTAMP uint64,
-    EXTRA_DATA bytes32*,
+    EXTRA_DATA bytes,
     BASE_FEE_PER_GAS uint256,
     BLOCK_HASH hash32,
-    TRANSACTIONS bytes32*,
+    TRANSACTIONS bytes*,
     WITHDRAWALS withdrawal* }
 
 syntax blsToExecutionChange =
@@ -238,8 +238,6 @@ syntax blsToExecutionChange =
 syntax signedBlsToExecutionChange =
   { MESSAGE blsToExecutionChange,
     SIGNATURE blsSignature }
-
-
 
 syntax historicalSummary =
   { BLOCK_SUMMARY_ROOT root,
