@@ -92,19 +92,21 @@ let run_il_command =
   Core.Command.basic ~summary:"run a spec based on backtracking IL"
     (let open Core.Command.Let_syntax in
      let open Core.Command.Param in
-     let%map filenames_spec = anon (sequence ("filename" %: string))
-     and includes_target =
-       flag "-i" (listed string) ~doc:"target file include paths"
-     and filename_target =
-       flag "-p" (required string) ~doc:"target file to run il interpreter on"
+     let%map filenames_spec = anon (sequence ("spec files" %: string))
+     and pre_state = flag "--pre" (required string) ~doc:"pre-state JSON"
+     and block = flag "--block" (required string) ~doc:"beacon block JSON"
      and debug = flag "-dbg" no_arg ~doc:"print debug traces"
      and profile = flag "-profile" no_arg ~doc:"profiling" in
      fun () ->
        let interp_result =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
+         let* beaconState_il = parse_json pre_state "BeaconState" spec_il in
+         let* block_il = parse_json block "BeaconBlock" spec_il in
+
          let* _, _ =
-           interp_il ~debug ~profile spec_il includes_target filename_target
+           run_il ~debug ~profile spec_il "State_transition"
+             [ beaconState_il; block_il; Il.Value.bool true ]
          in
          Ok ()
        in

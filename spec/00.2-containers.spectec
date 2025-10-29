@@ -34,7 +34,7 @@ syntax validator =
   { PUBKEY blsPubkey,
     WITHDRAWAL_CREDENTIALS bytes32,
     EFFECTIVE_BALANCE gwei,
-    SLASHED boolean,
+    SLASHED bool,
     ACTIVATION_ELIGIBILITY_EPOCH epoch,
     ACTIVATION_EPOCH epoch,
     EXIT_EPOCH epoch,
@@ -53,7 +53,7 @@ syntax indexedAttestation =
     SIGNATURE blsSignature }
 
 syntax pendingAttestation =
-  { AGGREGATION_BITS boolean*,
+  { AGGREGATION_BITS bool*,
     DATA attestationData,
     INCLUSION_DELAY slot,
     PROPOSER_INDEX validatorIndex }
@@ -82,7 +82,7 @@ syntax attesterSlashing =
     ATTESTATION_2 indexedAttestation }
 
 syntax attestation =
-  { AGGREGATION_BITS boolean*,
+  { AGGREGATION_BITS bool*,
     DATA attestationData,
     SIGNATURE blsSignature }
 
@@ -121,7 +121,7 @@ syntax signedAggregateAndProof =
     SIGNATURE blsSignature }
 
 syntax syncAggregate =
-  { SYNC_COMMITTEE_BITS boolean*,
+  { SYNC_COMMITTEE_BITS bool*,
     SYNC_COMMITTEE_SIGNATURE blsSignature }
 
 syntax syncCommittee =
@@ -138,7 +138,7 @@ syntax syncCommitteeContribution =
   { SLOT slot,
     BEACON_BLOCK_ROOT root,
     SUBCOMMITTEE_INDEX uint64,
-    AGGREGATION_BITS boolean*,
+    AGGREGATION_BITS bool*,
     SIGNATURE blsSignature }
 
 syntax contributionAndProof =
@@ -261,7 +261,7 @@ syntax beaconState =
     SLASHINGS gwei*,
     PREVIOUS_EPOCH_PARTICIPATION participationFlags*,
     CURRENT_EPOCH_PARTICIPATION participationFlags*,
-    JUSTIFICATION_BITS boolean*,
+    JUSTIFICATION_BITS bool*,
     PREVIOUS_JUSTIFIED_CHECKPOINT checkpoint,
     CURRENT_JUSTIFIED_CHECKPOINT checkpoint,
     FINALIZED_CHECKPOINT checkpoint,

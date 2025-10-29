@@ -61,7 +61,7 @@ let parse_json filename_target input_type spec_il : Il.Value.t pipeline_result =
       Interp_il.Ctx.empty ~debug:false ~profile:false filename_target
     in
     let ctx = Interp_il.Interp.load_spec ctx_init spec_il in
-    let json_data = Yojson.Basic.from_file filename_target in
+    let json_data = Yojson.Safe.from_file filename_target in
     let* value_il =
       Interface_json.Parse.json_to_value ctx.global.tdenv
         (Il.Typ.var input_type []) json_data
@@ -89,6 +89,16 @@ let elaborate spec_el : Il.spec pipeline_result =
   try elaborate ()
   with Elaborate.Error.ElabError (at, failtraces) ->
     Error.ElabError [ (at, failtraces) ] |> Result.error
+
+let run_il ~debug ~profile spec_il rid values_input :
+    (Interp_il.Ctx.t * Il.Value.t list) pipeline_result =
+  let run_il () =
+    let ctx_init = Interp_il.Runner.init ~debug ~profile "il" in
+    Interp_il.Runner.run_relation ctx_init spec_il rid values_input |> Result.ok
+  in
+  try Handlers.il run_il
+  with Interp_il.Error.InterpError (at, msg) ->
+    Error.IlInterpError (at, msg) |> Result.error
 
 let interp_il ~debug ~profile spec_il includes_target filename_target :
     (Interp_il.Ctx.t * Il.Value.t list) pipeline_result =
