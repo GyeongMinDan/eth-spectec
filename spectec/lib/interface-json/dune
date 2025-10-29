@@ -1,3 +1,4 @@
 (library
  (name interface_json)
- (libraries bignum il xl util yojson))
+ (libraries bignum il xl util yojson runtime_dynamic)
+ (modules parse))

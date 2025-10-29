@@ -55,6 +55,24 @@ let parse_p4_string filename_target string : Il.Value.t pipeline_result =
   with P4.Error.P4ParseError (at, msg) ->
     Error.P4ParseError (at, msg) |> Result.error
 
+let parse_json filename_target input_type spec_il : Il.Value.t pipeline_result =
+  let parse_json () =
+    let ctx_init =
+      Interp_il.Ctx.empty ~debug:false ~profile:false filename_target
+    in
+    let ctx = Interp_il.Interp.load_spec ctx_init spec_il in
+    let json_data = Yojson.Basic.from_file filename_target in
+    let* value_il =
+      Interface_json.Parse.json_to_value ctx.global.tdenv
+        (Il.Typ.var input_type []) json_data
+      |> Result.map_error (fun err ->
+             let msg = Interface_json.Parse.string_of_error err in
+             Error.JsonParseError (no_region, msg))
+    in
+    Ok value_il
+  in
+  Handlers.il parse_json
+
 let parse_spec_files filenames : El.Ast.spec pipeline_result =
   let parse_spec_files () =
     List.concat_map Frontend.Parse.parse_file filenames |> Result.ok

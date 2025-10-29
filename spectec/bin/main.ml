@@ -35,6 +35,31 @@ let structure_command =
        | Ok spec_sl -> Format.printf "%s\n" (Sl.Print.string_of_spec spec_sl)
        | Error e -> Format.printf "%s\n" (Runner.Error.string_of_error e))
 
+let parse_json_command =
+  Core.Command.basic ~summary:"parse a JSON into IL value"
+    (let open Core.Command.Let_syntax in
+     let open Core.Command.Param in
+     let%map spec_files = anon (sequence ("spec files" %: string))
+     (* and includes_target = flag "-i" (listed string) ~doc:"target include paths" *)
+     and filename_target =
+       flag "-p" (required string) ~doc:"target file to parse"
+     and input_type = flag "-t" (required string) ~doc:"type of input JSON" in
+     fun () ->
+       let spec = List.concat_map Frontend.Parse.parse_file spec_files in
+       let parse_result =
+         let* spec_il = elaborate spec in
+         let* value_il = parse_json filename_target input_type spec_il in
+         Ok (spec_il, value_il)
+       in
+       match parse_result with
+       | Ok (spec_il, value_il) ->
+           let hmap = Concrete.Hint.hints_of_spec spec_il in
+           Format.asprintf "%a\n" (Concrete.Pp.pp_value hmap) value_il
+           |> print_endline
+       | Error e ->
+           Format.printf "JSON parse failed:\n  %s\n"
+             (Runner.Error.string_of_error e))
+
 let p4parse_command =
   Core.Command.basic ~summary:"parse a P4 program"
     (let open Core.Command.Let_syntax in
@@ -122,6 +147,7 @@ let command =
       ("run-sl", run_sl_command);
       ("run-il", run_il_command);
       ("p4parse", p4parse_command);
+      ("parse-json", parse_json_command);
     ]
 
 let () = Command_unix.run ~version command
