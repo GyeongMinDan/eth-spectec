@@ -10,17 +10,21 @@ let rec compare (value_l : t) (value_r : t) =
     | BoolV _ -> 0
     | NumV _ -> 1
     | TextV _ -> 2
-    | StructV _ -> 3
-    | CaseV _ -> 4
-    | TupleV _ -> 5
-    | OptV _ -> 6
-    | ListV _ -> 7
-    | FuncV _ -> 8
+    | BytesV _ -> 3
+    | StructV _ -> 4
+    | CaseV _ -> 5
+    | TupleV _ -> 6
+    | OptV _ -> 7
+    | ListV _ -> 8
+    | FuncV _ -> 9
   in
   match (value_l.it, value_r.it) with
   | BoolV b_l, BoolV b_r -> Stdlib.compare b_l b_r
   | NumV n_l, NumV n_r -> Xl.Num.compare n_l n_r
   | TextV s_l, TextV s_r -> String.compare s_l s_r
+  | BytesV {num=n1; len=l1}, BytesV {num=n2; len=l2} ->
+      let len_cmp = Int.compare l1 l2 in
+      if len_cmp <> 0 then len_cmp else Bigint.compare n1 n2
   | StructV fields_l, StructV fields_r ->
       let atoms_l, values_l = List.split fields_l in
       let atoms_r, values_r = List.split fields_r in
@@ -108,3 +112,15 @@ let tuple (vs : t list) : t =
 
 let opt (typ : typ) (v : t option) : t = OptV v |> make_val (Typ.opt typ)
 let list (typ : typ) (vs : t list) : t = ListV vs |> make_val (Typ.list typ)
+
+(* Bytes *)
+
+let make_bytes ~(num: Bigint.t) ~(len:int) : t =
+  if len < 0 then failwith "bytes len < 0";
+  let value = BytesV { num; len } in
+  let typ = NumT `NatT in
+  value $$$ with_fresh_vid typ
+
+let get_bytes (value : t) =
+  match value.it with BytesV {num; len} -> (num, len) | _ -> failwith "get_bytes"
+

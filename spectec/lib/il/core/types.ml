@@ -78,6 +78,7 @@ and value' =
   | BoolV of bool
   | NumV of Num.t
   | TextV of string
+  | BytesV of { num: Bigint.t; len: int }
   | StructV of valuefield list
   | CaseV of valuecase
   | TupleV of value list

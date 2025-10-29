@@ -1,4 +1,6 @@
-open Il.Ast
+open Il
+open Util.Source
+open Value
 
 let ( let* ) = Result.bind
 
@@ -74,10 +76,27 @@ let validate_uint64 (at : Util.Source.region) (x : Bigint.t) : (unit, Err.t) res
 let bytes_to_uint64 ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
-  (* Extract first 8 bytes (64 bits) from bytes32 in little-endian order *)
-  (* In little-endian, the first 8 bytes are the least significant bytes *)
-  let uint64_mask = Bigint.(pow (of_int 2) (of_int 64) - one) in
-  let uint64_val = Bigint.bit_and bytes32_val uint64_mask in
+  (* Extract first 8 bytes (MSB 8 bytes) from bytes32 and interpret as little-endian *)
+  (* Python: int.from_bytes(data[:8], 'little') *)
+  (* Extract each byte from data[0..7] (MSB 8 bytes) *)
+  let byte i =
+    (* i = 0..7: data[i], MSB부터 i번째 바이트 *)
+    let shift_bits = (31 - i) * 8 in
+    Bigint.(bit_and (shift_right bytes32_val shift_bits) (of_int 0xff))
+  in
+  (* Little-endian combination: sum_{i=0..7} byte(i) * 256^i *)
+  let rec loop i acc p =
+    if i = 8 then acc
+    else 
+      let next_i = i + 1 in
+      let open Bigint in
+      let byte_val = byte i in
+      let acc_new = acc + (byte_val * p) in
+      let p_new = p * (of_int 256) in
+      loop next_i acc_new p_new
+  in
+  let open Bigint in
+  let uint64_val = loop 0 zero (of_int 1) in
   Ok (Value.nat uint64_val)
 
 (* dec $uint_to_bytes(uint) : bytes *)
@@ -92,15 +111,15 @@ let uint_to_bytes ~at (uint_val : Bigint.t) : (Value.t, Err.t) result =
     if Bigint.(uint_val < pow (of_int 2) (of_int 8)) then
       (* uint8 range: [0, 2^8) *)
       let* () = validate_uint8 at uint_val in
-      Ok (Value.nat uint_val)
+      Ok (make_bytes ~num:uint_val ~len:1)
     else if Bigint.(uint_val < pow (of_int 2) (of_int 32)) then
       (* uint32 range: [0, 2^32) *)
       let* () = validate_uint32 at uint_val in
-      Ok (Value.nat uint_val)
+      Ok (make_bytes ~num:uint_val ~len:4)
     else if Bigint.(uint_val < pow (of_int 2) (of_int 64)) then
       (* uint64 range: [0, 2^64) *)
       let* () = validate_uint64 at uint_val in
-      Ok (Value.nat uint_val)
+      Ok (make_bytes ~num:uint_val ~len:8)
     else
       Error (Err.runtime at "uint_to_bytes: value too large for uint8/uint32/uint64")
 
@@ -118,9 +137,9 @@ let xor ~at (bytes32_a : Bigint.t) (bytes32_b : Bigint.t) : (Value.t, Err.t) res
 let first_28_bytes ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
-  (* Extract first 28 bytes (224 bits) from bytes32 *)
-  let bytes28_mask = Bigint.(pow (of_int 2) (of_int 224) - one) in
-  let bytes28_val = Bigint.bit_and bytes32_val bytes28_mask in
+  (* Extract first 28 bytes (MSB 28 bytes) from bytes32 *)
+  (* Python x[:28] - remove last 4 bytes (32 bits) *)
+  let bytes28_val = Bigint.shift_right bytes32_val 32 in
   Ok (Value.nat bytes28_val)
 
 (* dec $get_first_byte(bytes32) : bytes1 *)
@@ -128,18 +147,20 @@ let first_28_bytes ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
 let get_first_byte ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
-  (* Extract first byte (8 bits) from bytes32 *)
-  let bytes1_mask = Bigint.(pow (of_int 2) (of_int 8) - one) in
-  let bytes1_val = Bigint.bit_and bytes32_val bytes1_mask in
-  Ok (Value.nat bytes1_val)
+  (* Extract first byte (MSB 1 byte) from bytes32 *)
+  (* Python x[:1] - extract MSB byte *)
+  let msb_byte = Bigint.(shift_right bytes32_val 248 |> bit_and (of_int 0xff)) in
+  Ok (Value.nat msb_byte)
 
 (* dec $strip_first_byte(bytes32) : bytes31 *)
 
 let strip_first_byte ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
-  (* Remove first byte by shifting right by 8 bits *)
-  let bytes31_val = Bigint.shift_right bytes32_val 8 in
+  (* Remove first byte (MSB 1 byte) from bytes32 *)
+  (* Python x[1:] - remove MSB byte, keep remaining 31 bytes *)
+  let mask_248 = Bigint.(pow (of_int 2) (of_int 248) - one) in
+  let bytes31_val = Bigint.bit_and bytes32_val mask_248 in
   Ok (Value.nat bytes31_val)
 
 (* dec $bytes32_to_bytes1_list(bytes32) : bytes1* *)
@@ -155,7 +176,7 @@ let bytes32_to_bytes1_list ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) resul
       let byte_val = Bigint.bit_and byte_val (Bigint.of_int 255) in
       Value.nat byte_val)
   in
-  let typ = Util.Source.(Il.Ast.NumT `NatT $ no_region) in
+  let typ = Util.Source.(Il.NumT `NatT $ no_region) in
   Ok (Value.list typ bytes1_list)
 
 (* dec $bytes1_to_uint64(bytes1) : uint64 *)
@@ -167,21 +188,17 @@ let bytes1_to_uint64 ~at (bytes1_val : Bigint.t) : (Value.t, Err.t) result =
 
 (* dec $concat_bytes(bytes, bytes) : bytes *)
 
-let concat_bytes ~at (bytes_a : Bigint.t) (bytes_b : Bigint.t) : (Value.t, Err.t) result =
+let concat_bytes ~at (value_a : Value.t) (value_b : Value.t) : (Value.t, Err.t) result =
   at |> ignore;
-  if Bigint.(bytes_a < zero || bytes_b < zero) then
-    Error (Err.runtime at "concat_bytes: inputs must be non-negative")
-  else
-    (* Calculate bit length of bytes_b *)
-    let rec bit_length n =
-      if Bigint.(n = zero) then 0
-      else 1 + bit_length Bigint.(n / (of_int 2))
-    in
-    let bytes_b_bits = bit_length bytes_b in
-    (* Round up to nearest byte boundary *)
-    let bytes_b_bits = ((bytes_b_bits + 7) / 8) * 8 in
-    let result = Bigint.(shift_left bytes_a bytes_b_bits + bytes_b) in
-    Ok (Value.nat result)
+  match (value_a.it, value_b.it) with
+  | BytesV {num=na; len=la}, BytesV {num=nb; len=lb} ->
+      (* big-endian concat: (na || nb) == na * 256^(lb) + nb *)
+      let shift_bits = 8 * lb in
+      let shift = Bigint.(pow (of_int 2) (of_int shift_bits)) in
+      let num = Bigint.(na * shift + nb) in
+      Ok (make_bytes ~num ~len:(la + lb))
+  | _ ->
+      Error (Err.runtime at "concat_bytes: expected bytes values")
 
 (* dec $concat_domain(domainType, bytes28) : domain *)
 
@@ -203,14 +220,14 @@ let concat_domain ~at (domain_type : Bigint.t) (bytes28_val : Bigint.t) : (Value
 let bytes32_to_bytes ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
-  Ok (Value.nat bytes32_val)
+  Ok (make_bytes ~num:bytes32_val ~len:32)
 
 (* dec $bytes4_to_bytes(bytes4) : bytes *)
 
 let bytes4_to_bytes ~at (bytes4_val : Bigint.t) : (Value.t, Err.t) result =
   at |> ignore;
   let* () = validate_bytes4 at bytes4_val in
-  Ok (Value.nat bytes4_val)
+  Ok (make_bytes ~num:bytes4_val ~len:4)
 
 (* dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32 *)
 
@@ -255,7 +272,7 @@ let builtins : (string * Define.t) list =
     ("strip_first_byte", Define.T0.a1 Arg.nat strip_first_byte);
     ("bytes32_to_bytes1_list", Define.T0.a1 Arg.nat bytes32_to_bytes1_list);
     ("bytes1_to_uint64", Define.T0.a1 Arg.nat bytes1_to_uint64);
-    ("concat_bytes", Define.T0.a2 Arg.nat Arg.nat concat_bytes);
+    ("concat_bytes", Define.T0.a2 Arg.value Arg.value concat_bytes);
     ("bytes32_to_bytes", Define.T0.a1 Arg.nat bytes32_to_bytes);
     ("bytes4_to_bytes", Define.T0.a1 Arg.nat bytes4_to_bytes);
     ("extract_execution_address", Define.T0.a1 Arg.nat extract_execution_address);
