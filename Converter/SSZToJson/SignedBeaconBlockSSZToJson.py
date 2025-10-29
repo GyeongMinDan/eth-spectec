@@ -14,6 +14,11 @@ BASIC_BOOL_TYPES = (boolean, bit)
 def _to_hex(b: bytes) -> str:
     return "0x" + b.hex()
 
+def bitfield_to_bool_list(v):
+    L = v.length()
+    return [bool(v.get(i)) for i in range(L)]
+
+
 def view_to_jsonable(v: Any) -> Any:
     # 1) Container
     if isinstance(v, Container):
@@ -31,13 +36,9 @@ def view_to_jsonable(v: Any) -> Any:
     if isinstance(v, (ByteVector, ByteList)):
         return _to_hex(bytes(v))
 
-    # 4) Bitfields → hex
+    # 4) Bitfields → bit value
     if isinstance(v, (Bitvector, Bitlist)):
-        try:
-            packed = v.pack()
-        except Exception:
-            packed = bytes(v)
-        return _to_hex(packed)
+        return bitfield_to_bool_list(v) 
 
     # 5) Basic ints/bools
     if isinstance(v, BASIC_INT_TYPES):
