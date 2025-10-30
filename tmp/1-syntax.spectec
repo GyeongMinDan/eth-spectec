@@ -839,7 +839,7 @@ dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
 dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
 dec $hash_tree_root_depositData(depositData) : root
 dec $hash_tree_root_forkdata(forkdata) : root
-dec $hash_tree_root_tx(bytes32*) : root
+dec $hash_tree_root_tx(bytes*) : root
 dec $hash_tree_root_withdrawals(withdrawal*) : root
 dec $hash_tree_root_roots(root*) : root
 dec $hash_tree_root_state(beaconState) : root
