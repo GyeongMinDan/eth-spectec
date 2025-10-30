@@ -839,10 +839,11 @@ dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
 dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
 dec $hash_tree_root_depositData(depositData) : root
 dec $hash_tree_root_forkdata(forkdata) : root
-dec $hash_tree_root_tx(bytes*) : root
-dec $hash_tree_root_withdrawals(withdrawal*) : root
-dec $hash_tree_root_roots(root*) : root
 dec $hash_tree_root_state(beaconState) : root
+dec $hash_tree_root_withdrawals(withdrawal*) : root
+
+dec $hash_tree_root_roots(root*) : root
+dec $hash_tree_root_tx(bytes*) : root
 
 ;; --- 실행 엔진 ---
 dec $ee_verify_and_notify_new_payload(executionPayload) : boolean
@@ -858,7 +859,7 @@ dec $strip_first_byte(bytes32) : bytes31
 dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
 
 ;; --- 서명 루트 계산 ---
-dec $compute_signing_root(epoch, domain) : root
+dec $compute_signing_root_epoch(epoch, domain) : root
 dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
 dec $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) : root
 dec $compute_signing_root_beaconBlockHeader(beaconBlockHeader, domain) : root
@@ -4176,7 +4177,7 @@ rule Process_randao/main:
   -- if $(validatorIndex_prop_vi < |state_beaconState.VALIDATORS|)
   -- if state_beaconState.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
   -- if $get_domain(state_beaconState, $DOMAIN_RANDAO, eps) = domain_randao
-  -- if $compute_signing_root(epoch, domain_randao) = root_signing
+  -- if $compute_signing_root_epoch(epoch, domain_randao) = root_signing
   -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body_beaconBlockBody.RANDAO_REVEAL) = true
   -- if $get_randao_mix(state_beaconState, epoch) = bytes32_mix_old
   -- if $hash_<blsSignature>(body_beaconBlockBody.RANDAO_REVEAL) = bytes32_hash_reveal

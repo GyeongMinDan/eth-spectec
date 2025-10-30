@@ -15,13 +15,15 @@ dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
 dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
 dec $hash_tree_root_depositData(depositData) : root
 dec $hash_tree_root_forkdata(forkdata) : root
-dec $hash_tree_root_tx(bytes*) : root
-dec $hash_tree_root_withdrawals(withdrawal*) : root
-dec $hash_tree_root_roots(root*) : root
 dec $hash_tree_root_state(beaconState) : root
+dec $hash_tree_root_withdrawals(withdrawal*) : root
+
+dec $hash_tree_root_roots(root*) : root
+dec $hash_tree_root_tx(bytes*) : root
+
 
 ;; --- 서명 루트 계산 ---
-dec $compute_signing_root(epoch, domain) : root
+dec $compute_signing_root_epoch(epoch, domain) : root
 dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
 dec $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) : root
 dec $compute_signing_root_beaconBlockHeader(beaconBlockHeader, domain) : root

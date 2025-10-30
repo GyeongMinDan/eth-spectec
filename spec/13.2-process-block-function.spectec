@@ -165,7 +165,7 @@ rule Process_randao/main:
   -- if $(validatorIndex_prop_vi < |state_beaconState.VALIDATORS|)
   -- if state_beaconState.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
   -- if $get_domain(state_beaconState, $DOMAIN_RANDAO, eps) = domain_randao
-  -- if $compute_signing_root(epoch, domain_randao) = root_signing
+  -- if $compute_signing_root_epoch(epoch, domain_randao) = root_signing
   -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body_beaconBlockBody.RANDAO_REVEAL) = true
   -- if $get_randao_mix(state_beaconState, epoch) = bytes32_mix_old
   -- if $hash_<blsSignature>(body_beaconBlockBody.RANDAO_REVEAL) = bytes32_hash_reveal
