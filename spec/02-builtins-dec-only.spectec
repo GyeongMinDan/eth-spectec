@@ -18,6 +18,7 @@ dec $hash_tree_root_forkdata(forkdata) : root
 dec $hash_tree_root_tx(bytes32*) : root
 dec $hash_tree_root_withdrawals(withdrawal*) : root
 dec $hash_tree_root_roots(root*) : root
+dec $hash_tree_root_state(beaconState) : root
 
 ;; --- 서명 루트 계산 ---
 dec $compute_signing_root(epoch, domain) : root

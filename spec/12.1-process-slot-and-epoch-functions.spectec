@@ -13,7 +13,7 @@ relation Process_slot:
 ;; ------------------------------------------------------------
 rule Process_slot/header_root_empty:
   state_in ~> state_out
-  -- if $hash_<beaconState>(state_in) = root_state_prev
+  -- if $hash_tree_root_state(state_in) = root_state_prev
   -- if $( state_in.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
   ;; STATE_ROOTS[slot % SLOTS_PER_HISTORICAL_ROOT] ← root_state_prev
   -- if state_in.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
@@ -36,7 +36,7 @@ rule Process_slot/header_root_empty:
 ;; ------------------------------------------------------------
 rule Process_slot/header_root_present:
   state_in ~> state_out
-  -- if $hash_<beaconState>(state_in) = root_state_prev
+  -- if $hash_tree_root_state(state_in) = root_state_prev
   -- if $( state_in.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
   -- if state_in.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
   ;; STATE_ROOTS[slot % SLOTS_PER_HISTORICAL_ROOT] ← root_state_prev
