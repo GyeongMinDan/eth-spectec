@@ -2,4 +2,15 @@
 
 (library
  (name interp_il)
- (libraries util domain xl el il runtime_static runtime_dynamic_il p4 bls12-381 bls12-381-signature digestif))
+ (libraries
+  util
+  domain
+  xl
+  el
+  il
+  runtime_static
+  runtime_dynamic_il
+  p4
+  bls12-381
+  bls12-381-signature
+  digestif))

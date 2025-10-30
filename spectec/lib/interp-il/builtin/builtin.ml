@@ -17,7 +17,8 @@ let funcs : Define.t StringMap.t =
       Math.builtins;
       Bytes.builtins;
       BlsImpl.builtins;
-      (*HashImpl.builtins;*)
+      MerkleImpl.builtins;
+      HashImpl.builtins;
       Fresh.builtins;
     ]
     |> List.concat
