@@ -25,6 +25,12 @@ def _elem_type_of(seq_type):
             return getattr(seq_type, attr)
     return getattr(seq_type, "__args__", [None])[0]
 
+def _issubclass_safe(t, base) -> bool:
+    try:
+        return issubclass(t, base)
+    except TypeError:
+        return False
+
 def json_to_view(j: Any, typ) -> Any:
     # 1) Container
     if hasattr(typ, 'fields') and callable(typ.fields):
@@ -59,19 +65,12 @@ def json_to_view(j: Any, typ) -> Any:
             return typ(*elems)
 
     # 4) Bitfields
-    if 'Bitvector' in str(typ) or 'Bitlist' in str(typ):
-        if not isinstance(j, str):
-            raise TypeError(f"{typ.__name__} expects 0x-hex string (SSZ-encoded)")
-        ssz_bytes = _from_hex(j)
-        try:
-            import io
-            stream = io.BytesIO(ssz_bytes)
-            return typ.deserialize(stream, len(ssz_bytes))
-        except Exception:
-            try:
-                return typ(ssz_bytes)
-            except Exception:
-                return typ()
+    if _issubclass_safe(typ, Bitvector) or _issubclass_safe(typ, Bitlist):
+        if not isinstance(j, list) or not all(isinstance(x, bool) for x in j):
+            raise TypeError(f"{typ.__name__} expects a JSON list of booleans, e.g. [true, false, ...]")
+        # remerkleable -> (길이·limit는 타입이 검증)
+        return typ(j)
+
 
     # 5) Basic ints/bools
     try:

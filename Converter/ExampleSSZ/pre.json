@@ -93478,7 +93478,12 @@
     0,
     0
   ],
-  "justification_bits": "0x00",
+  "justification_bits": [
+    false,
+    false,
+    false,
+    false
+  ],
   "previous_justified_checkpoint": {
     "epoch": 0,
     "root": "0x0000000000000000000000000000000000000000000000000000000000000000"
