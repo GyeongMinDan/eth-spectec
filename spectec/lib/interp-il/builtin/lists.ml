@@ -1,4 +1,5 @@
 open Il
+open Xl
 
 (* dec $rev_<X>(X* ) : X* *)
 
@@ -106,7 +107,8 @@ let sum_ ~at (_typ : targ) (vs : Value.t list) : (Value.t, Err.t) result =
     
 (* dec $repeat_<X>(X, nat) : X* *)
 
-let repeat_ ~at (typ : targ) (value : Value.t) (count : Bigint.t) : (Value.t, Err.t) result =
+let repeat_ ~at (typ : targ) (value : Value.t) (count : Num.t) : (Value.t, Err.t) result =
+  let count = Num.to_int count in
   at |> ignore;
   try
     let n = Bigint.to_int_exn count in
@@ -140,7 +142,8 @@ let set_intersection_ ~at (typ : targ) (vs1 : Value.t list) (vs2 : Value.t list)
 
 (* dec $range(nat) : nat* *)
 
-let range ~at (typ : targ) (count : Bigint.t) : (Value.t, Err.t) result =
+let range ~at (typ : targ) (count : Num.t) : (Value.t, Err.t) result =
+  let count = Num.to_int count in
   at |> ignore;
   try
     let n = Bigint.to_int_exn count in
@@ -168,7 +171,8 @@ let enumerate_ ~at (typ : targ) (vs : Value.t list) : (Value.t, Err.t) result =
 
 (* dec $set_or_append_list_<X>(X*, nat, X) : X* *)
 
-let set_or_append_list_ ~at (typ : targ) (vs : Value.t list) (idx_big : Bigint.t) (value : Value.t) : (Value.t, Err.t) result =
+let set_or_append_list_ ~at (typ : targ) (vs : Value.t list) (idx_big : Num.t) (value : Value.t) : (Value.t, Err.t) result =
+  let idx_big = Num.to_int idx_big in
   at |> ignore;
   try
     let idx = Bigint.to_int_exn idx_big in
@@ -204,10 +208,10 @@ let builtins =
     ("count_occurrences_", Define.T1.a2 (Arg.list_of Arg.value) Arg.value count_occurrences_);
     ("to_set_", Define.T1.a1 (Arg.list_of Arg.value) to_set_);
     ("sum_", Define.T1.a1 (Arg.list_of Arg.value) sum_);
-    ("repeat_", Define.T1.a2 Arg.value Arg.nat repeat_);
+    ("repeat_", Define.T1.a2 Arg.value Arg.num repeat_);
     ("sort_", Define.T1.a1 (Arg.list_of Arg.value) sort_);
     ("set_intersection_", Define.T1.a2 (Arg.list_of Arg.value) (Arg.list_of Arg.value) set_intersection_);
-    ("range", Define.T1.a1 Arg.nat range);
+    ("range", Define.T1.a1 Arg.num range);
     ("enumerate_", Define.T1.a1 (Arg.list_of Arg.value) enumerate_);
-    ("set_or_append_list_", Define.T1.a3 (Arg.list_of Arg.value) Arg.nat Arg.value set_or_append_list_);
+    ("set_or_append_list_", Define.T1.a3 (Arg.list_of Arg.value) Arg.num Arg.value set_or_append_list_);
   ]
