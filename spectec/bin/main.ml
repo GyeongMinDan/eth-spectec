@@ -103,15 +103,20 @@ let run_il_command =
          let* spec_il = elaborate spec in
          let* beaconState_il = parse_json pre_state "BeaconState" spec_il in
          let* block_il = parse_json block "BeaconBlock" spec_il in
-
-         let* _, _ =
+         let* _, values =
            run_il ~debug ~profile spec_il "State_transition"
-             [ beaconState_il; block_il; Il.Value.bool true ]
+             [ beaconState_il; block_il; Il.Value.bool false ]
          in
-         Ok ()
+         Ok (values, spec_il)
        in
        match interp_result with
-       | Ok () -> Format.printf "Interpreter succeeded\n"
+       | Ok (values, spec_il) ->
+           let hmap = Concrete.Hint.hints_of_spec spec_il in
+           List.iter
+             (fun v ->
+               Format.asprintf "%a\n" (Concrete.Pp.pp_value hmap) v
+               |> print_endline)
+             values
        | Error e ->
            Format.printf "Interpreter failed:\n  %s\n"
              (Runner.Error.string_of_error e))
