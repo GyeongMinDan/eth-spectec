@@ -1,4 +1,5 @@
 open Il
+open Xl
 open Util.Source
 open Value
 
@@ -73,7 +74,8 @@ let validate_uint64 (at : Util.Source.region) (x : Bigint.t) : (unit, Err.t) res
 
 (* dec $bytes_to_uint64(bytes32) : uint64 *)
 
-let bytes_to_uint64 ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
+let bytes_to_uint64 ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
+  let bytes32_val = Num.to_int bytes32_val in
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
   (* Extract first 8 bytes (MSB 8 bytes) from bytes32 and interpret as little-endian *)
@@ -101,7 +103,8 @@ let bytes_to_uint64 ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
 
 (* dec $uint_to_bytes(uint) : bytes *)
 
-let uint_to_bytes ~at (uint_val : Bigint.t) : (Value.t, Err.t) result =
+let uint_to_bytes ~at (uint_val : Num.t) : (Value.t, Err.t) result =
+  let uint_val = Num.to_int uint_val in
   at |> ignore;
   if Bigint.(uint_val < zero) then
     Error (Err.runtime at "uint_to_bytes: input must be non-negative")
@@ -125,7 +128,9 @@ let uint_to_bytes ~at (uint_val : Bigint.t) : (Value.t, Err.t) result =
 
 (* dec $xor(bytes32, bytes32) : bytes32 *)
 
-let xor ~at (bytes32_a : Bigint.t) (bytes32_b : Bigint.t) : (Value.t, Err.t) result =
+let xor ~at (bytes32_a : Num.t) (bytes32_b : Num.t) : (Value.t, Err.t) result =
+  let bytes32_a = Num.to_int bytes32_a in
+  let bytes32_b = Num.to_int bytes32_b in
   at |> ignore;
   let* () = validate_bytes32 at bytes32_a in
   let* () = validate_bytes32 at bytes32_b in
@@ -134,7 +139,8 @@ let xor ~at (bytes32_a : Bigint.t) (bytes32_b : Bigint.t) : (Value.t, Err.t) res
 
 (* dec $first_28_bytes(bytes32) : bytes28 *)
 
-let first_28_bytes ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
+let first_28_bytes ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
+  let bytes32_val = Num.to_int bytes32_val in
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
   (* Extract first 28 bytes (MSB 28 bytes) from bytes32 *)
@@ -144,7 +150,8 @@ let first_28_bytes ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
 
 (* dec $get_first_byte(bytes32) : bytes1 *)
 
-let get_first_byte ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
+let get_first_byte ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
+  let bytes32_val = Num.to_int bytes32_val in
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
   (* Extract first byte (MSB 1 byte) from bytes32 *)
@@ -154,7 +161,8 @@ let get_first_byte ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
 
 (* dec $strip_first_byte(bytes32) : bytes31 *)
 
-let strip_first_byte ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
+let strip_first_byte ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
+  let bytes32_val = Num.to_int bytes32_val in
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
   (* Remove first byte (MSB 1 byte) from bytes32 *)
@@ -165,7 +173,8 @@ let strip_first_byte ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
 
 (* dec $bytes32_to_bytes1_list(bytes32) : bytes1* *)
 
-let bytes32_to_bytes1_list ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
+let bytes32_to_bytes1_list ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
+  let bytes32_val = Num.to_int bytes32_val in
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
   (* Extract each byte from bytes32 *)
@@ -181,7 +190,8 @@ let bytes32_to_bytes1_list ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) resul
 
 (* dec $bytes1_to_uint64(bytes1) : uint64 *)
 
-let bytes1_to_uint64 ~at (bytes1_val : Bigint.t) : (Value.t, Err.t) result =
+let bytes1_to_uint64 ~at (bytes1_val : Num.t) : (Value.t, Err.t) result =
+  let bytes1_val = Num.to_int bytes1_val in
   at |> ignore;
   let* () = validate_bytes1 at bytes1_val in
   Ok (Value.nat bytes1_val)
@@ -202,7 +212,9 @@ let concat_bytes ~at (value_a : Value.t) (value_b : Value.t) : (Value.t, Err.t) 
 
 (* dec $concat_domain(domainType, bytes28) : domain *)
 
-let concat_domain ~at (domain_type : Bigint.t) (bytes28_val : Bigint.t) : (Value.t, Err.t) result =
+let concat_domain ~at (domain_type : Num.t) (bytes28_val : Num.t) : (Value.t, Err.t) result =
+  let domain_type = Num.to_int domain_type in
+  let bytes28_val = Num.to_int bytes28_val in
   at |> ignore;
   (* Validate domainType (bytes4) *)
   let* () = validate_bytes4 at domain_type in
@@ -217,21 +229,24 @@ let concat_domain ~at (domain_type : Bigint.t) (bytes28_val : Bigint.t) : (Value
 
 (* dec $bytes32_to_bytes(bytes32) : bytes *)
 
-let bytes32_to_bytes ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
+let bytes32_to_bytes ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
+  let bytes32_val = Num.to_int bytes32_val in
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
   Ok (make_bytes ~num:bytes32_val ~len:32)
 
 (* dec $bytes4_to_bytes(bytes4) : bytes *)
 
-let bytes4_to_bytes ~at (bytes4_val : Bigint.t) : (Value.t, Err.t) result =
+let bytes4_to_bytes ~at (bytes4_val : Num.t) : (Value.t, Err.t) result =
+  let bytes4_val = Num.to_int bytes4_val in
   at |> ignore;
   let* () = validate_bytes4 at bytes4_val in
   Ok (make_bytes ~num:bytes4_val ~len:4)
 
 (* dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32 *)
 
-let make_withdrawal_credentials_eth1 ~at (execution_address : Bigint.t) : (Value.t, Err.t) result =
+let make_withdrawal_credentials_eth1 ~at (execution_address : Num.t) : (Value.t, Err.t) result =
+  let execution_address = Num.to_int execution_address in
   at |> ignore;
   (* Validate executionAddress (bytes20) *)
   let* () = validate_bytes20 at execution_address in
@@ -252,7 +267,8 @@ let make_withdrawal_credentials_eth1 ~at (execution_address : Bigint.t) : (Value
 
 (* dec $extract_execution_address(bytes32) : executionAddress *)
 
-let extract_execution_address ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) result =
+let extract_execution_address ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
+  let bytes32_val = Num.to_int bytes32_val in
   at |> ignore;
   let* () = validate_bytes32 at bytes32_val in
   (* Extract last 20 bytes (160 bits) from bytes32 *)
@@ -262,18 +278,18 @@ let extract_execution_address ~at (bytes32_val : Bigint.t) : (Value.t, Err.t) re
 
 let builtins : (string * Define.t) list =
   [
-    ("bytes_to_uint64", Define.T0.a1 Arg.nat bytes_to_uint64);
-    ("uint_to_bytes", Define.T0.a1 Arg.nat uint_to_bytes);
-    ("xor", Define.T0.a2 Arg.nat Arg.nat xor);
-    ("concat_domain", Define.T0.a2 Arg.nat Arg.nat concat_domain);
-    ("make_withdrawal_credentials_eth1", Define.T0.a1 Arg.nat make_withdrawal_credentials_eth1);
-    ("first_28_bytes", Define.T0.a1 Arg.nat first_28_bytes);
-    ("get_first_byte", Define.T0.a1 Arg.nat get_first_byte);
-    ("strip_first_byte", Define.T0.a1 Arg.nat strip_first_byte);
-    ("bytes32_to_bytes1_list", Define.T0.a1 Arg.nat bytes32_to_bytes1_list);
-    ("bytes1_to_uint64", Define.T0.a1 Arg.nat bytes1_to_uint64);
+    ("bytes_to_uint64", Define.T0.a1 Arg.num bytes_to_uint64);
+    ("uint_to_bytes", Define.T0.a1 Arg.num uint_to_bytes);
+    ("xor", Define.T0.a2 Arg.num Arg.num xor);
+    ("concat_domain", Define.T0.a2 Arg.num Arg.num concat_domain);
+    ("make_withdrawal_credentials_eth1", Define.T0.a1 Arg.num make_withdrawal_credentials_eth1);
+    ("first_28_bytes", Define.T0.a1 Arg.num first_28_bytes);
+    ("get_first_byte", Define.T0.a1 Arg.num get_first_byte);
+    ("strip_first_byte", Define.T0.a1 Arg.num strip_first_byte);
+    ("bytes32_to_bytes1_list", Define.T0.a1 Arg.num bytes32_to_bytes1_list);
+    ("bytes1_to_uint64", Define.T0.a1 Arg.num bytes1_to_uint64);
     ("concat_bytes", Define.T0.a2 Arg.value Arg.value concat_bytes);
-    ("bytes32_to_bytes", Define.T0.a1 Arg.nat bytes32_to_bytes);
-    ("bytes4_to_bytes", Define.T0.a1 Arg.nat bytes4_to_bytes);
-    ("extract_execution_address", Define.T0.a1 Arg.nat extract_execution_address);
+    ("bytes32_to_bytes", Define.T0.a1 Arg.num bytes32_to_bytes);
+    ("bytes4_to_bytes", Define.T0.a1 Arg.num bytes4_to_bytes);
+    ("extract_execution_address", Define.T0.a1 Arg.num extract_execution_address);
   ]

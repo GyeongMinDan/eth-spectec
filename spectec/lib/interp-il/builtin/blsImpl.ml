@@ -1,4 +1,5 @@
 open Il
+open Xl
 open Stdlib.Bytes
 
 let ( let* ) = Result.bind
@@ -37,8 +38,11 @@ let bigint_of_be_bytes (b : t) : Bigint.t =
 
 (* dec $bls_verify(blsPubkey, root, blsSignature) : boolean *)
 
-let bls_verify ~at (bls_pubkey : Bigint.t) (root : Bigint.t) (bls_signature : Bigint.t)
+let bls_verify ~at (bls_pubkey : Num.t) (root : Num.t) (bls_signature : Num.t)
   : (Value.t, Err.t) result =
+  let bls_pubkey = Num.to_int bls_pubkey in
+  let root = Num.to_int root in
+  let bls_signature = Num.to_int bls_signature in
   let* () = ensure_fits_bytes ~at bls_pubkey ~len:48 in
   let* () = ensure_fits_bytes ~at bls_signature ~len:96 in
   let* () = ensure_fits_bytes ~at root ~len:32 in
@@ -61,8 +65,9 @@ let bls_verify ~at (bls_pubkey : Bigint.t) (root : Bigint.t) (bls_signature : Bi
 
 (* (* dec $eth_aggregate_pubkeys(blsPubkey*) : blsPubkey *)
 
-let eth_aggregate_pubkeys ~at (pubkeys_int : Bigint.t list)
+let eth_aggregate_pubkeys ~at (pubkeys_num : Num.t list)
   : (Value.t, Err.t) result =
+  let pubkeys_int = List.map Num.to_int pubkeys_num in
   (* 1) int -> bytes48 -> G1 (검증) *)
   let conv_one n =
     let* () = ensure_fits_bytes ~at n ~len:48 in
@@ -91,10 +96,13 @@ let eth_aggregate_pubkeys ~at (pubkeys_int : Bigint.t list)
 
 let bls_fast_aggregate_verify
     ~at
-    (pubkeys_int : Bigint.t list)
-    (root       : Bigint.t)
-    (sig_int    : Bigint.t)
+    (pubkeys_num : Num.t list)
+    (root       : Num.t)
+    (sig_num    : Num.t)
   : (Value.t, Err.t) result =
+  let pubkeys_int = List.map Num.to_int pubkeys_num in
+  let root = Num.to_int root in
+  let sig_int = Num.to_int sig_num in
   (* length validation *)
   let* () = ensure_fits_bytes ~at root    ~len:32 in
   let* () = ensure_fits_bytes ~at sig_int ~len:96 in
@@ -141,7 +149,7 @@ let bls_fast_aggregate_verify
 
 
 let builtins : (string * Define.t) list = [
-  ("bls_verify", Define.T0.a3 Arg.nat Arg.nat Arg.nat bls_verify);
-  ("eth_aggregate_pubkeys", Define.T0.a1 (Arg.list_of Arg.nat) eth_aggregate_pubkeys);
-  ("bls_fast_aggregate_verify", Define.T0.a3 (Arg.list_of Arg.nat) Arg.nat Arg.nat bls_fast_aggregate_verify);
+  ("bls_verify", Define.T0.a3 Arg.num Arg.num Arg.num bls_verify);
+  ("eth_aggregate_pubkeys", Define.T0.a1 (Arg.list_of Arg.num) eth_aggregate_pubkeys);
+  ("bls_fast_aggregate_verify", Define.T0.a3 (Arg.list_of Arg.num) Arg.num Arg.num bls_fast_aggregate_verify);
 ]
