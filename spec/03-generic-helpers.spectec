@@ -94,3 +94,36 @@ def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) =
 ;; --- 실행 엔진 ---
 dec $ee_verify_and_notify_new_payload(executionPayload) : boolean
 def $ee_verify_and_notify_new_payload(executionPayload) = true
+
+;; (n, v)에서 v.PUBKEY == pk ?
+dec $pubkey_match_en((nat, validator), blsPubkey) : bool
+
+def $pubkey_match_en((n_i, validator_v), blsPubkey_pk) = true
+  -- if $(validator_v.PUBKEY = blsPubkey_pk)
+
+def $pubkey_match_en((n_i, validator_v), blsPubkey_pk) = false
+  -- otherwise
+
+;; (n, v) → ValidatorIndex(n)
+dec $pick_index_en_validator((nat, validator)) : validatorIndex
+def $pick_index_en_validator((n_i, validator_v)) = validatorIndex_vi
+  -- if validatorIndex_vi = n_i
+
+
+;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
+;; --------------------------------------------
+;; index_of_pubkey(state, pk) : validatorIndex
+;; --------------------------------------------
+dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
+
+def $index_of_pubkey(state, blsPubkey_pk) = validatorIndex_idx
+  -- if state.VALIDATORS = validator_list*
+  -- if $enumerate_<validator>(validator_list*) = (n_i, validator_v)*
+  -- if $filter_list_2_<(nat, validator), blsPubkey>(
+         (n_i, validator_v)*,
+         blsPubkey_pk,
+         def $pubkey_match_en
+       ) = (n_sel, validator_sel)*
+  -- if ($pick_index_en_validator((n_sel, validator_sel)) = validatorIndex_elem)* = validatorIndex_list*
+  -- if $( |validatorIndex_list*| ) = 1
+  -- if validatorIndex_list* = [ validatorIndex_idx ]

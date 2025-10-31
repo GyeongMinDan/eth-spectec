@@ -15,7 +15,7 @@ dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
 dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
 dec $hash_tree_root_depositData(depositData) : root
 dec $hash_tree_root_forkdata(forkdata) : root
-dec $hash_tree_root_state(beaconState) : root
+dec $hash_tree_root_beaconState(beaconState) : root
 dec $hash_tree_root_withdrawals(withdrawal*) : root
 
 dec $hash_tree_root_roots(root*) : root
@@ -72,9 +72,6 @@ dec $set_intersection_<X>(X*, X*) : X*
 ;; 를 타입마다 변수에 명시를 하면 복잡해지므로 그냥 dec로...
 dec $set_or_append_list_<X>(X*, nat, X) : X*
 
-;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
-;; 
-dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
 
 ;; python for statement range funcs
 dec $range(nat) : nat*
