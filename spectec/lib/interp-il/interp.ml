@@ -25,7 +25,7 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
   | VarE id, _ ->
       let ctx = Ctx.add_value Local ctx (id, []) value in
       ctx
-    (* to handle true, false value *)
+    (* to handle true, false value*)
   | BoolE b, BoolV b_val ->
       if b = b_val then ctx
       else
