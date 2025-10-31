@@ -124,6 +124,6 @@ def $index_of_pubkey(state, blsPubkey_pk) = validatorIndex_idx
          blsPubkey_pk,
          def $pubkey_match_en
        ) = (n_sel, validator_sel)*
-  -- if ($pick_index_en_validator((n_sel, validator_sel)) = validatorIndex_elem)* = validatorIndex_list*
-  -- if $( |validatorIndex_list*| ) = 1
-  -- if validatorIndex_list* = [ validatorIndex_idx ]
+  -- if $( |(n_sel, validator_sel)*| ) = 1
+  -- if (nat_n0, validator_v0) = (n_sel, validator_sel)*[0]
+  -- if $pick_index_en_validator((nat_n0, validator_v0)) = validatorIndex_idx

@@ -839,14 +839,12 @@ dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
 dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
 dec $hash_tree_root_depositData(depositData) : root
 dec $hash_tree_root_forkdata(forkdata) : root
-dec $hash_tree_root_state(beaconState) : root
+dec $hash_tree_root_beaconState(beaconState) : root
 dec $hash_tree_root_withdrawals(withdrawal*) : root
 
 dec $hash_tree_root_roots(root*) : root
 dec $hash_tree_root_tx(bytes*) : root
 
-;; --- 실행 엔진 ---
-dec $ee_verify_and_notify_new_payload(executionPayload) : boolean
 
 ;; --- 바이트/도메인 유틸 ---
 dec $bytes_to_uint64(bytes32) : uint64
@@ -902,9 +900,6 @@ dec $set_intersection_<X>(X*, X*) : X*
 ;; else X*[nat] = X
 ;; 를 타입마다 변수에 명시를 하면 복잡해지므로 그냥 dec로...
 dec $set_or_append_list_<X>(X*, nat, X) : X*
-
-;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
-dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
 
 ;; python for statement range funcs
 dec $range(nat) : nat*
@@ -1049,6 +1044,43 @@ def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) =
 def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) =
   $bls_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig)
   -- otherwise
+
+;; --- 실행 엔진 ---
+dec $ee_verify_and_notify_new_payload(executionPayload) : boolean
+def $ee_verify_and_notify_new_payload(executionPayload) = true
+
+;; (n, v)에서 v.PUBKEY == pk ?
+dec $pubkey_match_en((nat, validator), blsPubkey) : bool
+
+def $pubkey_match_en((n_i, validator_v), blsPubkey_pk) = true
+  -- if $(validator_v.PUBKEY = blsPubkey_pk)
+
+def $pubkey_match_en((n_i, validator_v), blsPubkey_pk) = false
+  -- otherwise
+
+;; (n, v) → ValidatorIndex(n)
+dec $pick_index_en_validator((nat, validator)) : validatorIndex
+def $pick_index_en_validator((n_i, validator_v)) = validatorIndex_vi
+  -- if validatorIndex_vi = n_i
+
+
+;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
+;; --------------------------------------------
+;; index_of_pubkey(state, pk) : validatorIndex
+;; --------------------------------------------
+dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
+
+def $index_of_pubkey(state, blsPubkey_pk) = validatorIndex_idx
+  -- if state.VALIDATORS = validator_list*
+  -- if $enumerate_<validator>(validator_list*) = (n_i, validator_v)*
+  -- if $filter_list_2_<(nat, validator), blsPubkey>(
+         (n_i, validator_v)*,
+         blsPubkey_pk,
+         def $pubkey_match_en
+       ) = (n_sel, validator_sel)*
+  -- if $( |(n_sel, validator_sel)*| ) = 1
+  -- if (nat_n0, validator_v0) = (n_sel, validator_sel)*[0]
+  -- if $pick_index_en_validator((nat_n0, validator_v0)) = validatorIndex_idx
 
 ;; =========================
 ;; epoch / slot / time helpers
@@ -3047,7 +3079,7 @@ relation Process_slot:
 ;; ------------------------------------------------------------
 rule Process_slot/header_root_empty:
   state_in ~> state_out
-  -- if $hash_tree_root_state(state_in) = root_state_prev
+  -- if $hash_tree_root_beaconState(state_in) = root_state_prev
   -- if $( state_in.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
   ;; STATE_ROOTS[slot % SLOTS_PER_HISTORICAL_ROOT] ← root_state_prev
   -- if state_in.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
@@ -3070,7 +3102,7 @@ rule Process_slot/header_root_empty:
 ;; ------------------------------------------------------------
 rule Process_slot/header_root_present:
   state_in ~> state_out
-  -- if $hash_tree_root_state(state_in) = root_state_prev
+  -- if $hash_tree_root_beaconState(state_in) = root_state_prev
   -- if $( state_in.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
   -- if state_in.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
   ;; STATE_ROOTS[slot % SLOTS_PER_HISTORICAL_ROOT] ← root_state_prev
