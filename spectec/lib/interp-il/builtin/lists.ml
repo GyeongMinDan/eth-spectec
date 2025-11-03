@@ -142,7 +142,7 @@ let set_intersection_ ~at (typ : targ) (vs1 : Value.t list) (vs2 : Value.t list)
 
 (* dec $range(nat) : nat* *)
 
-let range ~at (typ : targ) (count : Num.t) : (Value.t, Err.t) result =
+let range ~at (count : Num.t) : (Value.t, Err.t) result =
   let count = Num.to_int count in
   at |> ignore;
   try
@@ -151,7 +151,7 @@ let range ~at (typ : targ) (count : Num.t) : (Value.t, Err.t) result =
       Error (Err.runtime at "range: count must be non-negative")
     else
       let range_list = List.init n (fun i -> Value.nat (Bigint.of_int i)) in
-      Ok (Value.list typ range_list)
+      Ok (Value.list' Typ.int range_list)
   with
   | _ -> Error (Err.runtime at "range: count is too large to be an integer")
 
@@ -211,7 +211,7 @@ let builtins =
     ("repeat_", Define.T1.a2 Arg.value Arg.num repeat_);
     ("sort_", Define.T1.a1 (Arg.list_of Arg.value) sort_);
     ("set_intersection_", Define.T1.a2 (Arg.list_of Arg.value) (Arg.list_of Arg.value) set_intersection_);
-    ("range", Define.T1.a1 Arg.num range);
+    ("range", Define.T0.a1 Arg.num range);
     ("enumerate_", Define.T1.a1 (Arg.list_of Arg.value) enumerate_);
     ("set_or_append_list_", Define.T1.a3 (Arg.list_of Arg.value) Arg.num Arg.value set_or_append_list_);
   ]

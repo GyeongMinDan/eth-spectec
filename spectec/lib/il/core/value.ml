@@ -127,3 +127,4 @@ let make_bytes ~(num: Bigint.t) ~(len:int) : t =
 let get_bytes (value : t) =
   match value.it with BytesV {num; len} -> (num, len) | _ -> failwith "get_bytes"
 
+let list' (typ : typ') (vs : t list) : t = ListV vs |> make_val (Typ.list (typ $ no_region))

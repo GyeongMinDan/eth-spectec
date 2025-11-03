@@ -113,5 +113,3 @@ dec $bytes4_to_bytes(bytes4) : bytes
 ;; bytes32 withdrawal_credentials → executionAddress(마지막 20B) 추출
 ;; bytes32 X -> X[12:] -> 마지막 20B 추출
 dec $extract_execution_address(bytes32) : executionAddress
-
-dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool) : X*
