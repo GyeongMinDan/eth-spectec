@@ -44,7 +44,7 @@ let rec pp_value (hmap : hmap) fmt (value : value) : unit =
   | BoolV b -> F.fprintf fmt "%b" b
   | NumV n -> F.fprintf fmt "%a" pp_num n
   | TextV _ -> pp_text_v fmt value
-  | StructV _ -> failwith "@pp_value: StructV not implemented"
+  | StructV _ -> pp_struct_v hmap fmt value
   | CaseV _ -> pp_case_v hmap fmt value
   | TupleV values ->
       F.fprintf fmt "(%s)"
@@ -52,13 +52,14 @@ let rec pp_value (hmap : hmap) fmt (value : value) : unit =
            (List.map (fun v -> F.asprintf "%a" (pp_value hmap) v) values))
   | OptV _ -> pp_opt_v hmap fmt value
   | ListV _ -> pp_list_v hmap fmt value
-  | _ -> failwith "@pp_value: TODO"
+  | BytesV { num; _ } -> F.fprintf fmt "%s" (Bigint.to_string num)
+  | FuncV _ -> F.fprintf fmt "<function>"
 
 (* TextV *)
 
 and pp_text_v fmt (value : value) : unit =
   match value.it with
-  | TextV text -> F.fprintf fmt "%s" (String.escaped text)
+  | TextV text -> F.fprintf fmt "\"%s\"" (String.escaped text)
   | _ -> failwith "@pp_text_v: expected TextV value"
 
 (* CaseV *)
@@ -151,7 +152,20 @@ and pp_list_v (hmap : hmap) fmt (value : value) : unit =
           (F.asprintf "@pp_list_v: expected ListV, got %a" (pp_value hmap) value)
   in
   let ss = List.map (F.asprintf "%a" (pp_value hmap)) values in
-  F.fprintf fmt "%s" (String.concat " " ss)
+  F.fprintf fmt "[\n%s,\n]" (String.concat ",\n" ss)
+
+and pp_struct_v (hmap : hmap) fmt (value : value) : unit =
+  match value.it with
+  | StructV fields ->
+      let field_strs =
+        fields
+        |> List.map (fun (atom, value) ->
+               F.asprintf "%s: %a"
+                 (Atom.string_of_atom atom.it |> String.lowercase_ascii)
+                 (pp_value hmap) value)
+      in
+      F.fprintf fmt "{\n%s,\n}" (String.concat ",\n" field_strs)
+  | _ -> failwith "@pp_struct_v: expected StructV value"
 
 (* P4 program *)
 

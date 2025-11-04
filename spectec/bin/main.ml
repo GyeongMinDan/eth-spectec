@@ -2,6 +2,14 @@ open Runner
 
 let version = "0.1"
 
+let print_json value_il =
+  let json = Interface_json.Print.value_to_json value_il in
+  match json with
+  | Ok json -> Yojson.Safe.pretty_to_string json |> print_endline
+  | Error err ->
+      Format.printf "JSON printing failed : %s"
+        (Interface_json.Print.string_of_error err)
+
 (* Commands *)
 
 let elab_command =
@@ -52,10 +60,7 @@ let parse_json_command =
          Ok (spec_il, value_il)
        in
        match parse_result with
-       | Ok (spec_il, value_il) ->
-           let hmap = Concrete.Hint.hints_of_spec spec_il in
-           Format.asprintf "%a\n" (Concrete.Pp.pp_value hmap) value_il
-           |> print_endline
+       | Ok (_, value_il) -> print_json value_il
        | Error e ->
            Format.printf "JSON parse failed:\n  %s\n"
              (Runner.Error.string_of_error e))
@@ -110,13 +115,7 @@ let run_il_command =
          Ok (values, spec_il)
        in
        match interp_result with
-       | Ok (values, spec_il) ->
-           let hmap = Concrete.Hint.hints_of_spec spec_il in
-           List.iter
-             (fun v ->
-               Format.asprintf "%a\n" (Concrete.Pp.pp_value hmap) v
-               |> print_endline)
-             values
+       | Ok (values, _) -> List.iter (fun v -> print_json v) values
        | Error e ->
            Format.printf "Interpreter failed:\n  %s\n"
              (Runner.Error.string_of_error e))

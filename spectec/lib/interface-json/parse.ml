@@ -1,5 +1,4 @@
 open Il
-open Yojson.Basic.Util
 open Xl
 open Util.Source
 open Runtime_dynamic.Envs
@@ -41,10 +40,6 @@ let result_all results =
 
 let field_atom (id : string) : atom =
   Xl.Atom.Atom (id |> String.uppercase_ascii) $ no_region
-
-let parse_field (json : Yojson.Basic.t) (field_name : string) parser =
-  let* field = json |> member field_name |> parser in
-  (field_atom field_name, field) |> Result.ok
 
 let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
     : parse_result =
