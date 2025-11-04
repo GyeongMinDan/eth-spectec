@@ -52,7 +52,11 @@ and compares (values_l : t list) (values_r : t list) : int =
       let cmp = compare value_l value_r in
       if cmp <> 0 then cmp else compares values_l values_r
 
-let eq (value_l : t) (value_r : t) : bool = compare value_l value_r = 0
+let eq (value_l : t) (value_r : t) : bool =
+  (* For NumV, use Xl.Num.eq to compare actual values (handles Nat vs Int) *)
+  match (value_l.it, value_r.it) with
+  | NumV n_l, NumV n_r -> Xl.Num.eq n_l n_r
+  | _ -> compare value_l value_r = 0
 
 let with_fresh_vid (typ : typ') : vnote =
   let vid = Effect.perform FreshVid () in

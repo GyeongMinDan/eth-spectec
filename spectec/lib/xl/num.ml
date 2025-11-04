@@ -22,8 +22,13 @@ let compare (n_a : t) (n_b : t) : int =
   | `Int _, `Nat _ -> 1
 
 (* Equality *)
-
-let eq (n_a : t) (n_b : t) : bool = compare n_a n_b = 0
+(* For equality, compare the actual values *)
+let eq (n_a : t) (n_b : t) : bool =
+  match (n_a, n_b) with
+  | `Nat n_a, `Nat n_b -> Bigint.compare n_a n_b = 0
+  | `Int i_a, `Int i_b -> Bigint.compare i_a i_b = 0
+  | `Nat n_a, `Int i_b -> Bigint.compare n_a i_b = 0
+  | `Int i_a, `Nat n_b -> Bigint.compare i_a n_b = 0
 
 (* Subtyping *)
 
@@ -118,10 +123,18 @@ let cmp (op : cmpop) num_l num_r : bool =
   match (op, num_l, num_r) with
   | `LtOp, `Nat n_l, `Nat n_r -> n_l < n_r
   | `LtOp, `Int i_l, `Int i_r -> i_l < i_r
+  | `LtOp, `Nat n_l, `Int i_r -> Bigint.compare n_l i_r < 0
+  | `LtOp, `Int i_l, `Nat n_r -> Bigint.compare i_l n_r < 0
   | `GtOp, `Nat n_l, `Nat n_r -> n_l > n_r
   | `GtOp, `Int i_l, `Int i_r -> i_l > i_r
+  | `GtOp, `Nat n_l, `Int i_r -> Bigint.compare n_l i_r > 0
+  | `GtOp, `Int i_l, `Nat n_r -> Bigint.compare i_l n_r > 0
   | `LeOp, `Nat n_l, `Nat n_r -> n_l <= n_r
   | `LeOp, `Int i_l, `Int i_r -> i_l <= i_r
+  | `LeOp, `Nat n_l, `Int i_r -> Bigint.compare n_l i_r <= 0
+  | `LeOp, `Int i_l, `Nat n_r -> Bigint.compare i_l n_r <= 0
   | `GeOp, `Nat n_l, `Nat n_r -> n_l >= n_r
   | `GeOp, `Int i_l, `Int i_r -> i_l >= i_r
+  | `GeOp, `Nat n_l, `Int i_r -> Bigint.compare n_l i_r >= 0
+  | `GeOp, `Int i_l, `Nat n_r -> Bigint.compare i_l n_r >= 0
   | _, _, _ -> assert false

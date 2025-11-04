@@ -20,6 +20,7 @@ let funcs : Define.t StringMap.t =
       MerkleImpl.builtins;
       HashImpl.builtins;
       Fresh.builtins;
+      Debug.builtins;
     ]
     |> List.concat
   in

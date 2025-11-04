@@ -276,6 +276,142 @@ let extract_execution_address ~at (bytes32_val : Num.t) : (Value.t, Err.t) resul
   let execution_address = Bigint.bit_and bytes32_val bytes20_mask in
   Ok (Value.nat execution_address)
 
+(* ============================================================ *)
+(* Fixed-width Little-Endian encoders for eth2spec compatibility *)
+(* ============================================================ *)
+
+(* Helper: create LE bytes from integer
+ * LE encoding: b[0] = LSB, b[len-1] = MSB (as byte sequence)
+ * But BytesV stores as BE num, so we need to convert LE bytes to BE num
+ * 
+ * Python: epoch.to_bytes(8, 'little') -> [0x01, 0x00, ..., 0x00] for epoch=1
+ * When this byte array is interpreted as BE (int.from_bytes(..., 'big')):
+ *   First byte becomes MSB, last byte becomes LSB
+ *   [0x01, 0x00, ..., 0x00] -> BE: 0x0100000000000000
+ * 
+ * So: LE bytes [b0, b1, ..., b7] when read as BE = b0*256^7 + b1*256^6 + ... + b7*256^0
+ * 
+ * Extract bytes from input num in LE order (LSB first from num), 
+ * then arrange as BE num (first extracted byte becomes MSB)
+ *)
+let make_bytes_le ~num ~(len : int) : Value.t =
+  let open Bigint in
+  (* Extract bytes in LE order: b0 (LSB from num), b1, ..., b_{len-1} (MSB from num) *)
+  (* Extract LSB first: byte i = (num >> (i*8)) & 0xff *)
+  (* When stored as BE num: b0 becomes MSB, b_{len-1} becomes LSB *)
+  (* BE num = b0*256^{len-1} + b1*256^{len-2} + ... + b_{len-1}*256^0 *)
+  let rec extract_and_build i bytes_list v =
+    if Stdlib.( >= ) i len then bytes_list
+    else
+      let shift_bits = Stdlib.( * ) i 8 in
+      let byte_val = bit_and (shift_right v shift_bits) (of_int 0xff) in
+      extract_and_build (Stdlib.( + ) i 1) (byte_val :: bytes_list) v
+  in
+  let bytes_list = extract_and_build 0 [] num in
+  (* bytes_list = [b7, b6, ..., b1, b0] where b0 was LSB from num (reversed order) *)
+  (* LE bytes [b0, b1, ..., b7] when read as BE: b0 becomes MSB *)
+  (* BE num = b0*256^{len-1} + b1*256^{len-2} + ... + b7*256^0 *)
+  (* bytes_list is [b7, ..., b0], so we need to reverse it to [b0, ..., b7] *)
+  (* Then: first (b0) * 256^{len-1}, second (b1) * 256^{len-2}, ..., last (b7) * 256^0 *)
+  let rec reverse_list acc = function
+    | [] -> acc
+    | x :: rest -> reverse_list (x :: acc) rest
+  in
+  let bytes_forward = reverse_list [] bytes_list in
+  (* bytes_forward = [b0, b1, ..., b7] *)
+  let rec build_be_num acc shift = function
+    | [] -> acc
+    | byte_val :: rest ->
+        build_be_num (acc + (byte_val * shift)) (shift / of_int 256) rest
+  in
+  let len_minus_1 = Stdlib.( - ) len 1 in
+  let be_num = build_be_num zero (pow (of_int 256) (of_int len_minus_1)) bytes_forward in
+  make_bytes ~num:be_num ~len
+
+(* dec $uint8_to_bytes_le(uint8) : bytes *)
+(* Always 1 byte, LE *)
+let uint8_to_bytes_le ~at (x : Num.t) : (Value.t, Err.t) result =
+  let x = Num.to_int x in
+  let* () = validate_uint8 at x in
+  Ok (make_bytes_le ~num:x ~len:1)
+
+(* dec $uint32_to_bytes_le(uint32) : bytes *)
+(* Always 4 bytes, LE *)
+let uint32_to_bytes_le ~at (x : Num.t) : (Value.t, Err.t) result =
+  let x = Num.to_int x in
+  let* () = validate_uint32 at x in
+  Ok (make_bytes_le ~num:x ~len:4)
+
+(* dec $uint64_to_bytes_le(uint64) : bytes *)
+(* Always 8 bytes, LE *)
+let uint64_to_bytes_le ~at (x : Num.t) : (Value.t, Err.t) result =
+  let x = Num.to_int x in
+  let* () = validate_uint64 at x in
+  Ok (make_bytes_le ~num:x ~len:8)
+
+(* dec $bytes32_prefix8(bytes32) : bytes *)
+(* Extract first 8 bytes (MSB 8 bytes) from bytes32 *)
+let bytes32_prefix8 ~at (x : Num.t) : (Value.t, Err.t) result =
+  let x = Num.to_int x in
+  let* () = validate_bytes32 at x in
+  (* Extract upper 8 bytes: x >> (24 * 8) *)
+  let hi8 = Bigint.shift_right x (8 * 24) in
+  (* hi8 is already in BE format, so just create bytes with len=8 *)
+  Ok (make_bytes ~num:hi8 ~len:8)
+
+(* dec $shr_uint64(uint64, nat) : uint64 *)
+(* Right shift: x >> k *)
+let shr_uint64 ~at (x : Num.t) (k : Num.t) : (Value.t, Err.t) result =
+  let x = Num.to_int x in
+  let k = Num.to_int k in
+  (* k must be non-negative and fit in int *)
+  if Bigint.compare k Bigint.zero < 0 then
+    Error (Err.runtime at "shr_uint64: shift amount must be non-negative")
+  else
+    try
+      let k_int = Bigint.to_int_exn k in
+      if k_int >= 0 && k_int < 64 then
+        Ok (Value.nat (Bigint.shift_right x k_int))
+      else
+        Error (Err.runtime at "shr_uint64: shift amount must be in [0, 64]")
+    with _ ->
+      Error (Err.runtime at "shr_uint64: shift amount too large")
+
+(* dec $and_uint64(uint64, uint64) : uint64 *)
+(* Bitwise AND: x & y *)
+let and_uint64 ~at:_ (x : Num.t) (y : Num.t) : (Value.t, Err.t) result =
+  let x = Num.to_int x in
+  let y = Num.to_int y in
+  Ok (Value.nat (Bigint.bit_and x y))
+
+(* dec $bytes8_to_uint64_le(bytes) : uint64 *)
+(* Decode 8-byte value as little-endian uint64 *)
+(* BytesV stores as BE num, so we extract bytes and re-interpret as LE *)
+let bytes8_to_uint64_le ~at (v : Value.t) : (Value.t, Err.t) result =
+  match v.it with
+  | BytesV {num; len=8} ->
+      let open Bigint in
+      (* Extract each byte from BE representation *)
+      (* num = b[0]*256^7 + b[1]*256^6 + ... + b[7]*256^0 (BE interpretation) *)
+      (* We want LE interpretation: b[0] + b[1]*256 + ... + b[7]*256^7 *)
+      let rec extract_byte i =
+        if Stdlib.( >= ) i 8 then []
+        else
+          let shift_bits = Stdlib.( * ) (Stdlib.( - ) 7 i) 8 in
+          let byte_val = bit_and (shift_right num shift_bits) (of_int 0xff) in
+          byte_val :: extract_byte (Stdlib.( + ) i 1)
+      in
+      let bytes = extract_byte 0 in
+      (* LE interpretation: b[0] + b[1]*256 + ... + b[7]*256^7 *)
+      let rec build_le_num i acc shift bytes_list =
+        match bytes_list with
+        | [] -> acc
+        | byte_val :: rest ->
+            build_le_num (Stdlib.( + ) i 1) (acc + (byte_val * shift)) (shift * of_int 256) rest
+      in
+      Ok (Value.nat (build_le_num 0 zero (of_int 1) bytes))
+  | _ -> Error (Err.runtime at "bytes8_to_uint64_le: expects 8-byte value")
+
 let builtins : (string * Define.t) list =
   [
     ("bytes_to_uint64", Define.T0.a1 Arg.num bytes_to_uint64);
@@ -292,4 +428,13 @@ let builtins : (string * Define.t) list =
     ("bytes32_to_bytes", Define.T0.a1 Arg.num bytes32_to_bytes);
     ("bytes4_to_bytes", Define.T0.a1 Arg.num bytes4_to_bytes);
     ("extract_execution_address", Define.T0.a1 Arg.num extract_execution_address);
+    (* Fixed-width Little-Endian encoders *)
+    ("uint8_to_bytes_le", Define.T0.a1 Arg.num uint8_to_bytes_le);
+    ("uint32_to_bytes_le", Define.T0.a1 Arg.num uint32_to_bytes_le);
+    ("uint64_to_bytes_le", Define.T0.a1 Arg.num uint64_to_bytes_le);
+    ("bytes32_prefix8", Define.T0.a1 Arg.num bytes32_prefix8);
+    ("bytes8_to_uint64_le", Define.T0.a1 Arg.value bytes8_to_uint64_le);
+    (* Bitwise operations *)
+    ("shr_uint64", Define.T0.a2 Arg.num Arg.num shr_uint64);
+    ("and_uint64", Define.T0.a2 Arg.num Arg.num and_uint64);
   ]

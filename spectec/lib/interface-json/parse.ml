@@ -56,11 +56,14 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
         Value.int i |> Result.ok
       with Failure _ ->
         TypeError ("int string", expected, json) |> Result.error)
-  | NumT `NatT, `Int i -> Value.int (Bigint.of_int i) |> Result.ok
+  | NumT `NatT, `Int i ->
+      let n = Bigint.of_int i in
+      if Bigint.compare n Bigint.zero >= 0 then Value.nat n |> Result.ok
+      else TypeError ("non-negative nat", expected, json) |> Result.error
   | NumT `NatT, `Intlit s -> (
       try
         let n = Bigint.of_string s in
-        if Bigint.compare n Bigint.zero >= 0 then Value.int n |> Result.ok
+        if Bigint.compare n Bigint.zero >= 0 then Value.nat n |> Result.ok
         else TypeError ("non-negative nat", expected, json) |> Result.error
       with Failure _ ->
         TypeError ("nat string", expected, json) |> Result.error)

@@ -100,12 +100,17 @@ let bls_fast_aggregate_verify
     (root       : Num.t)
     (sig_num    : Num.t)
   : (Value.t, Err.t) result =
-  let pubkeys_int = List.map Num.to_int pubkeys_num in
-  let root = Num.to_int root in
-  let sig_int = Num.to_int sig_num in
-  (* length validation *)
-  let* () = ensure_fits_bytes ~at root    ~len:32 in
-  let* () = ensure_fits_bytes ~at sig_int ~len:96 in
+  (* (Note: eth_fast_aggregate_verify handles empty list + G2_POINT_AT_INFINITY before calling this) *)
+  (* Despite of this condition if pubkey list is empty, it will return false. *)
+  if List.length pubkeys_num = 0 then
+    Ok (Value.bool false)
+  else (
+    let pubkeys_int = List.map Num.to_int pubkeys_num in
+    let root = Num.to_int root in
+    let sig_int = Num.to_int sig_num in
+    (* length validation *)
+    let* () = ensure_fits_bytes ~at root    ~len:32 in
+    let* () = ensure_fits_bytes ~at sig_int ~len:96 in
 
   (* message/signature bytes *)
   let msg_bytes = be_of_bigint_fixed root    ~len:32 in
@@ -146,6 +151,7 @@ let bls_fast_aggregate_verify
       | Some pk ->
         let ok = Bls12_381_signature.MinPk.Pop.verify pk msg_bytes signature in
         Ok (Value.bool ok)
+    )
 
 
 let builtins : (string * Define.t) list = [

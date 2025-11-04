@@ -1,4 +1,5 @@
 open Il
+open Xl
 
 (* Built-in implementations *)
 
@@ -23,14 +24,17 @@ let integer_square_root' (n : Bigint.t) : Bigint.t =
     else
       newton_method n n
 
-let integer_square_root ~at (n : Bigint.t) : (Value.t, Err.t) result =
+(* change func name... *)
+let integer_square_root ~at (n : Num.t) : (Value.t, Err.t) result =
   at |> ignore;
-  if Bigint.(n < zero) then
+  let n_bigint = Num.to_int n in
+  if Bigint.(n_bigint < zero) then
     Error (Err.runtime at "integer_square_root: input must be non-negative")
   else
-    Ok (Value.int (integer_square_root' n))
+    (* uint64 = nat *)
+    Ok (Value.nat (integer_square_root' n_bigint))
 
 let builtins : (string * Define.t) list =
   [
-    ("integer_square_root", Define.T0.a1 Arg.int integer_square_root);
+    ("integer_square_root", Define.T0.a1 Arg.num integer_square_root);
   ]
