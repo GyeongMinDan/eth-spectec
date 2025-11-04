@@ -10,6 +10,11 @@ dec $eth_aggregate_pubkeys(blsPubkey*) : blsPubkey
 
 ;; --- hash ---
 dec $hash_<X>(X) : bytes32
+
+;; Debug functions
+dec $debug_print_<X>(X) : X
+dec $debug_print_label_<X>(text, X) : X
+
 ;; --- hash_tree_root 계열 ---
 dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
 dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
@@ -38,7 +43,7 @@ dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
 
 ;; --- 기본 유틸 ---
 ;; --- 수치 유틸  ---
-dec $integer_squareroot(uint64) : uint64
+dec $integer_square_root(uint64) : uint64
 
 ;; --- 한 리스트 안에 겹치는 원소 개수 세기 ---
 ;; X* = [1, 2, 3] -> count_occurrences_<1>(X*, 1) -> how many 1 in X* ??
@@ -89,6 +94,17 @@ dec $get_first_byte(bytes32) : bytes1
 dec $strip_first_byte(bytes32) : bytes31
 dec $concat_domain(domainType, bytes28) : domain
 dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
+
+;; Fixed-width Little-Endian encoders (for eth2spec compatibility)
+dec $uint8_to_bytes_le(uint8) : bytes
+dec $uint32_to_bytes_le(uint32) : bytes
+dec $uint64_to_bytes_le(uint64) : bytes
+dec $bytes32_prefix8(bytes32) : bytes
+dec $bytes8_to_uint64_le(bytes) : uint64
+
+;; Bitwise operations
+dec $shr_uint64(uint64, nat) : uint64
+dec $and_uint64(uint64, uint64) : uint64
 
 ;; --------------------------------------------
 ;; bytes32 → 32개의 bytes1 리스트로 변환 (인덱싱용)

@@ -28,7 +28,7 @@ dec $get_base_reward_per_increment(beaconState) : gwei
 
 def $get_base_reward_per_increment(state) = gwei_base
   -- if $get_total_active_balance(state) = gwei_total_active
-  -- if $integer_squareroot(gwei_total_active) = uint64_sqrt_total
+  -- if $integer_square_root(gwei_total_active) = uint64_sqrt_total
   -- if $( $EFFECTIVE_BALANCE_INCREMENT * $BASE_REWARD_FACTOR ) = uint64_num
   -- if $( uint64_num / uint64_sqrt_total ) = gwei_base
 

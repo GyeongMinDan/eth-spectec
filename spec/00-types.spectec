@@ -15,6 +15,7 @@ syntax bytes96 = int
 syntax bytes256 = int
 syntax uint = nat
 syntax uint8 = nat
+syntax uint32 = nat
 syntax uint64 = nat
 syntax uint256 = nat
 

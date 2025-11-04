@@ -10,6 +10,8 @@ rule Process_block_header/main:
   -- if $(block_beaconBlock.SLOT = state_beaconState.SLOT)
   -- if $(state_beaconState.LATEST_BLOCK_HEADER.SLOT < block_beaconBlock.SLOT)
   -- if $get_beacon_proposer_index(state_beaconState) = validatorIndex_prop_vi
+  -- if $debug_print_label_<validatorIndex>("calculated_proposer", validatorIndex_prop_vi) = validatorIndex_prop_vi
+  -- if $debug_print_label_<validatorIndex>("block_proposer", block_beaconBlock.PROPOSER_INDEX) = block_beaconBlock.PROPOSER_INDEX
   -- if $(block_beaconBlock.PROPOSER_INDEX = validatorIndex_prop_vi)
   -- if root_parent_expected_root = $hash_tree_root_beaconBlockHeader(state_beaconState.LATEST_BLOCK_HEADER)
   -- if $(block_beaconBlock.PARENT_ROOT = root_parent_expected_root)
@@ -236,7 +238,7 @@ rule Process_sync_aggregate/slot0:
   ;; (1) 서명 참가자(pubkey) 집합 추출 (committee ∩ bits==1)
   -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
   -- if $enumerate_<blsPubkey>(blsPubkey_committee*) = (n_pk, blsPubkey_pk)*
-  -- if $filter_list_2_<enumerated_<blsPubkey>, boolean*>(
+  -- if $filter_list_2_<(nat, blsPubkey), boolean*>(
         (n_pk, blsPubkey_pk)*,
         syncAggregate_sa.SYNC_COMMITTEE_BITS,
         def $bit_is_one_en_blsPubkey
@@ -291,7 +293,7 @@ rule Process_sync_aggregate/slot_pos:
   ;; (1) 서명 참가자(pubkey) 집합 추출
   -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
   -- if $enumerate_<blsPubkey>(blsPubkey_committee*) = (n_pk, blsPubkey_pk)*
-  -- if $filter_list_2_<enumerated_<blsPubkey>, boolean*>(
+  -- if $filter_list_2_<(nat, blsPubkey), boolean*>(
          (n_pk, blsPubkey_pk)*,
          syncAggregate_sa.SYNC_COMMITTEE_BITS,
          def $bit_is_one_en_blsPubkey

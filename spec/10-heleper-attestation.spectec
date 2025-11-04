@@ -178,7 +178,7 @@ def $apply_slashes(state, validatorIndex_sorted*) = state_after
 dec $source_flag_list(beaconState, attestationData, checkpoint, uint64) : nat*
 
 def $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
-  -- if $integer_squareroot($SLOTS_PER_EPOCH) = uint64_sqrt_slots_per_epoch
+  -- if $integer_square_root($SLOTS_PER_EPOCH) = uint64_sqrt_slots_per_epoch
   -- if $(attestationData_data.SOURCE = checkpoint_jc)
   -- if $(uint64_inclusion_delay <= uint64_sqrt_slots_per_epoch)
   -- if nat_flags_source* = [ $TIMELY_SOURCE_FLAG_INDEX ]
