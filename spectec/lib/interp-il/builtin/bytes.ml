@@ -139,10 +139,20 @@ let xor ~at (bytes32_a : Num.t) (bytes32_b : Num.t) : (Value.t, Err.t) result =
 
 (* dec $first_28_bytes(bytes32) : bytes28 *)
 
-let first_28_bytes ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
-  let bytes32_val = Num.to_int bytes32_val in
+let first_28_bytes ~at (value : Value.t) : (Value.t, Err.t) result =
   at |> ignore;
-  let* () = validate_bytes32 at bytes32_val in
+  let* bytes32_val =
+    match value.it with
+    | BytesV { num; len = 32 } -> Ok num
+    | BytesV { num; len = _ } ->
+        let* () = validate_bytes32 at num in
+        Ok num
+    | NumV n ->
+        let bytes32_val = Num.to_int n in
+        let* () = validate_bytes32 at bytes32_val in
+        Ok bytes32_val
+    | _ -> Error (Err.runtime at "first_28_bytes: expected bytes32 or NumV")
+  in
   (* Extract first 28 bytes (MSB 28 bytes) from bytes32 *)
   (* Python x[:28] - remove last 4 bytes (32 bits) *)
   let bytes28_val = Bigint.shift_right bytes32_val 32 in
@@ -150,10 +160,20 @@ let first_28_bytes ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
 
 (* dec $get_first_byte(bytes32) : bytes1 *)
 
-let get_first_byte ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
-  let bytes32_val = Num.to_int bytes32_val in
+let get_first_byte ~at (value : Value.t) : (Value.t, Err.t) result =
   at |> ignore;
-  let* () = validate_bytes32 at bytes32_val in
+  let* bytes32_val =
+    match value.it with
+    | BytesV { num; len = 32 } -> Ok num
+    | BytesV { num; len = _ } ->
+        let* () = validate_bytes32 at num in
+        Ok num
+    | NumV n ->
+        let bytes32_val = Num.to_int n in
+        let* () = validate_bytes32 at bytes32_val in
+        Ok bytes32_val
+    | _ -> Error (Err.runtime at "get_first_byte: expected bytes32 or NumV")
+  in
   (* Extract first byte (MSB 1 byte) from bytes32 *)
   (* Python x[:1] - extract MSB byte *)
   let msb_byte = Bigint.(shift_right bytes32_val 248 |> bit_and (of_int 0xff)) in
@@ -161,10 +181,20 @@ let get_first_byte ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
 
 (* dec $strip_first_byte(bytes32) : bytes31 *)
 
-let strip_first_byte ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
-  let bytes32_val = Num.to_int bytes32_val in
+let strip_first_byte ~at (value : Value.t) : (Value.t, Err.t) result =
   at |> ignore;
-  let* () = validate_bytes32 at bytes32_val in
+  let* bytes32_val =
+    match value.it with
+    | BytesV { num; len = 32 } -> Ok num
+    | BytesV { num; len = _ } ->
+        let* () = validate_bytes32 at num in
+        Ok num
+    | NumV n ->
+        let bytes32_val = Num.to_int n in
+        let* () = validate_bytes32 at bytes32_val in
+        Ok bytes32_val
+    | _ -> Error (Err.runtime at "strip_first_byte: expected bytes32 or NumV")
+  in
   (* Remove first byte (MSB 1 byte) from bytes32 *)
   (* Python x[1:] - remove MSB byte, keep remaining 31 bytes *)
   let mask_248 = Bigint.(pow (of_int 2) (of_int 248) - one) in
@@ -229,19 +259,45 @@ let concat_domain ~at (domain_type : Num.t) (bytes28_val : Num.t) : (Value.t, Er
 
 (* dec $bytes32_to_bytes(bytes32) : bytes *)
 
-let bytes32_to_bytes ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
-  let bytes32_val = Num.to_int bytes32_val in
+let bytes32_to_bytes ~at (value : Value.t) : (Value.t, Err.t) result =
   at |> ignore;
-  let* () = validate_bytes32 at bytes32_val in
-  Ok (make_bytes ~num:bytes32_val ~len:32)
+  match value.it with
+  | BytesV { num = _; len = 32 } ->
+      (* Already BytesV with correct length, just return it *)
+      Ok value
+  | BytesV { num; len = _ } ->
+      (* BytesV with wrong length, validate and create new one *)
+      let bytes32_val = num in
+      let* () = validate_bytes32 at bytes32_val in
+      Ok (make_bytes ~num:bytes32_val ~len:32)
+  | NumV n ->
+      (* NumV case: convert to BytesV *)
+      let bytes32_val = Num.to_int n in
+      let* () = validate_bytes32 at bytes32_val in
+      Ok (make_bytes ~num:bytes32_val ~len:32)
+  | _ ->
+      Error (Err.runtime at "bytes32_to_bytes: expected bytes32 or NumV")
 
 (* dec $bytes4_to_bytes(bytes4) : bytes *)
 
-let bytes4_to_bytes ~at (bytes4_val : Num.t) : (Value.t, Err.t) result =
-  let bytes4_val = Num.to_int bytes4_val in
+let bytes4_to_bytes ~at (value : Value.t) : (Value.t, Err.t) result =
   at |> ignore;
-  let* () = validate_bytes4 at bytes4_val in
-  Ok (make_bytes ~num:bytes4_val ~len:4)
+  match value.it with
+  | BytesV { num = _; len = 4 } ->
+      (* Already BytesV with correct length, just return it *)
+      Ok value
+  | BytesV { num; len = _ } ->
+      (* BytesV with wrong length, validate and create new one *)
+      let bytes4_val = num in
+      let* () = validate_bytes4 at bytes4_val in
+      Ok (make_bytes ~num:bytes4_val ~len:4)
+  | NumV n ->
+      (* NumV case: convert to BytesV *)
+      let bytes4_val = Num.to_int n in
+      let* () = validate_bytes4 at bytes4_val in
+      Ok (make_bytes ~num:bytes4_val ~len:4)
+  | _ ->
+      Error (Err.runtime at "bytes4_to_bytes: expected bytes4 or NumV")
 
 (* dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32 *)
 
@@ -419,14 +475,14 @@ let builtins : (string * Define.t) list =
     ("xor", Define.T0.a2 Arg.num Arg.num xor);
     ("concat_domain", Define.T0.a2 Arg.num Arg.num concat_domain);
     ("make_withdrawal_credentials_eth1", Define.T0.a1 Arg.num make_withdrawal_credentials_eth1);
-    ("first_28_bytes", Define.T0.a1 Arg.num first_28_bytes);
-    ("get_first_byte", Define.T0.a1 Arg.num get_first_byte);
-    ("strip_first_byte", Define.T0.a1 Arg.num strip_first_byte);
+    ("first_28_bytes", Define.T0.a1 Arg.value first_28_bytes);
+    ("get_first_byte", Define.T0.a1 Arg.value get_first_byte);
+    ("strip_first_byte", Define.T0.a1 Arg.value strip_first_byte);
     ("bytes32_to_bytes1_list", Define.T0.a1 Arg.num bytes32_to_bytes1_list);
     ("bytes1_to_uint64", Define.T0.a1 Arg.num bytes1_to_uint64);
     ("concat_bytes", Define.T0.a2 Arg.value Arg.value concat_bytes);
-    ("bytes32_to_bytes", Define.T0.a1 Arg.num bytes32_to_bytes);
-    ("bytes4_to_bytes", Define.T0.a1 Arg.num bytes4_to_bytes);
+    ("bytes32_to_bytes", Define.T0.a1 Arg.value bytes32_to_bytes);
+    ("bytes4_to_bytes", Define.T0.a1 Arg.value bytes4_to_bytes);
     ("extract_execution_address", Define.T0.a1 Arg.num extract_execution_address);
     (* Fixed-width Little-Endian encoders *)
     ("uint8_to_bytes_le", Define.T0.a1 Arg.num uint8_to_bytes_le);

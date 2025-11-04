@@ -2,10 +2,19 @@ open Runner
 
 let version = "0.1"
 
-let print_json value_il =
+let print_json ?output_file value_il =
   let json = Interface_json.Print.value_to_json value_il in
   match json with
-  | Ok json -> Yojson.Safe.pretty_to_string json |> print_endline
+  | Ok json -> (
+      let json_string = Yojson.Safe.pretty_to_string json in
+      match output_file with
+      | Some filename ->
+          let oc = open_out filename in
+          output_string oc json_string;
+          output_string oc "\n";
+          close_out oc;
+          Format.printf "JSON saved to: %s\n" filename
+      | None -> print_endline json_string)
   | Error err ->
       Format.printf "JSON printing failed : %s"
         (Interface_json.Print.string_of_error err)
@@ -51,7 +60,10 @@ let parse_json_command =
      (* and includes_target = flag "-i" (listed string) ~doc:"target include paths" *)
      and filename_target =
        flag "-p" (required string) ~doc:"target file to parse"
-     and input_type = flag "-t" (required string) ~doc:"type of input JSON" in
+     and input_type = flag "-t" (required string) ~doc:"type of input JSON"
+     and output_file =
+       flag "-o" (optional string) ~doc:"output JSON file (default: stdout)"
+     in
      fun () ->
        let spec = List.concat_map Frontend.Parse.parse_file spec_files in
        let parse_result =
@@ -60,7 +72,7 @@ let parse_json_command =
          Ok (spec_il, value_il)
        in
        match parse_result with
-       | Ok (_, value_il) -> print_json value_il
+       | Ok (_, value_il) -> print_json ?output_file value_il
        | Error e ->
            Format.printf "JSON parse failed:\n  %s\n"
              (Runner.Error.string_of_error e))
@@ -101,7 +113,10 @@ let run_il_command =
      and pre_state = flag "--pre" (required string) ~doc:"pre-state JSON"
      and block = flag "--block" (required string) ~doc:"beacon block JSON"
      and debug = flag "-dbg" no_arg ~doc:"print debug traces"
-     and profile = flag "-profile" no_arg ~doc:"profiling" in
+     and profile = flag "-profile" no_arg ~doc:"profiling"
+     and output_file =
+       flag "-o" (optional string) ~doc:"output JSON file (default: stdout)"
+     in
      fun () ->
        let interp_result =
          let* spec = parse_spec_files filenames_spec in
@@ -115,7 +130,25 @@ let run_il_command =
          Ok (values, spec_il)
        in
        match interp_result with
-       | Ok (values, _) -> List.iter (fun v -> print_json v) values
+       | Ok (values, _) -> (
+           match output_file with
+           | Some filename ->
+               let oc = open_out filename in
+               List.iter
+                 (fun v ->
+                   let json = Interface_json.Print.value_to_json v in
+                   match json with
+                   | Ok json ->
+                       let json_string = Yojson.Safe.pretty_to_string json in
+                       output_string oc json_string;
+                       output_string oc "\n"
+                   | Error err ->
+                       Format.printf "JSON printing failed : %s"
+                         (Interface_json.Print.string_of_error err))
+                 values;
+               close_out oc;
+               Format.printf "JSON saved to: %s\n" filename
+           | None -> List.iter (fun v -> print_json v) values)
        | Error e ->
            Format.printf "Interpreter failed:\n  %s\n"
              (Runner.Error.string_of_error e))

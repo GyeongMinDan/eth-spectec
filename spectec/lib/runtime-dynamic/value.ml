@@ -86,7 +86,10 @@ let get_bool (value : t) =
 (* Number *)
 
 let get_num (value : t) =
-  match value.it with NumV n -> n | _ -> failwith "get_num"
+  match value.it with
+  | NumV n -> n
+  | BytesV { num; _ } -> `Nat num
+  | _ -> failwith "get_num"
 
 (* Text *)
 

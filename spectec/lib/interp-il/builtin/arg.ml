@@ -36,7 +36,8 @@ let num : num t =
  fun at v ->
   match v.it with
   | NumV n -> Ok n
-  | _ -> Error (Err.type_err at "Expected NumV" v)
+  | BytesV { num; _ } -> Ok (`Nat num)
+  | _ -> Error (Err.type_err at "Expected NumV or BytesV" v)
 
 let result_all (l : ('a, Err.t) result list) : ('a list, Err.t) result =
   let rec aux acc = function

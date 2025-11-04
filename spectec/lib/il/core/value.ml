@@ -54,8 +54,14 @@ and compares (values_l : t list) (values_r : t list) : int =
 
 let eq (value_l : t) (value_r : t) : bool =
   (* For NumV, use Xl.Num.eq to compare actual values (handles Nat vs Int) *)
+  (* For NumV vs BytesV, compare the numeric values *)
   match (value_l.it, value_r.it) with
   | NumV n_l, NumV n_r -> Xl.Num.eq n_l n_r
+  | NumV n_l, BytesV { num = n_r; _ } -> Xl.Num.eq n_l (`Nat n_r)
+  | BytesV { num = n_l; _ }, NumV n_r -> Xl.Num.eq (`Nat n_l) n_r
+  | BytesV { num = n_l; len = len_l }, BytesV { num = n_r; len = len_r } ->
+      (* Compare bytes: same length and same value *)
+      len_l = len_r && Bigint.compare n_l n_r = 0
   | _ -> compare value_l value_r = 0
 
 let with_fresh_vid (typ : typ') : vnote =
@@ -90,7 +96,10 @@ let get_bool (value : t) =
   match value.it with BoolV b -> b | _ -> failwith "get_bool"
 
 let get_num (value : t) =
-  match value.it with NumV n -> n | _ -> failwith "get_num"
+  match value.it with
+  | NumV n -> n
+  | BytesV { num; _ } -> `Nat num
+  | _ -> failwith "get_num"
 
 let get_text (value : t) =
   match value.it with TextV s -> s | _ -> failwith "get_text"

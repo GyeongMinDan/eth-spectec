@@ -41,10 +41,36 @@ let result_all results =
 let field_atom (id : string) : atom =
   Xl.Atom.Atom (id |> String.uppercase_ascii) $ no_region
 
+(* Parse hex string to BytesV *)
+let hex_string_to_bytes (s : string) : (Bigint.t * int, error) result =
+  if not (String.length s >= 2 && String.sub s 0 2 = "0x") then
+    TypeError ("hex string must start with 0x", NumT `NatT, `String s)
+    |> Result.error
+  else
+    try
+      let hex_content = String.sub s 2 (String.length s - 2) in
+      (* Calculate actual byte length from hex string *)
+      (* "0x" = 0 bytes, "0x0" = 1 byte (not empty!), "0x00" = 1 byte, "0x000" = 2 bytes *)
+      let actual_len =
+        if hex_content = "" then 0
+        else
+          (* Each pair of hex digits = 1 byte, odd number of digits = 1 more byte *)
+          (String.length hex_content + 1) / 2
+      in
+      let num = Bigint.of_string s in
+      Ok (num, actual_len)
+    with Failure _ ->
+      TypeError ("invalid hex string", NumT `NatT, `String s) |> Result.error
+
 let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
     : parse_result =
   match (expected, json) with
   | BoolT, `Bool b -> Value.bool b |> Result.ok
+  | NumT `IntT, `String s when String.length s >= 2 && String.sub s 0 2 = "0x" ->
+      (* Hex string for bytes type (int) - convert to BytesV *)
+      let* num, len = hex_string_to_bytes s in
+      let bytes_value' = BytesV { num; len } in
+      Value.Make.value expected bytes_value' |> Result.ok
   | NumT `IntT, `String s -> (
       try
         let i = Bigint.of_string s in
@@ -62,6 +88,11 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
         else TypeError ("non-negative nat", expected, json) |> Result.error
       with Failure _ ->
         TypeError ("nat string", expected, json) |> Result.error)
+  | NumT `NatT, `String s when String.length s >= 2 && String.sub s 0 2 = "0x" ->
+      (* Hex string for bytes type - convert to BytesV *)
+      let* num, len = hex_string_to_bytes s in
+      let bytes_value' = BytesV { num; len } in
+      Value.Make.value expected bytes_value' |> Result.ok
   | IterT (elem_typ, List), `List json_list ->
       let rec parse_elements acc = function
         | [] -> Value.list elem_typ (List.rev acc) |> Result.ok
@@ -91,7 +122,16 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
             result_all (List.map2 parse_typefield typfields fields)
           in
           Value.record tid.it typfields |> Result.ok
-      | Some (_, { it = PlainT typ; _ }), _ -> json_to_value tdenv typ.it json
+      | Some (_, { it = PlainT typ; _ }), _ ->
+          (* Check if it's a bytes type and JSON is a hex string *)
+          (match (typ.it, json) with
+          | (NumT `NatT | NumT `IntT), `String s
+            when String.length s >= 2 && String.sub s 0 2 = "0x" ->
+              (* bytes type with hex string - convert to BytesV *)
+              let* num, len = hex_string_to_bytes s in
+              let bytes_value' = BytesV { num; len } in
+              Value.Make.value typ.it bytes_value' |> Result.ok
+          | _ -> json_to_value tdenv typ.it json)
       | None, _ ->
           TypeError ("typedef not found", expected, json) |> Result.error
       | _, _ -> TypeError ("type mismatch", expected, json) |> Result.error)

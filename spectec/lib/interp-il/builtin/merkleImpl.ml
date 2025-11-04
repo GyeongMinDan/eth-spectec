@@ -1,6 +1,7 @@
 open Il
 open Xl
 open Util.Source
+open Value
 
 let ( let* ) = Result.bind
 module Bytes = Stdlib.Bytes
@@ -127,11 +128,17 @@ let to_raw_bytes_fixed ~(len:int) (n: Bigint.t) : Bytes.t =
 
 let bigint_to_int n = int_of_string (Bigint.to_string n)
 
-(* Strict conversion: Value.t (NumV n) -> Bytes.t (32-byte leaf), error if not NumV *)
+(* Strict conversion: Value.t (NumV n or BytesV) -> Bytes.t (32-byte leaf) *)
 let to_b32_exn ~at (rv: Value.t) : (Bytes.t, Err.t) result =
   match rv.it with
   | NumV n -> Ok (leaf_bytes32 (Num.to_int n))
-  | _ -> Error (Err.runtime at "expected NumV (32-byte root)")
+  | BytesV { num; len } ->
+      (* BytesV: extract num and ensure it's 32 bytes *)
+      if len <> 32 then
+        Error (Err.runtime at "to_b32_exn: BytesV length must be 32")
+      else
+        Ok (leaf_bytes32 num)
+  | _ -> Error (Err.runtime at "expected NumV or BytesV (32-byte root)")
 
 (* dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean *)
 let is_valid_merkle_branch
@@ -193,7 +200,7 @@ let hash_tree_root_roots ~at (lst : Num.t list) : (Value.t, Err.t) result =
   let leaves = Array.of_list (List.map (fun n -> be_of_bigint_fixed n ~len:32) lst) in
   let root = merkleize_leaves leaves in
   let root' = mix_in_length root (Bigint.of_int (Array.length leaves)) in
-  Ok (Value.nat (bigint_of_be_bytes root'))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root') ~len:32)
 
 (* ----- hash_tree_root_tx(bytes list) : root ----- *)
 let hash_tree_root_tx ~at (bytes_list : Num.t list) : (Value.t, Err.t) result =
@@ -216,7 +223,7 @@ let hash_tree_root_tx ~at (bytes_list : Num.t list) : (Value.t, Err.t) result =
   let leaves = chunkize_bytes_bytev raw in
   let root = merkleize_leaves leaves in
   let out = mix_in_length root (Bigint.of_int (Bytes.length raw)) in
-  Ok (Value.nat (bigint_of_be_bytes out))
+  Ok (make_bytes ~num:(bigint_of_be_bytes out) ~len:32)
 
 (* ----- hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root ----- *)
 let hash_tree_root_beaconBlockHeader ~at (hdr : Value.t) : (Value.t, Err.t) result =
@@ -244,7 +251,7 @@ let hash_tree_root_beaconBlockHeader ~at (hdr : Value.t) : (Value.t, Err.t) resu
     leaf_bytes32 body_root;
   |] in
   let root_bytes = merkleize_vector_roots leaves in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_depositData(depositData) : root ----- *)
 let hash_tree_root_depositData ~at (dd : Value.t) : (Value.t, Err.t) result =
@@ -278,7 +285,7 @@ let hash_tree_root_depositData ~at (dd : Value.t) : (Value.t, Err.t) result =
 
   let field_roots = [| r_pubkey; r_wcred; r_amount; r_sig |] in
   let root_bytes  = merkleize_vector_roots field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_forkdata(forkdata) : root ----- *)
 let hash_tree_root_forkdata ~at (fd: Value.t) : (Value.t, Err.t) result =
@@ -300,7 +307,7 @@ let hash_tree_root_forkdata ~at (fd: Value.t) : (Value.t, Err.t) result =
   let r_gvr        = leaf_bytes32 gvr_b32 in
   let field_roots  = [| r_version; r_gvr |] in
   let root_bytes   = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- Withdrawal container → 32B root ----- *)
 (* can not find better naming... *)
@@ -343,7 +350,7 @@ let hash_tree_root_withdrawals ~at (ws : Value.t list) : (Value.t, Err.t) result
   let leaves       = Array.of_list leaves_list in
   let root_vec     = merkleize_leaves leaves in
   let root_final   = mix_in_length root_vec (Bigint.of_int (Array.length leaves)) in
-  Ok (Value.nat (bigint_of_be_bytes root_final))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_final) ~len:32)
 
 (* ----- hash_tree_root_eth1Data(eth1Data) : root ----- *)
 let hash_tree_root_eth1Data ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -364,7 +371,7 @@ let hash_tree_root_eth1Data ~at (v : Value.t) : (Value.t, Err.t) result =
   let r_block_hash    = leaf_bytes32 block_hash_b32 in
   let field_roots = [| r_deposit_root; r_deposit_count; r_block_hash |] in
   let root_bytes  = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_executionPayload(executionPayload) : root ----- *)
 let hash_tree_root_executionPayload ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -473,7 +480,7 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : (Value.t, Err.t) result 
     r_gas_limit; r_gas_used; r_timestamp; r_extra_data; r_base_fee; r_block_hash; r_transactions; r_withdrawals
   |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_BLSToExecutionChange(message) : root ----- *)
 let hash_tree_root_BLSToExecutionChange ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -496,7 +503,7 @@ let hash_tree_root_BLSToExecutionChange ~at (v : Value.t) : (Value.t, Err.t) res
   let r_addr = chunkize_bytevector_fixed addr_bytes ~len:20 |> merkleize_leaves in
   let field_roots = [| r_index; r_pubkey; r_addr |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_SignedBLSToExecutionChange(signed) : root ----- *)
 let hash_tree_root_SignedBLSToExecutionChange ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -518,7 +525,7 @@ let hash_tree_root_SignedBLSToExecutionChange ~at (v : Value.t) : (Value.t, Err.
   let sig_root = chunkize_bytevector_fixed sig_bytes ~len:96 |> merkleize_leaves in
   let field_roots = [| msg_root; sig_root |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 let pack_bits_lsb_first (lst : Value.t list) : Bytes.t =
   let arr = Array.make 64 0 in
@@ -548,7 +555,7 @@ let hash_tree_root_SyncAggregate ~at (v : Value.t) : (Value.t, Err.t) result =
   let r_sig = chunkize_bytevector_fixed sig_bytes ~len:96 |> merkleize_leaves in
   let field_roots = [| r_bits; r_sig |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_VoluntaryExit(voluntaryExit) : root ----- *)
 let hash_tree_root_VoluntaryExit ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -567,7 +574,7 @@ let hash_tree_root_VoluntaryExit ~at (v : Value.t) : (Value.t, Err.t) result =
   let r_validator = leaf_uint_le (get_nat validator_index) ~nbytes:8 in
   let field_roots = [| r_epoch; r_validator |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_SignedVoluntaryExit(signed) : root ----- *)
 let hash_tree_root_SignedVoluntaryExit ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -589,7 +596,7 @@ let hash_tree_root_SignedVoluntaryExit ~at (v : Value.t) : (Value.t, Err.t) resu
   let sig_root = chunkize_bytevector_fixed sig_bytes ~len:96 |> merkleize_leaves in
   let field_roots = [| msg_root; sig_root |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_Deposit(deposit) : root ----- *)
 let hash_tree_root_Deposit ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -612,7 +619,7 @@ let hash_tree_root_Deposit ~at (v : Value.t) : (Value.t, Err.t) result =
   let* r_data = to_b32_exn ~at r_data_v in
   let field_roots = [| r_proof; r_data |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_Checkpoint(checkpoint) : root ----- *)
 let hash_tree_root_Checkpoint ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -631,7 +638,7 @@ let hash_tree_root_Checkpoint ~at (v : Value.t) : (Value.t, Err.t) result =
   let r_root  = leaf_bytes32 (get_nat root) in
   let field_roots = [| r_epoch; r_root |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_AttestationData(ad) : root ----- *)
 let hash_tree_root_AttestationData ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -657,7 +664,7 @@ let hash_tree_root_AttestationData ~at (v : Value.t) : (Value.t, Err.t) result =
   let* r_target = to_b32_exn ~at r_target_v in
   let field_roots = [| r_slot; r_index; r_bbr; r_source; r_target |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_Attestation(attestation) : root ----- *)
 let hash_tree_root_Attestation ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -695,7 +702,7 @@ let hash_tree_root_Attestation ~at (v : Value.t) : (Value.t, Err.t) result =
   let r_sig = chunkize_bytevector_fixed sig_bytes ~len:96 |> merkleize_leaves in
   let field_roots = [| r_bits; r_data; r_sig |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_IndexedAttestation(indexedAttestation) : root ----- *)
 let hash_tree_root_IndexedAttestation ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -723,7 +730,7 @@ let hash_tree_root_IndexedAttestation ~at (v : Value.t) : (Value.t, Err.t) resul
   let r_sig = chunkize_bytevector_fixed sig_bytes ~len:96 |> merkleize_leaves in
   let field_roots = [| r_indices; r_data; r_sig |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_AttesterSlashing(attesterSlashing) : root ----- *)
 let hash_tree_root_AttesterSlashing ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -741,7 +748,7 @@ let hash_tree_root_AttesterSlashing ~at (v : Value.t) : (Value.t, Err.t) result 
   let* r_a2 = to_b32_exn ~at r_a2_v in
   let field_roots = [| r_a1; r_a2 |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_SignedBeaconBlockHeader(signed) : root ----- *)
 let hash_tree_root_SignedBeaconBlockHeader ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -763,7 +770,7 @@ let hash_tree_root_SignedBeaconBlockHeader ~at (v : Value.t) : (Value.t, Err.t) 
   let r_signature = chunkize_bytevector_fixed sig_bytes ~len:96 |> merkleize_leaves in
   let field_roots = [| r_message; r_signature |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_ProposerSlashing(proposerSlashing) : root ----- *)
 let hash_tree_root_ProposerSlashing ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -781,7 +788,7 @@ let hash_tree_root_ProposerSlashing ~at (v : Value.t) : (Value.t, Err.t) result 
   let* r_sh2 = to_b32_exn ~at r_sh2_v in
   let field_roots = [| r_sh1; r_sh2 |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_Fork(fork) : root ----- *)
 let hash_tree_root_Fork ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -809,7 +816,7 @@ let hash_tree_root_Fork ~at (v : Value.t) : (Value.t, Err.t) result =
   (* container root *)
   let field_roots = [| r_pv; r_cv; r_epoch |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_Validator(validator) : root ----- *)
 let hash_tree_root_Validator ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -856,7 +863,7 @@ let hash_tree_root_Validator ~at (v : Value.t) : (Value.t, Err.t) result =
     r_activation_eligibility_epoch; r_activation_epoch; r_exit_epoch; r_withdrawable_epoch
   |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_SyncCommittee(syncCommittee) : root ----- *)
 let hash_tree_root_SyncCommittee ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -891,7 +898,7 @@ let hash_tree_root_SyncCommittee ~at (v : Value.t) : (Value.t, Err.t) result =
   (* container root *)
   let field_roots = [| r_pubkeys; r_agg |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_ExecutionPayloadHeader(header) : root ----- *)
 let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -979,7 +986,7 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : (Value.t, Err.t) r
       r_gas_limit; r_gas_used; r_timestamp; r_extra_data; r_base_fee; r_block_hash; r_transactions_root; r_withdrawals_root
     |] in
     let root_bytes = merkleize_leaves field_roots in
-    Ok (Value.nat (bigint_of_be_bytes root_bytes))
+    Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
   )
 
 (* ----- hash_tree_root_HistoricalSummary(summary) : root ----- *)
@@ -1001,7 +1008,7 @@ let hash_tree_root_HistoricalSummary ~at (v : Value.t) : (Value.t, Err.t) result
   (* container root *)
   let field_roots = [| r_block; r_state |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_beaconBlockBody(beaconBlockBody) : root ----- *)
 let hash_tree_root_beaconBlockBody ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -1056,7 +1063,7 @@ let hash_tree_root_beaconBlockBody ~at (v : Value.t) : (Value.t, Err.t) result =
     r_deposits; r_vol; r_sync; r_exec; r_bls2exec
   |] in
   let root_bytes = merkleize_leaves field_roots in
-  Ok (Value.nat (bigint_of_be_bytes root_bytes))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_beaconState(beaconState) : root ----- *)
 let hash_tree_root_beaconState ~at (v : Value.t) : (Value.t, Err.t) result =
@@ -1234,7 +1241,7 @@ let hash_tree_root_beaconState ~at (v : Value.t) : (Value.t, Err.t) result =
       r_historical_summaries
     |] in
     let root_bytes = merkleize_leaves field_roots in
-    Ok (Value.nat (bigint_of_be_bytes root_bytes))
+    Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
   )
 
 (* ===== SigningData(object_root: root, domain: bytes32) HTR 공통 헬퍼 ===== *)
@@ -1261,7 +1268,7 @@ let hash_tree_root_DepositMessage ~at (dm: Value.t) : (Value.t, Err.t) result =
   let r_wcr = leaf_bytes32 wcred_b32 in
   let r_amt = leaf_uint_le amount_u64 ~nbytes:8 in
   let root = merkleize_leaves [| r_pub; r_wcr; r_amt |] in
-  Ok (Value.nat (bigint_of_be_bytes root))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root) ~len:32)
 
 (* ----- hash_tree_root_beaconBlock(beaconBlock) : root ----- *)
 let hash_tree_root_beaconBlock ~at (blk: Value.t) : (Value.t, Err.t) result =
@@ -1288,7 +1295,7 @@ let hash_tree_root_beaconBlock ~at (blk: Value.t) : (Value.t, Err.t) result =
     r_body
   |] in
   let root_b = merkleize_leaves leaves in
-  Ok (Value.nat (bigint_of_be_bytes root_b))
+  Ok (make_bytes ~num:(bigint_of_be_bytes root_b) ~len:32)
 
 (* ===== compute_signing_root_* 함수들 ===== *)
 (* ----- compute_signing_root_epoch(epoch, domain) : root ----- *)
@@ -1300,7 +1307,7 @@ let compute_signing_root_epoch ~at (epoch_v: Num.t) (domain_v: Num.t) : (Value.t
   let obj_root_b = leaf_uint_le epoch_bigint ~nbytes:8 in
   let dom_b = be_of_bigint_fixed domain_bigint ~len:32 in
   let out_b = signing_data_root_from_bytes obj_root_b dom_b in
-  Ok (Value.nat (bigint_of_be_bytes out_b))
+  Ok (make_bytes ~num:(bigint_of_be_bytes out_b) ~len:32)
 
 (* ----- compute_signing_root_voluntary_exit(voluntaryExit, domain) : root ----- *)
 let compute_signing_root_voluntary_exit ~at (ve: Value.t) (domain_v: Num.t) : (Value.t, Err.t) result =
@@ -1310,7 +1317,7 @@ let compute_signing_root_voluntary_exit ~at (ve: Value.t) (domain_v: Num.t) : (V
   let* () = ensure_fits_bytes ~at domain_bigint ~len:32 in
   let dom_b = be_of_bigint_fixed domain_bigint ~len:32 in
   let out_b = signing_data_root_from_bytes obj_b32 dom_b in
-  Ok (Value.nat (bigint_of_be_bytes out_b))
+  Ok (make_bytes ~num:(bigint_of_be_bytes out_b) ~len:32)
 
 (* ----- compute_signing_root_bls_to_execution_change(message, domain) : root ----- *)
 let compute_signing_root_bls_to_execution_change ~at (msg: Value.t) (domain_v: Num.t) : (Value.t, Err.t) result =
@@ -1320,7 +1327,7 @@ let compute_signing_root_bls_to_execution_change ~at (msg: Value.t) (domain_v: N
   let* () = ensure_fits_bytes ~at domain_bigint ~len:32 in
   let dom_b = be_of_bigint_fixed domain_bigint ~len:32 in
   let out_b = signing_data_root_from_bytes obj_b32 dom_b in
-  Ok (Value.nat (bigint_of_be_bytes out_b))
+  Ok (make_bytes ~num:(bigint_of_be_bytes out_b) ~len:32)
 
 (* ----- compute_signing_root_beaconBlockHeader(header, domain) : root ----- *)
 let compute_signing_root_beaconBlockHeader ~at (hdr: Value.t) (domain_v: Num.t) : (Value.t, Err.t) result =
@@ -1330,7 +1337,7 @@ let compute_signing_root_beaconBlockHeader ~at (hdr: Value.t) (domain_v: Num.t) 
   let* () = ensure_fits_bytes ~at domain_bigint ~len:32 in
   let dom_b = be_of_bigint_fixed domain_bigint ~len:32 in
   let out_b = signing_data_root_from_bytes obj_b32 dom_b in
-  Ok (Value.nat (bigint_of_be_bytes out_b))
+  Ok (make_bytes ~num:(bigint_of_be_bytes out_b) ~len:32)
 
 (* ----- compute_signing_root_attestationData(ad, domain) : root ----- *)
 let compute_signing_root_attestationData ~at (ad: Value.t) (domain_v: Num.t) : (Value.t, Err.t) result =
@@ -1340,7 +1347,7 @@ let compute_signing_root_attestationData ~at (ad: Value.t) (domain_v: Num.t) : (
   let* () = ensure_fits_bytes ~at domain_bigint ~len:32 in
   let dom_b = be_of_bigint_fixed domain_bigint ~len:32 in
   let out_b = signing_data_root_from_bytes obj_b32 dom_b in
-  Ok (Value.nat (bigint_of_be_bytes out_b))
+  Ok (make_bytes ~num:(bigint_of_be_bytes out_b) ~len:32)
 
 (* ----- compute_signing_root_depositMessage(depositMessage, domain) : root ----- *)
 let compute_signing_root_depositMessage ~at (dm: Value.t) (domain_v: Num.t) : (Value.t, Err.t) result =
@@ -1350,7 +1357,7 @@ let compute_signing_root_depositMessage ~at (dm: Value.t) (domain_v: Num.t) : (V
   let* () = ensure_fits_bytes ~at domain_bigint ~len:32 in
   let dom_b = be_of_bigint_fixed domain_bigint ~len:32 in
   let out_b = signing_data_root_from_bytes obj_b32 dom_b in
-  Ok (Value.nat (bigint_of_be_bytes out_b))
+  Ok (make_bytes ~num:(bigint_of_be_bytes out_b) ~len:32)
 
 (* ----- compute_signing_root_block_root(block_root, domain) : root ----- *)
 let compute_signing_root_block_root ~at (b32: Num.t) (domain_v: Num.t) : (Value.t, Err.t) result =
@@ -1361,7 +1368,7 @@ let compute_signing_root_block_root ~at (b32: Num.t) (domain_v: Num.t) : (Value.
   let obj_b = be_of_bigint_fixed b32_bigint ~len:32 in
   let dom_b = be_of_bigint_fixed domain_bigint ~len:32 in
   let out_b = signing_data_root_from_bytes obj_b dom_b in
-  Ok (Value.nat (bigint_of_be_bytes out_b))
+  Ok (make_bytes ~num:(bigint_of_be_bytes out_b) ~len:32)
 
 (* ----- compute_signing_root_beaconBlock(block, domain) : root ----- *)
 let compute_signing_root_beaconBlock ~at (blk: Value.t) (domain_v: Num.t) : (Value.t, Err.t) result =
@@ -1371,7 +1378,7 @@ let compute_signing_root_beaconBlock ~at (blk: Value.t) (domain_v: Num.t) : (Val
   let* () = ensure_fits_bytes ~at domain_bigint ~len:32 in
   let dom_b = be_of_bigint_fixed domain_bigint ~len:32 in
   let out_b = signing_data_root_from_bytes obj_b32 dom_b in
-  Ok (Value.nat (bigint_of_be_bytes out_b))
+  Ok (make_bytes ~num:(bigint_of_be_bytes out_b) ~len:32)
 
 
 let builtins : (string * Define.t) list =
