@@ -166,7 +166,7 @@ def $PARTICIPATION_FLAG_WEIGHTS = [ $TIMELY_SOURCE_WEIGHT, $TIMELY_TARGET_WEIGHT
 ;; we encode as 0 placeholder (bytes96 = int).
 ;; OCaml 에 bls-12-381 라이브러리가 존재하던데 이걸 사용하면?
 dec $G2_POINT_AT_INFINITY : blsSignature
-def $G2_POINT_AT_INFINITY = 0
+def $G2_POINT_AT_INFINITY = 1164388569225531701361734616346876916442664512837522458354289028519538214514782664748158806621484858462865798022848304904628685033086110793583215456280885854403341232015637429162698964223698833618947249395287351563169635140362043392
 
 dec $TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE : nat
 def $TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE = 16   ;; 2**4
@@ -871,7 +871,7 @@ dec $compute_signing_root_beaconBlock(beaconBlock, domain) : root
 dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
 
 ;; --- 수치 유틸  ---
-dec $integer_squareroot(uint64) : uint64
+dec $integer_square_root(uint64) : uint64
 
 ;; --- 리스트 안에 원소 개수 세기 ---
 ;; count occurrences of element in list
@@ -927,16 +927,6 @@ dec $bytes32_to_bytes(bytes32) : bytes
 ;; bytes4 -> 그냥 bytes로
 dec $bytes4_to_bytes(bytes4) : bytes 
 
-;; ------------------------------------------------------------
-;; map over a list with one extra captured argument
-;; X*  ×  Y  ×  (X,Y)->Z   ==>   Z*
-;; X* 의 원소 X 에 대해 Y 인자를 넘겨 f(X,Y) 를 적용하고 그 결과를 Z* 를 만든다.
-;; 라고 이해했는데.... 
-;; ------------------------------------------------------------
-;;dec $map_list_2_<X, Y, Z>(X*, Y, def $f(X, Y) : Z) : Z*
-
-dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool) : X*
-
 ;; --------------------------------------------
 ;; helpers for withdrawals
 ;; --------------------------------------------
@@ -947,14 +937,6 @@ dec $extract_execution_address(bytes32) : executionAddress
 ;; =========================
 ;; generic helpers
 ;; =========================
-
-;; =========================
-;; map (X* -> Z*)
-;; =========================
-;;dec $map_list_1_<X, Z>(X*, def $f(X) : Z) : Z*
-;;def $map_list_1_<X, Z>(eps, def $f) = eps
-;;def $map_list_1_<X, Z>(X_h :: X_t*, def $f)
-;;  = $f(X_h) :: $map_list_1_<X, Z>(X_t*, def $f)
 
 ;; =========================
 ;; filter_list (if bool) (X* -> X*)
@@ -968,6 +950,15 @@ def $filter_list_<X>(X_h :: X_t*, def $cond)
 def $filter_list_<X>(X_h :: X_t*, def $cond)
   = $filter_list_<X>(X_t*, def $cond)
   -- if $cond(X_h) = false
+
+dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool) : X*
+def $filter_list_2_<X, Y>(eps, Y, def $cond) = eps
+def $filter_list_2_<X, Y>(X_h :: X_t*, Y, def $cond)
+  = X_h :: $filter_list_2_<X, Y>(X_t*, Y, def $cond)
+  -- if $cond(X_h, Y) = true
+def $filter_list_2_<X, Y>(X_h :: X_t*, Y, def $cond)
+  = $filter_list_2_<X, Y>(X_t*, Y, def $cond)
+  -- if $cond(X_h, Y) = false
 
 ;; =========================
 ;; Generic fold 
@@ -2043,7 +2034,7 @@ def $apply_slashes(state, validatorIndex_sorted*) = state_after
 dec $source_flag_list(beaconState, attestationData, checkpoint, uint64) : nat*
 
 def $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
-  -- if $integer_squareroot($SLOTS_PER_EPOCH) = uint64_sqrt_slots_per_epoch
+  -- if $integer_square_root($SLOTS_PER_EPOCH) = uint64_sqrt_slots_per_epoch
   -- if $(attestationData_data.SOURCE = checkpoint_jc)
   -- if $(uint64_inclusion_delay <= uint64_sqrt_slots_per_epoch)
   -- if nat_flags_source* = [ $TIMELY_SOURCE_FLAG_INDEX ]
@@ -2248,7 +2239,7 @@ dec $get_base_reward_per_increment(beaconState) : gwei
 
 def $get_base_reward_per_increment(state) = gwei_base
   -- if $get_total_active_balance(state) = gwei_total_active
-  -- if $integer_squareroot(gwei_total_active) = uint64_sqrt_total
+  -- if $integer_square_root(gwei_total_active) = uint64_sqrt_total
   -- if $( $EFFECTIVE_BALANCE_INCREMENT * $BASE_REWARD_FACTOR ) = uint64_num
   -- if $( uint64_num / uint64_sqrt_total ) = gwei_base
 
@@ -4280,7 +4271,7 @@ rule Process_sync_aggregate/slot0:
   ;; (1) 서명 참가자(pubkey) 집합 추출 (committee ∩ bits==1)
   -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
   -- if $enumerate_<blsPubkey>(blsPubkey_committee*) = (n_pk, blsPubkey_pk)*
-  -- if $filter_list_2_<enumerated_<blsPubkey>, boolean*>(
+  -- if $filter_list_2_<(nat, blsPubkey), boolean*>(
         (n_pk, blsPubkey_pk)*,
         syncAggregate_sa.SYNC_COMMITTEE_BITS,
         def $bit_is_one_en_blsPubkey
@@ -4350,7 +4341,7 @@ rule Process_sync_aggregate/slot_pos:
   ;; (1) 서명 참가자(pubkey) 집합 추출
   -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
   -- if $enumerate_<blsPubkey>(blsPubkey_committee*) = (n_pk, blsPubkey_pk)*
-  -- if $filter_list_2_<enumerated_<blsPubkey>, boolean*>(
+  -- if $filter_list_2_<(nat, blsPubkey), boolean*>(
          (n_pk, blsPubkey_pk)*,
          syncAggregate_sa.SYNC_COMMITTEE_BITS,
          def $bit_is_one_en_blsPubkey
@@ -4446,7 +4437,7 @@ rule State_transition/validate:
   -- Process_slots: state_in beaconBlock_block.SLOT ~> state_after_slots
   -- if $verify_block_signature(state_after_slots, signedBeaconBlock) = true
   -- ProcessBlock: state_after_slots beaconBlock_block ~>* state_after_block
-  -- if $hash_<beaconState>(state_after_block) = root_after
+  -- if $hash_tree_root_beaconState(state_after_block) = root_after
   -- if $( beaconBlock_block.STATE_ROOT = root_after )
   -- if state_out = state_after_block
 
