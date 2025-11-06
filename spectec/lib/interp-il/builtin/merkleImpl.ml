@@ -105,15 +105,6 @@ let merkleize_chunks_with_limit (leaves: Bytes.t array) (limit: int) : Bytes.t =
            tmp[j] = h
     *)
     let merge (h: Bytes.t) (i: int) : unit =
-      let debug_i63 = i = 63 && count = 64 && max_depth = 38 in
-      if debug_i63 then (
-        let h_hex = ref "" in
-        for k = 0 to Bytes.length h - 1 do
-          h_hex := !h_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get h k))
-        done;
-        (* Printf.printf "[DEBUG] merge 함수 시작: i=%d, h=0x%s\n" i !h_hex; *)
-        (* flush stdout *)
-      );
       let h = ref h in
       let j = ref 0 in
       let should_break = ref false in
@@ -136,26 +127,7 @@ let merkleize_chunks_with_limit (leaves: Bytes.t array) (limit: int) : Bytes.t =
           (* tmp[j]는 이미 값이 설정되어 있어야 함 (Python의 None 체크와 동일) *)
           match tmp.(!j) with
           | None -> invalid_arg (Printf.sprintf "merkleize_chunks_with_limit: tmp[%d] is None when i=%d, j=%d" !j i !j)
-          | Some prev -> 
-              if debug_i63 then (
-                let prev_hex = ref "" in
-                let h_hex = ref "" in
-                for k = 0 to 31 do
-                  prev_hex := !prev_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get prev k));
-                  h_hex := !h_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get !h k))
-                done;
-                (* Printf.printf "[DEBUG] merge i=%d j=%d: hash(tmp[%d]=0x%s + h=0x%s)\n" i !j !j !prev_hex !h_hex; *)
-                (* flush stdout *)
-              );
-              h := merkle_hash_ prev !h;
-              if debug_i63 then (
-                let h_hex = ref "" in
-                for k = 0 to 31 do
-                  h_hex := !h_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get !h k))
-                done;
-                (* Printf.printf "[DEBUG] merge i=%d j=%d: 결과 h=0x%s\n" i !j !h_hex; *)
-                (* flush stdout *)
-              )
+          | Some prev -> h := merkle_hash_ prev !h
         );
         (* j += 1 (break할 때는 실행되지 않음) *)
         if not !should_break then j := !j + 1
@@ -164,52 +136,14 @@ let merkleize_chunks_with_limit (leaves: Bytes.t array) (limit: int) : Bytes.t =
       tmp.(!j) <- Some !h
     in
     (* merge in leaf by leaf *)
-    (* 디버그: balances의 경우 tmp[4], tmp[5], tmp[6] 추적 *)
-    let debug_balances = count = 64 && max_depth = 38 in
     for i = 0 to count - 1 do
-      if debug_balances && i = 63 then (
-        let leaf_hex = ref "" in
-        for k = 0 to Bytes.length leaves.(i) - 1 do
-          leaf_hex := !leaf_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get leaves.(i) k))
-        done;
-        (* Printf.printf "[DEBUG] merge i=%d 호출 전: leaves[%d]=0x%s\n" i i !leaf_hex; *)
-        (* flush stdout *)
-      );
-      merge leaves.(i) i;
-      (* if debug_balances && (i = 15 || i = 31 || i = 63) then (
-        let tmp_val_hex j = match tmp.(j) with
-          | None -> "None"
-          | Some v -> 
-              let hex = ref "" in
-              for k = 0 to Bytes.length v - 1 do
-                hex := !hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get v k))
-              done;
-              Printf.sprintf "0x%s" !hex
-        in
-        Printf.printf "[DEBUG] merge i=%d 후: tmp[4]=%s, tmp[5]=%s, tmp[6]=%s\n" i (tmp_val_hex 4) (tmp_val_hex 5) (tmp_val_hex 6);
-        flush stdout
-      ) *)
+      merge leaves.(i) i
     done;
     (* complement with 0 if empty, or if not the right power of 2 *)
     (* Python: merge(zerohashes[0], count) - zerohashes[0] = zero32 *)
     if (1 lsl depth) <> count then (
       merge zero_hashes.(0) count
     );
-    (* 리프트 전 h0: merge 알고리즘 후의 tmp[depth] *)
-    (* 디버그: h0 출력 (balances/inactivity_scores용) *)
-    (* let h0 = match tmp.(depth) with
-      | None -> invalid_arg (Printf.sprintf "merkleize_chunks_with_limit: tmp[%d] is None after merge" depth)
-      | Some h -> h
-    in
-    let debug_h0_hex = ref "" in
-    for i = 0 to Bytes.length h0 - 1 do
-      debug_h0_hex := !debug_h0_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get h0 i))
-    done; *)
-    (* if count = 64 && (max_depth = 38 || max_depth = 39) then (
-      Printf.printf "[DEBUG] merkleize_chunks_with_limit: count=%d, depth=%d, max_depth=%d, h0=0x%s\n" count depth max_depth !debug_h0_hex;
-      Printf.printf "[DEBUG] lift range: depth=%d to max_depth-1=%d\n" depth (max_depth - 1);
-      flush stdout
-    ); *)
     (* the next power of two may be smaller than the ultimate virtual size, complement with zero-hashes at each depth *)
     if depth <= max_depth - 1 then (
       for j = depth to max_depth - 1 do
@@ -224,22 +158,12 @@ let merkleize_chunks_with_limit (leaves: Bytes.t array) (limit: int) : Bytes.t =
       | None -> invalid_arg (Printf.sprintf "merkleize_chunks_with_limit: tmp[%d] is None after lift" max_depth)
       | Some h -> h
     in
-    let debug_final_hex = ref "" in
-    for i = 0 to Bytes.length final - 1 do
-      debug_final_hex := !debug_final_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get final i))
-    done;
     final
 
 (* Vector의 경우: limit = count *)
 let merkleize_leaves (leaves: Bytes.t array) : Bytes.t =
   let n = Array.length leaves in
   merkleize_chunks_with_limit leaves n
-
-(* ceil_log2: 최소 2의 거듭제곱이 x 이상이 되도록 하는 지수 *)
-let ceil_log2 (x: int) : int =
-  let x = if x <= 1 then 1 else x in
-  let rec go v a = if v <= 1 then a else go (v lsr 1) (a + 1) in
-  go (x - 1) 0
 
 (* SSZ 규칙: List[T, N]은 최대 길이 N까지 zero-chunk로 패딩한 뒤 merkleize *)
 (* 메모리 효율: limit이 매우 큰 경우 (예: VALIDATOR_REGISTRY_LIMIT) 가상 패딩 사용 *)
@@ -256,19 +180,7 @@ let merkleize_list_composite_with_limit (leaves: Bytes.t array) (limit: int) : B
     if n = 0 then (
       let max_depth = 
         if limit <= 1 then 0
-        else (
-          let x = limit - 1 in
-          (* Python의 bit_length: x가 0이면 0, 아니면 최소 비트 수 *)
-          let bit_length v = 
-            if v <= 0 then 0
-            else if v = 1 then 1
-            else (
-              let rec go v acc = if v = 0 then acc else go (v lsr 1) (acc + 1) in
-              go (v lsr 1) 1
-            )
-          in
-          bit_length x
-        )
+        else bit_length_of (limit - 1)
       in
       let zero_hashes = compute_zero_hashes ~max_depth:max_depth in
       zero_hashes.(max_depth)
@@ -281,14 +193,6 @@ let merkleize_list_composite_with_limit (leaves: Bytes.t array) (limit: int) : B
         let h0 = merkleize_leaves leaves in
         (* 2) 깊이 보정: limit까지의 가상 패딩을 해시로만 "끌어올림" *)
         (* Python: depth = max(count-1, 0).bit_length(), max_depth = (limit-1).bit_length() *)
-        let bit_length_of v = 
-          if v <= 0 then 0
-          else if v = 1 then 1
-          else (
-            let rec go v acc = if v = 0 then acc else go (v lsr 1) (acc + 1) in
-            go (v lsr 1) 1
-          )
-        in
         let depth = if n = 0 then 0 else bit_length_of (n - 1) in
         let max_depth = if limit <= 1 then 0 else bit_length_of (limit - 1) in
         (* 각 레벨에 맞는 ZERO_HASHES를 사용하여 위로 끌어올리기 *)
@@ -414,13 +318,6 @@ let htr_basic_list_with_limit
     let total_bytes = limit_elems * elem_size in
     if total_bytes = 0 then 0 else (total_bytes + 31) / 32
   in
-  (* 디버깅: 패킹 결과 앞 64바이트 출력 *)
-  let debug_packed_hex = ref "" in
-  let debug_len = min 64 (Bytes.length packed) in
-  for i = 0 to debug_len - 1 do
-    debug_packed_hex := !debug_packed_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get packed i))
-  done;
-  (* 파일 상단의 bit_length_of 사용 (중복 정의 제거) *)
   let root =
     if need_chunks = 0 then zero32
     else if Array.length chunks = 0 then (
@@ -433,28 +330,10 @@ let htr_basic_list_with_limit
       merkleize_chunks_with_limit chunks need_chunks
     )
   in
-  (* 디버깅: 리프트 전 h0와 리프트 후 lifted 루트 출력 *)
-  let debug_root_hex = ref "" in
-  for i = 0 to Bytes.length root - 1 do
-    debug_root_hex := !debug_root_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get root i))
-  done;
   (* 마지막에 실제 길이 mix_in_length *)
   (* SSZ 규칙: 모든 List 타입은 mix_in_length에 요소 개수를 넣어야 함 *)
   let elem_len = List.length items in
-  let final_root = mix_in_length root (Bigint.of_int elem_len) in
-  let debug_final_hex = ref "" in
-  for i = 0 to Bytes.length final_root - 1 do
-    debug_final_hex := !debug_final_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get final_root i))
-  done;
-  (* 디버그 출력: merkleize_chunks 결과와 최종 결과 (항상 출력) *)
-  (* balances와 inactivity_scores만 출력 *)
-  if elem_size = 8 && (List.length items) = 256 then (
-    (* Printf.printf "[DEBUG] htr_basic_list_with_limit: count=%d, elem_size=%d, need_chunks=%d, elem_len=%d\n" (List.length items) elem_size need_chunks elem_len; *)
-    (* Printf.printf "[DEBUG] merkleize_chunks root (before mix_in_length): 0x%s\n" !debug_root_hex; *)
-    (* Printf.printf "[DEBUG] final root (after mix_in_length): 0x%s\n" !debug_final_hex; *)
-    (* flush stdout *)
-  );
-  final_root
+  mix_in_length root (Bigint.of_int elem_len)
 
 (* ByteVector[N] 리스트 (예: List[bytes32, L]) 전용:
    - 각 원소를 "있는 그대로의 바이트열"로 이어붙임 (엔디언 변환 금지)
@@ -479,14 +358,6 @@ let htr_bytevec_list_with_limit
   let need_chunks =
     let total_bytes = limit_elems * elem_size in
     if total_bytes = 0 then 0 else (total_bytes + 31) / 32
-  in
-  let bit_length_of v =
-    if v <= 0 then 0
-    else if v = 1 then 1
-    else (
-      let rec go v acc = if v = 0 then acc else go (v lsr 1) (acc + 1) in
-      go (v lsr 1) 1
-    )
   in
   let root =
     if need_chunks = 0 then zero32
@@ -529,15 +400,6 @@ let htr_bitlist_with_limit (bits: bool list) (limit_bits: int) : Bytes.t =
   let chunks = chunkize_bytes_bytev arr in
   (* limit 기반 '필요 청크 수' *)
   let need_chunks = (limit_bits + 255) / 256 in
-  (* Python의 bit_length 함수 *)
-  let bit_length_of v = 
-    if v <= 0 then 0
-    else if v = 1 then 1
-    else (
-      let rec go v acc = if v = 0 then acc else go (v lsr 1) (acc + 1) in
-      go (v lsr 1) 1
-    )
-  in
   let root =
     if need_chunks = 0 then zero32
     else if Array.length chunks = 0 then (
@@ -593,8 +455,6 @@ let chunkize_bytevector_fixed (raw: Bytes.t) ~(len:int) : Bytes.t array =
 
 let to_raw_bytes_fixed ~(len:int) (n: Bigint.t) : Bytes.t =
   be_of_bigint_fixed n ~len
-
-let bigint_to_int n = int_of_string (Bigint.to_string n)
 
 (* Strict conversion: Value.t (NumV n or BytesV) -> Bytes.t (32-byte leaf) *)
 let to_b32_exn ~at (rv: Value.t) : (Bytes.t, Err.t) result =
@@ -1666,21 +1526,12 @@ let hash_tree_root_beaconState ~at (v : Value.t) : (Value.t, Err.t) result =
   (* 13. balances: List[uint64, VALIDATOR_REGISTRY_LIMIT] *)
   let balances_list = get_list balances in
   let items = balances_list |> List.map (fun b -> (get_nat b, 8)) in
-  (* Printf.eprintf "[DEBUG] balances 계산 시작: count=%d\n" (List.length items); *)
   let r_balances = htr_basic_list_with_limit items validator_registry_limit 8 in
-  let debug_balances_hex = ref "" in
-  for i = 0 to Bytes.length r_balances - 1 do
-    debug_balances_hex := !debug_balances_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get r_balances i))
-  done;
   (* 14. randao_mixes: Vector[Bytes32, ...] (고정, basic vector) *)
   let randao_mixes_list = get_list randao_mixes in
   let randao_mixes_bytes = randao_mixes_list
     |> List.map (fun r -> be_of_bigint_fixed (get_nat r) ~len:32) in
   let r_randao_mixes = htr_bytes32_vector randao_mixes_bytes in
-  let debug_randao_hex = ref "" in
-  for i = 0 to Bytes.length r_randao_mixes - 1 do
-    debug_randao_hex := !debug_randao_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get r_randao_mixes i))
-  done;
   (* 15. slashings: Vector[uint64, ...] (고정) - 연속 패킹만 (mix_in_length 없음) *)
   let slashings_list = get_list slashings in
   let items = slashings_list |> List.map (fun s -> (get_nat s, 8)) in
@@ -1730,7 +1581,6 @@ let hash_tree_root_beaconState ~at (v : Value.t) : (Value.t, Err.t) result =
   (* 22. inactivity_scores: List[uint64, VALIDATOR_REGISTRY_LIMIT] *)
   let inactivity_scores_list = get_list inactivity_scores in
   let items = inactivity_scores_list |> List.map (fun s -> (get_nat s, 8)) in
-  (* Printf.eprintf "[DEBUG] inactivity_scores 계산 시작: count=%d\n" (List.length items); *)
   let r_inactivity_scores = htr_basic_list_with_limit items validator_registry_limit 8 in
   (* 23. current_sync_committee: SyncCommittee *)
   let* r_current_sync_committee_v = hash_tree_root_SyncCommittee ~at current_sync_committee in
@@ -1774,48 +1624,7 @@ let hash_tree_root_beaconState ~at (v : Value.t) : (Value.t, Err.t) result =
     r_latest_execution_payload_header; r_next_withdrawal_index; r_next_withdrawal_validator_index;
     r_historical_summaries
   |] in
-  (* 디버깅: 각 필드의 root 출력 *)
-  (*let debug_print_field_root (name: string) (root: Bytes.t) : unit =
-    let hex = ref "" in
-    for i = 0 to Bytes.length root - 1 do
-      hex := !hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get root i))
-    done;*)
-    (* Printf.printf "[DEBUG] beaconState field %s: 0x%s\n" name !hex *)
-  (*in*)
-  (*debug_print_field_root "01_genesis_time" r_genesis_time;
-  debug_print_field_root "02_genesis_validators_root" r_genesis_validators_root;
-  debug_print_field_root "03_slot" r_slot;
-  debug_print_field_root "04_fork" r_fork;
-  debug_print_field_root "05_latest_block_header" r_latest_block_header;
-  debug_print_field_root "06_block_roots" r_block_roots;
-  debug_print_field_root "07_state_roots" r_state_roots;
-  debug_print_field_root "08_historical_roots" r_historical_roots;
-  debug_print_field_root "09_eth1_data" r_eth1_data;
-  debug_print_field_root "10_eth1_data_votes" r_eth1_data_votes;
-  debug_print_field_root "11_eth1_deposit_index" r_eth1_deposit_index;
-  debug_print_field_root "12_validators" r_validators;
-  debug_print_field_root "13_balances" r_balances;
-  debug_print_field_root "14_randao_mixes" r_randao_mixes;
-  debug_print_field_root "15_slashings" r_slashings;
-  debug_print_field_root "16_previous_epoch_participation" r_previous_epoch_participation;
-  debug_print_field_root "17_current_epoch_participation" r_current_epoch_participation;
-  debug_print_field_root "18_justification_bits" r_justification_bits;
-  debug_print_field_root "19_previous_justified_checkpoint" r_previous_justified_checkpoint;
-  debug_print_field_root "20_current_justified_checkpoint" r_current_justified_checkpoint;
-  debug_print_field_root "21_finalized_checkpoint" r_finalized_checkpoint;
-  debug_print_field_root "22_inactivity_scores" r_inactivity_scores;
-  debug_print_field_root "23_current_sync_committee" r_current_sync_committee;
-  debug_print_field_root "24_next_sync_committee" r_next_sync_committee;
-  debug_print_field_root "25_latest_execution_payload_header" r_latest_execution_payload_header;
-  debug_print_field_root "26_next_withdrawal_index" r_next_withdrawal_index;
-  debug_print_field_root "27_next_withdrawal_validator_index" r_next_withdrawal_validator_index;
-  debug_print_field_root "28_historical_summaries" r_historical_summaries; *)
   let root_bytes = merkleize_leaves field_roots in
-  let final_hex = ref "" in
-  for i = 0 to Bytes.length root_bytes - 1 do
-    final_hex := !final_hex ^ Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get root_bytes i))
-  done;
-  (* Printf.printf "[DEBUG] beaconState final root: 0x%s\n" !final_hex; *)
   Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ===== SigningData(object_root: root, domain: bytes32) HTR 공통 헬퍼 ===== *)
