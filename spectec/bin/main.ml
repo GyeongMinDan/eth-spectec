@@ -125,7 +125,7 @@ let run_il_command =
          let* block_il = parse_json block "BeaconBlock" spec_il in
          let* _, values =
            run_il ~debug ~profile spec_il "State_transition"
-             [ beaconState_il; block_il; Il.Value.bool false ]
+             [ beaconState_il; block_il; Il.Value.bool true ]
          in
          Ok (values, spec_il)
        in
