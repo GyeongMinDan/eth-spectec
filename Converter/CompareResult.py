@@ -16,8 +16,9 @@ def compare_ssz_files(file1_path: str, file2_path: str, type_module: str, type_n
         ssz_bytes2 = f.read()
 
     try:
-        view1 = typ.decode_bytes(ssz_bytes1)
-        view2 = typ.decode_bytes(ssz_bytes2)
+        view1 = ssz_bytes1
+        view2 = ssz_bytes2
+
     except Exception as e:
         raise SystemExit(f"Failed to deserialize SSZ files: {e}")
 
