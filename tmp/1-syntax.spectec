@@ -809,8 +809,8 @@ var block : beaconBlock
 var delta           : gwei
 var idx             : nat
 var current         : gwei
-var newBalance      : gwei
-var balancesUpdate  : gwei*
+;;var newBalance      : gwei
+;;var balancesUpdate  : gwei*
 
 var attd1 : attestationData
 var attd2 : attestationData
@@ -3692,7 +3692,7 @@ dec $compute_proposer_reward(gwei) : gwei
 def $compute_proposer_reward(gwei_num) = gwei_prop
   -- if $( ($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT) * $WEIGHT_DENOMINATOR ) = uint64_num
   -- if $( uint64_num / $PROPOSER_WEIGHT ) = uint64_den
-  -- if gwei_prop = $( gwei_num \ uint64_den )    
+  -- if gwei_prop = $( gwei_num / uint64_den )    
 
 dec $reward_proposer(beaconState, gwei) : beaconState
 def $reward_proposer(state_in, gwei_prop) = state_out

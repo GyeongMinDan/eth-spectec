@@ -11,8 +11,8 @@ var block : beaconBlock
 var delta           : gwei
 var idx             : nat
 var current         : gwei
-var newBalance      : gwei
-var balancesUpdate  : gwei*
+;;var newBalance      : gwei
+;;var balancesUpdate  : gwei*
 
 var attd1 : attestationData
 var attd2 : attestationData

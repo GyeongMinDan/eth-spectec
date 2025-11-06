@@ -139,6 +139,11 @@ dec $process_one_vi_current((beaconState, gwei), (validatorIndex, nat*)) : (beac
 
 def $process_one_vi_current((state_in, gwei_num), (validatorIndex_vi, nat_flags*))
   = (state_out, gwei_num_out)
+  -- if $(validatorIndex_vi = 198) \/ true
+  ;;-- if $debug_print_label_<validatorIndex>("process_one_vi_current vi", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;;-- if $(validatorIndex_vi < |state_in.BALANCES|)
+  ;;-- if state_in.BALANCES[validatorIndex_vi] = gwei_balance_in
+  ;;-- if $debug_print_label_<gwei>("process_one_vi_current balance_in", gwei_balance_in) = gwei_balance_in_dbg
   -- if $(validatorIndex_vi < |state_in.CURRENT_EPOCH_PARTICIPATION|) 
   -- if state_in.CURRENT_EPOCH_PARTICIPATION[validatorIndex_vi] = participationFlags_old
   ;; change map_list_2_
@@ -152,12 +157,22 @@ def $process_one_vi_current((state_in, gwei_num), (validatorIndex_vi, nat_flags*
   -- if state_mid = state_in[.CURRENT_EPOCH_PARTICIPATION = participationFlags_list_updated*]
   -- if $( gwei_num + gwei_add ) = gwei_num_out
   -- if state_out = state_mid
+  ;;-- if $(validatorIndex_vi = 198) \/ true
+  ;;-- if $(validatorIndex_vi < |state_out.BALANCES|)
+  ;;-- if state_out.BALANCES[validatorIndex_vi] = gwei_balance_out
+  ;;-- if $debug_print_label_<gwei>("process_one_vi_current balance_out", gwei_balance_out) = gwei_balance_out_dbg
+  ;;-- if $debug_print_label_<gwei>("process_one_vi_current gwei_add", gwei_add) = gwei_add_dbg
 
 ;; 이전 epoch용
 dec $process_one_vi_previous((beaconState, gwei), (validatorIndex, nat*)) : (beaconState, gwei)
 
 def $process_one_vi_previous((state_in, gwei_num), (validatorIndex_vi, nat_flags*))
   = (state_out, gwei_num_out)
+  -- if $(validatorIndex_vi = 198) \/ true
+  ;;-- if $debug_print_label_<validatorIndex>("process_one_vi_previous vi", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;;-- if $(validatorIndex_vi < |state_in.BALANCES|)
+  ;;-- if state_in.BALANCES[validatorIndex_vi] = gwei_balance_in
+  ;;-- if $debug_print_label_<gwei>("process_one_vi_previous balance_in", gwei_balance_in) = gwei_balance_in_dbg
   -- if $(validatorIndex_vi < |state_in.PREVIOUS_EPOCH_PARTICIPATION|) 
   -- if state_in.PREVIOUS_EPOCH_PARTICIPATION[validatorIndex_vi] = participationFlags_old
   ;; change map_list_2_
@@ -171,16 +186,22 @@ def $process_one_vi_previous((state_in, gwei_num), (validatorIndex_vi, nat_flags
   -- if state_mid = state_in[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_list_updated*]
   -- if $( gwei_num + gwei_add ) = gwei_num_out
   -- if state_out = state_mid
+  ;;-- if $(validatorIndex_vi = 198) \/ true
+  ;;-- if $(validatorIndex_vi < |state_out.BALANCES|)
+  ;;-- if state_out.BALANCES[validatorIndex_vi] = gwei_balance_out
+  ;;-- if $debug_print_label_<gwei>("process_one_vi_previous balance_out", gwei_balance_out) = gwei_balance_out_dbg
+  ;;-- if $debug_print_label_<gwei>("process_one_vi_previous gwei_add", gwei_add) = gwei_add_dbg
 
 dec $compute_proposer_reward(gwei) : gwei
 def $compute_proposer_reward(gwei_num) = gwei_prop
   -- if $( ($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT) * $WEIGHT_DENOMINATOR ) = uint64_num
   -- if $( uint64_num / $PROPOSER_WEIGHT ) = uint64_den
-  -- if gwei_prop = $( gwei_num \ uint64_den )    
+  -- if gwei_prop = $( gwei_num / uint64_den )    
 
 dec $reward_proposer(beaconState, gwei) : beaconState
 def $reward_proposer(state_in, gwei_prop) = state_out
   -- if validatorIndex_prop = $get_beacon_proposer_index(state_in)
+  ;;-- if $debug_print_label_<validatorIndex>("proposer_index", validatorIndex_prop) = validatorIndex_prop_dbg
   -- if state_out = $increase_balance(state_in, validatorIndex_prop, gwei_prop)
 
 
@@ -206,14 +227,34 @@ def $index_of_pubkey_captured(blsPubkey_pk, state) = $index_of_pubkey(state, bls
 dec $apply_sync_one(beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))) : beaconState
 
 def $apply_sync_one(state_in, ((nat_i, validatorIndex_vi), (gwei_part, gwei_prop, boolean_bits*, validatorIndex_prop))) = state_out
+  -- if $(validatorIndex_vi = 198) \/ true
+  ;;-- if $debug_print_label_<validatorIndex>("apply_sync_one vi", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;;-- if $(validatorIndex_vi < |state_in.BALANCES|)
+  ;;-- if state_in.BALANCES[validatorIndex_vi] = gwei_balance_in
+  ;;-- if $debug_print_label_<gwei>("apply_sync_one balance_in", gwei_balance_in) = gwei_balance_in_dbg
   -- if $(nat_i < |boolean_bits*|)
   -- if boolean_bits*[nat_i] = true
   -- if state_r  = $increase_balance(state_in, validatorIndex_vi,  gwei_part)
   -- if state_out = $increase_balance(state_r,  validatorIndex_prop, gwei_prop)
+  -- if $(validatorIndex_vi = 198) \/ true
+  -- if $(validatorIndex_vi < |state_out.BALANCES|)
+  -- if state_out.BALANCES[validatorIndex_vi] = gwei_balance_out
+  ;;-- if $debug_print_label_<gwei>("apply_sync_one balance_out", gwei_balance_out) = gwei_balance_out_dbg
+  ;;-- if $debug_print_label_<gwei>("apply_sync_one gwei_part", gwei_part) = gwei_part_dbg
 
 def $apply_sync_one(state_in, ((nat_i, validatorIndex_vi), (gwei_part, gwei_prop, boolean_bits*, validatorIndex_prop))) = state_out
-  -- if $decrease_balance(state_in, validatorIndex_vi, gwei_part) = state_out
+  ;;-- if $(validatorIndex_vi = 198) \/ true
+  ;;-- if $debug_print_label_<validatorIndex>("apply_sync_one vi (decrease)", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;;-- if $(validatorIndex_vi < |state_in.BALANCES|)
+  ;;-- if state_in.BALANCES[validatorIndex_vi] = gwei_balance_in
+  ;;-- if $debug_print_label_<gwei>("apply_sync_one balance_in (decrease)", gwei_balance_in) = gwei_balance_in_dbg
+  ;;-- if $(validatorIndex_vi = 198) \/ true
+  ;;-- if $(validatorIndex_vi < |state_out.BALANCES|)
+  ;;-- if state_out.BALANCES[validatorIndex_vi] = gwei_balance_out
+  ;;-- if $debug_print_label_<gwei>("apply_sync_one balance_out (decrease)", gwei_balance_out) = gwei_balance_out_dbg
+  ;;-- if $debug_print_label_<gwei>("apply_sync_one gwei_part (decrease)", gwei_part) = gwei_part_dbg
   -- otherwise
+  -- if $decrease_balance(state_in, validatorIndex_vi, gwei_part) = state_out
 
 ;; fold 입력을 만들기 위해 동일한 capture 를 각 (i, vi) 에 붙여줌
 dec $attach_capture_sync((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))
