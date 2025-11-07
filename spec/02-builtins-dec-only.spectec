@@ -22,6 +22,7 @@ dec $hash_tree_root_depositData(depositData) : root
 dec $hash_tree_root_forkdata(forkdata) : root
 dec $hash_tree_root_beaconState(beaconState) : root
 dec $hash_tree_root_withdrawals(withdrawal*) : root
+dec $hash_tree_root_beaconBlock(beaconBlock) : root
 
 dec $hash_tree_root_roots(root*) : root
 dec $hash_tree_root_tx(bytes*) : root

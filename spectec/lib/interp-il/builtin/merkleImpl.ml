@@ -10,6 +10,15 @@ module Bytes = Stdlib.Bytes
 let pow2_8 (n:int) =
   Bigint.pow (Bigint.of_int 2) (Bigint.of_int (8 * n))
 
+(* Hex string conversion helper *)
+let bytes_to_hex (b: Bytes.t) : string =
+  let len = Bytes.length b in
+  let buf = Buffer.create (len * 2) in
+  for i = 0 to len - 1 do
+    Buffer.add_string buf (Printf.sprintf "%02x" (Stdlib.Char.code (Bytes.get b i)))
+  done;
+  Buffer.contents buf
+
 let ensure_fits_bytes ~at (n:Bigint.t) ~(len:int) : (unit, Err.t) result =
   if Bigint.(n >= zero && n < pow2_8 len) then Ok ()
   else Error (Err.runtime at (Printf.sprintf "value does not fit in %d bytes" len))
@@ -550,14 +559,22 @@ let hash_tree_root_tx ~at (txs_list : Value.t list) : (Value.t, Err.t) result =
             Buffer.add_char buf (Stdlib.Char.chr (Bigint.to_int_exn n))
         ) bytes_list;
         Bytes.of_string (Buffer.contents buf)
+    | BytesV { num; len } ->
+        (* BytesV: num을 len 바이트로 변환 (Big-endian) *)
+        be_of_bigint_fixed num ~len
     | _ -> Bytes.make 0 '\x00'
   in
   (* 각 transaction (ByteList)의 root 계산 *)
+  (* ByteList의 경우: subtree_fill_to_contents(chunks, contents_depth)를 사용 *)
+  (* contents_depth = get_depth(MAX_BYTES_PER_TRANSACTION // 32) = get_depth(33554432) = 25 *)
+  (* 따라서 limit = 33554432를 사용해야 함 *)
   let tx_elem_root tx =
     let data_bytes = get_list_bytes tx in
     let len = Bytes.length data_bytes in
     let chunks = chunkize_bytes_bytev data_bytes in
-    let root = merkleize_leaves chunks in
+    (* ByteList의 경우 limit = MAX_BYTES_PER_TRANSACTION // 32 = 33554432 *)
+    let tx_bytes_limit = 33554432 in (* MAX_BYTES_PER_TRANSACTION // 32 *)
+    let root = merkleize_chunks_with_limit chunks tx_bytes_limit in
     mix_in_length root (Bigint.of_int len)
   in
   (* 모든 transaction root를 계산 *)
@@ -770,7 +787,7 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : (Value.t, Err.t) result 
   let* () = ensure_fits_bytes ~at (get_nat timestamp) ~len:8 in
   let r_timestamp = leaf_uint_le (get_nat timestamp) ~nbytes:8 in
   (* 11. extra_data: ByteList[<=32], mix_in_length 적용 *)
-  (* extra_data는 ListV 형태 (각 요소는 uint8) *)
+  (* extra_data는 ListV 형태 (각 요소는 uint8) 또는 BytesV 형태 *)
   let get_list_bytes v = match v.it with
     | ListV lst ->
         let get_nat v = v |> Value.get_num |> Num.to_int in
@@ -784,13 +801,23 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : (Value.t, Err.t) result 
             Buffer.add_char buf (Stdlib.Char.chr (Bigint.to_int_exn n))
         ) bytes_list;
         Bytes.of_string (Buffer.contents buf)
+    | BytesV { num; len } ->
+        (* BytesV: num을 len 바이트로 변환 (Big-endian) *)
+        be_of_bigint_fixed num ~len
     | _ -> Bytes.make 0 '\x00'
   in
   let extra_bytes = get_list_bytes extra_data in
   let extra_len = Bytes.length extra_bytes in
+  (* Printf.printf "[DEBUG exec extra_data] raw bytes (hex): %s\n%!" (bytes_to_hex extra_bytes); *)
+  (* Printf.printf "[DEBUG exec extra_data] length: %d bytes\n%!" extra_len; *)
   let extra_leaves = chunkize_bytes_bytev extra_bytes in
+  (* Printf.printf "[DEBUG exec extra_data] chunk count: %d\n%!" (Array.length extra_leaves); *)
+  (* if Array.length extra_leaves > 0 then *)
+  (*   Printf.printf "[DEBUG exec extra_data] first chunk (hex): %s\n%!" (bytes_to_hex extra_leaves.(0)); *)
   let extra_root = merkleize_leaves extra_leaves in
+  (* Printf.printf "[DEBUG exec extra_data] merkle root (before mix_in_length): %s\n%!" (bytes_to_hex extra_root); *)
   let r_extra_data = mix_in_length extra_root (Bigint.of_int extra_len) in
+  (* Printf.printf "[DEBUG exec extra_data] final root (after mix_in_length): %s\n%!" (bytes_to_hex r_extra_data); *)
   (* 12. base_fee_per_gas: uint256, 32B LE *)
   let* () = ensure_fits_bytes ~at (get_nat base_fee_per_gas) ~len:32 in
   let r_base_fee = leaf_uint_le (get_nat base_fee_per_gas) ~nbytes:32 in
@@ -812,33 +839,67 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : (Value.t, Err.t) result 
             Buffer.add_char buf (Stdlib.Char.chr (Bigint.to_int_exn n))
         ) bytes_list;
         Bytes.of_string (Buffer.contents buf)
+    | BytesV { num; len } ->
+        (* BytesV: num을 len 바이트로 변환 (Big-endian) *)
+        be_of_bigint_fixed num ~len
     | _ -> Bytes.make 0 '\x00'
   in
   let txs = get_list transactions in
+  (* Printf.printf "[DEBUG exec transactions] transaction count: %d\n%!" (List.length txs); *)
+  (* 단일 Transaction(ByteList)의 HTR: chunkize → merkleize → mix_in_length(바이트 길이) *)
+  (* ByteList의 경우: subtree_fill_to_contents(chunks, contents_depth)를 사용 *)
+  (* contents_depth = get_depth(MAX_BYTES_PER_TRANSACTION // 32) = get_depth(33554432) = 25 *)
+  (* 따라서 limit = 33554432를 사용해야 함 *)
   let tx_elem_root tx =
     let data_bytes = get_list_bytes tx in
     let len = Bytes.length data_bytes in
     let chunks = chunkize_bytes_bytev data_bytes in
-    let root = merkleize_leaves chunks in
+    (* ByteList의 경우 limit = MAX_BYTES_PER_TRANSACTION // 32 = 33554432 *)
+    let tx_bytes_limit = 33554432 in (* MAX_BYTES_PER_TRANSACTION // 32 *)
+    let root = merkleize_chunks_with_limit chunks tx_bytes_limit in
     mix_in_length root (Bigint.of_int len)
   in
   (* tx_roots: 각 Transaction(ByteList)의 HTR (Bytes.t, 32B) *)
+  (* 각 tx에 대해 단일 Transaction HTR을 먼저 구함 *)
   let tx_roots = List.map tx_elem_root txs |> Array.of_list in
+  (* if Array.length tx_roots > 0 then ( *)
+  (*   Printf.printf "[DEBUG exec transactions] first tx root: %s\n%!" (bytes_to_hex tx_roots.(0)); *)
+  (*   Printf.printf "[DEBUG exec transactions] last tx root: %s\n%!" (bytes_to_hex tx_roots.(Array.length tx_roots - 1)); *)
+  (* ); *)
   (* SSZ 규칙: MAX_TRANSACTIONS_PER_PAYLOAD (1048576)까지 zero32로 패딩 후 merkleize *)
   let tx_limit = 1048576 in (* MAX_TRANSACTIONS_PER_PAYLOAD *)
   let root_tx_vec = merkleize_list_composite_with_limit tx_roots tx_limit in
+  (* Printf.printf "[DEBUG exec transactions] merkle root (before mix_in_length): %s\n%!" (bytes_to_hex root_tx_vec); *)
+  (* Printf.printf "[DEBUG exec transactions] tx count for mix_in_length: %d\n%!" (Array.length tx_roots); *)
   (* 실제 리스트 길이로 mix_in_length *)
   let r_transactions = mix_in_length root_tx_vec (Bigint.of_int (Array.length tx_roots)) in
+  (* Printf.printf "[DEBUG exec transactions] final root (after mix_in_length): %s\n%!" (bytes_to_hex r_transactions); *)
   (* 15. withdrawals: hash_tree_root_withdrawals에 위임 *)
   let ws = get_list withdrawals in
   let* r_withdrawals_v = hash_tree_root_withdrawals ~at ws in
   let* r_withdrawals = to_b32_exn ~at r_withdrawals_v in
   (* 정해진 순서로 배열 *)
+  (* Printf.printf "[DEBUG exec] 1. parent_hash: %s\n%!" (bytes_to_hex r_parent_hash); *)
+  (* Printf.printf "[DEBUG exec] 2. fee_recipient: %s\n%!" (bytes_to_hex r_fee_recipient); *)
+  (* Printf.printf "[DEBUG exec] 3. state_root: %s\n%!" (bytes_to_hex r_state_root); *)
+  (* Printf.printf "[DEBUG exec] 4. receipts_root: %s\n%!" (bytes_to_hex r_receipts_root); *)
+  (* Printf.printf "[DEBUG exec] 5. logs_bloom: %s\n%!" (bytes_to_hex r_logs_bloom); *)
+  (* Printf.printf "[DEBUG exec] 6. prev_randao: %s\n%!" (bytes_to_hex r_prev_randao); *)
+  (* Printf.printf "[DEBUG exec] 7. block_number: %s\n%!" (bytes_to_hex r_block_number); *)
+  (* Printf.printf "[DEBUG exec] 8. gas_limit: %s\n%!" (bytes_to_hex r_gas_limit); *)
+  (* Printf.printf "[DEBUG exec] 9. gas_used: %s\n%!" (bytes_to_hex r_gas_used); *)
+  (* Printf.printf "[DEBUG exec] 10. timestamp: %s\n%!" (bytes_to_hex r_timestamp); *)
+  (* Printf.printf "[DEBUG exec] 11. extra_data: %s\n%!" (bytes_to_hex r_extra_data); *)
+  (* Printf.printf "[DEBUG exec] 12. base_fee_per_gas: %s\n%!" (bytes_to_hex r_base_fee); *)
+  (* Printf.printf "[DEBUG exec] 13. block_hash: %s\n%!" (bytes_to_hex r_block_hash); *)
+  (* Printf.printf "[DEBUG exec] 14. transactions: %s\n%!" (bytes_to_hex r_transactions); *)
+  (* Printf.printf "[DEBUG exec] 15. withdrawals: %s\n%!" (bytes_to_hex r_withdrawals); *)
   let field_roots = [|
     r_parent_hash; r_fee_recipient; r_state_root; r_receipts_root; r_logs_bloom; r_prev_randao; r_block_number;
     r_gas_limit; r_gas_used; r_timestamp; r_extra_data; r_base_fee; r_block_hash; r_transactions; r_withdrawals
   |] in
   let root_bytes = merkleize_leaves field_roots in
+  (* Printf.printf "[DEBUG exec] FINAL EXECUTION_PAYLOAD_ROOT: %s\n%!" (bytes_to_hex root_bytes); *)
   Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_BLSToExecutionChange(message) : root ----- *)
@@ -1299,7 +1360,7 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : (Value.t, Err.t) r
   let* () = ensure_fits_bytes ~at (get_nat timestamp) ~len:8 in
   let r_timestamp = leaf_uint_le (get_nat timestamp) ~nbytes:8 in
   (* 11. extra_data: ByteList[<=32], mix_in_length 적용 *)
-  (* extra_data는 ListV 형태 (각 요소는 uint8) *)
+  (* extra_data는 ListV 형태 (각 요소는 uint8) 또는 BytesV 형태 *)
   let get_list_bytes v = match v.it with
     | ListV lst ->
         let get_nat v = v |> Value.get_num |> Num.to_int in
@@ -1313,6 +1374,9 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : (Value.t, Err.t) r
             Buffer.add_char buf (Stdlib.Char.chr (Bigint.to_int_exn n))
         ) bytes_list;
         Bytes.of_string (Buffer.contents buf)
+    | BytesV { num; len } ->
+        (* BytesV: num을 len 바이트로 변환 (Big-endian) *)
+        be_of_bigint_fixed num ~len
     | _ -> Bytes.make 0 '\x00'
   in
   let extra_bytes = get_list_bytes extra_data in
@@ -1380,12 +1444,21 @@ let hash_tree_root_beaconBlockBody ~at (v : Value.t) : (Value.t, Err.t) result =
   let* () = ensure_fits_bytes ~at (get_nat randao_reveal) ~len:96 in
   let sig96 = be_of_bigint_fixed (get_nat randao_reveal) ~len:96 in
   let r_randao = chunkize_bytevector_fixed sig96 ~len:96 |> merkleize_leaves in
+  (* Printf.printf "[DEBUG body] 1. RANDAO_REVEAL: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_randao) *)
+  (*   (bigint_of_be_bytes r_randao |> Bigint.to_string); *)
  
   let* r_eth1_v = hash_tree_root_eth1Data ~at eth1_data in
   let* r_eth1 = to_b32_exn ~at r_eth1_v in
+  (* Printf.printf "[DEBUG body] 2. ETH1_DATA: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_eth1) *)
+  (*   (bigint_of_be_bytes r_eth1 |> Bigint.to_string); *)
   (* graffiti: bytes32 *)
   let* () = ensure_fits_bytes ~at (get_nat graffiti) ~len:32 in
   let r_graffiti = leaf_bytes32 (get_nat graffiti) in
+  (* Printf.printf "[DEBUG body] 3. GRAFFITI: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_graffiti) *)
+  (*   (bigint_of_be_bytes r_graffiti |> Bigint.to_string); *)
   
   (* composite List[T, N] 처리를 위한 헬퍼: 최대 길이 N까지 패딩 후 merkleize *)
   let list_htr_with_limit (xs: Value.t list) (f: Value.t -> (Value.t, Err.t) result) (limit: int) : (Bytes.t, Err.t) result =
@@ -1410,20 +1483,47 @@ let hash_tree_root_beaconBlockBody ~at (v : Value.t) : (Value.t, Err.t) result =
   let max_voluntary_exits = 16 in
   let max_bls_to_execution_changes = 16 in
   let* r_prop_slash = list_htr_with_limit (get_list proposer_slashings) (hash_tree_root_ProposerSlashing ~at) max_proposer_slashings in
+  (* Printf.printf "[DEBUG body] 4. PROPOSER_SLASHINGS: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_prop_slash) *)
+  (*   (bigint_of_be_bytes r_prop_slash |> Bigint.to_string); *)
   let* r_att_slash = list_htr_with_limit (get_list attester_slashings) (hash_tree_root_AttesterSlashing ~at) max_attester_slashings in
+  (* Printf.printf "[DEBUG body] 5. ATTESTER_SLASHINGS: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_att_slash) *)
+  (*   (bigint_of_be_bytes r_att_slash |> Bigint.to_string); *)
   let* r_attest = list_htr_with_limit (get_list attestations) (hash_tree_root_Attestation ~at) max_attestations in
+  (* Printf.printf "[DEBUG body] 6. ATTESTATIONS: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_attest) *)
+  (*   (bigint_of_be_bytes r_attest |> Bigint.to_string); *)
   let* r_deposits = list_htr_with_limit (get_list deposits) (hash_tree_root_Deposit ~at) max_deposits in
+  (* Printf.printf "[DEBUG body] 7. DEPOSITS: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_deposits) *)
+  (*   (bigint_of_be_bytes r_deposits |> Bigint.to_string); *)
   let* r_vol = list_htr_with_limit (get_list voluntary_exits) (hash_tree_root_SignedVoluntaryExit ~at) max_voluntary_exits in
+  (* Printf.printf "[DEBUG body] 8. VOLUNTARY_EXITS: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_vol) *)
+  (*   (bigint_of_be_bytes r_vol |> Bigint.to_string); *)
   let* r_sync_v = hash_tree_root_SyncAggregate ~at sync_aggregate in
   let* r_sync = to_b32_exn ~at r_sync_v in
+  (* Printf.printf "[DEBUG body] 9. SYNC_AGGREGATE: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_sync) *)
+  (*   (bigint_of_be_bytes r_sync |> Bigint.to_string); *)
   let* r_exec_v = hash_tree_root_executionPayload ~at execution_payload in
   let* r_exec = to_b32_exn ~at r_exec_v in
+  (* Printf.printf "[DEBUG body] 10. EXECUTION_PAYLOAD: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_exec) *)
+  (*   (bigint_of_be_bytes r_exec |> Bigint.to_string); *)
   let* r_bls2exec = list_htr_with_limit (get_list bls_to_execution_changes) (hash_tree_root_SignedBLSToExecutionChange ~at) max_bls_to_execution_changes in
+  (* Printf.printf "[DEBUG body] 11. BLS_TO_EXECUTION_CHANGES: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex r_bls2exec) *)
+  (*   (bigint_of_be_bytes r_bls2exec |> Bigint.to_string); *)
   let field_roots = [|
     r_randao; r_eth1; r_graffiti; r_prop_slash; r_att_slash; r_attest;
     r_deposits; r_vol; r_sync; r_exec; r_bls2exec
   |] in
   let root_bytes = merkleize_leaves field_roots in
+  (* Printf.printf "[DEBUG body] FINAL BODY_ROOT: %s (int: %s)\n%!"  *)
+  (*   (bytes_to_hex root_bytes) *)
+  (*   (bigint_of_be_bytes root_bytes |> Bigint.to_string); *)
   Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
 (* ----- hash_tree_root_beaconState(beaconState) : root ----- *)

@@ -1744,14 +1744,44 @@ def $initiate_validator_exit(state_in, validatorIndex_idx) = state_out
   -- if $( |validator_list_eq*| ) = uint64_exit_queue_churn
   ;; (5) 한도 초과면 큐 epoch + 1
   -- if $get_validator_churn_limit(state_in) = uint64_churn_limit
+  ;; case 1: churn >= limit ⇒ epoch_exit_queue = epoch_exit_queue_0 + 1
   -- if $( uint64_exit_queue_churn >= uint64_churn_limit )
   -- if epoch_exit_queue = $( epoch_exit_queue_0 + 1 )
-  -- if ~( $( uint64_exit_queue_churn >= uint64_churn_limit ) )
+  ;; (6) validator.exit_epoch / withdrawable_epoch 설정
+  -- if epoch_withdrawable = $( epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY )
+  -- if validator_updated =
+        validator_v[.EXIT_EPOCH         = epoch_exit_queue]
+                  [.WITHDRAWABLE_EPOCH = epoch_withdrawable]
+  -- if state_in.VALIDATORS[[validatorIndex_idx] = validator_updated] = validator_update*
+  -- if state_out = state_in[.VALIDATORS = validator_update*]
+
+;; case 2: churn < limit ⇒ epoch_exit_queue = epoch_exit_queue_0
+def $initiate_validator_exit(state_in, validatorIndex_idx) = state_out
+  -- if $(validatorIndex_idx < |state_in.VALIDATORS|)
+  -- if state_in.VALIDATORS[validatorIndex_idx] = validator_v
+  -- if $( validator_v.EXIT_EPOCH = $FAR_FUTURE_EPOCH )
+  ;; (1) exit_epochs = [v.exit_epoch for v in state.validators if v.exit_epoch != FAR_FUTURE_EPOCH]
+  -- if validator_list* = state_in.VALIDATORS
+  -- if $filter_list_<validator>(validator_list*, def $exit_epoch_not_far_future) = validator_list_nf*
+  -- if ($exit_epoch_of(validator_list_nf) = epoch_exit_list)*       
+  ;; (2) epoch_act_exit = compute_activation_exit_epoch(get_current_epoch(state))
+  -- if $get_current_epoch(state_in) = epoch_cur
+  -- if $compute_activation_exit_epoch(epoch_cur) = epoch_act_exit
+  ;; (3) exit_queue_epoch_0 = max(exit_epochs + [epoch_act_exit])
+  -- if epoch_exit_list* ++ [ epoch_act_exit ] = epoch_all*
+  -- if $fold_<epoch, epoch>(def $fold_max_epoch, 0, epoch_all*) = epoch_exit_queue_0
+  ;; (4) exit_queue_churn = len([v for v in state.validators if v.exit_epoch == exit_queue_epoch_0])
+  -- if $filter_list_2_<validator, epoch>(validator_list*, epoch_exit_queue_0, def $exit_epoch_eq) = validator_list_eq*
+  -- if $( |validator_list_eq*| ) = uint64_exit_queue_churn
+  ;; (5) 한도 초과면 큐 epoch + 1
+  -- if $get_validator_churn_limit(state_in) = uint64_churn_limit
+  ;; case 2: churn < limit ⇒ epoch_exit_queue = epoch_exit_queue_0
+  -- if $( uint64_exit_queue_churn < uint64_churn_limit )
   -- if epoch_exit_queue = epoch_exit_queue_0
   ;; (6) validator.exit_epoch / withdrawable_epoch 설정
   -- if epoch_withdrawable = $( epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY )
   -- if validator_updated =
-       validator_v[.EXIT_EPOCH         = epoch_exit_queue]
+        validator_v[.EXIT_EPOCH         = epoch_exit_queue]
                   [.WITHDRAWABLE_EPOCH = epoch_withdrawable]
   -- if state_in.VALIDATORS[[validatorIndex_idx] = validator_updated] = validator_update*
   -- if state_out = state_in[.VALIDATORS = validator_update*]

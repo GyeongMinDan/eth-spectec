@@ -61,8 +61,20 @@ dec $verify_block_signature(beaconState, signedBeaconBlock) : boolean
 def $verify_block_signature(state, signedBeaconBlock) = true
   -- if validator_prop = state.VALIDATORS[signedBeaconBlock.MESSAGE.PROPOSER_INDEX]
   -- if $get_domain(state, $DOMAIN_BEACON_PROPOSER, eps) = domain_prop
+  ;;-- if $debug_print_label_<domain>("domain_prop", domain_prop) = domain_prop_dbg
+  ;;-- if $debug_print_label_<slot>("block_slot", signedBeaconBlock.MESSAGE.SLOT) = slot_block_slot_dbg
+  ;;-- if $debug_print_label_<validatorIndex>("block_proposer", signedBeaconBlock.MESSAGE.PROPOSER_INDEX) = validatorIndex_block_proposer_dbg
+  ;;-- if $hash_tree_root_beaconBlockBody(signedBeaconBlock.MESSAGE.BODY) = root_body_root
+  ;;-- if $debug_print_label_<root>("body_root", root_body_root) = root_body_root_dbg
+  ;;-- if $hash_tree_root_beaconBlock(signedBeaconBlock.MESSAGE) = root_object_root
+  ;;-- if $debug_print_label_<root>("object_root", root_object_root) = root_object_root_dbg
   -- if $compute_signing_root_beaconBlock(signedBeaconBlock.MESSAGE, domain_prop) = root_sign
-  -- if $bls_verify(validator_prop.PUBKEY, root_sign, signedBeaconBlock.SIGNATURE) = true
+  ;;-- if $debug_print_label_<root>("root_sign", root_sign) = root_sign_dbg
+  ;;-- if $debug_print_label_<blsPubkey>("pubkey", validator_prop.PUBKEY) = blsPubkey_dbg
+  ;;-- if $debug_print_label_<blsSignature>("signature", signedBeaconBlock.SIGNATURE) = blsSignature_dbg
+  -- if $bls_verify(validator_prop.PUBKEY, root_sign, signedBeaconBlock.SIGNATURE) = boolean_bls_result
+  ;;-- if $debug_print_label_<boolean>("bls_result", boolean_bls_result) = boolean_bls_result_dbg
+  -- if boolean_bls_result = true
 
 def $verify_block_signature(state, signedBeaconBlock) = false
   -- otherwise

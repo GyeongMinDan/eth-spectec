@@ -2,10 +2,33 @@ open Il
 open Xl
 open Util.Source
 open Value
+open Stdlib.Bytes
 
 let ( let* ) = Result.bind
 
 (* Built-in implementations *)
+
+(* Helper functions for byte conversion *)
+let be_of_bigint_fixed (n : Bigint.t) ~(len:int) : t =
+  if Bigint.(n < zero) then invalid_arg "negative";
+  let out = create len in
+  let rec fill i v =
+    if i < 0 then ()
+    else (
+      let byte = Bigint.to_int_exn Bigint.(v % of_int 256) in
+      set out i (Char.chr byte);
+      fill (i - 1) Bigint.(v / of_int 256)
+    )
+  in
+  fill (len - 1) n;
+  out
+
+let bigint_of_be_bytes (b : t) : Bigint.t =
+  let acc = ref Bigint.zero in
+  for i = 0 to length b - 1 do
+    let v = Char.code (get b i) in
+    acc := Bigint.( !acc * of_int 256 + of_int v )
+  done; !acc
 
 (* Helper functions for byte validation *)
 
@@ -251,8 +274,15 @@ let concat_domain ~at (domain_type : Num.t) (bytes28_val : Num.t) : (Value.t, Er
   (* Validate bytes28 *)
   let* () = validate_bytes28 at bytes28_val in
   (* Concatenate: domainType (4 bytes) + bytes28 (28 bytes) = domain (32 bytes) *)
-  (* Shift domain_type left by 28 bytes (224 bits) and add bytes28_val *)
-  let result = Bigint.(shift_left domain_type 224 + bytes28_val) in
+  (* Convert to bytes (Big-endian) *)
+  let dt_bytes = be_of_bigint_fixed domain_type ~len:4 in
+  let b28_bytes = be_of_bigint_fixed bytes28_val ~len:28 in
+  (* Concatenate: domain_type (4 bytes) + bytes28 (28 bytes) *)
+  let out = create 32 in
+  blit dt_bytes 0 out 0 4;
+  blit b28_bytes 0 out 4 28;
+  (* Convert back to integer (Big-endian) *)
+  let result = bigint_of_be_bytes out in
   (* Validate result is within bytes32 range *)
   let* () = validate_bytes32 at result in
   Ok (Value.nat result)
