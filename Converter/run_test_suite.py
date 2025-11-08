@@ -312,7 +312,8 @@ class TestRunner:
         if verbose:
             print("  ✓ All SSZ files converted to JSON")
         
-        # 4. Spectec 실행 (각 block을 원본 pre 상태에서 독립적으로 처리)
+        # 3. Spectec 실행 (각 block을 원본 pre 상태에서 독립적으로 처리)
+        # Note: Spectec이 실패(timeout 포함)해도 5번(eth2spec), 6번(비교)은 계속 진행됨
         spectec_results = []  # 각 block의 결과를 저장
         spectec_errors = {}  # 각 block의 에러를 저장
         
@@ -326,20 +327,27 @@ class TestRunner:
             success, error = self.run_spectec(pre_json, block_json, spectec_output_json, verbose=verbose)
             
             if not success:
+                # Spectec 실패 시 에러 기록하고 다음 block으로 (4번 SSZ 변환은 자동 스킵)
                 spectec_errors[block_num] = error
                 if verbose:
                     print(f"  ✗ Spectec failed: {error}")
+                    print(f"  → Step 4 (SSZ conversion) will be skipped for this block")
                 continue
             
             if verbose:
                 print("  ✓ Spectec execution succeeded")
             
-            # Spectec 결과를 SSZ로 변환
+            # 4. Spectec 결과를 SSZ로 변환 (Spectec이 성공한 경우에만 실행)
             if verbose:
                 print(f"\n[Step 4] Converting Spectec output {block_num} to SSZ...")
             spectec_output_ssz = work_dir / f"spectec_output_{block_num}.ssz"
             if not self.json_to_ssz(spectec_output_json, spectec_output_ssz):
-                return False, f"Failed to convert Spectec output {block_num} to SSZ"
+                # SSZ 변환 실패도 에러로 기록하되, 5번, 6번은 계속 진행
+                spectec_errors[block_num] = f"Failed to convert Spectec output {block_num} to SSZ"
+                if verbose:
+                    print(f"  ✗ SSZ conversion failed")
+                    print(f"  → Step 5 (eth2spec) and Step 6 (comparison) will continue")
+                continue
             
             if verbose:
                 print("  ✓ Spectec output converted to SSZ")
@@ -350,6 +358,7 @@ class TestRunner:
             })
         
         # 5. eth2specResult.py 실행 (각 block을 원본 pre 상태에서 독립적으로 처리)
+        # Note: Spectec이 실패해도 항상 실행됨 (비교를 위해 필요)
         eth2spec_results = []  # 각 block의 결과를 저장
         eth2spec_errors = {}  # 각 block의 에러를 저장
         
@@ -377,6 +386,7 @@ class TestRunner:
             })
         
         # 6. 에러 체크 및 결과 비교
+        # Note: Spectec이 실패해도 항상 실행됨 (에러 일관성 확인 및 결과 비교)
         # 각 block에 대해 독립적으로 비교
         all_match = True
         mismatch_blocks = []
