@@ -159,7 +159,8 @@ class TestRunner:
                 cwd=str(spectec_core_dir),  # 작업 디렉터리를 spectec-core로 설정
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                timeout=120  # Spectec 실행에 120초 timeout 설정
             )
             
             # stderr에 에러가 있는지 확인 (Spectec는 에러를 stderr에 출력)
@@ -199,6 +200,13 @@ class TestRunner:
                 print(f"    ⚠ Warning: Spectec had compilation errors but output file was created")
             
             return True, None
+        except subprocess.TimeoutExpired as e:
+            error_msg = f"Spectec execution timed out after 120 seconds"
+            if e.stdout:
+                error_msg += f"\nstdout: {e.stdout[:500]}"
+            if e.stderr:
+                error_msg += f"\nstderr: {e.stderr[:500]}"
+            return False, error_msg
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else e.stdout
             return False, error_msg
