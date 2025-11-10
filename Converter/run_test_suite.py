@@ -182,7 +182,7 @@ class TestRunner:
             
             if verbose:
                 if result.stdout:
-                    print(f"    stdout: {result.stdout[:200]}...")  # 처음 200자만
+                    print(f"    stdout: {result.stdout}")
             
             # 출력 파일이 실제로 생성되었는지 확인
             if not output_json.exists():
