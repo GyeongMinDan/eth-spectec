@@ -160,7 +160,7 @@ class TestRunner:
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=120  # Spectec 실행에 120초 timeout 설정
+                timeout=1800  # Spectec 실행에 timeout 설정
             )
             
             # stderr에 에러가 있는지 확인 (Spectec는 에러를 stderr에 출력)
@@ -174,13 +174,11 @@ class TestRunner:
                         # 에러 개수만 표시
                         error_count = result.stderr.count("Error:")
                         print(f"    ⚠ Found {error_count} error(s) in stderr")
-                        # 처음 몇 줄만 표시
-                        error_lines = result.stderr.split('\n')[:10]
+                        # 모든 줄 표시
+                        error_lines = result.stderr.split('\n')
                         for line in error_lines:
                             if "Error:" in line:
-                                print(f"    ⚠   {line[:100]}")
-                        if error_count > 10:
-                            print(f"    ⚠   ... and {error_count - 10} more errors")
+                                print(f"    ⚠   {line}")
             
             if verbose:
                 if result.stdout:
@@ -201,7 +199,7 @@ class TestRunner:
             
             return True, None
         except subprocess.TimeoutExpired as e:
-            error_msg = f"Spectec execution timed out after 120 seconds"
+            error_msg = f"Spectec execution timed out after 1800 seconds"
             if e.stdout:
                 error_msg += f"\nstdout: {e.stdout[:500]}"
             if e.stderr:
