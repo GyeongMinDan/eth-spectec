@@ -69,6 +69,8 @@ let rec bytes_len_from_typ (typ : Typ.t') : int option =
         Some 4
       else if ends_with name "_root" || ends_with name "_hash" || name = "root" || name = "hash32" || name = "domain" then
         Some 32
+      else if name = "withdrawal_credentials" then
+        Some 32
       else if name = "blspubkey" then Some 48
       else if name = "blssignature" then Some 96
       else if name = "executionaddress" || name = "fee_recipient" then Some 20
@@ -90,6 +92,8 @@ let bytes_len_from_field_name (field_name : string) : int option =
   if ends_with name "_version" || name = "version" || name = "domaintype" || name = "forkdigest" then
     Some 4
   else if ends_with name "_root" || ends_with name "_hash" || name = "root" || name = "hash32" || name = "domain" then
+    Some 32
+  else if name = "withdrawal_credentials" then
     Some 32
   else if name = "blspubkey" || name = "pubkey" then Some 48
   else if name = "blssignature" || name = "signature" then Some 96

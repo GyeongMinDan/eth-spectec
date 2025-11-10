@@ -158,7 +158,7 @@ let xor ~at (bytes32_a : Num.t) (bytes32_b : Num.t) : (Value.t, Err.t) result =
   let* () = validate_bytes32 at bytes32_a in
   let* () = validate_bytes32 at bytes32_b in
   let result = Bigint.bit_xor bytes32_a bytes32_b in
-  Ok (Value.nat result)
+  Ok (make_bytes ~num:result ~len:32)
 
 (* dec $first_28_bytes(bytes32) : bytes28 *)
 
@@ -179,7 +179,7 @@ let first_28_bytes ~at (value : Value.t) : (Value.t, Err.t) result =
   (* Extract first 28 bytes (MSB 28 bytes) from bytes32 *)
   (* Python x[:28] - remove last 4 bytes (32 bits) *)
   let bytes28_val = Bigint.shift_right bytes32_val 32 in
-  Ok (Value.nat bytes28_val)
+  Ok (make_bytes ~num:bytes28_val ~len:28)
 
 (* dec $get_first_byte(bytes32) : bytes1 *)
 
@@ -200,7 +200,7 @@ let get_first_byte ~at (value : Value.t) : (Value.t, Err.t) result =
   (* Extract first byte (MSB 1 byte) from bytes32 *)
   (* Python x[:1] - extract MSB byte *)
   let msb_byte = Bigint.(shift_right bytes32_val 248 |> bit_and (of_int 0xff)) in
-  Ok (Value.nat msb_byte)
+  Ok (make_bytes ~num:msb_byte ~len:1)
 
 (* dec $strip_first_byte(bytes32) : bytes31 *)
 
@@ -222,7 +222,7 @@ let strip_first_byte ~at (value : Value.t) : (Value.t, Err.t) result =
   (* Python x[1:] - remove MSB byte, keep remaining 31 bytes *)
   let mask_248 = Bigint.(pow (of_int 2) (of_int 248) - one) in
   let bytes31_val = Bigint.bit_and bytes32_val mask_248 in
-  Ok (Value.nat bytes31_val)
+  Ok (make_bytes ~num:bytes31_val ~len:31)
 
 (* dec $bytes32_to_bytes1_list(bytes32) : bytes1* *)
 
@@ -285,7 +285,7 @@ let concat_domain ~at (domain_type : Num.t) (bytes28_val : Num.t) : (Value.t, Er
   let result = bigint_of_be_bytes out in
   (* Validate result is within bytes32 range *)
   let* () = validate_bytes32 at result in
-  Ok (Value.nat result)
+  Ok (make_bytes ~num:result ~len:32)
 
 (* dec $bytes32_to_bytes(bytes32) : bytes *)
 
@@ -349,7 +349,8 @@ let make_withdrawal_credentials_eth1 ~at (execution_address : Num.t) : (Value.t,
   let result = Bigint.(prefix_shifted + zeros_shifted + execution_address) in
   (* Validate result is within bytes32 range *)
   let* () = validate_bytes32 at result in
-  Ok (Value.nat result)
+  (* Return as BytesV with length 32 (bytes32) *)
+  Ok (make_bytes ~num:result ~len:32)
 
 (* dec $extract_execution_address(bytes32) : executionAddress *)
 
@@ -360,7 +361,7 @@ let extract_execution_address ~at (bytes32_val : Num.t) : (Value.t, Err.t) resul
   (* Extract last 20 bytes (160 bits) from bytes32 *)
   let bytes20_mask = Bigint.(pow (of_int 2) (of_int 160) - one) in
   let execution_address = Bigint.bit_and bytes32_val bytes20_mask in
-  Ok (Value.nat execution_address)
+  Ok (make_bytes ~num:execution_address ~len:20)
 
 (* ============================================================ *)
 (* Fixed-width Little-Endian encoders for eth2spec compatibility *)
