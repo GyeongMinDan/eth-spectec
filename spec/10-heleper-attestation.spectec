@@ -267,6 +267,7 @@ def $next_sync_committee_indices_loop(
   -- if $( uint64_len_acc >= $SYNC_COMMITTEE_SIZE )
 
 ;; 계속: 한 번 시도하고(합격 시 append), i+1로 재귀
+;; Case 1: 조건 만족 시 append
 def $next_sync_committee_indices_loop(
   state_beaconState, validatorIndex_active*, bytes32_seed, uint64_active_cnt, uint64_i, validatorIndex_acc*
 ) = validatorIndex_ret*
@@ -288,9 +289,42 @@ def $next_sync_committee_indices_loop(
   ;; 3 effective_balance 읽기
   -- if state_beaconState.VALIDATORS[validatorIndex_candidate] = validator_v
   -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
-  ;; 4 합격이면 append, 아니면 그대로
+  ;; 4 합격이면 append
   -- if $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
   -- if validatorIndex_acc_sel* = ( validatorIndex_acc* ++ [ validatorIndex_candidate ] )
+  ;; 5 재귀(i+1)
+  -- if $next_sync_committee_indices_loop(
+         state_beaconState,
+         validatorIndex_active*,
+         bytes32_seed,
+         uint64_active_cnt,
+         $(uint64_i + 1),
+         validatorIndex_acc_sel*
+       ) = validatorIndex_ret*
+
+;; Case 2: 조건 불만족 시 그대로
+def $next_sync_committee_indices_loop(
+  state_beaconState, validatorIndex_active*, bytes32_seed, uint64_active_cnt, uint64_i, validatorIndex_acc*
+) = validatorIndex_ret*
+  ;; 1 shuffled_index = compute_shuffled_index(i % active_cnt, active_cnt, seed)
+  -- if $(uint64_i \ uint64_active_cnt) = uint64_mod
+  -- if $compute_shuffled_index(uint64_mod, uint64_active_cnt, bytes32_seed) = uint64_shuf
+  -- if validatorIndex_active*[uint64_shuf] = validatorIndex_candidate
+  ;; 2 random_byte = hash(seed || uint_to_bytes(i//32))[i%32]
+  -- if $(uint64_i / 32) = uint64_chunk
+  -- if $uint_to_bytes(uint64_chunk) = bytes_chunk
+  ;; fix hash(bytes32 + bytes)
+  -- if $bytes32_to_bytes(bytes32_seed) = bytes_seed_bytes
+  -- if $concat_bytes(bytes_seed_bytes, bytes_chunk) = bytes_msg
+  -- if $hash_<bytes>(bytes_msg) = bytes32_h
+  -- if $(uint64_i \ 32) = nat_b                      ;; 0..31
+  -- if $bytes32_to_bytes1_list(bytes32_h) = bytes1_list_32*
+  -- if bytes1_list_32*[nat_b] = bytes1_rb            ;; bytes1
+  -- if $bytes1_to_uint64(bytes1_rb) = uint64_random_byte
+  ;; 3 effective_balance 읽기
+  -- if state_beaconState.VALIDATORS[validatorIndex_candidate] = validator_v
+  -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
+  ;; 4 조건 불만족 시 그대로
   -- if ~( $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte ) )
   -- if validatorIndex_acc_sel* = validatorIndex_acc*
   ;; 5 재귀(i+1)
