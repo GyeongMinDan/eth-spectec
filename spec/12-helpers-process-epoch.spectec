@@ -316,8 +316,110 @@ def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev
 
 
 ;; =========================
-;; P=0, C=1  →  A / B / C / D / None  (5개)
+;; P=0, C=1  →  (A and C) (A and D) (B and C) (B and D) + A / B / C / D / None  (9개) 
 ;; =========================
+def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if checkpoint_old_prev = state_in.PREVIOUS_JUSTIFIED_CHECKPOINT
+  -- if checkpoint_old_cur  = state_in.CURRENT_JUSTIFIED_CHECKPOINT
+  -- if boolean_old_bits* = state_in.JUSTIFICATION_BITS
+  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
+  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false   ;; P=0
+  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true    ;; C=1
+  -- if boolean_bits_after_P* = boolean_bits_init*
+  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
+  ;; JC (C 경로)
+  -- if $get_block_root(state_in, epoch_cur) = root_cur
+  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
+  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
+  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
+  ;; A ∧ C 전제
+  -- if boolean_bits_final*[1] = true
+  -- if boolean_bits_final*[2] = true
+  -- if boolean_bits_final*[3] = true
+  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)      ;; A
+  -- if boolean_bits_final*[0] = true
+  -- if $(checkpoint_old_cur.EPOCH + 2 = epoch_cur)       ;; C
+  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+
+def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if checkpoint_old_prev = state_in.PREVIOUS_JUSTIFIED_CHECKPOINT
+  -- if checkpoint_old_cur  = state_in.CURRENT_JUSTIFIED_CHECKPOINT
+  -- if boolean_old_bits* = state_in.JUSTIFICATION_BITS
+  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
+  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false   ;; P=0
+  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true    ;; C=1
+  -- if boolean_bits_after_P* = boolean_bits_init*
+  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
+  ;; JC (C 경로)
+  -- if $get_block_root(state_in, epoch_cur) = root_cur
+  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
+  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
+  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
+  ;; A ∧ D 전제
+  -- if boolean_bits_final*[1] = true
+  -- if boolean_bits_final*[2] = true
+  -- if boolean_bits_final*[3] = true
+  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)      ;; A
+  -- if boolean_bits_final*[0] = true
+  -- if $(checkpoint_old_cur.EPOCH + 1 = epoch_cur)       ;; D
+  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+
+def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if checkpoint_old_prev = state_in.PREVIOUS_JUSTIFIED_CHECKPOINT
+  -- if checkpoint_old_cur  = state_in.CURRENT_JUSTIFIED_CHECKPOINT
+  -- if boolean_old_bits* = state_in.JUSTIFICATION_BITS
+  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
+  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false   ;; P=0
+  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true    ;; C=1
+  -- if boolean_bits_after_P* = boolean_bits_init*
+  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
+  ;; JC (C 경로)
+  -- if $get_block_root(state_in, epoch_cur) = root_cur
+  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
+  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
+  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
+  ;; B ∧ C 전제
+  -- if boolean_bits_final*[1] = true
+  -- if boolean_bits_final*[2] = true
+  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)      ;; B
+  -- if boolean_bits_final*[0] = true
+  -- if $(checkpoint_old_cur.EPOCH + 2 = epoch_cur)       ;; C
+  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+
+def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if checkpoint_old_prev = state_in.PREVIOUS_JUSTIFIED_CHECKPOINT
+  -- if checkpoint_old_cur  = state_in.CURRENT_JUSTIFIED_CHECKPOINT
+  -- if boolean_old_bits* = state_in.JUSTIFICATION_BITS
+  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
+  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false   ;; P=0
+  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true    ;; C=1
+  -- if boolean_bits_after_P* = boolean_bits_init*
+  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
+  ;; JC (C 경로)
+  -- if $get_block_root(state_in, epoch_cur) = root_cur
+  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
+  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
+  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
+  ;; B ∧ D 전제
+  -- if boolean_bits_final*[1] = true
+  -- if boolean_bits_final*[2] = true
+  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)      ;; B
+  -- if boolean_bits_final*[0] = true
+  -- if $(checkpoint_old_cur.EPOCH + 1 = epoch_cur)       ;; D
+  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+
 
 def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
   ;; P=0, C=1, Finalize A  (비트·에폭이 허용하면 가능)
@@ -415,7 +517,7 @@ def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev
   -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
   -- if $get_block_root(state_in, epoch_cur) = root_cur
   -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = state_in.CURRENT_JUSTIFIED_CHECKPOINT]
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
   -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
   -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
   ;; Finalize D
@@ -446,8 +548,112 @@ def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev
 
 
 ;; =========================
-;; P=1, C=1  →  A / B / C / D / None  (5개)
+;; P=1, C=1  →  (A and C) (A and D) (B and C) (B and D) + A / B / C / D / None  (9개)
 ;; =========================
+def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if checkpoint_old_prev = state_in.PREVIOUS_JUSTIFIED_CHECKPOINT
+  -- if checkpoint_old_cur  = state_in.CURRENT_JUSTIFIED_CHECKPOINT
+  -- if boolean_old_bits* = state_in.JUSTIFICATION_BITS
+  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
+  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true     ;; P=1
+  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true     ;; C=1
+  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
+  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
+  ;; JC (prev ← old_cur; curr ← (epoch_cur, root_cur))
+  -- if $get_block_root(state_in, epoch_cur) = root_cur
+  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
+  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
+  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
+  ;; A ∧ C 전제
+  -- if boolean_bits_final*[1] = true
+  -- if boolean_bits_final*[2] = true
+  -- if boolean_bits_final*[3] = true
+  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)      ;; A
+  -- if boolean_bits_final*[0] = true
+  -- if $(checkpoint_old_cur.EPOCH + 2 = epoch_cur)       ;; C
+  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+
+
+def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if checkpoint_old_prev = state_in.PREVIOUS_JUSTIFIED_CHECKPOINT
+  -- if checkpoint_old_cur  = state_in.CURRENT_JUSTIFIED_CHECKPOINT
+  -- if boolean_old_bits* = state_in.JUSTIFICATION_BITS
+  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
+  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true     ;; P=1
+  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true     ;; C=1
+  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
+  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
+  ;; JC (prev ← old_cur; curr ← (epoch_cur, root_cur))
+  -- if $get_block_root(state_in, epoch_cur) = root_cur
+  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
+  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
+  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
+  ;; A ∧ D 전제
+  -- if boolean_bits_final*[1] = true
+  -- if boolean_bits_final*[2] = true
+  -- if boolean_bits_final*[3] = true
+  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)      ;; A
+  -- if boolean_bits_final*[0] = true
+  -- if $(checkpoint_old_cur.EPOCH + 1 = epoch_cur)       ;; D
+  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+
+def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if checkpoint_old_prev = state_in.PREVIOUS_JUSTIFIED_CHECKPOINT
+  -- if checkpoint_old_cur  = state_in.CURRENT_JUSTIFIED_CHECKPOINT
+  -- if boolean_old_bits* = state_in.JUSTIFICATION_BITS
+  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
+  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true     ;; P=1
+  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true     ;; C=1
+  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
+  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
+  ;; JC (prev ← old_cur; curr ← (epoch_cur, root_cur))
+  -- if $get_block_root(state_in, epoch_cur) = root_cur
+  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
+  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
+  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
+  ;; B ∧ C 전제
+  -- if boolean_bits_final*[1] = true
+  -- if boolean_bits_final*[2] = true
+  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)      ;; B
+  -- if boolean_bits_final*[0] = true
+  -- if $(checkpoint_old_cur.EPOCH + 2 = epoch_cur)       ;; C
+  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+
+
+def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
+  -- if $get_previous_epoch(state_in) = epoch_prev
+  -- if $get_current_epoch(state_in)  = epoch_cur
+  -- if checkpoint_old_prev = state_in.PREVIOUS_JUSTIFIED_CHECKPOINT
+  -- if checkpoint_old_cur  = state_in.CURRENT_JUSTIFIED_CHECKPOINT
+  -- if boolean_old_bits* = state_in.JUSTIFICATION_BITS
+  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
+  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true     ;; P=1
+  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true     ;; C=1
+  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
+  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
+  ;; JC (prev ← old_cur; curr ← (epoch_cur, root_cur))
+  -- if $get_block_root(state_in, epoch_cur) = root_cur
+  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
+  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
+  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
+  ;; B ∧ D 전제
+  -- if boolean_bits_final*[1] = true
+  -- if boolean_bits_final*[2] = true
+  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)      ;; B
+  -- if boolean_bits_final*[0] = true
+  -- if $(checkpoint_old_cur.EPOCH + 1 = epoch_cur)       ;; D
+  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+
 
 def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
   ;; P=1, C=1, Finalize A
@@ -515,7 +721,7 @@ def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev
   -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
   -- if $get_block_root(state_in, epoch_cur) = root_cur
   -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = state_in.CURRENT_JUSTIFIED_CHECKPOINT]
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
   -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
   -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
   ;; Finalize C
@@ -539,7 +745,7 @@ def $weigh_justification_and_finalization(state_in, gwei_total_active, gwei_prev
   -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
   -- if $get_block_root(state_in, epoch_cur) = root_cur
   -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = state_in.CURRENT_JUSTIFIED_CHECKPOINT]
+  -- if state_pj  = state_in[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
   -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
   -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
   ;; Finalize D
