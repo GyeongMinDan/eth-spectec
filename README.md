@@ -19,6 +19,23 @@ SpecTec was originally developed for WebAssembly (Wasm-SpecTec), then adapted/ge
   opam install dune bignum menhir core core_unix bisect_ppx
   ```
 
+* Clone the repository with submodules:
+  ```bash
+  git clone --recursive https://github.com/GyeongMinDan/eth-spectec.git
+  cd eth-spectec
+  ```
+  Or if you already cloned without `--recursive`:
+  ```bash
+  git submodule update --init --recursive
+  ```
+
+* Install Python dependencies:
+  ```bash
+  pip install -r requirements.txt
+  ```
+  This installs `remerkleable` which is required for SSZ serialization/deserialization.
+
+
 ### Building the Project
 
 ```bash
