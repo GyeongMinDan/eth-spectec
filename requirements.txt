@@ -1,0 +1,7 @@
+# Python dependencies for spectec-core
+# This file ensures compatibility with consensus-specs
+
+# remerkleable: Use the same version as consensus-specs submodule
+# consensus-specs submodule now uses latest master (ab09e2e94)
+remerkleable @ git+https://github.com/ethereum/remerkleable@667eab00ecc3c25682c754dd72ad164fa8c1750e
+
