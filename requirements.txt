@@ -1,7 +1,19 @@
 # Python dependencies for spectec-core
 # This file ensures compatibility with consensus-specs
+# (Note: Converter scripts run in system Python, not in consensus-specs/.venv)
+
 
 # remerkleable: Use the same version as consensus-specs submodule
 # consensus-specs submodule now uses latest master (ab09e2e94)
 remerkleable @ git+https://github.com/ethereum/remerkleable@667eab00ecc3c25682c754dd72ad164fa8c1750e
 
+# Dependencies required for eth2spec import (matching consensus-specs/pyproject.toml versions)
+python-snappy==0.7.3
+eth-typing==5.2.1
+eth-utils==5.3.1
+lru-dict==1.3.0
+milagro-bls-binding==1.9.0
+py-ecc==8.0.0
+py_arkworks_bls12381==0.3.8
+pycryptodome==3.23.0
+ruamel.yaml==0.18.15
