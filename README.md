@@ -54,6 +54,8 @@ SpecTec was originally developed for WebAssembly (Wasm-SpecTec), then adapted/ge
   cd ..
   ```
   This generates the `mainnet.py` and `minimal.py` files needed by the Converter scripts.
+  
+  **Note:** `make _pyspec` runs inside the `consensus-specs/.venv` virtual environment (created by `uv sync`). The generated files are used by Converter scripts which run in your system Python environment. The virtual environment is only needed for building, not for running the Converter scripts.
 
 * Install Python dependencies:
   ```bash
