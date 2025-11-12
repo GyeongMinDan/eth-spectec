@@ -50,7 +50,8 @@ class TestRunner:
         self.compare_result = self.converter_dir / "CompareResult.py"
         
         # consensus-specs 경로 (eth2specResult.py에서 사용)
-        consensus_specs = self.converter_dir.parent.parent / "consensus-specs"
+        # converter_dir이 Converter/이면, parent는 spectec-core/, 그 아래에 consensus-specs가 있음
+        consensus_specs = self.converter_dir.parent / "consensus-specs"
         self.consensus_specs_path = consensus_specs / "tests" / "core" / "pyspec"
     
     def find_test_cases(self, test_suite_dir: str) -> List[Path]:
@@ -160,7 +161,7 @@ class TestRunner:
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=1800  # Spectec 실행에 timeout 설정
+                timeout=3600  # Spectec 실행에 timeout 설정
             )
             
             # stderr에 에러가 있는지 확인 (Spectec는 에러를 stderr에 출력)
