@@ -29,6 +29,32 @@ SpecTec was originally developed for WebAssembly (Wasm-SpecTec), then adapted/ge
   git submodule update --init --recursive
   ```
 
+* Configure sparse-checkout for consensus-specs submodule (to download only necessary files):
+  ```bash
+  cd consensus-specs
+  git sparse-checkout init --cone
+  git sparse-checkout set tests/core/pyspec specs/ configs/ presets/ pysetup/ sync/ .
+  cd ..
+  ```
+ The directories `configs/`, `presets/`, `pysetup/`, and `sync/` are required for building.
+
+* Install `uv` (if you already got this, you can skip it):
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+  Or on macOS with Homebrew:
+  ```bash
+  brew install uv
+  ```
+
+* Build the Python specification files (required for mainnet.py, minimal.py):
+  ```bash
+  cd consensus-specs
+  make _pyspec
+  cd ..
+  ```
+  This generates the `mainnet.py` and `minimal.py` files needed by the Converter scripts.
+
 * Install Python dependencies:
   ```bash
   pip install -r requirements.txt
