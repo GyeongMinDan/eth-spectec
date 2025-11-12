@@ -90,7 +90,7 @@ let hash_ ~at (typ : targ) (v: Il.Value.t) : (Il.Value.t, Err.t) result =
     let open Digestif.SHA256 in
     digest_bytes raw |> to_raw_string |> Bytes.of_string
   in
-  Ok (Value.nat (bigint_of_be_bytes h))
+  Ok (make_bytes ~num:(bigint_of_be_bytes h) ~len:32)
 
 let builtins : (string * Define.t) list =
   [
