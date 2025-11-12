@@ -530,16 +530,17 @@ let is_valid_merkle_branch
   let computed = iter 0 leaf in
   Ok (Value.bool Bigint.(computed = root))
 
-(* ----- hash_tree_root_roots(root list) : root ----- *)
+(* ----- hash_tree_root_roots(root Vector) : root ----- *)
+(* Vector[Root, N] 타입을 처리: Vector는 mix_in_length를 적용하지 않음 *)
+(* hash_tree_root_beaconState에서 사용하는 htr_bytes32_vector와 동일한 로직 사용 *)
 let hash_tree_root_roots ~at (lst : Num.t list) : (Value.t, Err.t) result =
   let lst = List.map Num.to_int lst in
   at |> ignore;
-  let leaves = Array.of_list (List.map (fun n -> be_of_bigint_fixed n ~len:32) lst) in
-  let root = merkleize_leaves leaves in
-  (* SSZ 규칙: 모든 List 타입은 mix_in_length에 요소 개수를 넣어야 함 *)
-  let elem_len = Array.length leaves in
-  let root' = mix_in_length root (Bigint.of_int elem_len) in
-  Ok (make_bytes ~num:(bigint_of_be_bytes root') ~len:32)
+  (* Num.t list -> Bytes.t list 변환 (각 root를 32B로 변환) *)
+  let roots_bytes = List.map (fun n -> be_of_bigint_fixed n ~len:32) lst in
+  (* htr_bytes32_vector 사용: Vector는 mix_in_length 없이 merkleize_leaves만 적용 *)
+  let root = htr_bytes32_vector roots_bytes in
+  Ok (make_bytes ~num:(bigint_of_be_bytes root) ~len:32)
 
 (* ----- hash_tree_root_tx(transactions list) : root ----- *)
 (* transactions: List[Transaction, MAX_TRANSACTIONS_PER_PAYLOAD] = List[ByteList, 1048576] *)
