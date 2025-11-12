@@ -271,6 +271,8 @@ def $next_sync_committee_indices_loop(
 def $next_sync_committee_indices_loop(
   state_beaconState, validatorIndex_active*, bytes32_seed, uint64_active_cnt, uint64_i, validatorIndex_acc*
 ) = validatorIndex_ret*
+  -- if $( |validatorIndex_acc*| ) = uint64_len_acc
+  -- if $( uint64_len_acc < $SYNC_COMMITTEE_SIZE )
   ;; 1 shuffled_index = compute_shuffled_index(i % active_cnt, active_cnt, seed)
   -- if $(uint64_i \ uint64_active_cnt) = uint64_mod
   -- if $compute_shuffled_index(uint64_mod, uint64_active_cnt, bytes32_seed) = uint64_shuf
@@ -306,6 +308,8 @@ def $next_sync_committee_indices_loop(
 def $next_sync_committee_indices_loop(
   state_beaconState, validatorIndex_active*, bytes32_seed, uint64_active_cnt, uint64_i, validatorIndex_acc*
 ) = validatorIndex_ret*
+  -- if $( |validatorIndex_acc*| ) = uint64_len_acc
+  -- if $( uint64_len_acc < $SYNC_COMMITTEE_SIZE )
   ;; 1 shuffled_index = compute_shuffled_index(i % active_cnt, active_cnt, seed)
   -- if $(uint64_i \ uint64_active_cnt) = uint64_mod
   -- if $compute_shuffled_index(uint64_mod, uint64_active_cnt, bytes32_seed) = uint64_shuf
