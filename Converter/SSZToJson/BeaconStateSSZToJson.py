@@ -1,7 +1,16 @@
 import argparse
 import importlib
 import json
+import os
+import sys
 from typing import Any
+
+# Add eth2spec to path
+# Get the absolute path to ensure it works from any directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+consensus_specs_path = os.path.abspath(os.path.join(script_dir, '../../consensus-specs/tests/core/pyspec'))
+if consensus_specs_path not in sys.path:
+    sys.path.insert(0, consensus_specs_path)
 
 from remerkleable.basic import boolean, bit, uint8, uint16, uint32, uint64, uint128, uint256
 from remerkleable.byte_arrays import ByteVector, ByteList

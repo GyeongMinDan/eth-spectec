@@ -2,7 +2,11 @@ import sys
 import os
 
 # Add eth2spec to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../consensus-specs/tests/core/pyspec'))
+# Get the absolute path to ensure it works from any directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+consensus_specs_path = os.path.abspath(os.path.join(script_dir, '../../consensus-specs/tests/core/pyspec'))
+if consensus_specs_path not in sys.path:
+    sys.path.insert(0, consensus_specs_path)
 
 from eth2spec.capella import mainnet as spec
 from eth2spec.utils.ssz.ssz_impl import deserialize, hash_tree_root

@@ -1,7 +1,15 @@
 import argparse
 import importlib
+import os
 import sys
 from typing import Any
+
+# Add eth2spec to path
+# Get the absolute path to ensure it works from any directory
+script_dir = os.path.dirname(os.path.abspath(__file__))
+consensus_specs_path = os.path.abspath(os.path.join(script_dir, '../../consensus-specs/tests/core/pyspec'))
+if consensus_specs_path not in sys.path:
+    sys.path.insert(0, consensus_specs_path)
 
 def compare_ssz_files(file1_path: str, file2_path: str, type_module: str, type_name: str) -> bool:
     mod = importlib.import_module(type_module)
