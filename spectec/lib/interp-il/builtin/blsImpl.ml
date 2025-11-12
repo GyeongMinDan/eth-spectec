@@ -1,5 +1,6 @@
 open Il
 open Xl
+open Runtime_dynamic.Value
 open Stdlib.Bytes
 
 let ( let* ) = Result.bind
@@ -87,10 +88,11 @@ let eth_aggregate_pubkeys ~at (pubkeys_num : Num.t list)
     List.fold_left Bls12_381.G1.add Bls12_381.G1.zero points
   in
 
-  (* 3) 48B로 직렬화 -> int *)
+  (* 3) 48B로 직렬화 -> BytesV (48 bytes) *)
   let out_b = Bls12_381.G1.to_compressed_bytes agg in
   let out_n = bigint_of_be_bytes out_b in
-  Ok (Value.nat out_n)
+  (* BLSPubkey는 48바이트이므로 BytesV로 반환 *)
+  Ok (make_bytes ~num:out_n ~len:48)
 
 (* dec $bls_fast_aggregate_verify(blsPubkey*, bytes32, blsSignature) : boolean *)
 
