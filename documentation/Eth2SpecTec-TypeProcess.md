@@ -1,4 +1,5 @@
 # Type Processing in Spectec: Handling Ethereum 2.0 SSZ Bytes Types
+Description for builtin funcs : How to implement and how to handle the type in eth2spectec.
 
 ## 1. Introduction
 
