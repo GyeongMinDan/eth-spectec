@@ -96,16 +96,16 @@ let trace_open_iter (ctx : t) (inner : string) : t =
 
 let trace_close (ctx : t) : t =
   let trace = Trace.close ctx.trace in
-  (if ctx.config.debug then
-     match trace with
-     | Rel { id_rel; id_rule; _ } ->
-         Format.asprintf "Closing rule %s/%s\n" id_rel.it id_rule.it
-         |> print_endline
-     | Dec { id_func; idx_clause; _ } ->
-         Format.asprintf "Closing clause $%s/%d\n" id_func.it idx_clause
-         |> print_endline
-     | Iter _ -> Format.asprintf "Closing iteration\n" |> print_endline
-     | _ -> ());
+  (* (if ctx.config.debug then *)
+  (*    match trace with *)
+  (*    | Rel { id_rel; id_rule; _ } -> *)
+  (*        Format.asprintf "Closing rule %s/%s\n" id_rel.it id_rule.it *)
+  (*        |> print_endline *)
+  (*    | Dec { id_func; idx_clause; _ } -> *)
+  (*        Format.asprintf "Closing clause $%s/%d\n" id_func.it idx_clause *)
+  (*        |> print_endline *)
+  (*    | Iter _ -> Format.asprintf "Closing iteration\n" |> print_endline *)
+  (*    | _ -> ()); *)
   { ctx with trace }
 
 let trace_extend (ctx : t) (prem : prem) : t =
@@ -291,8 +291,8 @@ let sub_opt (ctx : t) (vars : var list) : t option attempt =
 let transpose (value_matrix : value list list) : value list list attempt =
   match value_matrix with
   | [] -> Ok []
-  | _ ->
-      let width = List.length (List.hd value_matrix) in
+  | row_h :: rows_t ->
+      let width = List.length row_h in
       let* _ =
         check_fail
           (List.for_all
@@ -300,12 +300,16 @@ let transpose (value_matrix : value list list) : value list list attempt =
              value_matrix)
           no_region "cannot transpose a matrix of value batches"
       in
-      let value_matrix =
-        List.init width (fun j ->
-            List.init (List.length value_matrix) (fun i ->
-                List.nth (List.nth value_matrix i) j))
+      let columns_init = List.map (fun elem -> [ elem ]) row_h in
+      let columns_rev =
+        List.fold_left
+          (fun columns_rev row ->
+            List.map2
+              (fun column_rev elem -> elem :: column_rev)
+              columns_rev row)
+          columns_init rows_t
       in
-      Ok value_matrix
+      Ok (List.map List.rev columns_rev)
 
 let sub_list (ctx : t) (vars : var list) : t list attempt =
   (* First break the values that are to be iterated over,
@@ -318,16 +322,16 @@ let sub_list (ctx : t) (vars : var list) : t list attempt =
     |> transpose
   in
   (* For each batch of values, create a sub-context *)
-  let ctxs_sub =
+  let ctxs_sub_rev =
     List.fold_left
-      (fun ctxs_sub value_batch ->
+      (fun ctxs_sub_rev value_batch ->
         let ctx_sub =
           List.fold_left2
             (fun ctx_sub (id, _typ, iters) value ->
               add_value ~shadow:true Local ctx_sub (id, iters) value)
             ctx vars value_batch
         in
-        ctxs_sub @ [ ctx_sub ])
+        ctx_sub :: ctxs_sub_rev)
       [] values_batch
   in
-  Ok ctxs_sub
+  Ok (List.rev ctxs_sub_rev)

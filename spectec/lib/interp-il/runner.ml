@@ -8,6 +8,7 @@ let run_relation (ctx : Ctx.t) (spec : spec) (rid : id') (values : value list) :
     Ctx.t * value list =
   let ctx = Interp.load_spec ctx spec in
   let+ ctx, values = Interp.invoke_rel ctx (rid $ no_region) values in
+  Ctx.profile ctx;
   (ctx, values)
 
 let init ?(debug : bool = false) ?(profile : bool = false)

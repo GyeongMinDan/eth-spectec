@@ -16,16 +16,16 @@ type t =
       id_rule : id;
       values_input : value list;
       time : time;
-      subtraces : t list;
+      subtraces_rev : t list;
     }
   | Dec of {
       id_func : id;
       idx_clause : int;
       values_input : value list;
       time : time;
-      subtraces : t list;
+      subtraces_rev : t list;
     }
-  | Iter of { inner : string; time : time; subtraces : t list }
+  | Iter of { inner : string; time : time; subtraces_rev : t list }
   | Prem of prem
   | Empty
 
@@ -35,26 +35,26 @@ let open_time () : time = ING (Unix.gettimeofday ())
 
 let open_rel (id_rel : id) (id_rule : id) (values_input : value list) : t =
   let time = open_time () in
-  Rel { id_rel; id_rule; values_input; time; subtraces = [] }
+  Rel { id_rel; id_rule; values_input; time; subtraces_rev = [] }
 
 let open_dec (id_func : id) (idx_clause : int) (values_input : value list) : t =
   let time = open_time () in
-  Dec { id_func; idx_clause; values_input; time; subtraces = [] }
+  Dec { id_func; idx_clause; values_input; time; subtraces_rev = [] }
 
 let open_iter (inner : string) : t =
   let time = open_time () in
-  Iter { inner; time; subtraces = [] }
+  Iter { inner; time; subtraces_rev = [] }
 
 (* Closers *)
 
-let close_time (time_start : time) (subtraces : t list) : time =
+let close_time (time_start : time) (subtraces_rev : t list) : time =
   let time_start =
     match time_start with ING time_start -> time_start | _ -> assert false
   in
   let time_end = Unix.gettimeofday () in
   let time_sub =
-    subtraces
-    |> List.map (fun trace ->
+    subtraces_rev
+    |> List.rev_map (fun trace ->
            match trace with
            | Rel { time; _ } | Dec { time; _ } | Iter { time; _ } -> (
                match time with
@@ -74,15 +74,15 @@ let close_time (time_start : time) (subtraces : t list) : time =
 
 let close (trace : t) : t =
   match trace with
-  | Rel { id_rel; id_rule; values_input; time; subtraces } ->
-      let time = close_time time subtraces in
-      Rel { id_rel; id_rule; values_input; time; subtraces }
-  | Dec { id_func; idx_clause; values_input; time; subtraces } ->
-      let time = close_time time subtraces in
-      Dec { id_func; idx_clause; values_input; time; subtraces }
-  | Iter { inner; time; subtraces } ->
-      let time = close_time time subtraces in
-      Iter { inner; time; subtraces }
+  | Rel { id_rel; id_rule; values_input; time; subtraces_rev } ->
+      let time = close_time time subtraces_rev in
+      Rel { id_rel; id_rule; values_input; time; subtraces_rev }
+  | Dec { id_func; idx_clause; values_input; time; subtraces_rev } ->
+      let time = close_time time subtraces_rev in
+      Dec { id_func; idx_clause; values_input; time; subtraces_rev }
+  | Iter { inner; time; subtraces_rev } ->
+      let time = close_time time subtraces_rev in
+      Iter { inner; time; subtraces_rev }
   | _ -> assert false
 
 (* Pretty Printing *)
@@ -98,48 +98,50 @@ let pp_time fmt (time : time) =
 
 let rec wipe_time (trace : t) : t =
   match trace with
-  | Rel { id_rel; id_rule; values_input; subtraces; _ } ->
+  | Rel { id_rel; id_rule; values_input; subtraces_rev; _ } ->
       let time = CACHED in
-      let subtraces = List.map wipe_time subtraces in
-      Rel { id_rel; id_rule; values_input; time; subtraces }
-  | Dec { id_func; idx_clause; values_input; subtraces; _ } ->
+      let subtraces_rev = List.map wipe_time subtraces_rev in
+      Rel { id_rel; id_rule; values_input; time; subtraces_rev }
+  | Dec { id_func; idx_clause; values_input; subtraces_rev; _ } ->
       let time = CACHED in
-      let subtraces = List.map wipe_time subtraces in
-      Dec { id_func; idx_clause; values_input; time; subtraces }
-  | Iter { inner; subtraces; _ } ->
+      let subtraces_rev = List.map wipe_time subtraces_rev in
+      Dec { id_func; idx_clause; values_input; time; subtraces_rev }
+  | Iter { inner; subtraces_rev; _ } ->
       let time = CACHED in
-      let subtraces = List.map wipe_time subtraces in
-      Iter { inner; time; subtraces }
+      let subtraces_rev = List.map wipe_time subtraces_rev in
+      Iter { inner; time; subtraces_rev }
   | _ -> trace
 
 let wipe_subtraces (trace : t) : t list =
   match trace with
-  | Rel { subtraces; _ } | Dec { subtraces; _ } | Iter { subtraces; _ } ->
-      List.map wipe_time subtraces
+  | Rel { subtraces_rev; _ }
+  | Dec { subtraces_rev; _ }
+  | Iter { subtraces_rev; _ } ->
+      List.map wipe_time subtraces_rev
   | _ -> assert false
 
-let replace_subtraces (trace : t) (subtraces : t list) : t =
+let replace_subtraces (trace : t) (subtraces_rev : t list) : t =
   match trace with
   | Rel { id_rel; id_rule; values_input; time; _ } ->
-      Rel { id_rel; id_rule; values_input; time; subtraces }
+      Rel { id_rel; id_rule; values_input; time; subtraces_rev }
   | Dec { id_func; idx_clause; values_input; time; _ } ->
-      Dec { id_func; idx_clause; values_input; time; subtraces }
-  | Iter { inner; time; _ } -> Iter { inner; time; subtraces }
+      Dec { id_func; idx_clause; values_input; time; subtraces_rev }
+  | Iter { inner; time; _ } -> Iter { inner; time; subtraces_rev }
   | _ -> assert false
 
 (* Committing *)
 
 let commit (trace : t) (trace_sub : t) : t =
   match trace with
-  | Rel { id_rel; id_rule; values_input; time; subtraces; _ } ->
-      let subtraces = subtraces @ [ trace_sub ] in
-      Rel { id_rel; id_rule; values_input; time; subtraces }
-  | Dec { id_func; idx_clause; values_input; time; subtraces } ->
-      let subtraces = subtraces @ [ trace_sub ] in
-      Dec { id_func; idx_clause; values_input; time; subtraces }
-  | Iter { inner; time; subtraces } ->
-      let subtraces = subtraces @ [ trace_sub ] in
-      Iter { inner; time; subtraces }
+  | Rel { id_rel; id_rule; values_input; time; subtraces_rev; _ } ->
+      let subtraces_rev = trace_sub :: subtraces_rev in
+      Rel { id_rel; id_rule; values_input; time; subtraces_rev }
+  | Dec { id_func; idx_clause; values_input; time; subtraces_rev } ->
+      let subtraces_rev = trace_sub :: subtraces_rev in
+      Dec { id_func; idx_clause; values_input; time; subtraces_rev }
+  | Iter { inner; time; subtraces_rev } ->
+      let subtraces_rev = trace_sub :: subtraces_rev in
+      Iter { inner; time; subtraces_rev }
   | Prem _ -> assert false
   | Empty -> trace_sub
 
@@ -147,15 +149,15 @@ let commit (trace : t) (trace_sub : t) : t =
 
 let extend (trace : t) (prem : prem) : t =
   match trace with
-  | Rel { id_rel; id_rule; values_input; time; subtraces } ->
-      let subtraces = subtraces @ [ Prem prem ] in
-      Rel { id_rel; id_rule; values_input; time; subtraces }
-  | Dec { id_func; idx_clause; values_input; time; subtraces } ->
-      let subtraces = subtraces @ [ Prem prem ] in
-      Dec { id_func; idx_clause; values_input; time; subtraces }
-  | Iter { inner; time; subtraces } ->
-      let subtraces = subtraces @ [ Prem prem ] in
-      Iter { inner; time; subtraces }
+  | Rel { id_rel; id_rule; values_input; time; subtraces_rev } ->
+      let subtraces_rev = Prem prem :: subtraces_rev in
+      Rel { id_rel; id_rule; values_input; time; subtraces_rev }
+  | Dec { id_func; idx_clause; values_input; time; subtraces_rev } ->
+      let subtraces_rev = Prem prem :: subtraces_rev in
+      Dec { id_func; idx_clause; values_input; time; subtraces_rev }
+  | Iter { inner; time; subtraces_rev } ->
+      let subtraces_rev = Prem prem :: subtraces_rev in
+      Iter { inner; time; subtraces_rev }
   | Prem _ | Empty -> assert false
 
 (* Printing *)
@@ -187,26 +189,26 @@ let rec log ?(tagger = Tagger.empty) ?(depth = 0) ?(idx = 0) ?(verbose = false)
     match time with ING _ -> assert false | _ -> pp_time fmt time
   in
   match trace with
-  | Rel { id_rel; id_rule; values_input; time; subtraces } ->
+  | Rel { id_rel; id_rule; values_input; time; subtraces_rev } ->
       let depth = depth + 1 in
       let tagger = update_tagger tagger depth in
       Format.asprintf "[>>> %s] Rule %s/%s\n%s%s[<<< %s] Rule %s/%s %a"
         (tag tagger depth) id_rel.it id_rule.it (log_values values_input)
-        (logs ~tagger ~depth ~verbose subtraces)
+        (logs ~tagger ~depth ~verbose subtraces_rev)
         (tag tagger depth) id_rel.it id_rule.it log_time time
-  | Dec { id_func; idx_clause; values_input; time; subtraces } ->
+  | Dec { id_func; idx_clause; values_input; time; subtraces_rev } ->
       let depth = depth + 1 in
       let tagger = update_tagger tagger depth in
       Format.asprintf "[>>> %s] Clause %s/%d\n%s%s[<<< %s] Clause %s/%d %a"
         (tag tagger depth) id_func.it idx_clause (log_values values_input)
-        (logs ~tagger ~depth ~verbose subtraces)
+        (logs ~tagger ~depth ~verbose subtraces_rev)
         (tag tagger depth) id_func.it idx_clause log_time time
-  | Iter { inner; time; subtraces } ->
+  | Iter { inner; time; subtraces_rev } ->
       let depth = depth + 1 in
       let tagger = update_tagger tagger depth in
       Format.asprintf "[>>> %s] Iteration %s\n%s[<<< %s] Iteration %a"
         (tag tagger depth) inner
-        (logs ~tagger ~depth ~verbose subtraces)
+        (logs ~tagger ~depth ~verbose subtraces_rev)
         (tag tagger depth) log_time time
   | Prem prem ->
       Format.asprintf "[%s-%d] %s" (tag tagger depth) idx
@@ -214,8 +216,8 @@ let rec log ?(tagger = Tagger.empty) ?(depth = 0) ?(idx = 0) ?(verbose = false)
   | Empty -> ""
 
 and logs ?(tagger = Tagger.empty) ?(depth = 0) ?(verbose = false)
-    (traces : t list) : string =
-  match traces with
+    (traces_rev : t list) : string =
+  match traces_rev with
   | [] -> ""
   | _ ->
       List.fold_left
@@ -223,7 +225,7 @@ and logs ?(tagger = Tagger.empty) ?(depth = 0) ?(verbose = false)
           let idx = match trace with Prem _ -> idx + 1 | _ -> idx in
           let strace = log ~tagger ~depth ~idx ~verbose trace in
           (idx, straces @ [ strace ]))
-        (0, []) traces
+        (0, []) (List.rev traces_rev)
       |> snd |> String.concat "\n" |> Format.asprintf "%s\n"
 
 (* Profiling *)
@@ -251,7 +253,7 @@ let log_counter (counter : counter) : string =
 let rec profile' (rules : counter) (funcs : counter) (trace : t) :
     counter * counter =
   match trace with
-  | Rel { id_rel; subtraces; time; _ } ->
+  | Rel { id_rel; subtraces_rev; time; _ } ->
       let rules =
         match time with
         | END (_, duration) -> update_counter id_rel.it duration rules
@@ -260,8 +262,8 @@ let rec profile' (rules : counter) (funcs : counter) (trace : t) :
       in
       List.fold_left
         (fun (rules, funcs) trace -> profile' rules funcs trace)
-        (rules, funcs) subtraces
-  | Dec { id_func; subtraces; time; _ } ->
+        (rules, funcs) (List.rev subtraces_rev)
+  | Dec { id_func; subtraces_rev; time; _ } ->
       let funcs =
         match time with
         | END (_, duration) -> update_counter id_func.it duration funcs
@@ -270,16 +272,16 @@ let rec profile' (rules : counter) (funcs : counter) (trace : t) :
       in
       List.fold_left
         (fun (rules, funcs) trace -> profile' rules funcs trace)
-        (rules, funcs) subtraces
-  | Iter { subtraces; _ } ->
+        (rules, funcs) (List.rev subtraces_rev)
+  | Iter { subtraces_rev; _ } ->
       List.fold_left
         (fun (rules, funcs) trace -> profile' rules funcs trace)
-        (rules, funcs) subtraces
+        (rules, funcs) (List.rev subtraces_rev)
   | _ -> (rules, funcs)
 
 let profile (trace : t) : unit =
-  Format.printf "Trace...\n";
-  Format.printf "%s\n" (log trace);
+  (* Format.printf "Trace...\n";
+  Format.printf "%s\n" (log trace); *)
   Format.printf "Profiling...\n";
   let rules, funcs = profile' Counter.empty Counter.empty trace in
   Format.printf "Rules:\n";

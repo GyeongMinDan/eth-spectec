@@ -25,7 +25,7 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
   | VarE id, _ ->
       let ctx = Ctx.add_value Local ctx (id, []) value in
       ctx
-    (* to handle true, false value*)
+      (* to handle true, false value*)
   | BoolE b, BoolV b_val ->
       if b = b_val then ctx
       else
@@ -36,8 +36,7 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
       else
         error exp.at
           (F.asprintf "num literal %s does not match value %s"
-             (Num.string_of_num n)
-             (Num.string_of_num n_val))
+             (Num.string_of_num n) (Num.string_of_num n_val))
   | TextE s, TextV s_val ->
       if s = s_val then ctx
       else
@@ -86,13 +85,14 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
          and assign each value to the iterated expression *)
       let ctxs =
         List.fold_left
-          (fun ctxs value ->
+          (fun ctxs_rev value ->
             let ctx =
               { ctx with local = { ctx.local with venv = VEnv.empty } }
             in
             let ctx = assign_exp ctx exp value in
-            ctxs @ [ ctx ])
+            ctx :: ctxs_rev)
           [] values
+        |> List.rev
       in
       (* Per iterated variable, collect its elementwise value,
          then make a sequence out of them *)
@@ -205,11 +205,14 @@ let rec eval_exp (ctx : Ctx.t) (exp : exp) : Ctx.t * value =
   | IterE (exp, iterexp) -> eval_iter_exp note ctx exp iterexp
 
 and eval_exps (ctx : Ctx.t) (exps : exp list) : Ctx.t * value list =
-  List.fold_left
-    (fun (ctx, values) exp ->
-      let ctx, value = eval_exp ctx exp in
-      (ctx, values @ [ value ]))
-    (ctx, []) exps
+  let ctx, values_rev =
+    List.fold_left
+      (fun (ctx, values_rev) exp ->
+        let ctx, value = eval_exp ctx exp in
+        (ctx, value :: values_rev))
+      (ctx, []) exps
+  in
+  (ctx, List.rev values_rev)
 
 (* Boolean expression evaluation *)
 
@@ -325,10 +328,11 @@ and upcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
       | TupleV values ->
           let values =
             List.fold_left2
-              (fun values typ value ->
+              (fun values_rev typ value ->
                 let value = upcast ctx typ value in
-                values @ [ value ])
+                value :: values_rev)
               [] typs values
+            |> List.rev
           in
           Value.Make.tuple typ.it values
       | _ -> assert false)
@@ -362,10 +366,11 @@ and downcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
       | TupleV values ->
           let values =
             List.fold_left2
-              (fun values typ value ->
+              (fun values_rev typ value ->
                 let value = downcast ctx typ value in
-                values @ [ value ])
+                value :: values_rev)
               [] typs values
+            |> List.rev
           in
           Value.Make.tuple typ.it values
       | _ -> assert false)
@@ -577,7 +582,8 @@ and eval_slice_exp (note : typ') (ctx : Ctx.t) (exp_b : exp) (exp_i : exp)
 
 (* Update expression evaluation *)
 
-and eval_access_path (ctx : Ctx.t) (value_b : value) (path : path) : Ctx.t * value =
+and eval_access_path (ctx : Ctx.t) (value_b : value) (path : path) :
+    Ctx.t * value =
   match path.it with
   | RootP -> (ctx, value_b)
   | DotP (path, atom) ->
@@ -613,7 +619,8 @@ and eval_access_path (ctx : Ctx.t) (value_b : value) (path : path) : Ctx.t * val
       let value_res = Value.Make.list path.note values_slice in
       (ctx, value_res)
 
-and eval_update_path (ctx : Ctx.t) (value_b : value) (path : path) (value_n : value) : Ctx.t * value =
+and eval_update_path (ctx : Ctx.t) (value_b : value) (path : path)
+    (value_n : value) : Ctx.t * value =
   match path.it with
   | RootP -> (ctx, value_n)
   | DotP (path, atom) ->
@@ -628,23 +635,26 @@ and eval_update_path (ctx : Ctx.t) (value_b : value) (path : path) (value_n : va
       let value_updated = Value.Make.record path.note fields in
       eval_update_path ctx value_b path value_updated
   | IdxP (path, exp) ->
-      (* path는 부모 path (예: .STATE_ROOTS), exp는 인덱스 *)
       let ctx, value_base = eval_access_path ctx value_b path in
       let ctx, value_idx = eval_exp ctx exp in
       let values = Value.get_list value_base in
       let idx = value_idx |> Value.get_num |> Num.to_int |> Bigint.to_int_exn in
-      (* 인덱스 범위 체크 *)
-      if idx < 0 || idx >= List.length values then
-        failwith (Printf.sprintf "Index %d out of bounds for list of length %d" idx (List.length values))
-      else
-        let values_updated =
-          List.mapi
-            (fun i value -> if i = idx then value_n else value)
-            values
-        in
-        (* 업데이트 표현식은 전체 리스트를 반환해야 함 *)
-        let value_list_updated = Value.Make.list path.note values_updated in
-        (ctx, value_list_updated)
+      let rec split_prefix prefix_rev steps values =
+        match (steps, values) with
+        | 0, _ :: values_t -> (prefix_rev, values_t)
+        | s, value_h :: values_t when s > 0 ->
+            split_prefix (value_h :: prefix_rev) (s - 1) values_t
+        | _, _ ->
+            failwith
+              (Printf.sprintf "Index %d out of bounds for list of length %d" idx
+                 (List.length values))
+      in
+      let prefix_rev, suffix = split_prefix [] idx values in
+      let values_updated =
+        List.rev_append prefix_rev (value_n :: suffix)
+        |> Value.Make.list path.note
+      in
+      eval_update_path ctx value_b path values_updated
   | SliceP (_path, _exp_l, _exp_h) ->
       failwith "(TODO) update: SliceP update not yet implemented"
 
@@ -696,16 +706,17 @@ and eval_iter_exp_opt (note : typ') (ctx : Ctx.t) (exp : exp) (vars : var list)
 and eval_iter_exp_list (note : typ') (ctx : Ctx.t) (exp : exp) (vars : var list)
     : Ctx.t * value =
   let+ ctxs_sub = Ctx.sub_list ctx vars in
-  let ctx, values =
+  let ctx, values_rev =
     List.fold_left
-      (fun (ctx, values) ctx_sub ->
+      (fun (ctx, values_rev) ctx_sub ->
         let ctx_sub = Ctx.trace_open_iter ctx_sub (Print.string_of_exp exp) in
         let ctx_sub, value = eval_exp ctx_sub exp in
         let ctx_sub = Ctx.trace_close ctx_sub in
         let ctx = Ctx.trace_commit ctx ctx_sub.trace in
-        (ctx, values @ [ value ]))
+        (ctx, value :: values_rev))
       (ctx, []) ctxs_sub
   in
+  let values = List.rev values_rev in
   let value_res = values |> Value.Make.list note in
   (ctx, value_res)
 
@@ -726,11 +737,14 @@ and eval_arg (ctx : Ctx.t) (arg : arg) : Ctx.t * value =
       (ctx, value_res)
 
 and eval_args (ctx : Ctx.t) (args : arg list) : Ctx.t * value list =
-  List.fold_left
-    (fun (ctx, values) arg ->
-      let ctx, value = eval_arg ctx arg in
-      (ctx, values @ [ value ]))
-    (ctx, []) args
+  let ctx, values_rev =
+    List.fold_left
+      (fun (ctx, values_rev) arg ->
+        let ctx, value = eval_arg ctx arg in
+        (ctx, value :: values_rev))
+      (ctx, []) args
+  in
+  (ctx, List.rev values_rev)
 
 (* Premise evaluation *)
 
@@ -810,10 +824,10 @@ and eval_iter_prem_list (ctx : Ctx.t) (prem : prem) (vars : var list) :
     (* Otherwise, evaluate the premise for each batch of bound values,
        and collect the resulting binding batches *)
     | _ ->
-        let* ctx, values_binding_batch =
+        let* ctx, values_binding_batch_rev =
           List.fold_left
             (fun ctx_values_binding_batch ctx_sub ->
-              let* ctx, values_binding_batch = ctx_values_binding_batch in
+              let* ctx, values_binding_batch_rev = ctx_values_binding_batch in
               let ctx_sub =
                 Ctx.trace_open_iter ctx_sub (Print.string_of_prem prem)
               in
@@ -826,14 +840,13 @@ and eval_iter_prem_list (ctx : Ctx.t) (prem : prem) (vars : var list) :
                     Ctx.find_value Local ctx_sub (id_binding, iters_binding))
                   vars_binding
               in
-              let values_binding_batch =
-                values_binding_batch @ [ value_binding_batch ]
-              in
-              Ok (ctx, values_binding_batch))
+              Ok (ctx, value_binding_batch :: values_binding_batch_rev))
             (Ok (ctx, []))
             ctxs_sub
         in
-        let* values_binding = values_binding_batch |> Ctx.transpose in
+        let* values_binding =
+          values_binding_batch_rev |> List.rev |> Ctx.transpose
+        in
         Ok (ctx, values_binding)
   in
   (* Finally, bind the resulting binding batches *)
