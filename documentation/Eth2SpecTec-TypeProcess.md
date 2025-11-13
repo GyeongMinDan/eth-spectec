@@ -107,25 +107,20 @@ The `$hash_<X>` builtin function computes SHA-256 hash of bytes values. It handl
 
 ```ocaml
 let hash_ ~at (typ : targ) (v: Runtime_dynamic.Value.t) : (Value.t, Err.t) result =
-  (* bytes* 타입은 int로 표현되므로 NumV일 수도 있음 *)
   let* (num, len) =
     match v.it with
     | BytesV {num; len} -> Ok (num, len)
     | NumV _ ->
-        (* bytes* 타입이 int로 표현된 경우: 타입 정보에서 길이 추론 *)
         let num_bigint = Runtime_dynamic.Value.get_num v |> Num.to_int in
         (match bytes_len_of_targ typ with
         | Some l ->
-            (* 타입에서 길이를 알 수 있는 경우 *)
-            (* 범위 검증: 값이 해당 길이에 맞는지 확인 *)
             let* () = validate_fits_len ~at num_bigint l in
             Ok (num_bigint, l)
         | None ->
-            (* 타입 이름에서 길이를 추론할 수 없는 경우, 에러 *)
             Error (Err.runtime at "hash_<X>: cannot infer byte length from type"))
     | _ -> Error (Err.runtime at "hash_<X>: expected bytes or NumV")
   in
-  let raw = bytesv_to_raw num len in  (* Convert to raw bytes *)
+  let raw = bytesv_to_raw num len in 
   let h =
     let open Digestif.SHA256 in
     digest_bytes raw |> to_raw_string |> Bytes.of_string
@@ -338,22 +333,16 @@ let merkleize_chunks_with_limit (leaves: Bytes.t array) (limit: int) : Bytes.t =
   let n = Array.length leaves in
   if limit = 0 then zero32
   else if n = 0 then (
-    (* Empty list: return ZERO_HASHES[max_depth] per SSZ spec *)
     let max_depth = if limit <= 1 then 0 else bit_length_of (limit - 1) in
     let zero_hashes = compute_zero_hashes ~max_depth:max_depth in
     zero_hashes.(max_depth)
   )
   else
     let count = n in
-    (* SSZ spec: depth = max(count - 1, 0).bit_length() *)
     let depth = if count = 0 then 0 else bit_length_of (count - 1) in
-    (* SSZ spec: max_depth = (limit - 1).bit_length() *)
     let max_depth = if limit = 0 then 0 else bit_length_of (limit - 1) in
-    (* Temporary array for intermediate nodes (matches Python implementation) *)
     let tmp = Array.make (max_depth + 1) None in
     let zero_hashes = compute_zero_hashes ~max_depth:max_depth in
-    
-    (* Incremental merge algorithm (matches Python's merge function) *)
     let merge (h: Bytes.t) (i: int) : unit =
       let h = ref h in
       let j = ref 0 in
@@ -362,49 +351,40 @@ let merkleize_chunks_with_limit (leaves: Bytes.t array) (limit: int) : Bytes.t =
         let bit_mask = 1 lsl !j in
         let bit_set = i land bit_mask in
         if bit_set = 0 then (
-          (* i & (1 << j) == 0: complement with zero hash if needed *)
           if i = count && !j < depth then (
-            (* SSZ spec: complement to next power of 2 *)
             h := merkle_hash_ !h zero_hashes.(!j)
           ) else (
             should_break := true
           )
         ) else (
-          (* i & (1 << j) != 0: merge with previous node *)
           match tmp.(!j) with
-          | None -> invalid_arg "tmp[j] is None"
+          | None -> invalid_arg (Printf.sprintf "merkleize_chunks_with_limit: tmp[%d] is None when i=%d, j=%d" !j i !j)
           | Some prev -> h := merkle_hash_ prev !h
         );
         if not !should_break then j := !j + 1
       done;
       tmp.(!j) <- Some !h
     in
-    
-    (* Process each leaf incrementally (SSZ spec requirement) *)
     for i = 0 to count - 1 do
       merge leaves.(i) i
     done;
-    
-    (* Complement with zero if not power of 2 (SSZ spec) *)
     if (1 lsl depth) <> count then (
       merge zero_hashes.(0) count
     );
-    
-    (* Lift to max_depth using zero hashes (SSZ spec for List types) *)
     if depth <= max_depth - 1 then (
       for j = depth to max_depth - 1 do
         let prev = match tmp.(j) with
-          | None -> invalid_arg "tmp[j] is None during lift"
+          | None -> invalid_arg (Printf.sprintf "merkleize_chunks_with_limit: tmp[%d] is None during lift" j)
           | Some h -> h
         in
         tmp.(j + 1) <- Some (merkle_hash_ prev zero_hashes.(j))
       done
     );
-    
-    (* Return final root *)
-    match tmp.(max_depth) with
-    | None -> invalid_arg "tmp[max_depth] is None"
-    | Some h -> h
+    let final = match tmp.(max_depth) with
+      | None -> invalid_arg (Printf.sprintf "merkleize_chunks_with_limit: tmp[%d] is None after lift" max_depth)
+      | Some h -> h
+    in
+    final
 ```
 
 **Key SSZ Rules Implemented:**
@@ -469,13 +449,11 @@ SSZ specification requires that all List types mix in the actual length informat
 let mix_in_length (root: Bytes.t) (len: Bigint.t) : Bytes.t =
   let le32 = Bytes.make 32 '\x00' in
   let v = ref len in
-  (* Encode length as little-endian uint256 *)
   for i = 0 to 31 do
     let b = Bigint.to_int_exn Bigint.(bit_and !v (of_int 0xff)) in
     Bytes.set le32 i (Stdlib.Char.chr b);
     v := Bigint.shift_right !v 8
   done;
-  (* SSZ spec: H(root || length) *)
   merkle_hash_ root le32
 ```
 
