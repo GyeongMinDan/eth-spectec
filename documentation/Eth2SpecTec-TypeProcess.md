@@ -1334,3 +1334,261 @@ All bytes manipulation functions follow these principles:
 5. **Precise Byte Operations**: Uses bitwise operations and shifts to ensure byte-level accuracy. Byte slice operations (e.g., `x[a:b]`) are clearly distinguished from bit shift operations (e.g., `x >> k`)
 
 These functions enable Spectec to perform all byte-level operations required by eth2spec, ensuring compatibility with the Ethereum 2.0 consensus layer.
+
+### 4.5 Mathematical Functions (`math.ml`)
+
+The `math.ml` module provides mathematical operations required for eth2spec calculations.
+
+#### 4.5.1 Integer Square Root
+
+The `$integer_square_root` function computes the integer square root using Newton's method:
+
+```ocaml
+let integer_square_root' (n : Bigint.t) : Bigint.t =
+  (* Special case for uint64_max *)
+  let uint64_max      = Bigint.( (one lsl 64) - one ) in
+  let uint64_max_sqrt = Bigint.( (one lsl 32) - one ) in
+  if Bigint.equal n uint64_max then
+    uint64_max_sqrt
+  else
+    let rec newton_method (x : Bigint.t) (n : Bigint.t) : Bigint.t =
+      let y = Bigint.((x + n / x) / (one + one)) in
+      if Bigint.(y < x) then
+        newton_method y n
+      else
+        x
+    in
+    if Bigint.(n = zero) then
+      Bigint.zero
+    else
+      newton_method n n
+```
+
+This function is used in eth2spec for calculating validator rewards and penalties, where square root operations are required for effective balance calculations.
+
+### 4.6 List Manipulation Functions (`lists.ml`)
+
+The `lists.ml` module provides generic list operations that are extensively used in eth2spec specifications for processing validator lists, attestations, and other collections.
+
+#### 4.6.1 Counting and Aggregation
+
+- **`$count_occurrences_<X>`**: Counts occurrences of a target value in a list
+  ```ocaml
+  let count_occurrences_ ~at (_typ : targ) (vs : Value.t list) (target : Value.t) : (Value.t, Err.t) result =
+    let count = 
+      List.fold_left
+        (fun acc v ->
+          if Value.eq v target then
+            Bigint.(acc + one)
+          else
+            acc)
+        Bigint.zero vs
+    in
+    Ok (Value.nat count)
+  ```
+  Used in eth2spec for counting votes (e.g., ETH1 data votes) and determining majority consensus.
+
+- **`$sum_<X>`**: Sums numeric values in a list
+  ```ocaml
+  let sum_ ~at (_typ : targ) (vs : Value.t list) : (Value.t, Err.t) result =
+    let s =
+      List.fold_left
+        (fun acc ({ Util.Source.it; _ } : Value.t) ->
+           match it with
+           | NumV (`Int n) | NumV (`Nat n) -> Bigint.(acc + n)
+           | _ -> acc)
+         Bigint.zero
+         vs
+    in
+    Ok (Value.nat s)
+  ```
+  Used for aggregating balances, rewards, and penalties across validators.
+
+#### 4.6.2 List Construction and Transformation
+
+- **`$enumerate_<X>`**: Creates (index, value) pairs from a list
+  ```ocaml
+  let enumerate_ ~at (typ : targ) (vs : Value.t list) : (Value.t, Err.t) result =
+    let enumerated_list = 
+      List.mapi 
+        (fun i v -> 
+          let index = Value.nat (Bigint.of_int i) in
+          Value.tuple [index; v])
+        vs
+    in
+    Ok (Value.list typ enumerated_list)
+  ```
+  Used when index information is needed alongside list elements (e.g., processing sync committee members with their indices).
+
+- **`$range`**: Generates a list of natural numbers from 0 to n-1
+  ```ocaml
+  let range ~at (count : Num.t) : (Value.t, Err.t) result =
+    let count = Num.to_int count in
+    try
+      let n = Bigint.to_int_exn count in
+      if n < 0 then
+        Error (Err.runtime at "range: count must be non-negative")
+      else
+        let range_list = List.init n (fun i -> Value.nat (Bigint.of_int i)) in
+        Ok (Value.list' Typ.int range_list)
+    with
+    | _ -> Error (Err.runtime at "range: count is too large to be an integer")
+  ```
+  Used for generating validator indices and iteration ranges.
+
+- **`$repeat_<X>`**: Creates a list by repeating a value n times
+  ```ocaml
+  let repeat_ ~at (typ : targ) (value : Value.t) (count : Num.t) : (Value.t, Err.t) result =
+    let count = Num.to_int count in
+    try
+      let n = Bigint.to_int_exn count in
+      if n < 0 then
+        Error (Err.runtime at "repeat: count must be non-negative")
+      else
+        let repeated_list = List.init n (fun _ -> value) in
+        Ok (Value.list typ repeated_list)
+    with
+    | _ -> Error (Err.runtime at "repeat: count is too large to be an integer")
+  ```
+  Used for initializing lists with default values.
+
+#### 4.6.3 List Modification
+
+- **`$set_or_append_list_<X>`**: Sets a value at an index or appends if index equals length
+  ```ocaml
+  let set_or_append_list_ ~at (typ : targ) (vs : Value.t list) (idx_big : Num.t) (value : Value.t) : (Value.t, Err.t) result =
+    let idx_big = Num.to_int idx_big in
+    try
+      let idx = Bigint.to_int_exn idx_big in
+      if idx < 0 then
+        Error (Err.runtime at "set_or_append_list: index must be non-negative")
+      else
+        let len = List.length vs in
+         if idx = len then
+           (* append *)
+           Ok (Value.list typ (vs @ [value]))
+         else if idx < len then
+           (* set at index *)
+           let rec replace i = function
+             | [] -> []
+             | _ :: tl when i = idx -> value :: tl
+             | hd :: tl -> hd :: replace (i + 1) tl
+           in
+           Ok (Value.list typ (replace 0 vs))
+        else
+          Error (Err.runtime at "set_or_append_list: index out of range")
+    with
+    | _ -> Error (Err.runtime at "set_or_append_list: index is too large to be an integer")
+  ```
+  This function provides a unified interface for both updating existing list elements and appending new ones, which is commonly needed in state transition functions.
+
+#### 4.6.4 List Ordering and Set Operations
+
+- **`$sort_<X>`**: Sorts a list using value comparison
+  ```ocaml
+  let sort_ ~at (typ : targ) (vs : Value.t list) : (Value.t, Err.t) result =
+    let sorted_list = List.sort Value.compare vs in
+    Ok (Value.list typ sorted_list)
+  ```
+  Used for ordering validators, attestations, and other collections.
+
+- **`$to_set_<X>`**: Removes duplicates from a list while preserving order
+  ```ocaml
+  let to_set_ ~at (typ : targ) (vs : Value.t list) : (Value.t, Err.t) result =
+    (* Remove duplicates while preserving order *)
+    let seen = ref Sets.VSet.empty in
+    let result = 
+      List.fold_left
+        (fun acc v ->
+          if Sets.VSet.mem v !seen then
+            acc
+          else
+            (seen := Sets.VSet.add v !seen;
+             v :: acc))
+        [] vs
+      |> List.rev  (* Restore original order *)
+    in
+    Ok (Value.list typ result)
+  ```
+  Used for deduplication operations in eth2spec.
+
+- **`$set_intersection_<X>`**: Computes intersection of two lists as sets
+  ```ocaml
+  let set_intersection_ ~at (typ : targ) (vs1 : Value.t list) (vs2 : Value.t list) : (Value.t, Err.t) result =
+    (* Convert lists to sets *)
+    let set1 = Sets.VSet.of_list vs1 in
+    let set2 = Sets.VSet.of_list vs2 in
+    (* Compute intersection *)
+    let intersection = Sets.VSet.inter set1 set2 in
+    (* Convert back to list *)
+    let result_list = Sets.VSet.elements intersection in
+    Ok (Value.list typ result_list)
+  ```
+  Used for finding common elements between collections (e.g., common validators in attestations).
+
+#### 4.6.5 Design Considerations
+
+These list manipulation functions are designed with the following principles:
+
+1. **Type genericity**: Functions use type parameters (`<X>`) to work with any value type
+2. **Bigint handling**: All numeric operations use `Bigint.t` to handle arbitrary-precision integers
+3. **Error handling**: Functions validate inputs and provide clear error messages
+4. **Immutable semantics**: Functions return new lists rather than modifying inputs, maintaining functional programming principles
+
+These functions are essential for implementing eth2spec's state transition logic, which heavily relies on list operations for processing validators, attestations, slashings, and other collections.
+
+## 5. Conclusion
+
+This document has presented a comprehensive approach to handling Ethereum 2.0's SSZ bytes types within Spectec's type system. Our solution demonstrates how a specification language framework with limited primitive types can be extended to support complex domain-specific requirements without compromising its core simplicity.
+
+### 5.1 Summary of the Approach
+
+Our type processing strategy for eth2spec consists of four key components:
+
+1. **Type Aliases for Static Type Checking** (Section 2): We leverage Spectec's type alias mechanism to map SSZ bytes types (`bytes32`, `bytes48`, `bytes96`, etc.) and domain-specific aliases (`blsPubkey`, `blsSignature`, `root`, etc.) to the `int` primitive type. This approach preserves type semantics at compile time while maintaining compatibility with existing infrastructure.
+
+2. **Runtime Value Types for Length Preservation** (Section 3): We introduce `BytesV`, a runtime value type that stores both the numeric value (`Bigint.t`) and the byte length (`int`). This solves the critical problem of length information loss that would otherwise occur when bytes types are represented solely as integers.
+
+3. **Type-Driven Inference in Builtin Functions** (Section 4): All builtin functions implement type-driven length inference using helper functions like `bytes_len_of_targ` to extract byte lengths from type annotations. This enables seamless handling of both `BytesV` and `NumV` representations, ensuring compatibility throughout the elaboration and execution phases.
+
+4. **Consistent Big-Endian Encoding** (Throughout): We consistently use big-endian encoding for all byte representations, matching SSZ standards and Ethereum's byte conventions. This ensures bit-for-bit compatibility with the `eth2spec` Python reference implementation.
+
+### 5.2 Key Achievements
+
+Our implementation successfully addresses the challenges of representing SSZ bytes types in Spectec:
+
+- **Complete SSZ Compatibility**: All hash tree root computations, Merkle tree operations, and serialization procedures strictly adhere to the SSZ specification, producing identical results to the Python `eth2spec` reference implementation.
+
+- **Cryptographic Correctness**: BLS signature verification functions correctly handle compressed public keys (48 bytes) and signatures (96 bytes), using the exact `BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_` scheme required by Ethereum 2.0.
+
+- **Type Safety**: The combination of static type aliases and runtime `BytesV` validation ensures that values fit within their specified byte length constraints, preventing type-related errors at both compile time and runtime.
+
+- **Comprehensive Builtin Support**: We provide a complete set of builtin functions covering:
+  - Hash operations (SHA-256)
+  - Hash tree root computation (SSZ Merkleization)
+  - BLS signature verification (single, fast aggregate, and aggregation)
+  - Byte manipulation (conversion, extraction, domain construction)
+  - Mathematical operations (integer square root)
+  - List operations (counting, aggregation, transformation, set operations)
+
+### 5.3 Design Principles
+
+Throughout this implementation, we maintained several key design principles:
+
+- **Minimal Core Changes**: By using type aliases and runtime value types, we avoided modifications to Spectec's core type system, preserving its simplicity and maintainability.
+
+- **Backward Compatibility**: Existing arithmetic operations and type checking mechanisms continue to work seamlessly with bytes types represented as `int`.
+
+- **Specification Compliance**: All implementations strictly follow Ethereum 2.0 consensus specifications and SSZ standards, ensuring correctness and interoperability.
+
+- **Error Handling**: Functions provide clear error messages and validate inputs at appropriate boundaries, balancing strict error handling for debugging with consensus-friendly behavior for verification routines.
+
+### 5.4 Future Work
+
+This type processing strategy enables Spectec to fully support Ethereum 2.0 consensus specifications, allowing formal verification and execution of eth2spec's state transition logic. The approach demonstrates that minimal type systems can be effectively extended to handle complex domain requirements through careful design of type representations and runtime value types.
+
+Future extensions could include:
+- Support for additional SSZ types (e.g., variable-length lists with dynamic limits)
+- Support for additional composite types that may be introduced in future versions
+
+The techniques presented in this document provide a foundation for adapting Spectec to other blockchain specifications that require similar byte-level type handling.
