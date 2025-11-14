@@ -382,7 +382,7 @@ let merkleize_chunks_with_limit (leaves: Bytes.t array) (limit: int) : Bytes.t =
     );
     let final = match tmp.(max_depth) with
       | None -> invalid_arg (Printf.sprintf "merkleize_chunks_with_limit: tmp[%d] is None after lift" max_depth)
-      | Some h -> h
+    | Some h -> h
     in
     final
 ```
@@ -613,7 +613,371 @@ This root is used throughout eth2spec for:
 
 The same pattern applies to all composite types: each field/element is recursively converted to a 32-byte root, then these roots are merkleized according to SSZ rules.
 
-### 4.3 Bytes Manipulation Functions (`bytes.ml`)
+### 4.3 BLS Signature Verification Functions (`blsImpl.ml`)
+
+The `blsImpl.ml` module implements BLS (Boneh-Lynn-Shacham) signature verification functions required by eth2spec. BLS signatures are essential for Ethereum 2.0 consensus operations, including block proposal verification, attestation validation, and validator exit processing and so on.
+
+**Library Selection and Ethereum 2.0 Compatibility:**
+
+Ethereum 2.0 uses the BLS signature scheme `BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_` as specified in the [IETF BLS signature draft (Section 3.3)](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-bls-signature-04#section-3.3). To implement this scheme in OCaml, we use the [`bls12-381-signature`](https://ocaml.org/p/bls12-381-signature/1.0.0) library, which provides the `Bls12_381_signature.MinPk.Pop.verify` function that implements the Proof of Possession (POP) variant of BLS signatures. This library choice ensures that our implementation matches Ethereum 2.0's exact cryptographic requirements and maintains compatibility with the `eth2spec` Python reference implementation.
+
+All functions in this module:
+1. Accept `Num.t` inputs representing bytes types (`blsPubkey`, `blsSignature`, `root`)
+2. Validate byte length constraints (48 bytes for public keys, 96 bytes for signatures, 32 bytes for roots)
+3. Convert big-endian integer representations to raw bytes
+4. Use the `Bls12_381_signature` library for cryptographic operations
+5. Return boolean results for verification operations or `BytesV` for aggregation operations
+
+Note : We do not override the default ciphersuite in bls12-381-signature library
+
+#### 4.3.1 Single Signature Verification: `bls_verify`
+
+The `$bls_verify` function verifies a single BLS signature against a public key and message root. This is the fundamental building block for all BLS signature verification in eth2spec.
+
+**Function Signature:**
+```spectec
+dec $bls_verify(blsPubkey, root, blsSignature) : boolean
+```
+
+**Implementation:**
+```ocaml
+let bls_verify ~at (bls_pubkey : Num.t) (root : Num.t) (bls_signature : Num.t)
+  : (Value.t, Err.t) result =
+  let bls_pubkey = Num.to_int bls_pubkey in
+  let root = Num.to_int root in
+  let bls_signature = Num.to_int bls_signature in
+  let* () = ensure_fits_bytes ~at bls_pubkey ~len:48 in
+  let* () = ensure_fits_bytes ~at bls_signature ~len:96 in
+  let* () = ensure_fits_bytes ~at root ~len:32 in
+  let pk_bytes   = be_of_bigint_fixed bls_pubkey ~len:48 in
+  let sig_bytes  = be_of_bigint_fixed bls_signature ~len:96 in
+  let msg_bytes  = be_of_bigint_fixed root         ~len:32 in
+
+  match Bls12_381_signature.MinPk.pk_of_bytes_opt pk_bytes with
+  | None -> Ok (Value.bool false)
+  | Some pk ->
+    begin match Bls12_381_signature.MinPk.signature_of_bytes_opt sig_bytes with
+    | None -> Ok (Value.bool false)
+    | Some signature ->
+      let ok = Bls12_381_signature.MinPk.Pop.verify pk msg_bytes signature in
+      Ok (Value.bool ok)
+    end
+```
+
+**Why This Design:**
+
+1. **Input Validation**: The function validates that each input fits within its byte length constraint:
+   - `blsPubkey`: Must be in range [0, 2^384] (48 bytes)
+   - `blsSignature`: Must be in range [0, 2^768] (96 bytes)
+   - `root`: Must be in range [0, 2^256] (32 bytes)
+
+2. **Big-Endian Conversion**: All inputs are stored as big-endian integers in `Bigint.t`, so they must be converted to raw bytes using `be_of_bigint_fixed`:
+   - `pk_bytes`: 48-byte compressed public key (G1 point)
+   - `sig_bytes`: 96-byte compressed signature (G2 point)
+   - `msg_bytes`: 32-byte message root (hash tree root)
+
+3. **Error Handling and Security Checks**: The function returns `false` (not an error) if:
+   - The public key is invalid (cannot be decoded from bytes)
+   - The signature is invalid (cannot be decoded from bytes)
+   - The signature verification fails
+   
+   The library's `*_of_bytes_opt` functions perform strict decoding that rejects invalid encodings, points at infinity, and non-subgroup elements, ensuring subgroup-secure verification required by the Ethereum consensus. The library internally applies the scheme's domain separation tag (DST) and POP rules as specified in the BLS signature standard.
+
+4. **BLS12-381 Compatibility with Proof of Possession (POP)**: This function uses `Bls12_381_signature.MinPk.Pop.verify` from the OCaml `bls12-381-signature` library, which corresponds to `bls.Verify` in the Ethereum consensus specification. Since Ethereum 2.0 uses the `BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_` scheme, we use the POP variant implementation provided by this library to ensure compatibility with `eth2spec`'s Python reference implementation. The library internally applies the scheme's domain separation tag (DST) for hash-to-curve operations and POP rules for rogue-key attack resistance.
+
+**Detailed Example: Verifying a Block Proposal Signature**
+
+Consider verifying a block proposal signature in `Process_block_header`:
+
+**Input Values:**
+- `blsPubkey = 0x1234...` (48 bytes, validator's public key)
+- `root = 0x5678...` (32 bytes, signing root of the block header)
+- `blsSignature = 0x9abc...` (96 bytes, signature on the signing root)
+
+**Step 1: Input Validation**
+```ocaml
+let* () = ensure_fits_bytes ~at bls_pubkey ~len:48 in  (* 0 ≤ x < 2^(8·48) ✓ *)
+let* () = ensure_fits_bytes ~at root ~len:32 in        (* 0 ≤ x < 2^(8·32) ✓ *)
+let* () = ensure_fits_bytes ~at bls_signature ~len:96 in (* 0 ≤ x < 2^(8·96) ✓ *)
+```
+
+**Step 2: Big-Endian Byte Conversion**
+```ocaml
+let pk_bytes = be_of_bigint_fixed bls_pubkey ~len:48
+let msg_bytes = be_of_bigint_fixed root ~len:32
+let sig_bytes = be_of_bigint_fixed bls_signature ~len:96
+```
+
+Result: Three byte arrays:
+- `pk_bytes`: `[0x12, 0x34, ...]` (48 bytes, compressed G1 point)
+- `msg_bytes`: `[0x56, 0x78, ...]` (32 bytes, message)
+- `sig_bytes`: `[0x9a, 0xbc, ...]` (96 bytes, compressed G2 point)
+
+**Step 3: BLS Type Conversion**
+```ocaml
+match Bls12_381_signature.MinPk.pk_of_bytes_opt pk_bytes with
+| None -> Ok (Value.bool false)  (* Invalid public key *)
+| Some pk -> ...
+```
+
+The `pk_of_bytes_opt` function attempts to decode the 48-byte compressed public key into a G1 point. If decoding fails (e.g., invalid point encoding), the function returns `None` and verification fails.
+
+**Step 4: Signature Verification**
+```ocaml
+let ok = Bls12_381_signature.MinPk.Pop.verify pk msg_bytes signature
+```
+
+The `Pop.verify` function from the `bls12-381-signature` library performs BLS signature verification using the POP variant, matching Ethereum 2.0's `BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_` scheme. This ensures our results match `eth2spec`'s Python implementation.
+
+Returns `true` if the signature is valid, `false` otherwise.
+
+**Step 5: Result**
+```ocaml
+Ok (Value.bool ok)
+```
+
+Returns `true` if the signature is valid, `false` otherwise.
+
+**Example Usages in eth2spec:**
+
+This function is used throughout eth2spec for:
+- Block proposal verification: `$bls_verify(validator_proposer.PUBKEY, root_signing, body_beaconBlockBody.RANDAO_REVEAL)`
+- Attestation verification: `$bls_verify(blsPubkey_pk, root_sign, blsSignature_sig)`
+- Voluntary exit verification: `$bls_verify(validator.PUBKEY, root_vol_exit_signing_root, signedVoluntaryExit.SIGNATURE)`
+- BLS to execution change verification: `$bls_verify(blsToExecutionChange.FROM_BLS_PUBKEY, root_sign, signedBlsToExecutionChange.SIGNATURE)`
+
+#### 4.3.2 Public Key Aggregation: `eth_aggregate_pubkeys`
+
+The `$eth_aggregate_pubkeys` function aggregates multiple BLS public keys into a single aggregated public key. This corresponds to the public key aggregation operation (G1 point addition) used in the Ethereum consensus specification. This is used for efficient batch signature verification when multiple validators sign the same message (FastAggregateVerify scenario).
+
+**Function Signature:**
+```spectec
+dec $eth_aggregate_pubkeys(blsPubkey*) : blsPubkey
+```
+
+**Implementation:**
+```ocaml
+let eth_aggregate_pubkeys ~at (pubkeys_num : Num.t list)
+  : (Value.t, Err.t) result =
+  let pubkeys_int = List.map Num.to_int pubkeys_num in
+  let conv_one n =
+    let* () = ensure_fits_bytes ~at n ~len:48 in
+    let b = be_of_bigint_fixed n ~len:48 in
+    match Bls12_381.G1.of_compressed_bytes_opt b with
+    | None -> Error (Err.runtime at "eth_aggregate_pubkeys: invalid G1 pubkey (bytes48)")
+    | Some p -> Ok p
+  in
+  let rec mapM f = function
+    | [] -> Ok []
+    | x::xs -> let* y = f x in let* ys = mapM f xs in Ok (y::ys)
+  in
+  let* points = mapM conv_one pubkeys_int in
+
+  let agg =
+    List.fold_left Bls12_381.G1.add Bls12_381.G1.zero points
+  in
+
+  let out_b = Bls12_381.G1.to_compressed_bytes agg in
+  let out_n = bigint_of_be_bytes out_b in
+  Ok (make_bytes ~num:out_n ~len:48)
+```
+
+**Why This Design:**
+
+1. **Point Conversion and Error Handling**: Each public key (48 bytes) is converted to a G1 point using `Bls12_381.G1.of_compressed_bytes_opt`. If any public key is invalid (invalid encoding, point at infinity, or non-subgroup element), the function returns an error. This strict error handling at the API boundary ensures validity guarantees and facilitates debugging, in contrast to verification routines that return `false` for consensus-friendly behavior.
+
+2. **Elliptic Curve Addition**: The aggregated public key is computed by adding all G1 points together:
+   ```ocaml
+   let agg = List.fold_left Bls12_381.G1.add Bls12_381.G1.zero points
+   ```
+   This uses the group operation on the elliptic curve: `agg = pk0 + pk1 + ... + pkN`.
+
+3. **Result Serialization**: The aggregated G1 point is compressed back to 48 bytes and converted to `BytesV`:
+   ```ocaml
+   let out_b = Bls12_381.G1.to_compressed_bytes agg in
+   let out_n = bigint_of_be_bytes out_b in
+   Ok (make_bytes ~num:out_n ~len:48)
+   ```
+
+**Mathematical Foundation:**
+
+BLS signatures support aggregation when multiple signers sign the same message: if `sig = sig0 + sig1 + ... + sigN` (where each `sig_i` is a signature on the same message) and `pk = pk0 + pk1 + ... + pkN`, then verifying the aggregated signature `sig` against the aggregated public key `pk` is equivalent to verifying all individual signatures. This property enables efficient batch verification through FastAggregateVerify (as specified in the [IETF BLS signature draft](https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-bls-signature-04)). For different messages, the AggregateVerify procedure must be used instead.
+
+**Example: Aggregating Three Public Keys**
+
+**Input**: List of three public keys:
+- `pk0 = 0x1234...` (48 bytes)
+- `pk1 = 0x5678...` (48 bytes)
+- `pk2 = 0x9abc...` (48 bytes)
+
+**Step 1: Convert to G1 Points**
+```ocaml
+let points = [G1_point0, G1_point1, G1_point2]
+```
+
+**Step 2: Aggregate Using Elliptic Curve Addition**
+```ocaml
+let agg = G1.zero + G1_point0 + G1_point1 + G1_point2
+```
+
+**Step 3: Compress and Return**
+```ocaml
+let out_b = Bls12_381.G1.to_compressed_bytes agg
+let out_n = bigint_of_be_bytes out_b
+Ok (make_bytes ~num:out_n ~len:48)
+```
+
+Result: `agg_pk = 0x<48-byte-compressed-G1-point>`
+
+**Usage in eth2spec:**
+
+This function is used when aggregating multiple validators' public keys for batch verification, particularly in attestation processing.
+
+#### 4.3.3 Fast Aggregate Verification: `bls_fast_aggregate_verify`
+
+The `$bls_fast_aggregate_verify` function verifies an aggregated BLS signature against a list of public keys and a single message. This corresponds to `FastAggregateVerify` in the Ethereum consensus specification and implements the FastAggregateVerify procedure from the IETF BLS signature standard, which applies when multiple validators have signed the same message. In FastAggregateVerify (same-message case), verification reduces to a single pairing-style check against the aggregated public key, enabling near-constant verification cost with respect to the number of signers (typically one pairing computation, though implementation optimizations may affect constant factors).
+
+**Function Signature:**
+```spectec
+dec $bls_fast_aggregate_verify(blsPubkey*, root, blsSignature) : boolean
+```
+
+**Implementation:**
+```ocaml
+let bls_fast_aggregate_verify
+    ~at
+    (pubkeys_num : Num.t list)
+    (root       : Num.t)
+    (sig_num    : Num.t)
+  : (Value.t, Err.t) result =
+  if List.length pubkeys_num = 0 then
+    Ok (Value.bool false)
+  else (
+    let pubkeys_int = List.map Num.to_int pubkeys_num in
+    let root = Num.to_int root in
+    let sig_int = Num.to_int sig_num in
+    let* () = ensure_fits_bytes ~at root    ~len:32 in
+    let* () = ensure_fits_bytes ~at sig_int ~len:96 in
+
+    let msg_bytes = be_of_bigint_fixed root    ~len:32 in
+    let sig_bytes = be_of_bigint_fixed sig_int ~len:96 in
+
+    let rec mapM f = function
+      | [] -> Ok []
+      | x::xs ->
+        let* y  = f x in
+        let* ys = mapM f xs in
+        Ok (y::ys)
+    in
+    let conv_pk (n:Bigint.t) =
+      let* () = ensure_fits_bytes ~at n ~len:48 in
+      let b = be_of_bigint_fixed n ~len:48 in
+      match Bls12_381.G1.of_compressed_bytes_opt b with
+      | None   -> Ok None
+      | Some p -> Ok (Some p)
+    in
+    let* points_opt = mapM conv_pk pubkeys_int in
+    if List.exists (fun o -> o = None) points_opt
+    then Ok (Value.bool false)
+    else
+      let points = List.map Option.get points_opt in
+
+      let agg = List.fold_left Bls12_381.G1.add Bls12_381.G1.zero points in
+      let agg_pk_bytes = Bls12_381.G1.to_compressed_bytes agg in
+
+      match Bls12_381_signature.MinPk.signature_of_bytes_opt sig_bytes with
+      | None -> Ok (Value.bool false)
+      | Some signature ->
+        match Bls12_381_signature.MinPk.pk_of_bytes_opt agg_pk_bytes with
+        | None -> Ok (Value.bool false)
+        | Some pk ->
+          let ok = Bls12_381_signature.MinPk.Pop.verify pk msg_bytes signature in
+          Ok (Value.bool ok)
+    )
+```
+
+**Why This Design:**
+
+1. **Empty List Handling**: If the public key list is empty, the function immediately returns `false` (no signatures to verify).
+
+2. **Tolerant Public Key Conversion**: Unlike `eth_aggregate_pubkeys`, this function tolerates invalid public keys by returning `None` instead of an error. If any public key is invalid, the function returns `false`:
+   ```ocaml
+   if List.exists (fun o -> o = None) points_opt
+   then Ok (Value.bool false)
+   ```
+   This design difference reflects the different API boundaries: `eth_aggregate_pubkeys` uses strict error handling for validity guarantees and debugging convenience, while `bls_fast_aggregate_verify` returns `false` for consensus-friendly behavior that matches the Ethereum consensus specification's verification routines.
+
+3. **Aggregation and Verification**: The function implements FastAggregateVerify, which applies when all validators have signed the same message:
+   - Aggregates all public keys into a single G1 point
+   - Verifies the aggregated signature (sum of individual signatures on the same message) against the aggregated public key and the single message
+   - This is valid because BLS signatures on the same message can be aggregated: if `sig_sum = sig0 + sig1 + ... + sigN` and `pk_sum = pk0 + pk1 + ... + pkN`, then verifying `sig_sum` against `pk_sum` is equivalent to verifying all individual signatures
+
+4. **Efficiency**: This is more efficient than verifying each signature individually because:
+   - Only one pairing computation is needed (instead of N pairings)
+   - The aggregated public key is computed once
+   - Note: For different messages, the AggregateVerify procedure must be used instead
+
+**Detailed Example: Verifying an Aggregated Attestation**
+
+Consider verifying an attestation with multiple validators:
+
+**Input Values:**
+- `pubkeys = [pk0, pk1, pk2]` (list of 3 public keys, each 48 bytes)
+- `root = 0x5678...` (32 bytes, attestation data root)
+- `sig = 0x9abc...` (96 bytes, aggregated signature)
+
+**Step 1: Input Validation**
+```ocaml
+let* () = ensure_fits_bytes ~at root ~len:32 in
+let* () = ensure_fits_bytes ~at sig_int ~len:96 in
+```
+
+**Step 2: Convert Public Keys to G1 Points**
+```ocaml
+let points_opt = [Some G1_point0, Some G1_point1, Some G1_point2]
+```
+
+If any public key is invalid, `points_opt` contains `None` and verification fails.
+
+**Step 3: Aggregate Public Keys**
+```ocaml
+let agg = G1.zero + G1_point0 + G1_point1 + G1_point2
+let agg_pk_bytes = Bls12_381.G1.to_compressed_bytes agg
+```
+
+**Step 4: Verify Aggregated Signature**
+```ocaml
+let ok = Bls12_381_signature.MinPk.Pop.verify pk msg_bytes signature
+```
+
+This verifies that the aggregated signature is valid for the aggregated public key and message using the same `Pop.verify` function from the `bls12-381-signature` library, ensuring consistency with single signature verification and compatibility with `eth2spec`'s aggregated signature verification.
+
+**Usage in eth2spec:**
+
+This function is primarily used for attestation verification:
+```spectec
+if $bls_fast_aggregate_verify(blsPubkey_pk*, root_sign, indexedAttestation.SIGNATURE) = true
+```
+
+This allows verifying that multiple validators signed the same attestation data efficiently.
+
+#### 4.3.4 Design Principles
+
+All BLS signature verification functions follow these principles:
+
+1. **Big-Endian Semantics**: All inputs are stored as big-endian integers and converted to raw bytes using `be_of_bigint_fixed`.
+
+2. **Type Safety**: Functions validate that inputs fit within their byte length constraints before processing.
+
+3. **Error Handling**: Functions return `false` (not errors) for invalid inputs or failed verification, matching eth2spec's behavior.
+
+4. **BLS12-381 Compatibility with POP**: All functions use the `Bls12_381_signature.MinPk.Pop` module from the OCaml `bls12-381-signature` library. Since Ethereum 2.0 uses the `BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_` scheme, we use the POP variant implementation provided by this library to ensure compatibility with `eth2spec`'s Python reference implementation.
+
+5. **Efficiency**: Aggregation functions enable efficient batch verification, reducing computational overhead for large validator sets.
+
+These functions enable Spectec to perform all BLS signature verification operations required by eth2spec, ensuring compatibility with Ethereum 2.0's consensus layer cryptographic requirements.
+
+### 4.4 Bytes Manipulation Functions (`bytes.ml`)
 
 The `bytes.ml` module provides utility functions for bytes operations required by eth2spec. These functions enable Spectec to perform byte-level manipulations that are essential for Ethereum 2.0 consensus operations, such as domain construction, withdrawal credential handling, and byte extraction.
 
@@ -623,9 +987,8 @@ All functions in this module:
 3. Perform operations on the underlying `Bigint.t` representation (preserving big-endian semantics)
 4. Return `BytesV` with appropriate length information (maintaining type safety)
 
-#### 4.3.1 Conversion Functions
+#### 4.4.1 Conversion Functions
 
 These functions convert between different byte representations and numeric types, following eth2spec's encoding rules.
 
-##### TODO.....
-
+TODO..
