@@ -991,4 +991,346 @@ All functions in this module:
 
 These functions convert between different byte representations and numeric types, following eth2spec's encoding rules.
 
-TODO..
+##### `bytes_to_uint64`: Read bytes32[0:8] as Little-Endian uint64
+
+This function reads `bytes32[0:8]` (the leftmost 8 bytes) as a little-endian `uint64`. This matches Python's `int.from_bytes(x[:8], 'little')` behavior. If the input is stored internally as a big-endian integer, we first recover the byte array in canonical order, then take the slice `[0:8]` and interpret it as little-endian.
+
+**Implementation:**
+```ocaml
+let bytes_to_uint64 ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
+  let bytes32_val = Num.to_int bytes32_val in
+  let* () = validate_bytes32 at bytes32_val in
+  (* Extract each byte from data[0..7] (MSB 8 bytes) *)
+  let byte i =
+    (* i = 0..7: data[i], MSB부터 i번째 바이트 *)
+    let shift_bits = (31 - i) * 8 in
+    Bigint.(bit_and (shift_right bytes32_val shift_bits) (of_int 0xff))
+  in
+  (* Little-endian combination: sum_{i=0..7} byte(i) * 256^i *)
+  let rec loop i acc p =
+    if i = 8 then acc
+    else 
+      let next_i = i + 1 in
+      let open Bigint in
+      let byte_val = byte i in
+      let acc_new = acc + (byte_val * p) in
+      let p_new = p * (of_int 256) in
+      loop next_i acc_new p_new
+  in
+  let open Bigint in
+  let uint64_val = loop 0 zero (of_int 1) in
+  Ok (Value.nat uint64_val)
+```
+
+**Why This Design:**
+- **Big-endian input**: `bytes32` values are stored as big-endian integers in `Bigint.t`
+- **Little-endian output**: eth2spec often requires little-endian interpretation for numeric operations (e.g., shuffle/sampling logic)
+- **Byte slice extraction**: Extracts the byte slice `x[0:8]` (leftmost 8 bytes) from the 32-byte value
+- **Accurate conversion**: Reconstructs the value using little-endian semantics: `byte[0] + byte[1]*256 + ... + byte[7]*256^7`
+
+**Example:**
+- Input: `bytes32 = 0x00000000000000000000000000000000000000000000000000000000000003e8` (represents 1000 in big-endian, with value at the rightmost bytes)
+- Byte slice `x[0:8]`: `[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]` (leftmost 8 bytes, all zeros)
+- Little-endian interpretation: `0` (as intended - this matches `int.from_bytes(x[:8], 'little')` behavior)
+- Note: For values like 1000 that are stored in the rightmost bytes of a big-endian representation, reading the leftmost 8 bytes yields 0, which is the expected behavior for this function.
+
+##### `uint_to_bytes`: Automatic Length Detection
+
+This function converts a `uint` value to `BytesV` with automatic length detection based on the value's range, mimicking Python's `encode_bytes()` behavior.
+
+**Note**: This is a convenience helper and **not SSZ serialization**. SSZ uses fixed-width little-endian encoding (e.g., `uint64` → exactly 8 bytes). This function chooses a minimal length for convenience.
+
+**Implementation:**
+```ocaml
+let uint_to_bytes ~at (uint_val : Num.t) : (Value.t, Err.t) result =
+  let uint_val = Num.to_int uint_val in
+  if Bigint.(uint_val < zero) then
+    Error (Err.runtime at "uint_to_bytes: input must be non-negative")
+  else
+    (* Determine the appropriate uint type based on value range *)
+    if Bigint.(uint_val < pow (of_int 2) (of_int 8)) then
+      (* uint8 range: [0, 2^8) *)
+      let* () = validate_uint8 at uint_val in
+      Ok (make_bytes ~num:uint_val ~len:1)
+    else if Bigint.(uint_val < pow (of_int 2) (of_int 32)) then
+      (* uint32 range: [0, 2^32) *)
+      let* () = validate_uint32 at uint_val in
+      Ok (make_bytes ~num:uint_val ~len:4)
+    else if Bigint.(uint_val < pow (of_int 2) (of_int 64)) then
+      (* uint64 range: [0, 2^64) *)
+      let* () = validate_uint64 at uint_val in
+      Ok (make_bytes ~num:uint_val ~len:8)
+    else
+      Error (Err.runtime at "uint_to_bytes: value too large for uint8/uint32/uint64")
+```
+
+**Why This Design:**
+- **Automatic sizing**: Chooses the minimal byte length that can represent the value
+- **eth2spec compatibility**: Matches Python's behavior where uint types are encoded with minimal bytes
+- **Type safety**: Validates that the value fits within the chosen type's range
+
+**Example:**
+- Input: `42` → Output: `BytesV {num = 42; len = 1}` (fits in uint8)
+- Input: `1000` → Output: `BytesV {num = 1000; len = 4}` (fits in uint32)
+- Input: `1000000000` → Output: `BytesV {num = 1000000000; len = 8}` (fits in uint64)
+
+##### `bytes32_to_bytes`: Type Conversion
+
+Converts a `bytes32` value to `BytesV` representation, handling both `BytesV` and `NumV` inputs.
+
+**Implementation:**
+```ocaml
+let bytes32_to_bytes ~at (value : Value.t) : (Value.t, Err.t) result =
+  match value.it with
+  | BytesV { num = _; len = 32 } ->
+      (* Already BytesV with correct length, just return it *)
+      Ok value
+  | BytesV { num; len = _ } ->
+      (* BytesV with wrong length, validate and create new one *)
+      let bytes32_val = num in
+      let* () = validate_bytes32 at bytes32_val in
+      Ok (make_bytes ~num:bytes32_val ~len:32)
+  | NumV n ->
+      (* NumV case: convert to BytesV *)
+      let bytes32_val = Num.to_int n in
+      let* () = validate_bytes32 at bytes32_val in
+      Ok (make_bytes ~num:bytes32_val ~len:32)
+  | _ ->
+      Error (Err.runtime at "bytes32_to_bytes: expected bytes32 or NumV")
+```
+
+**Why This Design:**
+- **Unified representation**: Ensures all `bytes32` values are represented as `BytesV` with length 32
+- **Type normalization**: Converts `NumV` to `BytesV` when needed, preserving the value
+- **Validation**: Ensures the value fits within `bytes32` range [0, 2^256)
+
+#### 4.4.2 Bitwise Operations
+
+These functions perform bitwise operations on bytes values, essential for domain construction and byte manipulation in eth2spec.
+
+##### `xor`: Bitwise XOR
+
+Performs XOR operation on two `bytes32` values, used in eth2spec for operations like RANDAO mixing.
+
+**Implementation:**
+```ocaml
+let xor ~at (bytes32_a : Num.t) (bytes32_b : Num.t) : (Value.t, Err.t) result =
+  let bytes32_a = Num.to_int bytes32_a in
+  let bytes32_b = Num.to_int bytes32_b in
+  let* () = validate_bytes32 at bytes32_a in
+  let* () = validate_bytes32 at bytes32_b in
+  let result = Bigint.bit_xor bytes32_a bytes32_b in
+  Ok (make_bytes ~num:result ~len:32)
+```
+
+**Why This Design:**
+- **Direct bitwise operation**: `Bigint.bit_xor` performs bitwise XOR on the integer representation
+- **Big-endian preservation**: Since both inputs are big-endian, the result is also big-endian
+- **Type safety**: Validates inputs and returns `BytesV` with correct length
+
+**Example:**
+- Input: `bytes32_a = 0x1234...`, `bytes32_b = 0x5678...`
+- Operation: `0x1234... XOR 0x5678... = 0x444c...` (bitwise)
+- Result: `BytesV {num = 0x444c...; len = 32}`
+
+##### `first_28_bytes`: Extract Leftmost 28 Bytes
+
+Returns `x[0:28]` (the leftmost 28 bytes) from a `bytes32` value. In our big-endian-integer backing, this equals `x >> 32` (shifting right by 32 bits to remove the rightmost 4 bytes). Used in domain construction to extract `fork_data_root[:28]` per SSZ rules.
+
+**Implementation:**
+```ocaml
+let first_28_bytes ~at (value : Value.t) : (Value.t, Err.t) result =
+  let* bytes32_val =
+    match value.it with
+    | BytesV { num; len = 32 } -> Ok num
+    | BytesV { num; len = _ } ->
+        let* () = validate_bytes32 at num in
+        Ok num
+    | NumV n ->
+        let bytes32_val = Num.to_int n in
+        let* () = validate_bytes32 at bytes32_val in
+        Ok bytes32_val
+    | _ -> Error (Err.runtime at "first_28_bytes: expected bytes32 or NumV")
+  in
+  (* Extract first 28 bytes (MSB 28 bytes) from bytes32 *)
+  (* Python x[:28] - remove last 4 bytes (32 bits) *)
+  let bytes28_val = Bigint.shift_right bytes32_val 32 in
+  Ok (make_bytes ~num:bytes28_val ~len:28)
+```
+
+**Why This Design:**
+- **Byte slice operation**: Returns `x[0:28]` (leftmost 28 bytes in byte array indexing)
+- **Bit shift implementation**: With big-endian-integer backing, this is implemented as `x >> 32` (shifting right by 32 bits removes the rightmost 4 bytes)
+- **Domain construction**: Used to extract `fork_data_root[:28]` per SSZ domain construction rules
+
+**Example:**
+- Input: `bytes32 = 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef`
+- Shift right by 32 bits: removes last 4 bytes `0x90abcdef`
+- Result: `bytes28 = 0x1234567890abcdef1234567890abcdef1234567890abcdef12345678`
+
+##### `get_first_byte`: Extract Leftmost Byte
+
+Extracts `x[0:1]` (the leftmost byte) from a `bytes32` value. In our big-endian-integer backing, this is implemented as `(x >> 248) & 0xff`.
+
+**Implementation:**
+```ocaml
+let get_first_byte ~at (value : Value.t) : (Value.t, Err.t) result =
+  let* bytes32_val = (* ... extract bytes32_val ... *) in
+  (* Extract first byte (MSB 1 byte) from bytes32 *)
+  (* Python x[:1] - extract MSB byte *)
+  let msb_byte = Bigint.(shift_right bytes32_val 248 |> bit_and (of_int 0xff)) in
+  Ok (make_bytes ~num:msb_byte ~len:1)
+```
+
+**Why This Design:**
+- **Byte slice operation**: Returns `x[0:1]` (leftmost byte in byte array indexing)
+- **Bit shift and mask implementation**: With big-endian-integer backing, this is implemented as `(x >> 248) & 0xff` (shifting right by 248 bits isolates the leftmost byte, then masking with `0xff`)
+
+**Example:**
+- Input: `bytes32 = 0x1234567890abcdef...`
+- Shift right 248 bits: `0x12`
+- Mask with `0xff`: `0x12`
+- Result: `bytes1 = 0x12`
+
+##### `strip_first_byte`: Remove Leftmost Byte
+
+Removes `x[0:1]` (the leftmost byte) from a `bytes32` value, keeping `x[1:32]` (the remaining 31 bytes). In our big-endian-integer backing, this is implemented as `x & (2^248 - 1)` (masking to keep only the lower 248 bits).
+
+**Implementation:**
+```ocaml
+let strip_first_byte ~at (value : Value.t) : (Value.t, Err.t) result =
+  let* bytes32_val = (* ... extract bytes32_val ... *) in
+  (* Remove first byte (MSB 1 byte) from bytes32 *)
+  (* Python x[1:] - remove MSB byte, keep remaining 31 bytes *)
+  let mask_248 = Bigint.(pow (of_int 2) (of_int 248) - one) in
+  let bytes31_val = Bigint.bit_and bytes32_val mask_248 in
+  Ok (make_bytes ~num:bytes31_val ~len:31)
+```
+
+**Why This Design:**
+- **Byte slice operation**: Returns `x[1:32]` (bytes from index 1 to 31, removing the leftmost byte)
+- **Bit mask implementation**: With big-endian-integer backing, this is implemented as `x & (2^248 - 1)` (masking to keep only the lower 248 bits, effectively removing the leftmost 8 bits)
+
+**Example:**
+- Input: `bytes32 = 0x1234567890abcdef...`
+- Mask: `0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff`
+- Result: `bytes31 = 0x34567890abcdef...` (removed `0x12`)
+
+#### 4.4.3 Domain-Specific Operations
+
+These functions implement eth2spec-specific operations for domain construction and withdrawal credential handling.
+
+##### `concat_domain`: Domain Construction
+
+Concatenates a `domainType` (4 bytes) and `bytes28` to form a `domain` (32 bytes), following eth2spec's domain construction rules.
+
+**Implementation:**
+```ocaml
+let concat_domain ~at (domain_type : Num.t) (bytes28_val : Num.t) : (Value.t, Err.t) result =
+  let domain_type = Num.to_int domain_type in
+  let bytes28_val = Num.to_int bytes28_val in
+  (* Validate domainType (bytes4) *)
+  let* () = validate_bytes4 at domain_type in
+  (* Validate bytes28 *)
+  let* () = validate_bytes28 at bytes28_val in
+  (* Convert to bytes (Big-endian) *)
+  let dt_bytes = be_of_bigint_fixed domain_type ~len:4 in
+  let b28_bytes = be_of_bigint_fixed bytes28_val ~len:28 in
+  (* Concatenate: domain_type (4 bytes) + bytes28 (28 bytes) *)
+  let out = create 32 in
+  blit dt_bytes 0 out 0 4;
+  blit b28_bytes 0 out 4 28;
+  (* Convert back to integer (Big-endian) *)
+  let result = bigint_of_be_bytes out in
+  (* Validate result is within bytes32 range *)
+  let* () = validate_bytes32 at result in
+  Ok (make_bytes ~num:result ~len:32)
+```
+
+**Why This Design:**
+- **SSZ domain format**: eth2spec domains are 32 bytes: `domainType (4B) || fork_data_root[28B]`
+- **Big-endian concatenation**: Both components are converted to big-endian bytes, then concatenated
+- **Byte-level accuracy**: Uses `blit` for precise byte copying, ensuring correct ordering
+
+**Example:**
+- Input: `domainType = 0x00000007` (DOMAIN_RANDAO), `bytes28 = 0x1234...` (fork data root)
+- `dt_bytes = [0x00, 0x00, 0x00, 0x07]`
+- `b28_bytes = [0x12, 0x34, ...]` (28 bytes)
+- Concatenated: `[0x00, 0x00, 0x00, 0x07, 0x12, 0x34, ...]` (32 bytes)
+- Result: `domain = 0x000000071234...` (32 bytes)
+
+##### `make_withdrawal_credentials_eth1`: Withdrawal Credential Construction
+
+Creates withdrawal credentials with the ETH1 address prefix, following eth2spec's withdrawal credential format.
+
+**Implementation:**
+```ocaml
+let make_withdrawal_credentials_eth1 ~at (execution_address : Num.t) : (Value.t, Err.t) result =
+  let execution_address = Num.to_int execution_address in
+  (* Validate executionAddress (bytes20) *)
+  let* () = validate_bytes20 at execution_address in
+  (* ETH1_ADDRESS_WITHDRAWAL_PREFIX = 0x01 (1 byte) *)
+  let eth1_prefix = Bigint.of_int 0x01 in
+  (* 0x00 * 11 = 11 zero bytes *)
+  let zero_bytes_11 = Bigint.zero in
+  (* Concatenate: 0x01 + 0x00*11 + executionAddress = 32 bytes *)
+  (* Shift eth1_prefix left by 31 bytes (248 bits) *)
+  let prefix_shifted = Bigint.shift_left eth1_prefix 248 in
+  (* Shift zero_bytes_11 left by 20 bytes (160 bits) *)
+  let zeros_shifted = Bigint.shift_left zero_bytes_11 160 in
+  (* Final result: prefix + zeros + execution_address *)
+  let result = Bigint.(prefix_shifted + zeros_shifted + execution_address) in
+  (* Validate result is within bytes32 range *)
+  let* () = validate_bytes32 at result in
+  Ok (make_bytes ~num:result ~len:32)
+```
+
+**Why This Design:**
+- **eth2spec format**: Withdrawal credentials are 32 bytes: `[0x01, 0x00*11, execution_address]`
+- **Bit shifting**: Uses left shifts to position each component correctly in the 32-byte result
+- **Prefix placement**: `0x01` at MSB (byte 0), 11 zero bytes, then execution address at LSB
+
+**Example:**
+- Input: `execution_address = 0x742d35cc6631c0532925a3b8d4c9db6c4e8f1234` (20 bytes)
+- `prefix_shifted = 0x0100000000000000000000000000000000000000000000000000000000000000`
+- `zeros_shifted = 0x0000000000000000000000000000000000000000000000000000000000000000`
+- `execution_address = 0x000000000000000000000000742d35cc6631c0532925a3b8d4c9db6c4e8f1234`
+- Result: `0x010000000000000000000000742d35cc6631c0532925a3b8d4c9db6c4e8f1234`
+
+##### `extract_execution_address`: Address Extraction
+
+Extracts the execution address (last 20 bytes) from withdrawal credentials.
+
+**Implementation:**
+```ocaml
+let extract_execution_address ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
+  let bytes32_val = Num.to_int bytes32_val in
+  let* () = validate_bytes32 at bytes32_val in
+  (* Extract last 20 bytes (160 bits) from bytes32 *)
+  let bytes20_mask = Bigint.(pow (of_int 2) (of_int 160) - one) in
+  let execution_address = Bigint.bit_and bytes32_val bytes20_mask in
+  Ok (make_bytes ~num:execution_address ~len:20)
+```
+
+**Why This Design:**
+- **Mask operation**: Uses bitwise AND with `2^160 - 1` to extract the lower 160 bits (20 bytes)
+- **LSB extraction**: The mask has 160 bits set, keeping only the execution address portion
+
+**Example:**
+- Input: `bytes32 = 0x010000000000000000000000742d35cc6631c0532925a3b8d4c9db6c4e8f1234`
+- Mask: `0x000000000000000000000000ffffffffffffffffffffffffffffffffffffffff`
+- Result: `execution_address = 0x742d35cc6631c0532925a3b8d4c9db6c4e8f1234` (20 bytes)
+
+#### 4.4.4 Design Principles
+
+All bytes manipulation functions follow these principles:
+
+1. **Big-Endian Semantics**: Since `BytesV` stores values as big-endian integers, all operations preserve this semantics
+2. **Type Safety and Validation**: Functions validate inputs using helper functions that ensure values fit within their byte length constraints:
+   - `validate_bytesN`: Ensures `0 ≤ v < 2^(8·N)` for bytes types (e.g., `validate_bytes32` checks `0 ≤ v < 2^256`)
+   - `validate_uintN`: Ensures `0 ≤ v < 2^N` for uint types (e.g., `validate_uint64` checks `0 ≤ v < 2^64`)
+3. **Dual Representation Support**: Functions handle both `BytesV` and `NumV` inputs, converting as needed
+4. **eth2spec Compliance**: All operations match the behavior specified in the Ethereum 2.0 consensus specification
+5. **Precise Byte Operations**: Uses bitwise operations and shifts to ensure byte-level accuracy. Byte slice operations (e.g., `x[a:b]`) are clearly distinguished from bit shift operations (e.g., `x >> k`)
+
+These functions enable Spectec to perform all byte-level operations required by eth2spec, ensuring compatibility with the Ethereum 2.0 consensus layer.
