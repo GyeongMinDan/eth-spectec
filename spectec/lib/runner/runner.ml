@@ -93,7 +93,7 @@ let elaborate spec_el : Il.spec pipeline_result =
 let run_il ~debug ~profile spec_il rid values_input :
     (Interp_il.Ctx.t * Il.Value.t list) pipeline_result =
   let run_il () =
-    let ctx_init = Interp_il.Runner.init ~debug ~profile "il" in
+    let ctx_init = Interp_il.Runner.init ~debug ~profile "runner_il" in
     Interp_il.Runner.run_relation ctx_init spec_il rid values_input |> Result.ok
   in
   try Handlers.il run_il
@@ -124,6 +124,16 @@ let interp_sl spec_il includes_target filename_target :
     |> Result.ok
   in
   try Handlers.sl interp_sl
+  with Interp_sl.Error.InterpError (at, msg) ->
+    Error.SlInterpError (at, msg) |> Result.error
+
+let run_sl spec_sl rid values_input :
+    (Interp_sl.Ctx.t * Il.Value.t list) pipeline_result =
+  let run_sl () =
+    Interp_sl.Runner.run_relation_fresh spec_sl rid values_input "runner_sl"
+    |> Result.ok
+  in
+  try Handlers.sl run_sl
   with Interp_sl.Error.InterpError (at, msg) ->
     Error.SlInterpError (at, msg) |> Result.error
 

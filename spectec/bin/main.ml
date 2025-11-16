@@ -157,22 +157,45 @@ let run_sl_command =
   Core.Command.basic ~summary:"run a spec based on backtracking IL"
     (let open Core.Command.Let_syntax in
      let open Core.Command.Param in
-     let%map filenames_spec = anon (sequence ("filename" %: string))
-     and includes_target =
-       flag "-i" (listed string) ~doc:"target file include paths"
-     and filename_target =
-       flag "-p" (required string) ~doc:"target file to run il interpreter on"
+     let%map filenames_spec = anon (sequence ("spec files" %: string))
+     and pre_state = flag "--pre" (required string) ~doc:"pre-state JSON"
+     and block = flag "--block" (required string) ~doc:"beacon block JSON"
+     and output_file =
+       flag "-o" (optional string) ~doc:"output JSON file (default: stdout)"
      in
      fun () ->
        let interp_result =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
          let spec_sl = structure spec_il in
-         let* _, _ = interp_sl spec_sl includes_target filename_target in
-         Ok ()
+         let* beaconState_il = parse_json pre_state "BeaconState" spec_il in
+         let* block_il = parse_json block "BeaconBlock" spec_il in
+         let* _, values =
+           run_sl spec_sl "State_transition"
+             [ beaconState_il; block_il; Il.Value.bool true ]
+         in
+         Ok (values, spec_sl)
        in
        match interp_result with
-       | Ok () -> Format.printf "Interpreter succeeded\n"
+       | Ok (values, _) -> (
+           match output_file with
+           | Some filename ->
+               let oc = open_out filename in
+               List.iter
+                 (fun v ->
+                   let json = Interface_json.Print.value_to_json v in
+                   match json with
+                   | Ok json ->
+                       let json_string = Yojson.Safe.pretty_to_string json in
+                       output_string oc json_string;
+                       output_string oc "\n"
+                   | Error err ->
+                       Format.printf "JSON printing failed : %s"
+                         (Interface_json.Print.string_of_error err))
+                 values;
+               close_out oc;
+               Format.printf "JSON saved to: %s\n" filename
+           | None -> List.iter (fun v -> print_json v) values)
        | Error e ->
            Format.printf "Interpreter failed:\n  %s\n"
              (Runner.Error.string_of_error e))

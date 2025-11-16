@@ -1024,7 +1024,7 @@ and invoke_func_def (ctx : Ctx.t) (id : id) (targs : targ list)
             (fun tid typdef theta ->
               let tparams, deftyp = typdef in
               match (tparams, deftyp.it) with
-              | [], Il.Ast.PlainT typ -> TIdMap.add tid typ theta
+              | [], Il.PlainT typ -> TIdMap.add tid typ theta
               | _ -> theta)
             ctx.local.tdenv TIdMap.empty
         in

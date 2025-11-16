@@ -1,6 +1,6 @@
 open Il
 open Xl
-open Runtime_dynamic.Value
+open Value
 open Stdlib.Bytes
 
 let ( let* ) = Result.bind
