@@ -130,7 +130,7 @@ and instr = instr' phrase
 and instr' =
   | IfI of exp * iterexp list * instr list * phantom option
   | CaseI of exp * case list * phantom option 
-  | OtherwiseI of instr
+  | OtherwiseI of instr list
   | LetI of exp * exp * iterexp list
   | RuleI of id * notexp * iterexp list
   | ResultI of exp list

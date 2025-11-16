@@ -21,9 +21,6 @@ and struct_prems' (prems_internalized : (prem * iterexp list) list)
     (instr_ret : Ol.Ast.instr) : Ol.Ast.instr list =
   match prems_internalized with
   | [] -> [ instr_ret ]
-  | [ ({ it = ElsePr; at; _ }, []) ] ->
-      let instr = Ol.Ast.OtherwiseI instr_ret $ at in
-      [ instr ]
   | (prem_h, iterexps_h) :: prems_internalized_t -> (
       let at = prem_h.at in
       match prem_h.it with
@@ -34,6 +31,10 @@ and struct_prems' (prems_internalized : (prem * iterexp list) list)
       | IfPr exp ->
           let instrs_t = struct_prems' prems_internalized_t instr_ret in
           let instr_h = Ol.Ast.IfI (exp, iterexps_h, instrs_t) $ at in
+          [ instr_h ]
+      | ElsePr ->
+          let instrs_t = struct_prems' prems_internalized_t instr_ret in
+          let instr_h = Ol.Ast.OtherwiseI instrs_t $ at in
           [ instr_h ]
       | LetPr (exp_l, exp_r) ->
           let instr_h = Ol.Ast.LetI (exp_l, exp_r, iterexps_h) $ at in

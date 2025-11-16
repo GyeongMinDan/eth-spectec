@@ -124,9 +124,9 @@ and insert_phantom' (tdenv : TDEnv.t) (pathconds : pathcond list)
           Some (pid, pathcond)
       in
       Sl.Ast.CaseI (exp, cases, phantom_opt) $ at
-  | OtherwiseI instr ->
-      let instr = insert_phantom' tdenv pathconds instr in
-      Sl.Ast.OtherwiseI instr $ at
+  | OtherwiseI instrs ->
+      let instrs = insert_phantom tdenv pathconds instrs in
+      Sl.Ast.OtherwiseI instrs $ at
   | LetI (exp_l, exp_r, iterexps) -> Sl.Ast.LetI (exp_l, exp_r, iterexps) $ at
   | RuleI (id, notexp, iterexps) -> Sl.Ast.RuleI (id, notexp, iterexps) $ at
   | ResultI exps -> Sl.Ast.ResultI exps $ at
@@ -161,9 +161,9 @@ and insert_nothing' (instr : instr) : Sl.Ast.instr =
         List.combine guards blocks
       in
       Sl.Ast.CaseI (exp, cases, None) $ at
-  | OtherwiseI instr ->
-      let instr = insert_nothing' instr in
-      Sl.Ast.OtherwiseI instr $ at
+  | OtherwiseI instrs ->
+      let instrs = insert_nothing instrs in
+      Sl.Ast.OtherwiseI instrs $ at
   | LetI (exp_l, exp_r, iterexps) -> Sl.Ast.LetI (exp_l, exp_r, iterexps) $ at
   | RuleI (id, notexp, iterexps) -> Sl.Ast.RuleI (id, notexp, iterexps) $ at
   | ResultI exps -> Sl.Ast.ResultI exps $ at

@@ -136,7 +136,7 @@ and eq_instr (instr_a : instr) (instr_b : instr) : bool =
     ->
       eq_exp exp_a exp_b && eq_cases cases_a cases_b
       && eq_phantom_opt phantom_opt_a phantom_opt_b
-  | OtherwiseI instr_a, OtherwiseI instr_b -> eq_instr instr_a instr_b
+  | OtherwiseI instrs_a, OtherwiseI instrs_b -> eq_instrs instrs_a instrs_b
   | LetI (exp_l_a, exp_r_a, iterexps_a), LetI (exp_l_b, exp_r_b, iterexps_b) ->
       eq_exp exp_l_a exp_l_b && eq_exp exp_r_a exp_r_b
       && eq_iterexps iterexps_a iterexps_b

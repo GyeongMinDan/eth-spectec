@@ -695,7 +695,7 @@ and eval_instr (ctx : Ctx.t) (instr : instr) : Ctx.t * Sign.t =
   | IfI (exp_cond, iterexps, instrs_then, _phantom_opt) ->
       eval_if_instr ctx exp_cond iterexps instrs_then
   | CaseI (exp, cases, _phantom_opt) -> eval_case_instr ctx exp cases
-  | OtherwiseI instr -> eval_instr ctx instr
+  | OtherwiseI instrs -> eval_instrs ctx Cont instrs
   | LetI (exp_l, exp_r, iterexps) -> eval_let_instr ctx exp_l exp_r iterexps
   | RuleI (id, notexp, iterexps) -> eval_rule_instr ctx id notexp iterexps
   | ResultI exps -> eval_result_instr ctx exps
