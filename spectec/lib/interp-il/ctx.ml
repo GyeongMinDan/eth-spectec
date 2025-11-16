@@ -63,8 +63,7 @@ type t = {
 
 (* Profiling *)
 
-let profile (ctx : t) : unit =
-  if ctx.config.profile then Trace.profile ctx.trace
+let profile (ctx : t) : unit = if ctx.config.profile then Profile.dump ()
 
 (* Tracing *)
 

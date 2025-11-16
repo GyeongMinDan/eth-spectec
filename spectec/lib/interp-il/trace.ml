@@ -74,12 +74,18 @@ let close_time (time_start : time) (subtraces_rev : t list) : time =
 
 let close (trace : t) : t =
   match trace with
-  | Rel { id_rel; id_rule; values_input; time; subtraces_rev } ->
-      let time = close_time time subtraces_rev in
-      Rel { id_rel; id_rule; values_input; time; subtraces_rev }
-  | Dec { id_func; idx_clause; values_input; time; subtraces_rev } ->
-      let time = close_time time subtraces_rev in
-      Dec { id_func; idx_clause; values_input; time; subtraces_rev }
+  | Rel ({ id_rel; time = ING _; subtraces_rev; _ } as rel) ->
+      let time = close_time rel.time subtraces_rev in
+      (match time with
+      | END (_, dur) -> Profile.record_rule id_rel.it dur
+      | _ -> ());
+      Rel { rel with time }
+  | Dec ({ id_func; time = ING _; subtraces_rev; _ } as dec) ->
+      let time = close_time dec.time subtraces_rev in
+      (match time with
+      | END (_, dur) -> Profile.record_func id_func.it dur
+      | _ -> ());
+      Dec { dec with time }
   | Iter { inner; time; subtraces_rev } ->
       let time = close_time time subtraces_rev in
       Iter { inner; time; subtraces_rev }
@@ -133,12 +139,12 @@ let replace_subtraces (trace : t) (subtraces_rev : t list) : t =
 
 let commit (trace : t) (trace_sub : t) : t =
   match trace with
-  | Rel { id_rel; id_rule; values_input; time; subtraces_rev; _ } ->
+  | Rel ({ subtraces_rev; _ } as rel) ->
       let subtraces_rev = trace_sub :: subtraces_rev in
-      Rel { id_rel; id_rule; values_input; time; subtraces_rev }
-  | Dec { id_func; idx_clause; values_input; time; subtraces_rev } ->
+      Rel { rel with subtraces_rev }
+  | Dec ({ subtraces_rev; _ } as dec) ->
       let subtraces_rev = trace_sub :: subtraces_rev in
-      Dec { id_func; idx_clause; values_input; time; subtraces_rev }
+      Dec { dec with subtraces_rev }
   | Iter { inner; time; subtraces_rev } ->
       let subtraces_rev = trace_sub :: subtraces_rev in
       Iter { inner; time; subtraces_rev }
@@ -221,70 +227,9 @@ and logs ?(tagger = Tagger.empty) ?(depth = 0) ?(verbose = false)
   | [] -> ""
   | _ ->
       List.fold_left
-        (fun (idx, straces) trace ->
+        (fun (idx, straces_rev) trace ->
           let idx = match trace with Prem _ -> idx + 1 | _ -> idx in
           let strace = log ~tagger ~depth ~idx ~verbose trace in
-          (idx, straces @ [ strace ]))
+          (idx, strace :: straces_rev))
         (0, []) (List.rev traces_rev)
-      |> snd |> String.concat "\n" |> Format.asprintf "%s\n"
-
-(* Profiling *)
-
-module Counter = Map.Make (String)
-
-type counter = (int * float) Counter.t
-
-let update_counter (id : string) (duration : float) (counter : counter) :
-    counter =
-  match Counter.find_opt id counter with
-  | None -> Counter.add id (1, duration) counter
-  | Some (count, duration_total) ->
-      Counter.add id (count + 1, duration_total +. duration) counter
-
-let log_counter (counter : counter) : string =
-  Counter.bindings counter
-  |> List.sort (fun (_, (_, duration_a)) (_, (_, duration_b)) ->
-         compare duration_b duration_a)
-  |> List.map (fun (id, (count, duration_total)) ->
-         Format.asprintf "   [ %s ]: %d (%.6f / %.6f)" id count duration_total
-           (duration_total /. float_of_int count))
-  |> String.concat "\n"
-
-let rec profile' (rules : counter) (funcs : counter) (trace : t) :
-    counter * counter =
-  match trace with
-  | Rel { id_rel; subtraces_rev; time; _ } ->
-      let rules =
-        match time with
-        | END (_, duration) -> update_counter id_rel.it duration rules
-        | CACHED -> rules
-        | _ -> assert false
-      in
-      List.fold_left
-        (fun (rules, funcs) trace -> profile' rules funcs trace)
-        (rules, funcs) (List.rev subtraces_rev)
-  | Dec { id_func; subtraces_rev; time; _ } ->
-      let funcs =
-        match time with
-        | END (_, duration) -> update_counter id_func.it duration funcs
-        | CACHED -> funcs
-        | _ -> assert false
-      in
-      List.fold_left
-        (fun (rules, funcs) trace -> profile' rules funcs trace)
-        (rules, funcs) (List.rev subtraces_rev)
-  | Iter { subtraces_rev; _ } ->
-      List.fold_left
-        (fun (rules, funcs) trace -> profile' rules funcs trace)
-        (rules, funcs) (List.rev subtraces_rev)
-  | _ -> (rules, funcs)
-
-let profile (trace : t) : unit =
-  (* Format.printf "Trace...\n";
-  Format.printf "%s\n" (log trace); *)
-  Format.printf "Profiling...\n";
-  let rules, funcs = profile' Counter.empty Counter.empty trace in
-  Format.printf "Rules:\n";
-  Format.printf "%s\n" (log_counter rules);
-  Format.printf "Functions:\n";
-  Format.printf "%s\n" (log_counter funcs)
+      |> snd |> List.rev |> String.concat "\n" |> Format.asprintf "%s\n"
