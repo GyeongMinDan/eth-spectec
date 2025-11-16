@@ -90,17 +90,20 @@ let elaborate spec_el : Il.spec pipeline_result =
   with Elaborate.Error.ElabError (at, failtraces) ->
     Error.ElabError [ (at, failtraces) ] |> Result.error
 
-let run_il ~debug ~profile spec_il rid values_input :
+let run_il_eth ~debug ~profile spec_il ~validate pre_state block :
     (Interp_il.Ctx.t * Il.Value.t list) pipeline_result =
   let run_il () =
     let ctx_init = Interp_il.Runner.init ~debug ~profile "runner_il" in
-    Interp_il.Runner.run_relation ctx_init spec_il rid values_input |> Result.ok
+    let values_input = [ pre_state; block; Il.Value.bool validate ] in
+    Interp_il.Runner.run_relation ctx_init spec_il "State_transition"
+      values_input
+    |> Result.ok
   in
   try Handlers.il run_il
   with Interp_il.Error.InterpError (at, msg) ->
     Error.IlInterpError (at, msg) |> Result.error
 
-let interp_il ~debug ~profile spec_il includes_target filename_target :
+let run_il_p4 ~debug ~profile spec_il includes_target filename_target :
     (Interp_il.Ctx.t * Il.Value.t list) pipeline_result =
   let interp_il () =
     let* value_program = parse_p4_file includes_target filename_target in
@@ -115,7 +118,7 @@ let interp_il ~debug ~profile spec_il includes_target filename_target :
 
 let structure spec_il : Sl.Ast.spec = Structure.Struct.struct_spec spec_il
 
-let interp_sl spec_il includes_target filename_target :
+let run_sl_p4 spec_il includes_target filename_target :
     (Interp_sl.Ctx.t * Il.Value.t list) pipeline_result =
   let interp_sl () =
     let* value_program = parse_p4_file includes_target filename_target in
@@ -127,10 +130,12 @@ let interp_sl spec_il includes_target filename_target :
   with Interp_sl.Error.InterpError (at, msg) ->
     Error.SlInterpError (at, msg) |> Result.error
 
-let run_sl spec_sl rid values_input :
+let run_sl_eth spec_sl ~validate pre_state block :
     (Interp_sl.Ctx.t * Il.Value.t list) pipeline_result =
   let run_sl () =
-    Interp_sl.Runner.run_relation_fresh spec_sl rid values_input "runner_sl"
+    let values_input = [ pre_state; block; Il.Value.bool validate ] in
+    Interp_sl.Runner.run_relation_fresh spec_sl "State_transition" values_input
+      "runner_sl"
     |> Result.ok
   in
   try Handlers.sl run_sl

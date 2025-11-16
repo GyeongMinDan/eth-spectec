@@ -121,11 +121,11 @@ let run_il_command =
        let interp_result =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
-         let* beaconState_il = parse_json pre_state "BeaconState" spec_il in
-         let* block_il = parse_json block "BeaconBlock" spec_il in
+         let* beaconState_il = parse_json pre_state "beaconState" spec_il in
+         let* block_il = parse_json block "signedBeaconBlock" spec_il in
          let* _, values =
-           run_il ~debug ~profile spec_il "State_transition"
-             [ beaconState_il; block_il; Il.Value.bool true ]
+           run_il_eth ~debug ~profile spec_il ~validate:true beaconState_il
+             block_il
          in
          Ok (values, spec_il)
        in
@@ -168,11 +168,10 @@ let run_sl_command =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
          let spec_sl = structure spec_il in
-         let* beaconState_il = parse_json pre_state "BeaconState" spec_il in
-         let* block_il = parse_json block "BeaconBlock" spec_il in
+         let* beaconState_il = parse_json pre_state "beaconState" spec_il in
+         let* block_il = parse_json block "signedBeaconBlock" spec_il in
          let* _, values =
-           run_sl spec_sl "State_transition"
-             [ beaconState_il; block_il; Il.Value.bool true ]
+           run_sl_eth spec_sl ~validate:true beaconState_il block_il
          in
          Ok (values, spec_sl)
        in
