@@ -179,7 +179,9 @@ dec $source_flag_list(beaconState, attestationData, checkpoint, uint64) : nat*
 
 def $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
   -- if $integer_square_root($SLOTS_PER_EPOCH) = uint64_sqrt_slots_per_epoch
-  -- if $(attestationData_data.SOURCE = checkpoint_jc)
+  ;; 구조체 직접 비교가 실패하는 경우를 대비해 필드별로 비교
+  -- if $(attestationData_data.SOURCE.EPOCH = checkpoint_jc.EPOCH)
+  -- if $(attestationData_data.SOURCE.ROOT = checkpoint_jc.ROOT)
   -- if $(uint64_inclusion_delay <= uint64_sqrt_slots_per_epoch)
   -- if nat_flags_source* = [ $TIMELY_SOURCE_FLAG_INDEX ]
 
@@ -189,34 +191,41 @@ def $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, ui
 
 ;; ============================================
 ;; TARGET 플래그 판단 (조건 만족 시 [TIMELY_TARGET_FLAG_INDEX], 아니면 eps)
+;; Python 코드: is_matching_target = is_matching_source and target_root_matches
 ;; ============================================
-dec $target_flag_list(beaconState, attestationData, uint64) : nat*
+dec $target_flag_list(beaconState, attestationData, checkpoint, uint64) : nat*
 
-def $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_target*
+def $target_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_target*
+  ;; is_matching_source: 구조체 직접 비교가 실패하는 경우를 대비해 필드별로 비교
+  -- if $(attestationData_data.SOURCE.EPOCH = checkpoint_jc.EPOCH)
+  -- if $(attestationData_data.SOURCE.ROOT = checkpoint_jc.ROOT)
   -- if $get_block_root(state_beaconState, attestationData_data.TARGET.EPOCH) = root_target_epoch
-  -- if $(attestationData_data.TARGET.ROOT = root_target_epoch)
+  -- if $(attestationData_data.TARGET.ROOT = root_target_epoch)  ;; target_root_matches
   -- if $(uint64_inclusion_delay <= $SLOTS_PER_EPOCH)
   -- if nat_flags_target* = [ $TIMELY_TARGET_FLAG_INDEX ]
 
-def $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = eps
+def $target_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = eps
   -- otherwise
-
 
 ;; ============================================
 ;; HEAD 플래그 판단 (조건 만족 시 [TIMELY_HEAD_FLAG_INDEX], 아니면 eps)
-;; (HEAD는 TARGET 매칭이 선행되어야 하므로 TARGET 매칭도 함께 확인)
+;; Python 코드: is_matching_head = is_matching_target and head_root_matches
+;; (is_matching_target = is_matching_source and target_root_matches)
 ;; ============================================
-dec $head_flag_list(beaconState, attestationData, uint64) : nat*
+dec $head_flag_list(beaconState, attestationData, checkpoint, uint64) : nat*
 
-def $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_head*
+def $head_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_head*
+  ;; is_matching_source: 구조체 직접 비교가 실패하는 경우를 대비해 필드별로 비교
+  -- if $(attestationData_data.SOURCE.EPOCH = checkpoint_jc.EPOCH)
+  -- if $(attestationData_data.SOURCE.ROOT = checkpoint_jc.ROOT)
   -- if $get_block_root(state_beaconState, attestationData_data.TARGET.EPOCH) = root_target_epoch
-  -- if $(attestationData_data.TARGET.ROOT = root_target_epoch)
+  -- if $(attestationData_data.TARGET.ROOT = root_target_epoch)  ;; is_matching_target
   -- if $get_block_root_at_slot(state_beaconState, attestationData_data.SLOT) = root_at_slot
-  -- if $(attestationData_data.BEACON_BLOCK_ROOT = root_at_slot)
+  -- if $(attestationData_data.BEACON_BLOCK_ROOT = root_at_slot)  ;; head_root_matches
   -- if $(uint64_inclusion_delay = $MIN_ATTESTATION_INCLUSION_DELAY)
   -- if nat_flags_head* = [ $TIMELY_HEAD_FLAG_INDEX ]
 
-def $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = eps
+def $head_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = eps
   -- otherwise
 
 ;;
@@ -229,12 +238,16 @@ def $get_attestation_participation_flag_indices(state_beaconState, attestationDa
   -- if $get_current_epoch(state_beaconState) = epoch_current
   -- if $(attestationData_data.TARGET.EPOCH = epoch_current)
   -- if checkpoint_jc = state_beaconState.CURRENT_JUSTIFIED_CHECKPOINT
-  ;; assert is_matching_source
-  -- if $(attestationData_data.SOURCE = checkpoint_jc)
+  ;; assert is_matching_source (Python 코드의 assert is_matching_source)
+  ;; 구조체 직접 비교 ->  필드별로 비교
+  -- if $(attestationData_data.SOURCE.EPOCH = checkpoint_jc.EPOCH)
+  -- if $(attestationData_data.SOURCE.ROOT = checkpoint_jc.ROOT)
   ;; 개별 플래그 리스트 계산
+  ;; Python 코드: is_matching_target = is_matching_source and target_root_matches
+  ;; Python 코드: is_matching_head = is_matching_target and head_root_matches
   -- if $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
-  -- if $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_target*
-  -- if $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay)   = nat_flags_head*
+  -- if $target_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_target*
+  -- if $head_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_head*
   ;; 합치기
   -- if nat_flag_indices* = nat_flags_source* ++ nat_flags_target* ++ nat_flags_head*
 
@@ -244,12 +257,16 @@ def $get_attestation_participation_flag_indices(state_beaconState, attestationDa
   -- if $get_current_epoch(state_beaconState) = epoch_current
   -- if ~( $(attestationData_data.TARGET.EPOCH = epoch_current) )
   -- if checkpoint_jc = state_beaconState.PREVIOUS_JUSTIFIED_CHECKPOINT
-  ;; assert is_matching_source
-  -- if $(attestationData_data.SOURCE = checkpoint_jc)
+  ;; assert is_matching_source (Python 코드의 assert is_matching_source)
+  ;; 구조체 직접 비교 ->  필드별로 비교
+  -- if $(attestationData_data.SOURCE.EPOCH = checkpoint_jc.EPOCH)
+  -- if $(attestationData_data.SOURCE.ROOT = checkpoint_jc.ROOT)
   ;; 개별 플래그 리스트 계산
+  ;; Python 코드: is_matching_target = is_matching_source and target_root_matches
+  ;; Python 코드: is_matching_head = is_matching_target and head_root_matches
   -- if $source_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_source*
-  -- if $target_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay) = nat_flags_target*
-  -- if $head_flag_list(state_beaconState, attestationData_data, uint64_inclusion_delay)   = nat_flags_head*
+  -- if $target_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_target*
+  -- if $head_flag_list(state_beaconState, attestationData_data, checkpoint_jc, uint64_inclusion_delay) = nat_flags_head*
   ;; 합치기
   -- if nat_flag_indices* = nat_flags_source* ++ nat_flags_target* ++ nat_flags_head*
 
