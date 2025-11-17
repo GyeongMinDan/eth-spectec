@@ -64,7 +64,7 @@ This is problematic because:
 
 ### 3.2 BytesV: Preserving Length Information
 
-To solve this problem, we introduce `BytesV`, a runtime value type that preserves both the numeric value and the byte length:
+To solve this problem, we introduce `BytesV`, a runtime value type that preserves both the numeric value and the byte length. In the IL (Intermediate Language) value system, `BytesV` is defined as part of the `value'` type:
 
 ```ocaml
 type value' =
@@ -81,7 +81,7 @@ The `BytesV` constructor stores:
 
 ### 3.3 BytesV Operations
 
-The runtime system provides operations to create and manipulate `BytesV` values:
+The `Il.Value` module provides operations to create and manipulate `BytesV` values:
 
 ```ocaml
 let make_bytes ~(num: Bigint.t) ~(len:int) : t =
@@ -106,12 +106,12 @@ The `$hash_<X>` builtin function computes SHA-256 hash of bytes values. It handl
 #### 4.1.1 Function Implementation
 
 ```ocaml
-let hash_ ~at (typ : targ) (v: Runtime_dynamic.Value.t) : (Value.t, Err.t) result =
+let hash_ ~at (typ : targ) (v: Il.Value.t) : (Il.Value.t, Err.t) result =
   let* (num, len) =
     match v.it with
     | BytesV {num; len} -> Ok (num, len)
     | NumV _ ->
-        let num_bigint = Runtime_dynamic.Value.get_num v |> Num.to_int in
+        let num_bigint = Il.Value.get_num v |> Num.to_int in
         (match bytes_len_of_targ typ with
         | Some l ->
             let* () = validate_fits_len ~at num_bigint l in
@@ -141,7 +141,7 @@ The `BytesV` already contains the length information, so no type inference is ne
 
 **Case 2: NumV Input (Fallback Path)**
 When a `NumV` is provided (which can occur during elaboration when bytes types are represented as integers), the function:
-1. Extracts the numeric value from `NumV`
+1. Extracts the numeric value from `NumV` using `Il.Value.get_num`
 2. Infers the byte length from the type annotation using `bytes_len_of_targ`
 3. Validates that the value fits within the inferred byte length
 
