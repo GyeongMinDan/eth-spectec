@@ -23,15 +23,17 @@ from typing import List, Tuple, Optional
 
 
 class TestRunner:
-    def __init__(self, converter_dir: str, spectec_bin: str, spec_dir: str = None):
+    def __init__(self, converter_dir: str, spectec_bin: str, spec_dir: str = None, run_mode: str = "run-il"):
         """
         Args:
             converter_dir: Converter 디렉터리 경로
             spectec_bin: Spectec 실행 파일 경로
             spec_dir: spec 파일들이 있는 디렉터리 (기본값: spectec-core/spec)
+            run_mode: 실행 모드 ("run-il" 또는 "run-sl", 기본값: "run-il")
         """
         self.converter_dir = Path(converter_dir).resolve()
         self.spectec_bin = Path(spectec_bin).resolve()
+        self.run_mode = run_mode
         
         # 기본 경로 설정
         if spec_dir:
@@ -144,7 +146,7 @@ class TestRunner:
             
             cmd = [
                 spectec_bin_rel,
-                "run-il"
+                self.run_mode
             ] + spec_args + [
                 "--pre", str(pre_json_rel),
                 "--block", str(block_json_rel),
@@ -611,6 +613,12 @@ def main():
         action="store_true",
         help="Verbose output"
     )
+    parser.add_argument(
+        "--run-mode",
+        default="run-il",
+        choices=["run-il", "run-sl"],
+        help="Execution mode: run-il or run-sl (default: run-il)"
+    )
     
     args = parser.parse_args()
     
@@ -653,7 +661,8 @@ def main():
     runner = TestRunner(
         converter_dir=str(converter_dir),
         spectec_bin=str(spectec_bin),
-        spec_dir=args.spec_dir
+        spec_dir=args.spec_dir,
+        run_mode=args.run_mode
     )
     
     results = runner.run_tests(
