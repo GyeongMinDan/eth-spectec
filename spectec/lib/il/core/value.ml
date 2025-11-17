@@ -22,7 +22,7 @@ let rec compare (value_l : t) (value_r : t) =
   | BoolV b_l, BoolV b_r -> Stdlib.compare b_l b_r
   | NumV n_l, NumV n_r -> Xl.Num.compare n_l n_r
   | TextV s_l, TextV s_r -> String.compare s_l s_r
-  | BytesV {num=n1; len=l1}, BytesV {num=n2; len=l2} ->
+  | BytesV { num = n1; len = l1 }, BytesV { num = n2; len = l2 } ->
       let len_cmp = Int.compare l1 l2 in
       if len_cmp <> 0 then len_cmp else Bigint.compare n1 n2
   | StructV fields_l, StructV fields_r ->
@@ -131,13 +131,16 @@ let list (typ : typ) (vs : t list) : t = ListV vs |> make_val (Typ.list typ)
 
 (* Bytes *)
 
-let make_bytes ~(num: Bigint.t) ~(len:int) : t =
+let make_bytes ~(num : Bigint.t) ~(len : int) : t =
   if len < 0 then failwith "bytes len < 0";
   let value = BytesV { num; len } in
   let typ = NumT `NatT in
   value $$$ with_fresh_vid typ
 
 let get_bytes (value : t) =
-  match value.it with BytesV {num; len} -> (num, len) | _ -> failwith "get_bytes"
+  match value.it with
+  | BytesV { num; len } -> (num, len)
+  | _ -> failwith "get_bytes"
 
-let list' (typ : typ') (vs : t list) : t = ListV vs |> make_val (Typ.list (typ $ no_region))
+let list' (typ : typ') (vs : t list) : t =
+  ListV vs |> make_val (Typ.list (typ $ no_region))

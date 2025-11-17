@@ -81,7 +81,8 @@ module T0 = struct
              (Printf.sprintf "Expected 3 arguments, got %d" (List.length vs)))
 
   let a4 (p1 : 'a Arg.t) (p2 : 'b Arg.t) (p3 : 'c Arg.t) (p4 : 'd Arg.t)
-      (impl : at:region -> 'a -> 'b -> 'c -> 'd -> (Value.t, Err.t) result) : t =
+      (impl : at:region -> 'a -> 'b -> 'c -> 'd -> (Value.t, Err.t) result) : t
+      =
    fun ~at targs values ->
     let* (), vs = Extract.extract ~targs_num:0 ~args_num:4 at targs values in
     match vs with
@@ -96,8 +97,11 @@ module T0 = struct
           (Err.arity at
              (Printf.sprintf "Expected 4 arguments, got %d" (List.length vs)))
 
-  let a5 (p1 : 'a Arg.t) (p2 : 'b Arg.t) (p3 : 'c Arg.t) (p4 : 'd Arg.t) (p5 : 'e Arg.t)
-      (impl : at:region -> 'a -> 'b -> 'c -> 'd -> 'e -> (Value.t, Err.t) result) : t =
+  let a5 (p1 : 'a Arg.t) (p2 : 'b Arg.t) (p3 : 'c Arg.t) (p4 : 'd Arg.t)
+      (p5 : 'e Arg.t)
+      (impl :
+        at:region -> 'a -> 'b -> 'c -> 'd -> 'e -> (Value.t, Err.t) result) : t
+      =
    fun ~at targs values ->
     let* (), vs = Extract.extract ~targs_num:0 ~args_num:5 at targs values in
     match vs with
@@ -149,7 +153,8 @@ module T1 = struct
                 (List.length targs) (List.length vs)))
 
   let a3 (p1 : 'a Arg.t) (p2 : 'b Arg.t) (p3 : 'c Arg.t)
-      (impl : at:region -> targ -> 'a -> 'b -> 'c -> (Value.t, Err.t) result) : t =
+      (impl : at:region -> targ -> 'a -> 'b -> 'c -> (Value.t, Err.t) result) :
+      t =
    fun ~at targs values ->
     let* (), vs = Extract.extract ~targs_num:1 ~args_num:3 at targs values in
     match (targs, vs) with

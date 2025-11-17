@@ -3,7 +3,8 @@ open Il
 (* Debug print function: prints value and returns it unchanged *)
 (* dec $debug_print_<X>(X) : X *)
 
-let debug_print_ ~at:_ (_typ : targ) (v : Il.Value.t) : (Il.Value.t, Err.t) result =
+let debug_print_ ~at:_ (_typ : targ) (v : Il.Value.t) :
+    (Il.Value.t, Err.t) result =
   let value_str = Il.Print.string_of_value ~short:false v in
   Printf.printf "[DEBUG] %s\n%!" value_str;
   Ok v
@@ -11,7 +12,8 @@ let debug_print_ ~at:_ (_typ : targ) (v : Il.Value.t) : (Il.Value.t, Err.t) resu
 (* Debug print with label *)
 (* dec $debug_print_label_<X>(text, X) : X *)
 
-let debug_print_label_ ~at:_ (_typ : targ) (label : string) (v : Il.Value.t) : (Il.Value.t, Err.t) result =
+let debug_print_label_ ~at:_ (_typ : targ) (label : string) (v : Il.Value.t) :
+    (Il.Value.t, Err.t) result =
   let value_str = Il.Print.string_of_value ~short:false v in
   Printf.printf "[DEBUG] %s: %s\n%!" label value_str;
   Ok v
@@ -21,4 +23,3 @@ let builtins : (string * Define.t) list =
     ("debug_print_", Define.T1.a1 Arg.value debug_print_);
     ("debug_print_label_", Define.T1.a2 Arg.text Arg.value debug_print_label_);
   ]
-

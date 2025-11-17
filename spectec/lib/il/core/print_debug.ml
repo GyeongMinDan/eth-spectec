@@ -93,7 +93,8 @@ and string_of_value ?(short = false) ?(level = 0) value =
   | BoolV b -> string_of_bool b
   | NumV n -> Num.string_of_num n
   | TextV s -> Printf.sprintf {|"%s"|} s
-  | BytesV {num; len} -> Printf.sprintf "bytes(%s, len=%d)" (Bigint.to_string num) len
+  | BytesV { num; len } ->
+      Printf.sprintf "bytes(%s, len=%d)" (Bigint.to_string num) len
   | StructV [] -> "{}"
   | StructV valuefields when short ->
       Format.asprintf "{ .../%d }" (List.length valuefields)

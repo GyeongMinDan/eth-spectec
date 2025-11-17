@@ -66,7 +66,8 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
     : parse_result =
   match (expected, json) with
   | BoolT, `Bool b -> Value.bool b |> Result.ok
-  | NumT `IntT, `String s when String.length s >= 2 && String.sub s 0 2 = "0x" ->
+  | NumT `IntT, `String s when String.length s >= 2 && String.sub s 0 2 = "0x"
+    ->
       (* Hex string for bytes type (int) - convert to BytesV *)
       let* num, len = hex_string_to_bytes s in
       let bytes_value' = BytesV { num; len } in
@@ -88,7 +89,8 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
         else TypeError ("non-negative nat", expected, json) |> Result.error
       with Failure _ ->
         TypeError ("nat string", expected, json) |> Result.error)
-  | NumT `NatT, `String s when String.length s >= 2 && String.sub s 0 2 = "0x" ->
+  | NumT `NatT, `String s when String.length s >= 2 && String.sub s 0 2 = "0x"
+    ->
       (* Hex string for bytes type - convert to BytesV *)
       let* num, len = hex_string_to_bytes s in
       let bytes_value' = BytesV { num; len } in
@@ -122,9 +124,9 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
             result_all (List.map2 parse_typefield typfields fields)
           in
           Value.record tid.it typfields |> Result.ok
-      | Some (_, { it = PlainT typ; _ }), _ ->
+      | Some (_, { it = PlainT typ; _ }), _ -> (
           (* Check if it's a bytes type and JSON is a hex string *)
-          (match (typ.it, json) with
+          match (typ.it, json) with
           | (NumT `NatT | NumT `IntT), `String s
             when String.length s >= 2 && String.sub s 0 2 = "0x" ->
               (* bytes type with hex string - convert to BytesV *)

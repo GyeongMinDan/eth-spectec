@@ -1184,6 +1184,23 @@ and invoke_func_def (ctx : Ctx.t) (id : id) (targs : targ list)
     match sign with
     | Ret value_output -> (ctx, value_output)
     | _ -> error id.at "function was not matched"
+    (*| _ ->
+        let func_name = Il.Print.string_of_defid id in
+        let args_str = Il.Print.string_of_args args_input in
+        let values_str =
+          match values_input with
+          | [] -> "no arguments"
+          | [v] -> Sl.Print.string_of_value ~short:true v
+          | vs ->
+              "("
+              ^ String.concat ", "
+                  (List.map (fun v -> Sl.Print.string_of_value ~short:true v) vs)
+              ^ ")"
+        in
+        error id.at
+          (F.asprintf
+             "function was not matched\n  Function: %s\n  Expected args: %s\n  Actual values: %s"
+             func_name args_str values_str)*)
   in
   if Cache.is_cached_func id.it then (
     let cache_result = Cache.Cache.find !func_cache (id.it, values_input) in

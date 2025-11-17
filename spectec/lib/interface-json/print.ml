@@ -29,8 +29,7 @@ let bytes_to_hex_string (num : Bigint.t) (len : int) : string =
       if i >= 0 then (
         let byte = Bigint.(to_int_exn (bit_and v (of_int 0xff))) in
         Bytes.set bytes i (Char.chr byte);
-        put (i - 1) (Bigint.shift_right v 8)
-      )
+        put (i - 1) (Bigint.shift_right v 8))
     in
     put (len - 1) num;
     let hex_chars = "0123456789abcdef" in
@@ -56,21 +55,24 @@ let rec bytes_len_from_typ (typ : Typ.t') : int option =
       let name = tid.it |> String.lowercase_ascii in
       (* Check for bytes types: bytes32, bytes4, etc. *)
       (* But exclude bytes1 as it's often used for uint8 which should be a number *)
-      if String.length name >= 5 && String.sub name 0 5 = "bytes" then (
+      if String.length name >= 5 && String.sub name 0 5 = "bytes" then
         try
           let len_str = String.sub name 5 (String.length name - 5) in
           let len = int_of_string len_str in
           (* Only treat as bytes if length >= 4 (bytes4, bytes32, etc.) *)
           (* bytes1 is often uint8, bytes2 is often uint16, bytes3 is rare *)
           if len >= 4 then Some len else None
-        with _ -> None)
-      (* Check for suffixes (e.g., previous_version, current_version) *)
-      else if ends_with name "_version" || name = "version" || name = "domaintype" || name = "forkdigest" then
-        Some 4
-      else if ends_with name "_root" || ends_with name "_hash" || name = "root" || name = "hash32" || name = "domain" then
-        Some 32
-      else if name = "withdrawal_credentials" then
-        Some 32
+        with _ -> None
+        (* Check for suffixes (e.g., previous_version, current_version) *)
+      else if
+        ends_with name "_version" || name = "version" || name = "domaintype"
+        || name = "forkdigest"
+      then Some 4
+      else if
+        ends_with name "_root" || ends_with name "_hash" || name = "root"
+        || name = "hash32" || name = "domain"
+      then Some 32
+      else if name = "withdrawal_credentials" then Some 32
       else if name = "blspubkey" then Some 48
       else if name = "blssignature" then Some 96
       else if name = "executionaddress" || name = "fee_recipient" then Some 20
@@ -89,15 +91,20 @@ let rec bytes_len_from_typ (typ : Typ.t') : int option =
 let bytes_len_from_field_name (field_name : string) : int option =
   let name = String.lowercase_ascii field_name in
   (* Check for suffixes (e.g., previous_version, current_version) *)
-  if ends_with name "_version" || name = "version" || name = "domaintype" || name = "forkdigest" then
-    Some 4
-  else if ends_with name "_root" || ends_with name "_hash" || name = "root" || name = "hash32" || name = "domain" then
-    Some 32
-  else if name = "withdrawal_credentials" then
-    Some 32
+  if
+    ends_with name "_version" || name = "version" || name = "domaintype"
+    || name = "forkdigest"
+  then Some 4
+  else if
+    ends_with name "_root" || ends_with name "_hash" || name = "root"
+    || name = "hash32" || name = "domain"
+  then Some 32
+  else if name = "withdrawal_credentials" then Some 32
   else if name = "blspubkey" || name = "pubkey" then Some 48
   else if name = "blssignature" || name = "signature" then Some 96
-  else if name = "executionaddress" || name = "fee_recipient" || name = "address" then Some 20
+  else if
+    name = "executionaddress" || name = "fee_recipient" || name = "address"
+  then Some 20
   else if name = "payloadid" then Some 8
   else if name = "nodeid" then Some 256
   else if name = "logs_bloom" then Some 256
@@ -105,17 +112,18 @@ let bytes_len_from_field_name (field_name : string) : int option =
 
 (* Convert NumV to hex if it's a bytes type *)
 (* Only convert to hex if explicitly bytes type or field name indicates bytes *)
-let num_to_json ?field_name (typ : Typ.t') (num : Bigint.t) : (Yojson.Safe.t, error) result =
+let num_to_json ?field_name (typ : Typ.t') (num : Bigint.t) :
+    (Yojson.Safe.t, error) result =
   (* First check if it's explicitly a bytes type (bytes4, bytes32, etc.) *)
   match bytes_len_from_typ typ with
   | Some len ->
       (* It's a bytes type, convert to hex string *)
       `String (bytes_to_hex_string num len) |> Result.ok
-  | None ->
+  | None -> (
       (* Not a bytes type from type info, check field name as fallback *)
-      (match field_name with
-      | Some fname ->
-          (match bytes_len_from_field_name fname with
+      match field_name with
+      | Some fname -> (
+          match bytes_len_from_field_name fname with
           | Some len ->
               (* Field name indicates bytes type, convert to hex string *)
               `String (bytes_to_hex_string num len) |> Result.ok
@@ -126,22 +134,23 @@ let num_to_json ?field_name (typ : Typ.t') (num : Bigint.t) : (Yojson.Safe.t, er
           (* No field name, regular number (not hex) *)
           `Intlit (Bigint.to_string num) |> Result.ok)
 
-let rec value_to_json ?field_name (v : Value.t) : (Yojson.Safe.t, error) result =
+let rec value_to_json ?field_name (v : Value.t) : (Yojson.Safe.t, error) result
+    =
   match v.it with
   | BoolV b -> `Bool b |> Result.ok
   | NumV (`Int n) -> num_to_json ?field_name v.note.typ n
   | NumV (`Nat n) -> num_to_json ?field_name v.note.typ n
-  | BytesV { num; len } ->
+  | BytesV { num; len } -> (
       (* For BytesV, check if we need to use type-based length instead of actual length *)
-      (match bytes_len_from_typ v.note.typ with
+      match bytes_len_from_typ v.note.typ with
       | Some type_len ->
           (* Type specifies a fixed length, use that (for padding) *)
           `String (bytes_to_hex_string num type_len) |> Result.ok
-      | None ->
+      | None -> (
           (* Try field name as fallback *)
-          (match field_name with
-          | Some fname ->
-              (match bytes_len_from_field_name fname with
+          match field_name with
+          | Some fname -> (
+              match bytes_len_from_field_name fname with
               | Some type_len ->
                   (* Field name indicates bytes type, use that length *)
                   `String (bytes_to_hex_string num type_len) |> Result.ok
@@ -181,7 +190,9 @@ let rec value_to_json ?field_name (v : Value.t) : (Yojson.Safe.t, error) result 
       print_values [] vs
   | StructV fields ->
       let field_to_json (atom, value) =
-        let field_name = Xl.Atom.string_of_atom atom.it |> String.lowercase_ascii in
+        let field_name =
+          Xl.Atom.string_of_atom atom.it |> String.lowercase_ascii
+        in
         let* json_value = value_to_json ~field_name value in
         Ok (field_name, json_value)
       in
