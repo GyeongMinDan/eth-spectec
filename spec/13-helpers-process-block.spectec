@@ -139,11 +139,11 @@ dec $process_one_vi_current((beaconState, gwei), (validatorIndex, nat*)) : (beac
 
 def $process_one_vi_current((state_in, gwei_num), (validatorIndex_vi, nat_flags*))
   = (state_out, gwei_num_out)
-  -- if $(validatorIndex_vi = 198) \/ true
-  ;;-- if $debug_print_label_<validatorIndex>("process_one_vi_current vi", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;;-- if $debug_print_label_<validatorIndex>("ProcessAttestation: attesting validatorIndex", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;; 디버깅: balance before
   ;;-- if $(validatorIndex_vi < |state_in.BALANCES|)
   ;;-- if state_in.BALANCES[validatorIndex_vi] = gwei_balance_in
-  ;;-- if $debug_print_label_<gwei>("process_one_vi_current balance_in", gwei_balance_in) = gwei_balance_in_dbg
+  ;;-- if $debug_print_label_<gwei>("ProcessAttestation: attesting[vi] balance_before", gwei_balance_in) = gwei_balance_in_dbg
   -- if $(validatorIndex_vi < |state_in.CURRENT_EPOCH_PARTICIPATION|) 
   -- if state_in.CURRENT_EPOCH_PARTICIPATION[validatorIndex_vi] = participationFlags_old
   ;; change map_list_2_
@@ -153,26 +153,26 @@ def $process_one_vi_current((state_in, gwei_num), (validatorIndex_vi, nat_flags*
          (participationFlags_old, 0),
          (nat_flag_i, (state_in_c, validatorIndex_vi_c))*
        ) = (participationFlags_new, gwei_add)
+  ;;-- if $debug_print_label_<gwei>("ProcessAttestation: attesting[vi] gwei_add", gwei_add) = gwei_add_dbg
   -- if participationFlags_list_updated* = state_in.CURRENT_EPOCH_PARTICIPATION[[validatorIndex_vi] = participationFlags_new]
   -- if state_mid = state_in[.CURRENT_EPOCH_PARTICIPATION = participationFlags_list_updated*]
   -- if $( gwei_num + gwei_add ) = gwei_num_out
   -- if state_out = state_mid
-  ;;-- if $(validatorIndex_vi = 198) \/ true
+  ;; 디버깅: balance after
   ;;-- if $(validatorIndex_vi < |state_out.BALANCES|)
   ;;-- if state_out.BALANCES[validatorIndex_vi] = gwei_balance_out
-  ;;-- if $debug_print_label_<gwei>("process_one_vi_current balance_out", gwei_balance_out) = gwei_balance_out_dbg
-  ;;-- if $debug_print_label_<gwei>("process_one_vi_current gwei_add", gwei_add) = gwei_add_dbg
+  ;;-- if $debug_print_label_<gwei>("ProcessAttestation: attesting[vi] balance_after", gwei_balance_out) = gwei_balance_out_dbg
 
 ;; 이전 epoch용
 dec $process_one_vi_previous((beaconState, gwei), (validatorIndex, nat*)) : (beaconState, gwei)
 
 def $process_one_vi_previous((state_in, gwei_num), (validatorIndex_vi, nat_flags*))
   = (state_out, gwei_num_out)
-  -- if $(validatorIndex_vi = 198) \/ true
-  ;;-- if $debug_print_label_<validatorIndex>("process_one_vi_previous vi", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;;-- if $debug_print_label_<validatorIndex>("ProcessAttestation (prev): attesting validatorIndex", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;; 디버깅: balance before
   ;;-- if $(validatorIndex_vi < |state_in.BALANCES|)
   ;;-- if state_in.BALANCES[validatorIndex_vi] = gwei_balance_in
-  ;;-- if $debug_print_label_<gwei>("process_one_vi_previous balance_in", gwei_balance_in) = gwei_balance_in_dbg
+  ;;-- if $debug_print_label_<gwei>("ProcessAttestation (prev): attesting[vi] balance_before", gwei_balance_in) = gwei_balance_in_dbg
   -- if $(validatorIndex_vi < |state_in.PREVIOUS_EPOCH_PARTICIPATION|) 
   -- if state_in.PREVIOUS_EPOCH_PARTICIPATION[validatorIndex_vi] = participationFlags_old
   ;; change map_list_2_
@@ -182,15 +182,15 @@ def $process_one_vi_previous((state_in, gwei_num), (validatorIndex_vi, nat_flags
          (participationFlags_old, 0),
          (nat_flag_i, (state_in_c, validatorIndex_vi_c))*
        ) = (participationFlags_new, gwei_add)
+  ;;-- if $debug_print_label_<gwei>("ProcessAttestation (prev): attesting[vi] gwei_add", gwei_add) = gwei_add_dbg
   -- if participationFlags_list_updated* = state_in.PREVIOUS_EPOCH_PARTICIPATION[[validatorIndex_vi] = participationFlags_new]
   -- if state_mid = state_in[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_list_updated*]
   -- if $( gwei_num + gwei_add ) = gwei_num_out
   -- if state_out = state_mid
-  ;;-- if $(validatorIndex_vi = 198) \/ true
+  ;; 디버깅: balance after
   ;;-- if $(validatorIndex_vi < |state_out.BALANCES|)
   ;;-- if state_out.BALANCES[validatorIndex_vi] = gwei_balance_out
-  ;;-- if $debug_print_label_<gwei>("process_one_vi_previous balance_out", gwei_balance_out) = gwei_balance_out_dbg
-  ;;-- if $debug_print_label_<gwei>("process_one_vi_previous gwei_add", gwei_add) = gwei_add_dbg
+  ;;-- if $debug_print_label_<gwei>("ProcessAttestation (prev): attesting[vi] balance_after", gwei_balance_out) = gwei_balance_out_dbg
 
 dec $compute_proposer_reward(gwei) : gwei
 def $compute_proposer_reward(gwei_num) = gwei_prop
@@ -227,34 +227,43 @@ def $index_of_pubkey_captured(blsPubkey_pk, state) = $index_of_pubkey(state, bls
 dec $apply_sync_one(beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))) : beaconState
 
 def $apply_sync_one(state_in, ((nat_i, validatorIndex_vi), (gwei_part, gwei_prop, boolean_bits*, validatorIndex_prop))) = state_out
-  -- if $(validatorIndex_vi = 198) \/ true
-  ;;-- if $debug_print_label_<validatorIndex>("apply_sync_one vi", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;; 디버깅: validator index 출력
+  ;;-- if $debug_print_label_<validatorIndex>("Process_sync_aggregate: participant validatorIndex", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;; 디버깅: participant balance before
   ;;-- if $(validatorIndex_vi < |state_in.BALANCES|)
-  ;;-- if state_in.BALANCES[validatorIndex_vi] = gwei_balance_in
-  ;;-- if $debug_print_label_<gwei>("apply_sync_one balance_in", gwei_balance_in) = gwei_balance_in_dbg
+  ;;-- if state_in.BALANCES[validatorIndex_vi] = gwei_balance_vi_before
+  ;;-- if $debug_print_label_<gwei>("Process_sync_aggregate: participant[vi] balance_before", gwei_balance_vi_before) = gwei_balance_vi_before_dbg
+  ;; 디버깅: proposer balance before
+  ;;-- if $(validatorIndex_prop < |state_in.BALANCES|)
+  ;;-- if state_in.BALANCES[validatorIndex_prop] = gwei_balance_prop_before
+  ;;-- if $debug_print_label_<gwei>("Process_sync_aggregate: proposer balance_before", gwei_balance_prop_before) = gwei_balance_prop_before_dbg
   -- if $(nat_i < |boolean_bits*|)
   -- if boolean_bits*[nat_i] = true
   -- if state_r  = $increase_balance(state_in, validatorIndex_vi,  gwei_part)
   -- if state_out = $increase_balance(state_r,  validatorIndex_prop, gwei_prop)
-  -- if $(validatorIndex_vi = 198) \/ true
-  -- if $(validatorIndex_vi < |state_out.BALANCES|)
-  -- if state_out.BALANCES[validatorIndex_vi] = gwei_balance_out
-  ;;-- if $debug_print_label_<gwei>("apply_sync_one balance_out", gwei_balance_out) = gwei_balance_out_dbg
-  ;;-- if $debug_print_label_<gwei>("apply_sync_one gwei_part", gwei_part) = gwei_part_dbg
+  ;; 디버깅: participant balance after
+  ;;-- if $(validatorIndex_vi < |state_out.BALANCES|)
+  ;;-- if state_out.BALANCES[validatorIndex_vi] = gwei_balance_vi_after
+  ;;-- if $debug_print_label_<gwei>("Process_sync_aggregate: participant[vi] balance_after", gwei_balance_vi_after) = gwei_balance_vi_after_dbg
+  ;;-- if $debug_print_label_<gwei>("Process_sync_aggregate: participant[vi] gwei_part", gwei_part) = gwei_part_dbg
+  ;; 디버깅: proposer balance after
+  ;;-- if $(validatorIndex_prop < |state_out.BALANCES|)
+  ;;-- if state_out.BALANCES[validatorIndex_prop] = gwei_balance_prop_after
+  ;;-- if $debug_print_label_<gwei>("Process_sync_aggregate: proposer balance_after", gwei_balance_prop_after) = gwei_balance_prop_after_dbg
+  ;;-- if $debug_print_label_<gwei>("Process_sync_aggregate: proposer gwei_prop", gwei_prop) = gwei_prop_dbg
 
 def $apply_sync_one(state_in, ((nat_i, validatorIndex_vi), (gwei_part, gwei_prop, boolean_bits*, validatorIndex_prop))) = state_out
-  ;;-- if $(validatorIndex_vi = 198) \/ true
-  ;;-- if $debug_print_label_<validatorIndex>("apply_sync_one vi (decrease)", validatorIndex_vi) = validatorIndex_vi_dbg
+  ;; 디버깅: non-participant balance before (penalty)
   ;;-- if $(validatorIndex_vi < |state_in.BALANCES|)
-  ;;-- if state_in.BALANCES[validatorIndex_vi] = gwei_balance_in
-  ;;-- if $debug_print_label_<gwei>("apply_sync_one balance_in (decrease)", gwei_balance_in) = gwei_balance_in_dbg
-  ;;-- if $(validatorIndex_vi = 198) \/ true
-  ;;-- if $(validatorIndex_vi < |state_out.BALANCES|)
-  ;;-- if state_out.BALANCES[validatorIndex_vi] = gwei_balance_out
-  ;;-- if $debug_print_label_<gwei>("apply_sync_one balance_out (decrease)", gwei_balance_out) = gwei_balance_out_dbg
-  ;;-- if $debug_print_label_<gwei>("apply_sync_one gwei_part (decrease)", gwei_part) = gwei_part_dbg
+  ;;-- if state_in.BALANCES[validatorIndex_vi] = gwei_balance_vi_before_penalty
+  ;;-- if $debug_print_label_<gwei>("Process_sync_aggregate: non-participant[vi] balance_before", gwei_balance_vi_before_penalty) = gwei_balance_vi_before_penalty_dbg
   -- otherwise
   -- if $decrease_balance(state_in, validatorIndex_vi, gwei_part) = state_out
+  ;; 디버깅: non-participant balance after (penalty)
+  ;;-- if $(validatorIndex_vi < |state_out.BALANCES|)
+  ;;-- if state_out.BALANCES[validatorIndex_vi] = gwei_balance_vi_after_penalty
+  ;;-- if $debug_print_label_<gwei>("Process_sync_aggregate: non-participant[vi] balance_after", gwei_balance_vi_after_penalty) = gwei_balance_vi_after_penalty_dbg
+  ;;-- if $debug_print_label_<gwei>("Process_sync_aggregate: non-participant[vi] gwei_part (penalty)", gwei_part) = gwei_part_penalty_dbg
 
 ;; fold 입력을 만들기 위해 동일한 capture 를 각 (i, vi) 에 붙여줌
 dec $attach_capture_sync((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))

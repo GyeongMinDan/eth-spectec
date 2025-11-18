@@ -184,8 +184,16 @@ def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature
   -- if $compute_domain($DOMAIN_DEPOSIT, eps, eps) = domain_deposit
   -- if $compute_signing_root_depositMessage(depositMessage_msg, domain_deposit) = root_sign
   -- if $bls_verify(blsPubkey_pk, root_sign, blsSignature_sig) = true
-  -- if state_out =
-       $add_validator_to_registry(state_in, blsPubkey_pk, bytes32_wc, gwei_amount)
+  ;; 디버깅: deposit amount 출력
+  ;;-- if $debug_print_label_<gwei>("ProcessDeposit (new): deposit amount", gwei_amount) = gwei_amount_dbg
+  ;; 디버깅: 새로운 validator가 추가될 index (현재 validators 길이)
+  ;;-- if $( |state_in.VALIDATORS| ) = validatorIndex_new
+  ;;-- if $debug_print_label_<validatorIndex>("ProcessDeposit (new): new validatorIndex", validatorIndex_new) = validatorIndex_new_dbg
+  -- if state_out = $add_validator_to_registry(state_in, blsPubkey_pk, bytes32_wc, gwei_amount)
+  ;; 디버깅: 새로운 validator의 balance
+  ;;-- if $(validatorIndex_new < |state_out.BALANCES|)
+  ;;-- if state_out.BALANCES[validatorIndex_new] = gwei_balance_new
+  ;;-- if $debug_print_label_<gwei>("ProcessDeposit (new): new validator balance", gwei_balance_new) = gwei_balance_new_dbg
 
 ;; case 2: 기존 pubkey
 def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
@@ -193,4 +201,16 @@ def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature
   -- if (validator_list.PUBKEY = blsPubkey_list)*
   -- if ( blsPubkey_pk <- blsPubkey_list* )
   -- if $index_of_pubkey(state_in, blsPubkey_pk) = validatorIndex_idx  ;; use index_of_pubkey
+  ;; 디버깅: validator index 출력
+  ;;-- if $debug_print_label_<validatorIndex>("ProcessDeposit: validatorIndex", validatorIndex_idx) = validatorIndex_idx_dbg
+  ;; 디버깅: deposit amount 출력
+  ;;-- if $debug_print_label_<gwei>("ProcessDeposit: deposit amount", gwei_amount) = gwei_amount_dbg
+  ;; 디버깅: balance before
+  ;;-- if $(validatorIndex_idx < |state_in.BALANCES|)
+  ;;-- if state_in.BALANCES[validatorIndex_idx] = gwei_balance_before
+  ;;-- if $debug_print_label_<gwei>("ProcessDeposit: balance_before", gwei_balance_before) = gwei_balance_before_dbg
   -- if state_out = $increase_balance(state_in, validatorIndex_idx, gwei_amount)
+  ;; 디버깅: balance after
+  ;;-- if $(validatorIndex_idx < |state_out.BALANCES|)
+  ;;-- if state_out.BALANCES[validatorIndex_idx] = gwei_balance_after
+  ;;-- if $debug_print_label_<gwei>("ProcessDeposit: balance_after", gwei_balance_after) = gwei_balance_after_dbg

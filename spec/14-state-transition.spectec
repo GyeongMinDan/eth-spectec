@@ -16,6 +16,8 @@ rule State_transition/validate:
   -- if $verify_block_signature(state_after_slots, signedBeaconBlock) = true
   -- ProcessBlock: state_after_slots beaconBlock_block ~>* state_after_block
   -- if $hash_tree_root_beaconState(state_after_block) = root_after
+  -- if $debug_print_label_<root>("State_transition: computed state root", root_after) = root_after_dbg
+  -- if $debug_print_label_<root>("State_transition: block state root", beaconBlock_block.STATE_ROOT) = root_block_dbg
   -- if $( beaconBlock_block.STATE_ROOT = root_after )
   -- if state_out = state_after_block
 
