@@ -556,6 +556,7 @@ and eval_idx_exp (_note : typ') (ctx : Ctx.t) (exp_b : exp) (exp_i : exp) :
   let ctx, value_i = eval_exp ctx exp_i in
   let values = Value.get_list value_b in
   let idx = value_i |> Value.get_num |> Num.to_int |> Bigint.to_int_exn in
+  assert (idx < List.length values);
   let value_res = List.nth values idx in
   (ctx, value_res)
 
@@ -600,6 +601,7 @@ and eval_access_path (ctx : Ctx.t) (value_b : value) (path : path) :
       let ctx, value_idx = eval_exp ctx exp in
       let values = Value.get_list value_base in
       let idx = value_idx |> Value.get_num |> Num.to_int |> Bigint.to_int_exn in
+      assert (idx < List.length values);
       let value_res = List.nth values idx in
       (ctx, value_res)
   | SliceP (path, exp_l, exp_h) ->
