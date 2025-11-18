@@ -9,8 +9,8 @@ let run_relation (ctx : Ctx.t) (spec : spec) (rid : id') (values : value list) :
   let ctx = Interp.load_spec ctx spec in
   match Interp.invoke_rel ctx (rid $ no_region) values with
   | Some (ctx, values) -> (ctx, values)
-  | None -> error no_region "relation was not matched"
-
+  | None -> error no_region "relation was not matched" 
+  
 (* Entry point : Run typing rule *)
 
 let init (filename_target : string) : Ctx.t =
