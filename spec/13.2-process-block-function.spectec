@@ -10,8 +10,6 @@ rule Process_block_header/main:
   -- if $(block_beaconBlock.SLOT = state_beaconState.SLOT)
   -- if $(state_beaconState.LATEST_BLOCK_HEADER.SLOT < block_beaconBlock.SLOT)
   -- if $get_beacon_proposer_index(state_beaconState) = validatorIndex_prop_vi
-  ;;-- if $debug_print_label_<validatorIndex>("calculated_proposer", validatorIndex_prop_vi) = validatorIndex_prop_vi
-  ;;-- if $debug_print_label_<validatorIndex>("block_proposer", block_beaconBlock.PROPOSER_INDEX) = block_beaconBlock.PROPOSER_INDEX
   -- if $(block_beaconBlock.PROPOSER_INDEX = validatorIndex_prop_vi)
   -- if root_parent_expected_root = $hash_tree_root_beaconBlockHeader(state_beaconState.LATEST_BLOCK_HEADER)
   -- if $(block_beaconBlock.PARENT_ROOT = root_parent_expected_root)

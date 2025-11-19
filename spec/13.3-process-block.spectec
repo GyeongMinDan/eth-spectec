@@ -7,28 +7,10 @@ relation ProcessBlock:
 
 rule ProcessBlock/main:
   state_beaconState block_beaconBlock ~>* state_6
-  ;; 디버깅: ProcessBlock 시작 전 balances (validator 42, 257)
-  ;;-- if state_beaconState.BALANCES[42] = gwei_balance_42_before_block
-  ;;-- if state_beaconState.BALANCES[257] = gwei_balance_257_before_block
-  ;;-- if $debug_print_label_<gwei>("ProcessBlock: balance[42] before", gwei_balance_42_before_block) = gwei_balance_42_before_block_dbg
-  ;;-- if $debug_print_label_<gwei>("ProcessBlock: balance[257] before", gwei_balance_257_before_block) = gwei_balance_257_before_block_dbg
   -- Process_block_header:     state_beaconState                    block_beaconBlock                     ~>  state_0
   -- Process_withdrawals:      state_0                              block_beaconBlock.BODY.EXECUTION_PAYLOAD ~> state_1
   -- Process_execution_payload: state_1                             block_beaconBlock.BODY                ~>  state_2
   -- Process_randao:           state_2                              block_beaconBlock.BODY                ~>  state_3
   -- Process_eth1_data:        state_3                              block_beaconBlock.BODY                ~>  state_4
   -- Process_operations:       state_4                              block_beaconBlock.BODY                ~>  state_5
-  ;; 디버깅: Process_sync_aggregate 전 balances (validator 42, 257, 508)
-  -- if state_5.BALANCES[42] = gwei_balance_42_before_sync
-  -- if state_5.BALANCES[257] = gwei_balance_257_before_sync
-  -- if $debug_print_label_<gwei>("ProcessBlock: balance[42] before sync_aggregate", gwei_balance_42_before_sync) = gwei_balance_42_before_sync_dbg
-  -- if $debug_print_label_<gwei>("ProcessBlock: balance[257] before sync_aggregate", gwei_balance_257_before_sync) = gwei_balance_257_before_sync_dbg
   -- Process_sync_aggregate:   state_5                              block_beaconBlock.BODY.SYNC_AGGREGATE ~>  state_6
-  ;; 디버깅: Process_sync_aggregate 후 balances (validator 42, 257, 508)
-  ;;-- if state_6.BALANCES[42] = gwei_balance_42_after_sync
-  ;;-- if state_6.BALANCES[257] = gwei_balance_257_after_sync
-  ;;-- if $debug_print_label_<gwei>("ProcessBlock: balance[42] after sync_aggregate", gwei_balance_42_after_sync) = gwei_balance_42_after_sync_dbg
-  ;;-- if $debug_print_label_<gwei>("ProcessBlock: balance[257] after sync_aggregate", gwei_balance_257_after_sync) = gwei_balance_257_after_sync_dbg
-  ;; 디버깅: ProcessBlock 완료 후 전체 balances 출력
-  -- if state_6.BALANCES = gwei_balances*
-  -- if $debug_print_label_<gwei*>("ProcessBlock: all balances", gwei_balances*) = gwei_balances_dbg*

@@ -27,25 +27,7 @@ rule ProcessProposerSlashing/main:
   -- if $get_domain(state_beaconState, $DOMAIN_BEACON_PROPOSER, epoch_h2) = domain_h2
   -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_2.MESSAGE, domain_h2) = root_sign_h2
   -- if $bls_verify(validator_prop.PUBKEY, root_sign_h2, signedBeaconBlockHeader_header_2.SIGNATURE) = true
-  ;; 디버깅: slashed validator balance before
-  ;;-- if $(validatorIndex_prop < |state_beaconState.BALANCES|)
-  ;;-- if state_beaconState.BALANCES[validatorIndex_prop] = gwei_slashed_balance_before
-  ;;-- if $debug_print_label_<gwei>("ProcessProposerSlashing: slashed_balance_before", gwei_slashed_balance_before) = gwei_slashed_balance_before_dbg
-  ;; 디버깅: proposer balance before
-  ;;-- if validatorIndex_proposer = $get_beacon_proposer_index(state_beaconState)
-  ;;-- if $(validatorIndex_proposer < |state_beaconState.BALANCES|)
-  ;;-- if state_beaconState.BALANCES[validatorIndex_proposer] = gwei_proposer_balance_before
-  ;;-- if $debug_print_label_<gwei>("ProcessProposerSlashing: proposer_balance_before", gwei_proposer_balance_before) = gwei_proposer_balance_before_dbg
   -- if state_slashed = $slash_validator(state_beaconState, validatorIndex_prop, eps)
-  ;; 디버깅: slashed validator balance after
-  ;;-- if $(validatorIndex_prop < |state_slashed.BALANCES|)
-  ;;-- if state_slashed.BALANCES[validatorIndex_prop] = gwei_slashed_balance_after
-  ;;-- if $debug_print_label_<gwei>("ProcessProposerSlashing: slashed_balance_after", gwei_slashed_balance_after) = gwei_slashed_balance_after_dbg
-  ;; 디버깅: proposer balance after
-  ;;-- if validatorIndex_proposer_after = $get_beacon_proposer_index(state_slashed)
-  ;;-- if $(validatorIndex_proposer_after < |state_slashed.BALANCES|)
-  ;;-- if state_slashed.BALANCES[validatorIndex_proposer_after] = gwei_proposer_balance_after
-  ;;-- if $debug_print_label_<gwei>("ProcessProposerSlashing: proposer_balance_after", gwei_proposer_balance_after) = gwei_proposer_balance_after_dbg
 
 ;;
 ;; process_attester_slashing
@@ -70,17 +52,7 @@ rule ProcessAttesterSlashing/main:
   ;; 지역변수 slashed_any 의 확인, 여기선 사전에 is_slashable 검사로 보장
   -- if $filter_list_2_<validatorIndex, beaconState>(validatorIndex_sorted*, state_beaconState, def $is_slashable_now) = validatorIndex_slashable_now*
   -- if $( |validatorIndex_slashable_now*| > 0 )
-  ;; 디버깅: proposer balance before
-  ;;-- if validatorIndex_proposer_before = $get_beacon_proposer_index(state_beaconState)
-  ;;-- if $(validatorIndex_proposer_before < |state_beaconState.BALANCES|)
-  ;;-- if state_beaconState.BALANCES[validatorIndex_proposer_before] = gwei_proposer_balance_before
-  ;;-- if $debug_print_label_<gwei>("ProcessAttesterSlashing: proposer_balance_before", gwei_proposer_balance_before) = gwei_proposer_balance_before_dbg
   -- if state_after_slash = $apply_slashes(state_beaconState, validatorIndex_sorted*)
-  ;; 디버깅: proposer balance after
-  ;;-- if validatorIndex_proposer_after = $get_beacon_proposer_index(state_after_slash)
-  ;;-- if $(validatorIndex_proposer_after < |state_after_slash.BALANCES|)
-  ;;-- if state_after_slash.BALANCES[validatorIndex_proposer_after] = gwei_proposer_balance_after
-  ;;-- if $debug_print_label_<gwei>("ProcessAttesterSlashing: proposer_balance_after", gwei_proposer_balance_after) = gwei_proposer_balance_after_dbg
 
 ;;
 ;; process_attestation
@@ -112,28 +84,15 @@ rule ProcessAttestation/current:
   -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
   ;; change map_list_2_
   -- if ($attach_flags_to_vi(validatorIndex_attesting, nat_flag_indices*) = (validatorIndex_vi, nat_flags_vi*))*
-  ;; 디버깅: proposer balance before
-  ;;-- if validatorIndex_prop_before = $get_beacon_proposer_index(state_in)
-  ;;-- if $(validatorIndex_prop_before < |state_in.BALANCES|)
-  ;;-- if state_in.BALANCES[validatorIndex_prop_before] = gwei_prop_balance_before
-  ;;-- if $debug_print_label_<gwei>("ProcessAttestation/current: proposer_balance_before", gwei_prop_balance_before) = gwei_prop_balance_before_dbg
   ;; fold over vi: (state, num) 누적
   -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
          def $process_one_vi_current,
          (state_in, 0),
          (validatorIndex_vi, nat_flags_vi*)*
        ) = (state_after_flags, gwei_num)
-  ;; 디버깅: proposer reward numerator
-  ;;-- if $debug_print_label_<gwei>("ProcessAttestation/current: gwei_num", gwei_num) = gwei_num_dbg
   ;; proposer 보상 지급
   -- if $compute_proposer_reward(gwei_num) = gwei_prop
-  ;;-- if $debug_print_label_<gwei>("ProcessAttestation/current: gwei_prop", gwei_prop) = gwei_prop_dbg
   -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
-  ;; 디버깅: proposer balance after
-  ;;-- if validatorIndex_prop_after = $get_beacon_proposer_index(state_out)
-  ;;-- if $(validatorIndex_prop_after < |state_out.BALANCES|)
-  ;;-- if state_out.BALANCES[validatorIndex_prop_after] = gwei_prop_balance_after
-  ;;-- if $debug_print_label_<gwei>("ProcessAttestation/current: proposer_balance_after", gwei_prop_balance_after) = gwei_prop_balance_after_dbg
 
 rule ProcessAttestation/previous:
   state_in attestation_att ~> state_out
@@ -156,26 +115,13 @@ rule ProcessAttestation/previous:
   -- if validatorIndex_attesting* = $get_attesting_indices(state_in, attestation_att)
   ;; change map_list_2_
   -- if ($attach_flags_to_vi(validatorIndex_attesting, nat_flag_indices*) = (validatorIndex_vi, nat_flags_vi*))*
-  ;; 디버깅: proposer balance before
-  ;;-- if validatorIndex_prop_before = $get_beacon_proposer_index(state_in)
-  ;;-- if $(validatorIndex_prop_before < |state_in.BALANCES|)
-  ;;-- if state_in.BALANCES[validatorIndex_prop_before] = gwei_prop_balance_before
-  ;;-- if $debug_print_label_<gwei>("ProcessAttestation/previous: proposer_balance_before", gwei_prop_balance_before) = gwei_prop_balance_before_dbg
   -- if $fold_<(beaconState, gwei), (validatorIndex, nat*)>(
          def $process_one_vi_previous,
          (state_in, 0),
          (validatorIndex_vi, nat_flags_vi*)*
        ) = (state_after_flags, gwei_num)
-  ;; 디버깅: proposer reward numerator
-  ;;-- if $debug_print_label_<gwei>("ProcessAttestation/previous: gwei_num", gwei_num) = gwei_num_dbg
   -- if $compute_proposer_reward(gwei_num) = gwei_prop
-  ;;-- if $debug_print_label_<gwei>("ProcessAttestation/previous: gwei_prop", gwei_prop) = gwei_prop_dbg
   -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
-  ;; 디버깅: proposer balance after
-  ;;-- if validatorIndex_prop_after = $get_beacon_proposer_index(state_out)
-  ;;-- if $(validatorIndex_prop_after < |state_out.BALANCES|)
-  ;;-- if state_out.BALANCES[validatorIndex_prop_after] = gwei_prop_balance_after
-  ;;-- if $debug_print_label_<gwei>("ProcessAttestation/previous: proposer_balance_after", gwei_prop_balance_after) = gwei_prop_balance_after_dbg
 
 
 
