@@ -24,5 +24,7 @@ end
 
 (* Cache targets *)
 
-let is_cached_func = function _ -> true
+let is_cached_func = function
+  | name when String.starts_with ~prefix:"debug_print_label_" name -> false
+  | _ -> true
 let is_cached_rule = function _ -> true
