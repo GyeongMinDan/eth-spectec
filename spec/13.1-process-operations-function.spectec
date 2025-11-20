@@ -27,7 +27,13 @@ rule ProcessProposerSlashing/main:
   -- if $get_domain(state_beaconState, $DOMAIN_BEACON_PROPOSER, epoch_h2) = domain_h2
   -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_2.MESSAGE, domain_h2) = root_sign_h2
   -- if $bls_verify(validator_prop.PUBKEY, root_sign_h2, signedBeaconBlockHeader_header_2.SIGNATURE) = true
+  ;; 디버깅: ProcessProposerSlashing 전 balances
+  -- if state_beaconState.BALANCES = gwei_balances_before_proposer_slashing*
+  -- if $debug_print_label_<gwei*>("ProcessProposerSlashing: balances before", gwei_balances_before_proposer_slashing*) = gwei_balances_before_proposer_slashing_dbg*
   -- if state_slashed = $slash_validator(state_beaconState, validatorIndex_prop, eps)
+  ;; 디버깅: ProcessProposerSlashing 후 balances
+  -- if state_slashed.BALANCES = gwei_balances_after_proposer_slashing*
+  -- if $debug_print_label_<gwei*>("ProcessProposerSlashing: balances after", gwei_balances_after_proposer_slashing*) = gwei_balances_after_proposer_slashing_dbg*
 
 ;;
 ;; process_attester_slashing
@@ -52,7 +58,13 @@ rule ProcessAttesterSlashing/main:
   ;; 지역변수 slashed_any 의 확인, 여기선 사전에 is_slashable 검사로 보장
   -- if $filter_list_2_<validatorIndex, beaconState>(validatorIndex_sorted*, state_beaconState, def $is_slashable_now) = validatorIndex_slashable_now*
   -- if $( |validatorIndex_slashable_now*| > 0 )
+  ;; 디버깅: ProcessAttesterSlashing 전 balances
+  -- if state_beaconState.BALANCES = gwei_balances_before_attester_slashing*
+  -- if $debug_print_label_<gwei*>("ProcessAttesterSlashing: balances before", gwei_balances_before_attester_slashing*) = gwei_balances_before_attester_slashing_dbg*
   -- if state_after_slash = $apply_slashes(state_beaconState, validatorIndex_sorted*)
+  ;; 디버깅: ProcessAttesterSlashing 후 balances
+  -- if state_after_slash.BALANCES = gwei_balances_after_attester_slashing*
+  -- if $debug_print_label_<gwei*>("ProcessAttesterSlashing: balances after", gwei_balances_after_attester_slashing*) = gwei_balances_after_attester_slashing_dbg*
 
 ;;
 ;; process_attestation
@@ -92,7 +104,13 @@ rule ProcessAttestation/current:
        ) = (state_after_flags, gwei_num)
   ;; proposer 보상 지급
   -- if $compute_proposer_reward(gwei_num) = gwei_prop
+  ;; 디버깅: ProcessAttestation/current 전 balances (reward_proposer 전)
+  -- if state_after_flags.BALANCES = gwei_balances_before_reward_proposer_current*
+  -- if $debug_print_label_<gwei*>("ProcessAttestation/current: balances before reward_proposer", gwei_balances_before_reward_proposer_current*) = gwei_balances_before_reward_proposer_current_dbg*
   -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
+  ;; 디버깅: ProcessAttestation/current 후 balances
+  -- if state_out.BALANCES = gwei_balances_after_attestation_current*
+  -- if $debug_print_label_<gwei*>("ProcessAttestation/current: balances after", gwei_balances_after_attestation_current*) = gwei_balances_after_attestation_current_dbg*
 
 rule ProcessAttestation/previous:
   state_in attestation_att ~> state_out
@@ -121,7 +139,13 @@ rule ProcessAttestation/previous:
          (validatorIndex_vi, nat_flags_vi*)*
        ) = (state_after_flags, gwei_num)
   -- if $compute_proposer_reward(gwei_num) = gwei_prop
+  ;; 디버깅: ProcessAttestation/previous 전 balances (reward_proposer 전)
+  -- if state_after_flags.BALANCES = gwei_balances_before_reward_proposer_previous*
+  -- if $debug_print_label_<gwei*>("ProcessAttestation/previous: balances before reward_proposer", gwei_balances_before_reward_proposer_previous*) = gwei_balances_before_reward_proposer_previous_dbg*
   -- if state_out = $reward_proposer(state_after_flags, gwei_prop)
+  ;; 디버깅: ProcessAttestation/previous 후 balances
+  -- if state_out.BALANCES = gwei_balances_after_attestation_previous*
+  -- if $debug_print_label_<gwei*>("ProcessAttestation/previous: balances after", gwei_balances_after_attestation_previous*) = gwei_balances_after_attestation_previous_dbg*
 
 
 
@@ -145,6 +169,9 @@ rule ProcessDeposit/main:
        ) = true
   -- if $(state.ETH1_DEPOSIT_INDEX + 1) = uint64_deposit_index_next
   -- if state_inc = state[.ETH1_DEPOSIT_INDEX = uint64_deposit_index_next]
+  ;; 디버깅: ProcessDeposit 전 balances
+  -- if state_inc.BALANCES = gwei_balances_before_deposit*
+  -- if $debug_print_label_<gwei*>("ProcessDeposit: balances before", gwei_balances_before_deposit*) = gwei_balances_before_deposit_dbg*
   -- if state_applied =
        $apply_deposit(
          state_inc,
@@ -153,6 +180,9 @@ rule ProcessDeposit/main:
          deposit.DATA.AMOUNT,
          deposit.DATA.SIGNATURE
        )
+  ;; 디버깅: ProcessDeposit 후 balances
+  -- if state_applied.BALANCES = gwei_balances_after_deposit*
+  -- if $debug_print_label_<gwei*>("ProcessDeposit: balances after", gwei_balances_after_deposit*) = gwei_balances_after_deposit_dbg*
 
 ;; 
 ;; process_voluntary_exit
