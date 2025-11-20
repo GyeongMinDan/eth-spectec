@@ -107,12 +107,11 @@ if [ -d "lighthouse" ]; then
     echo "Lighthouse directory already exists. Updating..."
     cd lighthouse
     git fetch
-    git checkout stable
-    git pull
+    git checkout v8.0.0
 else
     git clone https://github.com/sigp/lighthouse.git
     cd lighthouse
-    git checkout stable
+    git checkout v8.0.0
 fi
 cd lcli
 if ! cargo build --release; then
@@ -127,12 +126,11 @@ if [ -d "prysm" ]; then
     echo "Prysm directory already exists. Updating..."
     cd prysm
     git fetch
-    git checkout master
-    git pull
+    git checkout v7.0.0
 else
     git clone https://github.com/prysmaticlabs/prysm
     cd prysm
-    git checkout master
+    git checkout v7.0.0
 fi
 cd tools/pcli
 if ! bazel build //tools/pcli:pcli; then
@@ -147,12 +145,11 @@ if [ -d "nimbus-eth2" ]; then
     echo "Nimbus directory already exists. Updating..."
     cd nimbus-eth2
     git fetch
-    git checkout stable
-    git pull
+    git checkout v25.11.0
 else
     git clone https://github.com/status-im/nimbus-eth2
     cd nimbus-eth2
-    git checkout stable
+    git checkout v25.11.0
 fi
 if [ -z "$(nproc)" ]; then
     JOBS=2
@@ -184,12 +181,11 @@ if [ -d "teku" ]; then
     echo "Teku directory already exists. Updating..."
     cd teku
     git fetch
-    git checkout master
-    git pull
+    git checkout v25.11.0
 else
     git clone https://github.com/Consensys/teku.git
     cd teku
-    git checkout master
+    git checkout v25.11.0
 fi
 export JAVA_OPTS="-Xms8G -Xmx12G" # increase Java heap size for Gradle
 if ! ./gradlew installDist; then
@@ -207,7 +203,7 @@ if [ ! -f "package.json" ]; then
     cat > package.json << EOF
 {
   "dependencies": {
-    "@lodestar/state-transition": "^1.23.1"
+    "@lodestar/state-transition": "1.36.0"
   },
   "type": "module"
 }
@@ -225,7 +221,7 @@ else
 fi
 
 # npm 패키지 설치
-npm i @lodestar/state-transition
+npm i @lodestar/state-transition@1.36.0
 npm install
 
 # generateCachedStateCapella.js 
