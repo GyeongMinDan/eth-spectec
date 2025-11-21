@@ -104,10 +104,16 @@ fi
 echo "Setting up Lighthouse..."
 cd ${workspace}/testing_clients
 if [ -d "lighthouse" ]; then
-    echo "Lighthouse directory already exists. Updating..."
+    echo "Lighthouse directory already exists."
     cd lighthouse
-    git fetch
-    git checkout v8.0.0
+    # 이미 수정된 코드가 git에 커밋되어 있으면 checkout 하지 않음
+    if git diff --quiet HEAD 2>/dev/null && [ -z "$(git status --porcelain)" ]; then
+        echo "Lighthouse is clean. Checking out v8.0.0..."
+        git fetch
+        git checkout v8.0.0
+    else
+        echo "Lighthouse has local modifications. Keeping current state..."
+    fi
 else
     git clone https://github.com/sigp/lighthouse.git
     cd lighthouse
@@ -127,10 +133,16 @@ fi
 echo "Setting up Prysm..."
 cd ${workspace}/testing_clients
 if [ -d "prysm" ]; then
-    echo "Prysm directory already exists. Updating..."
+    echo "Prysm directory already exists."
     cd prysm
-    git fetch
-    git checkout v7.0.0
+    # 이미 수정된 코드가 git에 커밋되어 있으면 checkout 하지 않음
+    if git diff --quiet HEAD 2>/dev/null && [ -z "$(git status --porcelain)" ]; then
+        echo "Prysm is clean. Checking out v7.0.0..."
+        git fetch
+        git checkout v7.0.0
+    else
+        echo "Prysm has local modifications. Keeping current state..."
+    fi
 else
     git clone https://github.com/prysmaticlabs/prysm
     cd prysm
@@ -150,10 +162,16 @@ fi
 echo "Setting up Nimbus..."
 cd ${workspace}/testing_clients
 if [ -d "nimbus-eth2" ]; then
-    echo "Nimbus directory already exists. Updating..."
+    echo "Nimbus directory already exists."
     cd nimbus-eth2
-    git fetch
-    git checkout v25.11.0
+    # 이미 수정된 코드가 git에 커밋되어 있으면 checkout 하지 않음
+    if git diff --quiet HEAD 2>/dev/null && [ -z "$(git status --porcelain)" ]; then
+        echo "Nimbus is clean. Checking out v25.11.0..."
+        git fetch
+        git checkout v25.11.0
+    else
+        echo "Nimbus has local modifications. Keeping current state..."
+    fi
 else
     git clone https://github.com/status-im/nimbus-eth2
     cd nimbus-eth2
@@ -193,10 +211,16 @@ fi
 echo "Setting up Teku..."
 cd ${workspace}/testing_clients
 if [ -d "teku" ]; then
-    echo "Teku directory already exists. Updating..."
+    echo "Teku directory already exists."
     cd teku
-    git fetch
-    git checkout 25.11.0
+    # 이미 수정된 코드가 git에 커밋되어 있으면 checkout 하지 않음
+    if git diff --quiet HEAD 2>/dev/null && [ -z "$(git status --porcelain)" ]; then
+        echo "Teku is clean. Checking out 25.11.0..."
+        git fetch
+        git checkout 25.11.0
+    else
+        echo "Teku has local modifications. Keeping current state..."
+    fi
 else
     git clone https://github.com/Consensys/teku.git
     cd teku
@@ -271,9 +295,16 @@ import { PubkeyIndexMap } from "@chainsafe/pubkey-index-map"; // lodestar v 1.23
  * @returns {import("@lodestar/state-transition").BeaconStateCapella}
  */
 
+// Pure Capella network config (CAPELLA_FORK_EPOCH = 0)
+const pureCapellaChainConfig = {
+  ...mainnetChainConfig,
+  ALTAIR_FORK_EPOCH: 0,
+  BELLATRIX_FORK_EPOCH: 0,
+  CAPELLA_FORK_EPOCH: 0,
+  DENEB_FORK_EPOCH: 75520,
+};
 
-
-export function generateCachedState(beaconstate, config = mainnetChainConfig) {
+export function generateCachedState(beaconstate, config = pureCapellaChainConfig) {
   // BeaconConfig 생성
     const beaconConfig = createBeaconConfig(config, beaconstate.genesisValidatorsRoot);
 
@@ -322,6 +353,15 @@ import { ssz } from "@lodestar/types";
 import { isCachedBeaconState, stateTransition, DataAvailabilityStatus, ExecutionPayloadStatus } from "@lodestar/state-transition";
 import { generateCachedState } from "./generateCachedStateCapella.js";
 import * as config from "@lodestar/config";
+
+// Override config for pure Capella network (CAPELLA_FORK_EPOCH = 0)
+const pureCapellaConfig = {
+  ...config.mainnet,
+  ALTAIR_FORK_EPOCH: 0,
+  BELLATRIX_FORK_EPOCH: 0,
+  CAPELLA_FORK_EPOCH: 0,
+  DENEB_FORK_EPOCH: 75520,
+};
 
 // Define default options for state transition
 const defaultOptions = {
@@ -400,7 +440,7 @@ try {
 
   // Deserialize pre-state and block
   const preState = ssz.capella.BeaconState.deserializeToView(beaconStateFile);
-  const cachedState = generateCachedState(preState);
+  const cachedState = generateCachedState(preState, pureCapellaConfig);
   const signedBlock = ssz.capella.SignedBeaconBlock.deserialize(signedBlockData);
 
   // Perform state transition
