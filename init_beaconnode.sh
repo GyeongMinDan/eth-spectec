@@ -113,10 +113,14 @@ else
     cd lighthouse
     git checkout v8.0.0
 fi
-cd lcli
-if ! cargo build --release; then
-    echo "Error: Cargo build failed for Lighthouse."
-    exit 1
+if [ -f "target/release/lcli" ]; then
+    echo "Lighthouse lcli is already built. Skipping build..."
+else
+    cd lcli
+    if ! cargo build --release; then
+        echo "Error: Cargo build failed for Lighthouse."
+        exit 1
+    fi
 fi
 
 # Prysm
@@ -132,10 +136,14 @@ else
     cd prysm
     git checkout v7.0.0
 fi
-cd tools/pcli
-if ! bazel build //tools/pcli:pcli; then
-    echo "Error: Bazel build failed for Prysm."
-    exit 1
+if [ -f "bazel-bin/tools/pcli/pcli" ]; then
+    echo "Prysm pcli is already built. Skipping build..."
+else
+    cd tools/pcli
+    if ! bazel build //tools/pcli:pcli; then
+        echo "Error: Bazel build failed for Prysm."
+        exit 1
+    fi
 fi
 
 # Nimbus
@@ -151,27 +159,34 @@ else
     cd nimbus-eth2
     git checkout v25.11.0
 fi
-if [ -z "$(nproc)" ]; then
-    JOBS=2
+if [ -f "build/ncli" ] && [ -f "ncli/ncli" ]; then
+    echo "Nimbus ncli is already built. Skipping build..."
 else
-    JOBS=$(nproc)
-    if [ "$JOBS" -gt 4 ]; then
-        JOBS=4
+    JOBS=2
+    if command -v nproc >/dev/null 2>&1; then
+        NUM_CORES=$(nproc 2>/dev/null)
+        if [ -n "$NUM_CORES" ] && [ "$NUM_CORES" -gt 0 ] 2>/dev/null; then
+            if [ "$NUM_CORES" -gt 4 ]; then
+                JOBS=4
+            else
+                JOBS=$NUM_CORES
+            fi
+        fi
     fi
-fi
-echo "Building Nimbus with $JOBS parallel jobs..."
-if ! make -j${JOBS} 2>&1; then
-    echo "Error: Make build failed for Nimbus."
-    echo "Trying with fewer parallel jobs (j2)..."
-    if ! make -j2 2>&1; then
-        echo "Error: Make build failed for Nimbus even with j2."
+    echo "Building Nimbus with $JOBS parallel jobs..."
+    if ! make -j${JOBS} 2>&1; then
+        echo "Error: Make build failed for Nimbus."
+        echo "Trying with fewer parallel jobs (j2)..."
+        if ! make -j2 2>&1; then
+            echo "Error: Make build failed for Nimbus even with j2."
+            exit 1
+        fi
+    fi
+    cd ncli
+    if ! ../env.sh nim c -d:const_preset=mainnet ncli 2>&1; then
+        echo "Error: Nimbus client build failed."
         exit 1
     fi
-fi
-cd ncli
-if ! ../env.sh nim c -d:const_preset=mainnet ncli 2>&1; then
-    echo "Error: Nimbus client build failed."
-    exit 1
 fi
 
 # Teku
@@ -181,16 +196,20 @@ if [ -d "teku" ]; then
     echo "Teku directory already exists. Updating..."
     cd teku
     git fetch
-    git checkout v25.11.0
+    git checkout 25.11.0
 else
     git clone https://github.com/Consensys/teku.git
     cd teku
-    git checkout v25.11.0
+    git checkout 25.11.0
 fi
-export JAVA_OPTS="-Xms8G -Xmx12G" # increase Java heap size for Gradle
-if ! ./gradlew installDist; then
-    echo "Error: Gradle build failed for Teku."
-    exit 1
+if [ -f "build/install/teku/bin/teku" ]; then
+    echo "Teku is already built. Skipping build..."
+else
+    export JAVA_OPTS="-Xms8G -Xmx12G" # increase Java heap size for Gradle
+    if ! ./gradlew installDist; then
+        echo "Error: Gradle build failed for Teku."
+        exit 1
+    fi
 fi
 
 # Lodestar - NPM
@@ -419,12 +438,105 @@ else
     echo "transition.js already exists"
 fi
 
+# Configure clients for differential testing
+echo ""
+echo "Configuring clients for differential testing..."
+
+# Lighthouse: Modify BlockSignatureStrategy
+echo "Configuring Lighthouse..."
+cd ${workspace}/testing_clients
+if [ -f "lighthouse/lcli/src/transition_blocks.rs" ]; then
+    if ! grep -q "BlockSignatureStrategy::VerifyIndividual" lighthouse/lcli/src/transition_blocks.rs; then
+        sed -i 's/BlockSignatureStrategy::NoVerification/BlockSignatureStrategy::VerifyIndividual/' lighthouse/lcli/src/transition_blocks.rs
+        echo "Lighthouse: Updated BlockSignatureStrategy to VerifyIndividual"
+        # Rebuild Lighthouse
+        cd lighthouse/lcli
+        if ! cargo build --release; then
+            echo "Warning: Lighthouse rebuild failed after configuration change."
+        else
+            echo "Lighthouse: Rebuilt successfully"
+        fi
+    else
+        echo "Lighthouse: Already configured"
+    fi
+else
+    echo "Warning: Lighthouse transition_blocks.rs not found"
+fi
+
+# Prysm: Add post state saving code
+echo "Configuring Prysm..."
+cd ${workspace}/testing_clients
+if [ -f "prysm/tools/pcli/main.go" ]; then
+    if ! grep -q "Store the post state to the expectedPostStatePath" prysm/tools/pcli/main.go; then
+        # Find the line number of "Diff the state if a post state is provided"
+        DIFF_LINE=$(grep -n "Diff the state if a post state is provided" prysm/tools/pcli/main.go | cut -d: -f1)
+        if [ -n "$DIFF_LINE" ]; then
+            # Use awk to insert the code before the diff section
+            awk -v line="$DIFF_LINE" '
+            NR == line {
+                print "\t\t// Store the post state to the expectedPostStatePath if provided."
+                print "\t\tif expectedPostStatePath != \"\" {"
+                print "\t\t\t// Serialize the postState to SSZ format."
+                print "\t\t\tpostStateData, err := postState.MarshalSSZ()"
+                print "\t\t\tif err != nil {"
+                print "\t\t\t\tlog.Fatal(err)"
+                print "\t\t\t}"
+                print ""
+                print "\t\t\t// Write the serialized data to the specified path."
+                print "\t\t\terr = os.WriteFile(expectedPostStatePath, postStateData, 0644)"
+                print "\t\t\tif err != nil {"
+                print "\t\t\t\tlog.Fatal(err)"
+                print "\t\t\t}"
+                print ""
+                print "\t\t\tlog.Infof(\"Post state successfully written to %s\", expectedPostStatePath)"
+                print "\t\t}"
+            }
+            { print }
+            ' prysm/tools/pcli/main.go > prysm/tools/pcli/main.go.tmp && mv prysm/tools/pcli/main.go.tmp prysm/tools/pcli/main.go
+            echo "Prysm: Added post state saving code"
+            # Rebuild Prysm
+            cd prysm/tools/pcli
+            if ! bazel build //tools/pcli:pcli; then
+                echo "Warning: Prysm rebuild failed after configuration change."
+            else
+                echo "Prysm: Rebuilt successfully"
+            fi
+        else
+            echo "Warning: Could not find insertion point in Prysm main.go"
+        fi
+    else
+        echo "Prysm: Already configured"
+    fi
+else
+    echo "Warning: Prysm main.go not found"
+fi
+
+# Lodestar: Comment out postState.commit() calls
+echo "Configuring Lodestar..."
+cd ${workspace}/testing_clients
+if [ -f "lodestar/node_modules/@lodestar/state-transition/lib/stateTransition.js" ]; then
+    # Check if already modified
+    if grep -q "^[[:space:]]*//postState.commit();" lodestar/node_modules/@lodestar/state-transition/lib/stateTransition.js; then
+        echo "Lodestar: Already configured"
+    else
+        # Comment out all postState.commit() calls
+        sed -i 's/^[[:space:]]*postState\.commit();/    \/\/postState.commit();/g' lodestar/node_modules/@lodestar/state-transition/lib/stateTransition.js
+        echo "Lodestar: Commented out postState.commit() calls"
+        # Reinstall packages (package.json is already configured in init script)
+        cd lodestar
+        if ! npm install; then
+            echo "Warning: Lodestar npm install failed after configuration change."
+        else
+            echo "Lodestar: Reinstalled packages successfully"
+        fi
+    fi
+else
+    echo "Warning: Lodestar stateTransition.js not found"
+fi
+
 echo ""
 echo "=========================================="
-echo "All clients have been set up successfully!"
+echo "All clients have been set up and configured successfully!"
 echo "=========================================="
 echo ""
-echo "Next steps:"
-echo "1. Follow the instructions in testing_clients/README.md to configure each client"
-echo "2. Rebuild clients if needed after configuration changes"
 
