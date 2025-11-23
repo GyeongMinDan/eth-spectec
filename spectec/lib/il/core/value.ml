@@ -26,8 +26,14 @@ let rec compare (value_l : t) (value_r : t) =
       let len_cmp = Int.compare l1 l2 in
       if len_cmp <> 0 then len_cmp else Bigint.compare n1 n2
   | StructV fields_l, StructV fields_r ->
-      let atoms_l, values_l = List.split fields_l in
-      let atoms_r, values_r = List.split fields_r in
+      let fields_l_sorted =
+        List.sort (fun (a1, _) (a2, _) -> Xl.Atom.compare a1 a2) fields_l
+      in
+      let fields_r_sorted =
+        List.sort (fun (a1, _) (a2, _) -> Xl.Atom.compare a1 a2) fields_r
+      in
+      let atoms_l, values_l = List.split fields_l_sorted in
+      let atoms_r, values_r = List.split fields_r_sorted in
       let cmp_atoms = List.compare Xl.Atom.compare atoms_l atoms_r in
       if cmp_atoms <> 0 then cmp_atoms else compares values_l values_r
   | CaseV (mixop_l, values_l), CaseV (mixop_r, values_r) ->
@@ -41,6 +47,9 @@ let rec compare (value_l : t) (value_r : t) =
       | None, Some _ -> -1
       | None, None -> 0)
   | ListV values_l, ListV values_r -> compares values_l values_r
+  | FuncV id_l, FuncV id_r ->
+      failwith
+        (Format.asprintf "Cannot compare functions: %s vs %s" id_l.it id_r.it)
   | _ -> Int.compare (tag value_l) (tag value_r)
 
 and compares (values_l : t list) (values_r : t list) : int =
