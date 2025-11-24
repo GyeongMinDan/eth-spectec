@@ -201,6 +201,62 @@ else
         fi
     fi
     cd ncli
+    # Configure Nimbus: Override fork epochs for pure Capella network
+    if [ -f "ncli.nim" ]; then
+        if ! grep -q "Override fork epochs for pure Capella network" ncli.nim; then
+            # Check if we need to add the fork epoch override
+            if grep -q "let cfg = getRuntimeConfig" ncli.nim; then
+                # Use Python to add fork epoch override
+                python3 << 'PYTHON_SCRIPT'
+import re
+
+file_path = 'ncli.nim'
+with open(file_path, 'r') as f:
+    content = f.read()
+
+# Pattern 1: doTransition function
+pattern1 = r'(let\s+cfg\s*=\s*getRuntimeConfig\(conf\.eth2Network\))'
+replacement1 = r'''let cfgBase = getRuntimeConfig(conf.eth2Network)
+    # Override fork epochs for pure Capella network (CAPELLA_FORK_EPOCH = 0)
+    cfg = block:
+      var c = cfgBase
+      c.ALTAIR_FORK_EPOCH = Epoch(0)
+      c.BELLATRIX_FORK_EPOCH = Epoch(0)
+      c.CAPELLA_FORK_EPOCH = Epoch(0)
+      c.DENEB_FORK_EPOCH = Epoch(75520)
+      c'''
+
+# Replace in doTransition
+content = re.sub(pattern1, replacement1, content, count=1)
+
+# Pattern 2: doSlots function (second occurrence)
+if 'doSlots' in content:
+    # Find the second occurrence for doSlots
+    parts = content.split('proc doSlots', 1)
+    if len(parts) > 1:
+        # Replace in doSlots part
+        parts[1] = re.sub(pattern1, replacement1, parts[1], count=1)
+        content = parts[0] + 'proc doSlots' + parts[1]
+
+# Add import if not present
+if 'import' in content and 'datatypes' not in content:
+    import_line = '  ../beacon_chain/spec/[eth2_ssz_serialization, state_transition]'
+    if import_line in content:
+        content = content.replace(
+            import_line,
+            import_line + ',\n  ../beacon_chain/spec/datatypes/[phase0, altair, bellatrix, capella, deneb, constants]'
+        )
+
+with open(file_path, 'w') as f:
+    f.write(content)
+print("Nimbus: Added fork epoch override for pure Capella network")
+PYTHON_SCRIPT
+                echo "Nimbus: Added fork epoch override configuration"
+            fi
+        else
+            echo "Nimbus: Already configured with fork epoch override"
+        fi
+    fi
     if ! ../env.sh nim c -d:const_preset=mainnet ncli 2>&1; then
         echo "Error: Nimbus client build failed."
         exit 1

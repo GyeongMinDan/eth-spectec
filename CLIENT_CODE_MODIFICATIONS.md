@@ -99,11 +99,29 @@ This document summarizes the internal code modifications made to each node imple
 
 ## 3. Nimbus
 
-**No Code Modifications**
+**File**: `testing_clients/nimbus-eth2/ncli/ncli.nim`
 
-- CLI arguments only: Set `verifyStateRoot` flag to `"true"`
-- File: `testing_clients/nimbus-eth2/ncli/ncli.nim` (no modifications)
-- Usage: Pass `"true"` argument to `ncli transition` command in `diff_testing.py`
+### Modification: Override fork epochs for pure Capella network
+- **Location**: Line 137-145 (doTransition), Line 186-194 (doSlots)
+- **Original Code**:
+  ```nim
+  let cfg = getRuntimeConfig(conf.eth2Network)
+  ```
+- **Modified Code**:
+  ```nim
+  let cfgBase = getRuntimeConfig(conf.eth2Network)
+  # Override fork epochs for pure Capella network (CAPELLA_FORK_EPOCH = 0)
+  cfg = block:
+    var c = cfgBase
+    c.ALTAIR_FORK_EPOCH = Epoch(0)
+    c.BELLATRIX_FORK_EPOCH = Epoch(0)
+    c.CAPELLA_FORK_EPOCH = Epoch(0)
+    c.DENEB_FORK_EPOCH = Epoch(75520)
+    c
+  ```
+- **Purpose**: Override fork epochs to create a pure Capella network configuration (CAPELLA_FORK_EPOCH = 0) for differential testing
+- **Impact**: Both `doTransition` and `doSlots` functions use the modified configuration
+- **Additional Change**: Added import for datatypes (Line 14) to access Epoch type
 
 ---
 
@@ -126,7 +144,7 @@ This document summarizes the internal code modifications made to each node imple
 |------|---------------|---------------|---------------|
 | **Lighthouse** | ✅ | `lcli/src/transition_blocks.rs` | 1. Comment out all_caches_built() assertion<br>2. Comment out indexed attestation cache assertion<br> |
 | **Prysm** | ✅ | `tools/pcli/main.go` | Add post state saving code |
-| **Nimbus** | ❌ | - | CLI arguments only |
+| **Nimbus** | ✅ | `ncli/ncli.nim` | Override fork epochs for pure Capella network |
 | **Teku** | ❌ | - | CLI arguments only |
 | **Lodestar** | Separate | `transition.js`, `generateCachedStateCapella.js` | Custom implementation (excluded) |
 
@@ -144,8 +162,10 @@ This document summarizes the internal code modifications made to each node imple
    - Prysm's `pcli state-transition` originally did not have functionality to save post state to a file
    - Added functionality to save post state as SSZ file for comparison with other nodes
 
-3. **Nimbus**:
-   - Existing CLI tool arguments provide all necessary functionality, so no code modifications are needed
+3. **Nimbus fork epoch override**:
+   - Nimbus's `ncli` does not support fork epoch configuration via CLI arguments
+   - Modified `ncli.nim` to override fork epochs programmatically for pure Capella network (CAPELLA_FORK_EPOCH = 0)
+   - Applied to both `doTransition` and `doSlots` functions
 
 4. **Teku**:
    - Post state saving and signature verification features are already implemented, so no code modifications are needed
