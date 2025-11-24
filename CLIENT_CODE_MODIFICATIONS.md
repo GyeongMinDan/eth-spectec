@@ -3,6 +3,7 @@
 This document summarizes the internal code modifications made to each node implementation for the 5-node testing tool setup.
 
 **Note**: Lodestar is excluded as it uses custom `transition.js` and `generateCachedStateCapella.js` files.
+**Note**: If you want to check the code please refer to init_beaconnode.sh
 
 ---
 
@@ -65,6 +66,8 @@ This document summarizes the internal code modifications made to each node imple
 - **Purpose**: Handle errors that occur during caching
 - **Impact**: Cache state does not affect state transition correctness
 
+These adjustments are applied only to the testing build of the `lcli transition-blocks` tool; the production Lighthouse beacon node is not modified.
+
 ---
 
 ## 2. Prysm
@@ -73,32 +76,9 @@ This document summarizes the internal code modifications made to each node imple
 
 ### Modification 1: Add pure Capella config (default network)
 - **Location**: Line 227-239
-- **Original Code**:
-  ```go
-  default:
-      log.Fatalf("Unknown network provided: %s", network)
-  ```
-- **Modified Code**:
-  ```go
-  default:
-      log.Fatalf("Unknown network provided: %s", network)
-  ...
-  else {
-      // Default: Use pure Capella config (CAPELLA_FORK_EPOCH = 0)
-      cfg := params.MainnetConfig()
-      cfg.AltairForkEpoch = 0
-      cfg.BellatrixForkEpoch = 0
-      cfg.CapellaForkEpoch = 0
-      cfg.DenebForkEpoch = 75520
-      // Re-initialize fork schedule after modifying fork epochs
-      cfg.InitializeForkSchedule()
-      if err := params.SetActive(cfg); err != nil {
-          log.Fatal(err)
-      }
-  }
-  ```
-- **Purpose**: When no network is specified, use pure Capella network configuration (CAPELLA_FORK_EPOCH = 0) for differential testing
-- **Impact**: Default behavior uses pure Capella config instead of mainnet config
+- **Description**: When no `--network` flag is provided, we modify `pcli` so that it derives a “pure Capella” configuration from `params.MainnetConfig()` (Altair/Bellatrix/Capella fork epochs set to 0, Deneb to 75520), calls `cfg.InitializeForkSchedule()`, and then activates the config via `params.SetActive(cfg)`.
+- **Purpose**: Ensure the default execution path of `pcli` matches the pure Capella test conditions
+- **Impact**: The default behavior of the `pcli` tool uses the pure Capella config instead of the mainnet config
 
 ### Modification 2: Add post state saving code
 - **Location**: Line 301-316
@@ -123,6 +103,8 @@ This document summarizes the internal code modifications made to each node imple
   ```
 - **Purpose**: Save post state as SSZ file after state transition to enable comparison with other nodes
 - **Modification Method**: Automatically inserted via awk command in `init_beaconnode.sh`
+
+All Prysm changes are limited to the `pcli` testing tool; the Prysm beacon node remains unmodified.
 
 ---
 
@@ -151,6 +133,8 @@ This document summarizes the internal code modifications made to each node imple
 - **Purpose**: Override fork epochs to create a pure Capella network configuration (CAPELLA_FORK_EPOCH = 0) for differential testing
 - **Impact**: Both `doTransition` and `doSlots` functions use the modified configuration
 - **Additional Change**: Added import for datatypes (Line 14) to access Epoch type
+
+This modification affects only the `ncli` CLI tool; the Nimbus beacon node is not modified.
 
 ---
 
@@ -201,15 +185,17 @@ All clients are configured to use the same pure Capella network settings (CAPELL
    - However, we use raw SSZ files directly from consensus-specs, so this assumption is not always satisfied
    - Therefore, we comment out these sanity check assertions to make the tool work in raw spec-tests environments
    - **BlockSignatureStrategy**: The original code already uses `NoVerification`, which is the correct setting. When `no_signature_verification = false`, signatures are already verified via `verify_entire_block`, so `per_block_processing` uses `NoVerification` to avoid double verification.
+   - These changes are scoped strictly to the `lcli` CLI tool we use for testing; the Lighthouse beacon node is untouched.
 
-2. **Prysm post state saving**:
-   - Prysm's `pcli state-transition` originally did not have functionality to save post state to a file
-   - Added functionality to save post state as SSZ file for comparison with other nodes
+2. **Prysm (pcli) adjustments**:
+   - `pcli state-transition` now defaults to a pure Capella config when no network is specified
+   - Added functionality to save post state as an SSZ file for comparison with other nodes
+   - Only the `pcli` CLI tool is modified; the Prysm beacon node is untouched.
 
-3. **Nimbus fork epoch override**:
+3. **Nimbus (ncli) fork epoch override**:
    - Nimbus's `ncli` does not support fork epoch configuration via CLI arguments
-   - Modified `ncli.nim` to override fork epochs programmatically for pure Capella network (CAPELLA_FORK_EPOCH = 0)
-   - Applied to both `doTransition` and `doSlots` functions
+   - We override the fork epochs programmatically for pure Capella network (CAPELLA_FORK_EPOCH = 0) in both `doTransition` and `doSlots`
+   - The change is limited to `ncli`; the Nimbus beacon node is not modified.
 
 4. **Teku**:
    - Post state saving and signature verification features are already implemented, so no code modifications are needed
