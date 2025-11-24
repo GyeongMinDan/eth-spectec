@@ -137,8 +137,7 @@ def process_clients(state, block, paths, spectec_core_dir=None):
     # Pure Capella config 경로 설정
     pure_capella_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
     lighthouse_testnet_dir = pure_capella_configs_dir / "lighthouse_testnet"
-    teku_config_path = pure_capella_configs_dir / "teku_config" / "config.yaml"
-    nimbus_config_path = pure_capella_configs_dir / "nimbus_config" / "config.yaml"
+    # Note: teku_config and nimbus_config are not used (Teku uses CLI args, Nimbus uses code override)
 
     clients = [
         Clients(
