@@ -2,8 +2,7 @@
 
 This document summarizes the internal code modifications made to each node implementation for the 5-node testing tool setup.
 
-**Note**: Lodestar is excluded as it uses custom `transition.js` and `generateCachedStateCapella.js` files.
-**Note**: If you want to check the code please refer to init_beaconnode.sh
+**Note**: If you want to check the code please refer to init_beaconnode.sh.
 
 ---
 
