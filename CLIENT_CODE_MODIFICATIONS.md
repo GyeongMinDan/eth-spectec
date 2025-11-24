@@ -71,7 +71,36 @@ This document summarizes the internal code modifications made to each node imple
 
 **File**: `testing_clients/prysm/tools/pcli/main.go`
 
-### Modification: Add post state saving code
+### Modification 1: Add pure Capella config (default network)
+- **Location**: Line 227-239
+- **Original Code**:
+  ```go
+  default:
+      log.Fatalf("Unknown network provided: %s", network)
+  ```
+- **Modified Code**:
+  ```go
+  default:
+      log.Fatalf("Unknown network provided: %s", network)
+  ...
+  else {
+      // Default: Use pure Capella config (CAPELLA_FORK_EPOCH = 0)
+      cfg := params.MainnetConfig()
+      cfg.AltairForkEpoch = 0
+      cfg.BellatrixForkEpoch = 0
+      cfg.CapellaForkEpoch = 0
+      cfg.DenebForkEpoch = 75520
+      // Re-initialize fork schedule after modifying fork epochs
+      cfg.InitializeForkSchedule()
+      if err := params.SetActive(cfg); err != nil {
+          log.Fatal(err)
+      }
+  }
+  ```
+- **Purpose**: When no network is specified, use pure Capella network configuration (CAPELLA_FORK_EPOCH = 0) for differential testing
+- **Impact**: Default behavior uses pure Capella config instead of mainnet config
+
+### Modification 2: Add post state saving code
 - **Location**: Line 301-316
 - **Added Code**:
   ```go
@@ -143,7 +172,7 @@ This document summarizes the internal code modifications made to each node imple
 | Node | Code Modified | Modified File | Modifications |
 |------|---------------|---------------|---------------|
 | **Lighthouse** | ✅ | `lcli/src/transition_blocks.rs` | 1. Comment out all_caches_built() assertion<br>2. Comment out indexed attestation cache assertion<br> |
-| **Prysm** | ✅ | `tools/pcli/main.go` | Add post state saving code |
+| **Prysm** | ✅ | `tools/pcli/main.go` | 1. Add pure Capella config (default network)<br>2. Add post state saving code |
 | **Nimbus** | ✅ | `ncli/ncli.nim` | Override fork epochs for pure Capella network |
 | **Teku** | ❌ | - | CLI arguments only |
 | **Lodestar** | Separate | `transition.js`, `generateCachedStateCapella.js` | Custom implementation (excluded) |

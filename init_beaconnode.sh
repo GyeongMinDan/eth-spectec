@@ -688,10 +688,46 @@ else
     echo "Warning: Lighthouse transition_blocks.rs not found"
 fi
 
-# Prysm: Add post state saving code
+# Prysm: Add pure Capella config and post state saving code
 echo "Configuring Prysm..."
 cd ${workspace}/testing_clients
 if [ -f "prysm/tools/pcli/main.go" ]; then
+    NEEDS_REBUILD=false
+    
+    # 1. Add pure Capella config (default network)
+    if ! grep -q "Default: Use pure Capella config" prysm/tools/pcli/main.go; then
+        # Find the line with "default:" in the network switch statement
+        DEFAULT_LINE=$(grep -n "default:" prysm/tools/pcli/main.go | grep -A 1 "log.Fatalf" | head -1 | cut -d: -f1)
+        if [ -n "$DEFAULT_LINE" ]; then
+            # Use awk to insert the pure Capella config code after the default case
+            awk -v line="$DEFAULT_LINE" '
+            NR == line {
+                print
+                getline
+                print
+                print "\t\t} else {"
+                print "\t\t\t// Default: Use pure Capella config (CAPELLA_FORK_EPOCH = 0)"
+                print "\t\t\tcfg := params.MainnetConfig()"
+                print "\t\t\tcfg.AltairForkEpoch = 0"
+                print "\t\t\tcfg.BellatrixForkEpoch = 0"
+                print "\t\t\tcfg.CapellaForkEpoch = 0"
+                print "\t\t\tcfg.DenebForkEpoch = 75520"
+                print "\t\t\t// Re-initialize fork schedule after modifying fork epochs"
+                print "\t\t\tcfg.InitializeForkSchedule()"
+                print "\t\t\tif err := params.SetActive(cfg); err != nil {"
+                print "\t\t\t\tlog.Fatal(err)"
+                print "\t\t\t}"
+                print "\t\t}"
+                next
+            }
+            { print }
+            ' prysm/tools/pcli/main.go > prysm/tools/pcli/main.go.tmp && mv prysm/tools/pcli/main.go.tmp prysm/tools/pcli/main.go
+            echo "Prysm: Added pure Capella config (default network)"
+            NEEDS_REBUILD=true
+        fi
+    fi
+    
+    # 2. Add post state saving code
     if ! grep -q "Store the post state to the expectedPostStatePath" prysm/tools/pcli/main.go; then
         # Find the line number of "Diff the state if a post state is provided"
         DIFF_LINE=$(grep -n "Diff the state if a post state is provided" prysm/tools/pcli/main.go | cut -d: -f1)
@@ -719,15 +755,19 @@ if [ -f "prysm/tools/pcli/main.go" ]; then
             { print }
             ' prysm/tools/pcli/main.go > prysm/tools/pcli/main.go.tmp && mv prysm/tools/pcli/main.go.tmp prysm/tools/pcli/main.go
             echo "Prysm: Added post state saving code"
-            # Rebuild Prysm
-            cd prysm/tools/pcli
-            if ! bazel build //tools/pcli:pcli; then
-                echo "Warning: Prysm rebuild failed after configuration change."
-            else
-                echo "Prysm: Rebuilt successfully"
-            fi
+            NEEDS_REBUILD=true
         else
             echo "Warning: Could not find insertion point in Prysm main.go"
+        fi
+    fi
+    
+    # Rebuild Prysm if any changes were made
+    if [ "$NEEDS_REBUILD" = true ]; then
+        cd prysm/tools/pcli
+        if ! bazel build //tools/pcli:pcli; then
+            echo "Warning: Prysm rebuild failed after configuration change."
+        else
+            echo "Prysm: Rebuilt successfully"
         fi
     else
         echo "Prysm: Already configured"
