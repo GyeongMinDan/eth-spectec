@@ -179,6 +179,21 @@ This document summarizes the internal code modifications made to each node imple
 
 ---
 
+## Capella Network Configuration
+
+All clients are configured to use the same pure Capella network settings (CAPELLA_FORK_EPOCH = 0) for consistent differential testing. The methods used for each client are:
+
+| Node | Configuration Method | Details |
+|------|---------------------|---------|
+| **Lighthouse** | Config file | Uses `--testnet-dir` pointing to `Converter/pure_capella_configs/lighthouse_testnet/` which contains `config.yaml` with fork epochs set to 0 |
+| **Prysm** | Code modification | Modified `main.go` to use pure Capella config as default when no network is specified (Line 227-239) |
+| **Nimbus** | Code modification | Modified `ncli.nim` to override fork epochs programmatically in `doTransition` and `doSlots` functions (Line 137-145, 186-194) |
+| **Teku** | CLI arguments | Uses `--Xnetwork-*-fork-epoch=0` command-line arguments (no code modification needed) |
+| **Lodestar** | Code modification | Hardcoded pure Capella config in `transition.js` (Line 364-370) |
+
+**Note**: The `Converter/pure_capella_configs/` directory contains only the Lighthouse testnet config.
+---
+
 ## Modification Rationale
 
 1. **Lighthouse assertion comments**:
