@@ -69,10 +69,8 @@ def parse_state_block(state_dir, block_dir, output_parent_dir):
 
     for tool in tools:
         output_dir = os.path.join(output_parent_dir, f"{tool}/output")
-        log_dir = os.path.join(output_parent_dir, f"{tool}/logs")
         os.makedirs(output_dir, exist_ok=True)
-        os.makedirs(log_dir, exist_ok=True)
-        paths[tool] = {"output_dir": output_dir, "log_dir": log_dir}
+        paths[tool] = {"output_dir": output_dir}
 
     # pre.ssz 파일 찾기 (run_test_suite.py 형태)
     pre_ssz = os.path.join(state_dir, "pre.ssz")
@@ -88,7 +86,6 @@ def parse_state_block(state_dir, block_dir, output_parent_dir):
             paths_per_pair = {
                 tool: {
                     "output": os.path.join(paths[tool]["output_dir"], f"poststate_{block_index}.ssz"),
-                    "log": os.path.join(paths[tool]["log_dir"], f"{tool}_log.log"),
                 }
                 for tool in tools
             }
@@ -112,7 +109,6 @@ def parse_state_block(state_dir, block_dir, output_parent_dir):
                 paths_per_pair = {
                     tool: {
                         "output": os.path.join(paths[tool]["output_dir"], f"poststate_{state_index}.ssz"),
-                        "log": os.path.join(paths[tool]["log_dir"], f"{tool}_log.log"),
                     }
                     for tool in tools
                 }
@@ -154,7 +150,8 @@ def process_clients(state, block, paths, spectec_core_dir=None):
                 state,
                 block,
                 paths["lodestar"]["output"],
-                # default option
+                "verifyProposer=true",  # Enable signature verification (validate_result = true)
+                "verifyStateRoot=true",  # Enable state root verification
             ]),
         Clients(
             "Lighthouse",
@@ -166,8 +163,12 @@ def process_clients(state, block, paths, spectec_core_dir=None):
                 "--post-state-output-path", paths["lighthouse"]["output"],
                 # Pure Capella config: CAPELLA_FORK_EPOCH = 0
                 "--testnet-dir", str(lighthouse_testnet_dir),
-                # Signature verification is enabled by default (BlockSignatureStrategy::VerifyIndividual in code)
-                "--exclude-cache-builds" # Exclude state root cache builds
+                # validate_result = true: Signature verification enabled by default (BlockSignatureStrategy::VerifyIndividual)
+                # State root verification also enabled by default
+                # Cache builds: --exclude-cache-builds flag is NOT set (default: false)
+                # This means caches will be built (line 314: if !config.exclude_cache_builds)
+                # Note: Setting --exclude-cache-builds causes assertion failure: pre_state.all_caches_built()
+                # Lighthouse requires caches to be built for state transition
             ]),
         Clients(
             "Prysm",
@@ -177,6 +178,7 @@ def process_clients(state, block, paths, spectec_core_dir=None):
                 f"--block-path={block}",
                 f"--pre-state-path={state}",
                 f"--expected-post-state-path={paths['prysm']['output']}"
+                # validate_result = true: Signature verification and state root verification enabled by default
             ]),
         Clients(
             "Nimbus",
@@ -186,7 +188,7 @@ def process_clients(state, block, paths, spectec_core_dir=None):
                 state,
                 block,
                 paths["nimbus"]["output"],
-                "false" # skip state root verify
+                "true"  # Enable state root verification (validate_result = true: both signature and state root verification required)
             ]),
         Clients(
             "Teku",
@@ -202,6 +204,7 @@ def process_clients(state, block, paths, spectec_core_dir=None):
                 "--Xnetwork-bellatrix-fork-epoch=0",
                 "--Xnetwork-capella-fork-epoch=0",
                 "--Xnetwork-deneb-fork-epoch=75520",
+                # validate_result = true: Signature verification and state root verification enabled by default
             ]),
 
     ]
@@ -251,10 +254,35 @@ def process_clients(state, block, paths, spectec_core_dir=None):
                     # Handled exception
                     if client.output.stderr!='':
                         #print(f"Are you sure? {client.output.stderr}")
+                        # Try to parse as JSON first (for stack traces)
+                        try:
+                            import json
+                            # Find JSON object in stderr
+                            json_start = client.output.stderr.find('{')
+                            if json_start != -1:
+                                json_end = client.output.stderr.rfind('}') + 1
+                                if json_end > json_start:
+                                    json_str = client.output.stderr[json_start:json_end]
+                                    error_obj = json.loads(json_str)
+                                    status_code = error_obj.get('statusCode', 1)
+                                    output_string = error_obj.get('output', '')
+                                    # stderr에서 파싱한 statusCode를 사용하되, 올바른 분류 적용
+                                    if status_code == 0:
+                                        client.status_code = 0  # SUCCESS
+                                    elif status_code < 0:
+                                        client.status_code = 2  # UNHANDLED_EXCEPTION
+                                    else:
+                                        client.status_code = 1  # FAIL
+                                    client.output.stderr = output_string
+                                    continue
+                        except:
+                            pass
+                        
+                        # Fallback to old regex pattern
                         status_code_match = re.search(r"statusCode: \s*(\d+)", client.output.stderr)
                         if status_code_match:
                             status_code = int(status_code_match.group(1))
-                            output_match = re.search(r"output: \s*'(.*?)'", client.output.stderr)
+                            output_match = re.search(r"output: \s*'(.*?)'", client.output.stderr, re.DOTALL)
                             if output_match:
                                 output_string = output_match.group(1)
                                 # stderr에서 파싱한 statusCode를 사용하되, 올바른 분류 적용
@@ -273,13 +301,6 @@ def process_clients(state, block, paths, spectec_core_dir=None):
 
             client.log()
 
-            # 로그 파일에 쓰기 (첫 번째 실행이면 새로 생성, 아니면 append)
-            log_mode = "w" if not os.path.exists(paths[client.name.lower()]["log"]) else "a"
-            with open(paths[client.name.lower()]["log"], log_mode) as log_file:
-                if client.output:
-                    log_file.write(client.output.stdout)
-                    log_file.write(client.output.stderr)
-
         except Exception as e:
             end_time = perf_counter()
             client.timestamp = end_time - start_time
@@ -290,8 +311,6 @@ def process_clients(state, block, paths, spectec_core_dir=None):
             print(f"[+] Execution time: {client.timestamp}")
             print(f"[+] Exited with status code: {client.status_code} (Failure)")
             print(f"[+] {client.name} failed: {client.output.stderr}")
-            with open(paths[client.name.lower()]["log"], "a") as log_file:
-                log_file.write(str(e))
     return clients
 
 def create_report(clients, output_dir):
@@ -471,17 +490,7 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
     all_times = []
     all_status  = []  
 
-    # 첫 번째 iteration에서 로그 파일들 초기화
-    first_iteration = True
     for state, block, paths in parse_state_block(state_dir, block_dir, output_parent_dir):
-        # 첫 번째 iteration에서만 로그 파일 초기화
-        if first_iteration:
-            for tool in ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]:
-                log_path = paths[tool]["log"]
-                # 로그 파일이 존재하면 삭제 (새로운 실행 시작)
-                if os.path.exists(log_path):
-                    os.remove(log_path)
-            first_iteration = False
         print(f"[+] Processing pair: {state} and {block}")
         eth2_clients = process_clients(state, block, paths, spectec_core_dir=spectec_core_dir)
         eth2_clients_results.extend(eth2_clients)
