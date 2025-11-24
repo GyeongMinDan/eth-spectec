@@ -89,7 +89,9 @@ try {
   const beaconStateFile = fs.readFileSync(userInput.statePath);
 
   // Deserialize pre-state and block
-  const preState = ssz.capella.BeaconState.deserializeToView(beaconStateFile);
+  // Use deserializeToView because createCachedBeaconState expects a View object
+  // that has methods like getAllReadonlyValues (not forEachValue)
+  const preState = ssz.capella.BeaconState.deserializeToViewDU(beaconStateFile);
   const cachedState = generateCachedState(preState);
   const signedBlock = ssz.capella.SignedBeaconBlock.deserialize(signedBlockData);
 
@@ -115,10 +117,20 @@ try {
 
 } catch (e) {
   // Handle errors
+  // Include stack trace in output to identify if error occurs in our code or Lodestar internal
+  // If stack contains node_modules/@lodestar -> Lodestar internal error
+  // If stack contains our file paths -> our code error
+  let errorMessage = e.message;
+  if (e.stack) {
+    errorMessage += "\n\nStack trace:\n" + e.stack;
+  }
+  
   const errorResult = {
     statusCode: 1,
-    output: e.message,
+    output: errorMessage,
   };
-  console.error(errorResult);
+  // Output to stderr so it can be captured by diff_testing.py
+  // Use JSON.stringify to preserve newlines in stack trace
+  console.error(JSON.stringify(errorResult, null, 2));
   //process.exit(JSON.stringify(errorResult))
 }

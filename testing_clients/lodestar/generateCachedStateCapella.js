@@ -35,7 +35,8 @@ import { PubkeyIndexMap } from "@chainsafe/pubkey-index-map"; // lodestar v 1.23
 
 
 export function generateCachedState(beaconstate, config = pureCapellaChainConfig) {
-  // BeaconConfig 생성
+  try {
+    // BeaconConfig 생성
     const beaconConfig = createBeaconConfig(config, beaconstate.genesisValidatorsRoot);
 
     const validatorCount = beaconstate.validators.length;
@@ -48,10 +49,11 @@ export function generateCachedState(beaconstate, config = pureCapellaChainConfig
     }
 
     for (let i = pubkey2index.size; i < validatorCount; i++) {
+        // View object (from deserializeToView) uses getReadonly method
+        // createCachedBeaconState expects View object with getAllReadonlyValues method
         const pubkey = beaconstate.validators.getReadonly(i).pubkey;
         pubkey2index.set(pubkey, i);
         index2pubkey[i] = PublicKey.fromBytes(pubkey) // lodestar v1.22 changed // v1.23 changed
-        //index2pubkey.push(PublicKey.fromBytes(pubkey)); // Jacobian 좌표로 변환
 
     }   
 
@@ -62,6 +64,10 @@ export function generateCachedState(beaconstate, config = pureCapellaChainConfig
         //pubkey2index: new Map(),
         //index2pubkey: [],
     }, options);
+  } catch (e) {
+    // Re-throw error with context
+    throw e;
+  }
 }
 
 const options = {
