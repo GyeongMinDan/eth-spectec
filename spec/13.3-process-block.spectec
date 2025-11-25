@@ -8,21 +8,9 @@ relation ProcessBlock:
 rule ProcessBlock/main:
   state_beaconState block_beaconBlock ~>* state_6
   -- Process_block_header:     state_beaconState                    block_beaconBlock                     ~>  state_0
-  ;; 디버깅: Process_withdrawals 전 balances
-  -- if state_0.BALANCES = gwei_balances_before_withdrawals*
-  -- if $debug_print_label_<gwei*>("ProcessBlock: balances before withdrawals", gwei_balances_before_withdrawals*) = gwei_balances_before_withdrawals_dbg*
   -- Process_withdrawals:      state_0                              block_beaconBlock.BODY.EXECUTION_PAYLOAD ~> state_1
-  ;; 디버깅: Process_withdrawals 후 balances
-  -- if state_1.BALANCES = gwei_balances_after_withdrawals*
-  -- if $debug_print_label_<gwei*>("ProcessBlock: balances after withdrawals", gwei_balances_after_withdrawals*) = gwei_balances_after_withdrawals_dbg*
   -- Process_execution_payload: state_1                             block_beaconBlock.BODY                ~>  state_2
   -- Process_randao:           state_2                              block_beaconBlock.BODY                ~>  state_3
   -- Process_eth1_data:        state_3                              block_beaconBlock.BODY                ~>  state_4
   -- Process_operations:       state_4                              block_beaconBlock.BODY                ~>  state_5
-  ;; 디버깅: Process_sync_aggregate 전 balances
-  -- if state_5.BALANCES = gwei_balances_before_sync*
-  -- if $debug_print_label_<gwei*>("ProcessBlock: balances before sync_aggregate", gwei_balances_before_sync*) = gwei_balances_before_sync_dbg*
   -- Process_sync_aggregate:   state_5                              block_beaconBlock.BODY.SYNC_AGGREGATE ~>  state_6
-  ;; 디버깅: Process_sync_aggregate 후 balances
-  -- if state_6.BALANCES = gwei_balances_after_sync*
-  -- if $debug_print_label_<gwei*>("ProcessBlock: balances after sync_aggregate", gwei_balances_after_sync*) = gwei_balances_after_sync_dbg*
