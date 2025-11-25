@@ -4,12 +4,19 @@ open Util.Source
 module Entry = struct
   type t = string * Il.Value.t list
 
+  (* Use structural equality for both equal and hash to ensure consistency *)
   let equal (id_a, values_a) (id_b, values_b) =
+    id_a = id_b && values_a = values_b
+
+  let hash = Hashtbl.hash
+
+  (* Old semantic comparison (kept for reference, not used)
+  let equal_semantic (id_a, values_a) (id_b, values_b) =
     id_a = id_b
     && List.compare (fun v_a v_b -> Il.Value.compare v_a v_b) values_a values_b
        = 0
 
-  let hash = Hashtbl.hash
+  *)
 end
 
 (* LFU (with LRU tiebreak) cache over Entry keys *)
