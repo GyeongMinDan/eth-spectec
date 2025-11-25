@@ -73,6 +73,7 @@ and typcase = nottyp * hint list
 type vid = int
 and vnote = { vid : vid; typ : typ' }
 
+(* not exp....... is in the value...*)
 and value = (value', vnote) note
 and value' =
   | BoolV of bool

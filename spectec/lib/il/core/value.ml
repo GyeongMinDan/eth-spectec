@@ -73,6 +73,7 @@ let eq (value_l : t) (value_r : t) : bool =
       len_l = len_r && Bigint.compare n_l n_r = 0
   | _ -> compare value_l value_r = 0
 
+(* what is this? -> vid?? -> types.ml -> problem solve?? -> OK*)
 let with_fresh_vid (typ : typ') : vnote =
   let vid = Effect.perform FreshVid () in
   { vid; typ }
