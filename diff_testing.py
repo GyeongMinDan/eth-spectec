@@ -299,6 +299,15 @@ def process_clients(state, block, paths, spectec_core_dir=None):
                     client.status_code = 2
 
             client.log()
+            
+            # Teku: Delete empty output files (Teku creates empty files on failure)
+            if client.name == "Teku" and client.status_code != 0:
+                output_path = paths.get("teku", {}).get("output")
+                if output_path and os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path)
+                    if file_size == 0:
+                        os.remove(output_path)
+                        print(f"[+] Removed empty Teku output file: {output_path}")
 
         except Exception as e:
             end_time = perf_counter()
@@ -414,33 +423,6 @@ def parse_output(client):
             return output.strip()
 
 
-def create_csv_log(all_results, output_parent_dir):
-
-    now = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-    csv_file_path = Path(output_parent_dir) / f'Differential_Output_{now}.csv'
-    fieldnames = ['Pair #', 'Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar', 'Successful Transition', 'Handled Exception', 'Unhandled Errors']
-
-    def _sort_key(item):
-        idx = str(item['Pair #'])
-        return (0, int(idx)) if idx.isdigit() else (1, idx.lower())
-
-    all_results = sorted(all_results, key=_sort_key)
-
-    with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-
-        writer.writeheader()
-        for result in all_results:
-            for client in ['Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']:
-                if client in result and isinstance(result[client], str):
-                    result[client] = truncate_error_msg(result[client])
-            writer.writerow(result)
-    
-        #for result in all_results:
-            #writer.writerow(result)
-
-    print(f"[+] CSV log saved at {csv_file_path}")
-
 def create_csv_time(all_results, output_parent_dir):
 
     time_decimal_places = 4
@@ -528,7 +510,6 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
     # Store reports and CSV files
     create_report(eth2_clients_results, output_parent_dir)
     #print(all_results)
-    create_csv_log(all_results, output_parent_dir)
     create_csv_time(all_times, output_parent_dir)
     create_csv_status(all_status, output_parent_dir)
 
@@ -667,7 +648,6 @@ def main():
                        help="Path to block files dir (required if --test-suite is not used)")
     parser.add_argument("output", nargs="?", default=None,
                        help="Path to output directory (required if --test-suite is not used)")                   
-    parser.add_argument("--compare", action="store_true", help="Compare SSZ files across clients")
     parser.add_argument("--output-base", type=str, default=None,
                        help="Base output directory when using --test-suite (default: test_suite_dir/client_results)")
 
@@ -731,9 +711,8 @@ def main():
                     spectec_core_dir=script_dir
                 )
                 
-                # 비교 실행 (옵션이 있으면)
-                if args.compare:
-                    compare_ssz_files_in_output(str(output_dir))
+                # SSZ 파일 비교 실행 (항상 수행)
+                compare_ssz_files_in_output(str(output_dir))
                 
                 print(f"✓ Completed: {test_name}")
                 total_passed += 1
@@ -762,8 +741,8 @@ def main():
             spectec_core_dir=script_dir
         )
         
-        if args.compare:
-            compare_ssz_files_in_output(args.output)
+        # SSZ 파일 비교 실행 (항상 수행)
+        compare_ssz_files_in_output(args.output)
     
     end_time = perf_counter()
     
