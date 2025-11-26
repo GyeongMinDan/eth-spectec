@@ -8,3 +8,10 @@ spectec-core
 
 # MacOS
 *.DS_Store
+
+# testing_clients build artifacts
+testing_clients/*/target/
+testing_clients/*/bazel-bin/
+testing_clients/*/build/
+testing_clients/*/node_modules/
+testing_clients/*/.git/
