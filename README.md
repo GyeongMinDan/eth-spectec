@@ -16,7 +16,7 @@ SpecTec was originally developed for WebAssembly (Wasm-SpecTec), then adapted/ge
   ```bash
   opam switch create 5.1.0
   eval $(opam env)
-  opam install dune bignum menhir core core_unix bisect_ppx
+  opam install dune bignum menhir core core_unix bisect_ppx yojson digestif bls12-381 bls12-381-signature
   ```
 
 * Clone the repository with submodules:
@@ -85,6 +85,78 @@ SpecTec-Core currently consists of three main components.
 # elaborate a SpecTec spec
 ./spectec-core elab spec/*.spectec
 ```
+
+## Testing Scripts
+
+### 1. init_beaconnode.sh
+
+Sets up and builds all Ethereum 2.0 client implementations (Lighthouse, Prysm, Nimbus, Teku, Lodestar) for differential testing. This script automatically applies necessary code modifications and rebuilds the clients.
+
+**Usage:**
+```bash
+cd spectec-core
+bash init_beaconnode.sh
+```
+
+**Note:** This script must be run from the `spectec-core` directory.
+
+**What it does:**
+1. Installs dependencies (Rust, Java, Bazel, Node.js, etc.)
+2. Clones and builds client implementations:
+   - Lighthouse (v8.0.0)
+   - Prysm (v7.0.0)
+   - Nimbus (v25.11.0)
+   - Teku (25.11.0)
+   - Lodestar (v1.36.0)
+3. Applies code modifications for differential testing compatibility:
+   - Lighthouse: Comments out cache-related assertions
+   - Prysm: Adds pure Capella config and post-state saving
+   - Nimbus: Overrides fork epochs for pure Capella network
+   - Lodestar: Comments out `postState.commit()` calls
+4. Rebuilds clients after modifications
+
+**Note:** After running this script, all clients are ready for differential testing. You only need test cases (pre.ssz and blocks_*.ssz files) to run `diff_testing.py`.
+
+**Code Modifications:** See [CLIENT_CODE_MODIFICATIONS.md](CLIENT_CODE_MODIFICATIONS.md) for detailed information about the code changes applied to each client.
+
+### 2. diff_testing.py
+
+Performs differential testing across multiple Ethereum 2.0 clients by running state transitions and comparing results.
+
+**Usage:**
+```bash
+# Single directory mode
+python diff_testing.py <beaconstate_dir> <block_dir> <output_dir>
+
+# Test suite mode (automatically processes all test cases)
+python diff_testing.py --test-suite <test_suite_dir> --output-base <output_dir>
+
+# Examples
+python diff_testing.py --test-suite Converter/OfficialTestSuite/sanity/blocks/pyspec_tests/_results
+python diff_testing.py --test-suite Converter/OfficialTestSuite/random/pyspec_tests/_results
+```
+
+**Options:**
+- `--test-suite <dir>`: Test suite directory (automatically finds all subdirectories containing pre.ssz files)
+- `--output-base <dir>`: (Optional) Base output directory (default: test_suite_dir/client_results)
+
+**Output:**
+- Post-state SSZ files for each client
+- **Differences CSV** (`Differences_*.csv`): **Core result** - Shows which client pairs produce different SSZ outputs (binary comparison)
+- **Status CSV** (`Output_Status_*.csv`): Success/failure status for each client per test case
+- **Time CSV** (`Output_Time_*.csv`): Execution time for each client per test case
+- **Markdown reports** (`report_eth2diff_*.md`): Detailed logs with commands, stdout, and stderr for each client
+
+**Note:** 
+- SSZ file comparison across clients is always performed automatically
+- The `Differences_*.csv` file is the primary result showing where clients disagree on state transition results
+- **Teku behavior**: Teku creates empty SSZ files on failure. The script automatically removes these empty files to ensure accurate comparison results.
+
+**Prerequisites:**
+- Run `init_beaconnode.sh` first to build all clients
+- Test cases with `pre.ssz` and `blocks_*.ssz` files
+
+**Note:** This script requires the modified clients built by `init_beaconnode.sh`. The modifications ensure compatibility across different client implementations for differential testing.
 
 ### Contributing
 
