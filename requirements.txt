@@ -4,7 +4,7 @@
 
 
 # remerkleable: Use the same version as consensus-specs submodule
-# consensus-specs submodule now uses latest master (ab09e2e94)
+# consensus-specs submodule now uses v1.6.0
 remerkleable @ git+https://github.com/ethereum/remerkleable@667eab00ecc3c25682c754dd72ad164fa8c1750e
 
 # Dependencies required for eth2spec import (matching consensus-specs/pyproject.toml versions)
