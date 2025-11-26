@@ -8,6 +8,8 @@ This directory contains tools for converting between SSZ (Simple Serialization) 
 Converter/
 ├── CompareResult.py              # SSZ file comparison tool
 ├── snappyDecompressor.py         # Snappy decompression tool
+├── eth2specResult.py             # eth2spec state transition execution tool
+├── run_test_suite.py             # Complete test suite runner
 ├── JsonToSSZ/                    # JSON → SSZ conversion tools
 │   ├── BeaconStateJsonToSSZ.py
 │   └── SignedBeaconBlockJsonToSSZ.py
@@ -84,6 +86,62 @@ python JsonToSSZ/SignedBeaconBlockJsonToSSZ.py --in <input_json> --out <output_s
 # Example
 python JsonToSSZ/SignedBeaconBlockJsonToSSZ.py --in block.json --out block.ssz
 ```
+
+### 5. eth2spec State Transition (eth2specResult.py)
+
+Executes state transition using eth2spec and saves the result as an SSZ file.
+
+```bash
+python eth2specResult.py --pre <pre_ssz> --block <block_ssz> --out <output_ssz>
+
+# Example
+python eth2specResult.py --pre pre.ssz --block blocks_0.ssz --out eth2specResult.ssz
+```
+
+**Parameters:**
+- `--pre`: Path to pre-state SSZ file (BeaconState)
+- `--block`: Path to block SSZ file (SignedBeaconBlock)
+- `--out`: Path to output SSZ file (default: eth2specResult.ssz)
+
+**Note:** This script uses eth2spec from the `consensus-specs/tests/core/pyspec` path.
+
+### 6. Complete Test Suite Runner (run_test_suite.py)
+
+Automatically runs the complete workflow for official test suites.
+
+**Workflow:**
+1. Decompress Snappy files (pre.ssz_snappy, blocks_*.ssz_snappy → pre.ssz, blocks_*.ssz)
+2. Convert SSZ to JSON (pre.ssz → pre.json, blocks_*.ssz → blocks_*.json)
+3. Run Spectec program
+4. Convert Spectec result to SSZ (spectec_output.json → spectec_output.ssz)
+5. Execute eth2specResult.py (pre.ssz, blocks_*.ssz → eth2specResult.ssz)
+6. Compare results (spectec_output.ssz vs eth2specResult.ssz)
+
+**Usage:**
+
+```bash
+python run_test_suite.py <test_suite_dir> --spectec-bin <spectec_binary> [options]
+
+# Example
+python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core
+python run_test_suite.py OfficialTestSuite/sanity/blocks --spectec-bin ../spectec-core --verbose
+```
+
+**Required Arguments:**
+- `test_suite`: Test suite directory (e.g., `OfficialTestSuite/random` or `OfficialTestSuite/sanity/blocks`)
+- `--spectec-bin`: Path to Spectec executable (e.g., `../spectec-core`)
+
+**Optional Arguments:**
+- `--converter-dir <dir>`: Path to Converter directory (default: auto-detect from script location)
+- `--spec-dir <dir>`: Path to spec files directory (default: `spectec-core/spec`)
+- `--output-dir <dir>`: Output directory (default: `test_suite/_results`)
+- `--filter <name>`: Filter test cases by name (e.g., `randomized_0`)
+- `-v, --verbose`: Verbose output
+- `--run-mode <mode>`: Execution mode (`run-il` or `run-sl`, default: `run-il`)
+
+**Output:**
+- Intermediate and result files created in work directory for each test case
+- Test summary (passed/failed counts)
 
 ## Official Test Suite (OfficialTestSuite)
 
@@ -171,7 +229,7 @@ This ensures **single-fork consistency** throughout each test case, avoiding the
 
 ## Usage Examples
 
-### Complete Workflow
+### Basic Conversion Workflow
 ```bash
 # 1. Extract SSZ files from official tests
 # 2. Decompress Snappy files
@@ -187,6 +245,24 @@ python JsonToSSZ/BeaconStateJsonToSSZ.py --in pre.json --out pre_converted.ssz
 
 # 5. Compare results
 python CompareResult.py pre.ssz pre_converted.ssz
+```
+
+### Complete Test Suite Workflow
+```bash
+# Run complete test suite (automated workflow)
+python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core --verbose
+
+# Run with specific test filter
+python run_test_suite.py OfficialTestSuite/sanity/blocks --spectec-bin ../spectec-core --filter randomized_0
+
+# Run with custom output directory
+python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core --output-dir custom_results
+```
+
+### eth2spec State Transition
+```bash
+# Execute state transition using eth2spec
+python eth2specResult.py --pre pre.ssz --block blocks_0.ssz --out eth2specResult.ssz
 ```
 
 ## Dependencies

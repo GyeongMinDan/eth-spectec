@@ -48,7 +48,7 @@ class TestRunner:
         self.beacon_state_to_json = self.converter_dir / "SSZToJson" / "BeaconStateSSZToJson.py"
         self.signed_block_to_json = self.converter_dir / "SSZToJson" / "SignedBeaconBlockSSZToJson.py"
         self.json_to_ssz_script = self.converter_dir / "JsonToSSZ" / "BeaconStateJsonToSSZ.py"
-        self.eth2spec_result = self.converter_dir / "ExampleSSZ" / "eth2specResult.py"
+        self.eth2spec_result = self.converter_dir / "eth2specResult.py"
         self.compare_result = self.converter_dir / "CompareResult.py"
         
         # consensus-specs 경로 (eth2specResult.py에서 사용)
