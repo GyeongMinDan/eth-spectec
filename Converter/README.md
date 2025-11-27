@@ -17,10 +17,40 @@ Converter/
 │   ├── BeaconStateSSZToJson.py
 │   └── SignedBeaconBlockSSZToJson.py
 ├── ExampleSSZ/                   # Example SSZ files
+├── pure_capella_configs/         # Pure Capella network configurations
+│   └── lighthouse_testnet/       # Lighthouse testnet config for pure Capella
+│       ├── config.yaml          # Network config with fork epochs set to 0
+│       └── deposit_contract_block.txt
 └── OfficialTestSuite/            # Official test suite
     ├── random/                   # Random test cases
     └── sanity/blocks/            # Sanity block test cases
 ```
+
+## Pure Capella Network Configuration
+
+The `pure_capella_configs/` directory contains network configuration files for differential testing. These configurations ensure all clients use the same fork schedule for consistent comparison.
+
+### Lighthouse Testnet Config (`pure_capella_configs/lighthouse_testnet/`)
+
+This directory contains a custom Lighthouse testnet configuration that sets all fork epochs to 0 for a "pure Capella" network:
+
+- **`config.yaml`**: Mainnet-based configuration with:
+  - `ALTAIR_FORK_EPOCH: 0`
+  - `BELLATRIX_FORK_EPOCH: 0`
+  - `CAPELLA_FORK_EPOCH: 0`
+  - `DENEB_FORK_EPOCH: 75520` (maintains epoch difference from Capella)
+
+**Purpose**: This configuration is used by `diff_testing.py` when running Lighthouse client for differential testing. It ensures Lighthouse uses the same pure Capella fork schedule as other clients (Prysm, Nimbus, Teku, Lodestar), which are configured through code modifications or CLI arguments.
+
+**Usage**: The `diff_testing.py` script automatically uses this configuration via the `--testnet-dir` flag when executing Lighthouse's `lcli transition-blocks` command.
+
+**Note**: Other clients (Prysm, Nimbus, Teku, Lodestar) use different methods to achieve the same pure Capella configuration:
+- **Prysm**: Code modification in `main.go`
+- **Nimbus**: Code modification in `ncli.nim`
+- **Teku**: CLI arguments (`--Xnetwork-*-fork-epoch=0`)
+- **Lodestar**: Code modification in `transition.js`
+
+See `CLIENT_CODE_MODIFICATIONS.md` for details on how each client is configured.
 
 ## Tool Usage
 
