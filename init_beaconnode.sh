@@ -177,9 +177,8 @@ else
     cd nimbus-eth2
     git checkout v25.11.0
 fi
-if [ -f "build/ncli" ] && [ -f "ncli/ncli" ]; then
-    echo "Nimbus ncli is already built. Skipping build..."
-else
+# Build Nimbus if not already built
+if [ ! -f "build/ncli" ] || [ ! -f "ncli/ncli" ]; then
     JOBS=2
     if command -v nproc >/dev/null 2>&1; then
         NUM_CORES=$(nproc 2>/dev/null)
@@ -200,55 +199,86 @@ else
             exit 1
         fi
     fi
-    cd ncli
-    # Configure Nimbus: Override fork epochs for pure Capella network
-    if [ -f "ncli.nim" ]; then
-        if ! grep -q "Override fork epochs for pure Capella network" ncli.nim; then
-            # Check if we need to add the fork epoch override
-            if grep -q "let cfg = getRuntimeConfig" ncli.nim; then
-                # Use Python to add fork epoch override
-                python3 << 'PYTHON_SCRIPT'
+else
+    echo "Nimbus is already built. Proceeding to configure..."
+fi
+
+# Configure Nimbus: Override fork epochs for pure Capella network
+cd ncli
+if [ -f "ncli.nim" ]; then
+    if ! grep -q "Override fork epochs for pure Capella network" ncli.nim; then
+        # Check if we need to add the fork epoch override
+        if grep -q "cfg = getRuntimeConfig" ncli.nim; then
+            # Use Python to add fork epoch override
+            python3 << 'PYTHON_SCRIPT'
 import re
 
 file_path = 'ncli.nim'
 with open(file_path, 'r') as f:
-    content = f.read()
+    lines = f.readlines()
 
-# Pattern 1: doTransition function
-pattern1 = r'(let\s+cfg\s*=\s*getRuntimeConfig\(conf\.eth2Network\))'
-replacement1 = r'''let cfgBase = getRuntimeConfig(conf.eth2Network)
-    # Override fork epochs for pure Capella network (CAPELLA_FORK_EPOCH = 0)
-    cfg = block:
-      var c = cfgBase
-      c.ALTAIR_FORK_EPOCH = Epoch(0)
-      c.BELLATRIX_FORK_EPOCH = Epoch(0)
-      c.CAPELLA_FORK_EPOCH = Epoch(0)
-      c.DENEB_FORK_EPOCH = Epoch(75520)
-      c'''
+# Pattern: cfg = getRuntimeConfig(conf.eth2Network)
+# This appears in let blocks, so we need to replace it with the override code
+pattern = r'(\s+)(cfg\s*=\s*getRuntimeConfig\(conf\.eth2Network\))'
+replacement = r'''\1let cfgBase = getRuntimeConfig(conf.eth2Network)
+\1# Override fork epochs for pure Capella network (CAPELLA_FORK_EPOCH = 0)
+\1cfg = block:
+\1  var c = cfgBase
+\1  c.ALTAIR_FORK_EPOCH = Epoch(0)
+\1  c.BELLATRIX_FORK_EPOCH = Epoch(0)
+\1  c.CAPELLA_FORK_EPOCH = Epoch(0)
+\1  c.DENEB_FORK_EPOCH = Epoch(75520)
+\1  c'''
 
-# Replace in doTransition
-content = re.sub(pattern1, replacement1, content, count=1)
+# Replace first occurrence (doTransition)
+found_first = False
+new_lines = []
+for i, line in enumerate(lines):
+    if not found_first and re.search(pattern, line):
+        indent = len(line) - len(line.lstrip())
+        indent_str = ' ' * indent
+        new_lines.append(f'{indent_str}cfgBase = getRuntimeConfig(conf.eth2Network)\n')
+        new_lines.append(f'{indent_str}# Override fork epochs for pure Capella network (CAPELLA_FORK_EPOCH = 0)\n')
+        new_lines.append(f'{indent_str}cfg = block:\n')
+        new_lines.append(f'{indent_str}  var c = cfgBase\n')
+        new_lines.append(f'{indent_str}  c.ALTAIR_FORK_EPOCH = Epoch(0)\n')
+        new_lines.append(f'{indent_str}  c.BELLATRIX_FORK_EPOCH = Epoch(0)\n')
+        new_lines.append(f'{indent_str}  c.CAPELLA_FORK_EPOCH = Epoch(0)\n')
+        new_lines.append(f'{indent_str}  c.DENEB_FORK_EPOCH = Epoch(75520)\n')
+        new_lines.append(f'{indent_str}  c\n')
+        found_first = True
+    elif found_first and re.search(pattern, line):
+        # Second occurrence (doSlots)
+        indent = len(line) - len(line.lstrip())
+        indent_str = ' ' * indent
+        new_lines.append(f'{indent_str}cfgBase = getRuntimeConfig(conf.eth2Network)\n')
+        new_lines.append(f'{indent_str}# Override fork epochs for pure Capella network (CAPELLA_FORK_EPOCH = 0)\n')
+        new_lines.append(f'{indent_str}cfg = block:\n')
+        new_lines.append(f'{indent_str}  var c = cfgBase\n')
+        new_lines.append(f'{indent_str}  c.ALTAIR_FORK_EPOCH = Epoch(0)\n')
+        new_lines.append(f'{indent_str}  c.BELLATRIX_FORK_EPOCH = Epoch(0)\n')
+        new_lines.append(f'{indent_str}  c.CAPELLA_FORK_EPOCH = Epoch(0)\n')
+        new_lines.append(f'{indent_str}  c.DENEB_FORK_EPOCH = Epoch(75520)\n')
+        new_lines.append(f'{indent_str}  c\n')
+    else:
+        new_lines.append(line)
 
-# Pattern 2: doSlots function (second occurrence)
-if 'doSlots' in content:
-    # Find the second occurrence for doSlots
-    parts = content.split('proc doSlots', 1)
-    if len(parts) > 1:
-        # Replace in doSlots part
-        parts[1] = re.sub(pattern1, replacement1, parts[1], count=1)
-        content = parts[0] + 'proc doSlots' + parts[1]
-
-# Add import if not present
-if 'import' in content and 'datatypes' not in content:
-    import_line = '  ../beacon_chain/spec/[eth2_ssz_serialization, state_transition]'
-    if import_line in content:
-        content = content.replace(
-            import_line,
-            import_line + ',\n  ../beacon_chain/spec/datatypes/[phase0, altair, bellatrix, capella, deneb, constants]'
-        )
+# Add import if not present (Epoch type is in datatypes)
+import_added = False
+for i, line in enumerate(new_lines):
+    if '../beacon_chain/spec/[eth2_ssz_serialization, state_transition]' in line:
+        # Check if datatypes import already exists
+        if 'datatypes' not in ''.join(new_lines[i:i+5]):
+            # Add comma to the previous import line if it doesn't have one
+            if not new_lines[i].rstrip().endswith(','):
+                new_lines[i] = new_lines[i].rstrip() + ',\n'
+            # Add datatypes import after the spec import line (with proper indentation and comma)
+            new_lines.insert(i+1, '  ../beacon_chain/spec/datatypes/[phase0, altair, bellatrix, capella, deneb, constants]\n')
+            import_added = True
+            break
 
 with open(file_path, 'w') as f:
-    f.write(content)
+    f.writelines(new_lines)
 print("Nimbus: Added fork epoch override for pure Capella network")
 PYTHON_SCRIPT
                 echo "Nimbus: Added fork epoch override configuration"
@@ -256,11 +286,15 @@ PYTHON_SCRIPT
         else
             echo "Nimbus: Already configured with fork epoch override"
         fi
-    fi
+    
+    # Rebuild ncli after code modification
     if ! ../env.sh nim c -d:const_preset=mainnet ncli 2>&1; then
         echo "Error: Nimbus client build failed."
         exit 1
     fi
+    echo "Nimbus: ncli built successfully"
+else
+    echo "Warning: ncli.nim not found"
 fi
 
 # Teku
@@ -696,15 +730,10 @@ if [ -f "prysm/tools/pcli/main.go" ]; then
     
     # 1. Add pure Capella config (default network)
     if ! grep -q "Default: Use pure Capella config" prysm/tools/pcli/main.go; then
-        # Find the line with "default:" in the network switch statement
-        DEFAULT_LINE=$(grep -n "default:" prysm/tools/pcli/main.go | grep -A 1 "log.Fatalf" | head -1 | cut -d: -f1)
-        if [ -n "$DEFAULT_LINE" ]; then
-            # Use awk to insert the pure Capella config code after the default case
-            awk -v line="$DEFAULT_LINE" '
+        CLOSING_BRACE_LINE=$(awk '/^\s+default:/ {line=NR; getline; if (/log\.Fatalf/) {getline; if (/^\s+}/) print NR+1; next}}' prysm/tools/pcli/main.go | head -1)
+        if [ -n "$CLOSING_BRACE_LINE" ]; then
+            awk -v line="$CLOSING_BRACE_LINE" '
             NR == line {
-                print
-                getline
-                print
                 print "\t\t} else {"
                 print "\t\t\t// Default: Use pure Capella config (CAPELLA_FORK_EPOCH = 0)"
                 print "\t\t\tcfg := params.MainnetConfig()"
@@ -724,6 +753,8 @@ if [ -f "prysm/tools/pcli/main.go" ]; then
             ' prysm/tools/pcli/main.go > prysm/tools/pcli/main.go.tmp && mv prysm/tools/pcli/main.go.tmp prysm/tools/pcli/main.go
             echo "Prysm: Added pure Capella config (default network)"
             NEEDS_REBUILD=true
+        else
+            echo "Warning: Could not find insertion point for pure Capella config in Prysm main.go"
         fi
     fi
     
