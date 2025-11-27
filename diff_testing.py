@@ -465,11 +465,13 @@ def create_csv_time(all_results, output_parent_dir):
 def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=None):
     """
     spectec_core_dir: spectec-core 디렉터리 경로 (testing_clients 경로를 찾기 위해 사용)
+    Returns: successful_clients_by_index dict mapping index to list of successful client names
     """
     eth2_clients_results = []
     all_results = [] 
     all_times = []
     all_status  = []  
+    successful_clients_by_index = {}
 
     for state, block, paths in parse_state_block(state_dir, block_dir, output_parent_dir):
         print(f"[+] Processing pair: {state} and {block}")
@@ -477,7 +479,14 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
         eth2_clients_results.extend(eth2_clients)
         print(f"\n\n")
 
-        index = state.split("_")[-1].split(".")[0]
+        # Extract index from state or block filename
+        if "pre.ssz" in state:
+            # For pre.ssz format, extract from block filename
+            block_file = os.path.basename(block)
+            index = block_file.replace("blocks_", "").replace(".ssz", "")
+        else:
+            # For state_*.ssz format
+            index = state.split("_")[-1].split(".")[0]
         
         pair_results = {'Pair #': index, 
                         'Successful Transition': [], 
@@ -503,6 +512,10 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
 
             pair_times[client.name] = client.timestamp
 
+        # Store successful clients for this index
+        if pair_results['Successful Transition']:
+            successful_clients_by_index[index] = pair_results['Successful Transition']
+
         all_results.append(pair_results)
         all_times.append(pair_times)
         all_status.append(pair_status) 
@@ -512,6 +525,8 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
     #print(all_results)
     create_csv_time(all_times, output_parent_dir)
     create_csv_status(all_status, output_parent_dir)
+    
+    return successful_clients_by_index
 
 #################################################################################
 
@@ -570,17 +585,26 @@ def read_binary_file(file_path):
         return file.read()
 
 # Compare SSZ files across clients and save results to CSV
-def compare_ssz_files_in_output(output_parent_dir):
+def compare_ssz_files_in_output(output_parent_dir, successful_clients_by_index=None):
+    """
+    Compare SSZ files across clients. Only compares postState files from successful clients.
+    
+    Parameters:
+    - output_parent_dir: Directory containing client output directories
+    - successful_clients_by_index: Dict mapping index to list of successful client names.
+                                  If None, compares all existing files (backward compatibility).
+    """
     tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
     output_dirs = {tool: os.path.join(output_parent_dir, tool, "output") for tool in tools}
 
     # Get all indices from the output directories
     indices = set()
     for tool, output_dir in output_dirs.items():
-        for file in os.listdir(output_dir):
-            if file.startswith("poststate_") and file.endswith(".ssz"):
-                index = file.split("_")[-1].split(".")[0]
-                indices.add(index)
+        if os.path.exists(output_dir):
+            for file in os.listdir(output_dir):
+                if file.startswith("poststate_") and file.endswith(".ssz"):
+                    index = file.split("_")[-1].split(".")[0]
+                    indices.add(index)
 
     # Prepare the results for CSV
     results = []
@@ -589,24 +613,47 @@ def compare_ssz_files_in_output(output_parent_dir):
     for index in sorted(indices):
         print(f"\nComparing SSZ files for index {index}:")
         client_files = {}
+        
+        # Determine which clients to compare for this index
+        if successful_clients_by_index and index in successful_clients_by_index:
+            clients_to_check = successful_clients_by_index[index]
+        else:
+            # Backward compatibility: check all clients if no success info provided
+            clients_to_check = tools
 
-        # Gather files for the current index
-        for tool, output_dir in output_dirs.items():
+        # Gather files for the current index (only from successful clients)
+        for tool in clients_to_check:
+            output_dir = output_dirs.get(tool)
+            if not output_dir or not os.path.exists(output_dir):
+                continue
             file_path = os.path.join(output_dir, f"poststate_{index}.ssz")
             if os.path.exists(file_path):
-                client_files[tool] = read_binary_file(file_path)
+                file_size = os.path.getsize(file_path)
+                # Skip empty files (shouldn't happen for successful clients, but safety check)
+                if file_size > 0:
+                    client_files[tool] = read_binary_file(file_path)
+                else:
+                    print(f"[!] Empty file for client {tool}: {file_path}")
             else:
                 print(f"[!] File not found for client {tool}: {file_path}")
 
-        # Compare files
+        # Compare files (only among successful clients)
         differences = []
         clients = list(client_files.keys())
-        for i in range(len(clients)):
-            for j in range(i + 1, len(clients)):
-                client_a = clients[i]
-                client_b = clients[j]
-                if client_files[client_a] != client_files[client_b]:
-                    differences.append(f"{client_a} vs {client_b}")
+        
+        if len(clients) < 2:
+            # Need at least 2 successful clients to compare
+            if len(clients) == 0:
+                differences.append("No successful clients")
+            elif len(clients) == 1:
+                differences.append(f"Only {clients[0]} succeeded")
+        else:
+            for i in range(len(clients)):
+                for j in range(i + 1, len(clients)):
+                    client_a = clients[i]
+                    client_b = clients[j]
+                    if client_files[client_a] != client_files[client_b]:
+                        differences.append(f"{client_a} vs {client_b}")
 
         # Store results
         results.append({
@@ -704,15 +751,15 @@ def main():
             
             # state_transition 실행
             try:
-                state_transition(
+                successful_clients_by_index = state_transition(
                     str(test_case_dir),
                     str(test_case_dir),
                     str(output_dir),
                     spectec_core_dir=script_dir
                 )
                 
-                # SSZ 파일 비교 실행 (항상 수행)
-                compare_ssz_files_in_output(str(output_dir))
+                # SSZ 파일 비교 실행 (성공한 클라이언트만 비교)
+                compare_ssz_files_in_output(str(output_dir), successful_clients_by_index)
                 
                 print(f"✓ Completed: {test_name}")
                 total_passed += 1
@@ -734,15 +781,15 @@ def main():
         if not args.beaconstate_dir_path or not args.block_dir_path or not args.output:
             parser.error("beaconstate_dir_path, block_dir_path, and output are required when --test-suite is not used")
         
-        state_transition(
+        successful_clients_by_index = state_transition(
             args.beaconstate_dir_path,
             args.block_dir_path,
             args.output,
             spectec_core_dir=script_dir
         )
         
-        # SSZ 파일 비교 실행 (항상 수행)
-        compare_ssz_files_in_output(args.output)
+        # SSZ 파일 비교 실행 (성공한 클라이언트만 비교)
+        compare_ssz_files_in_output(args.output, successful_clients_by_index)
     
     end_time = perf_counter()
     
