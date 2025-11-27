@@ -174,8 +174,8 @@ All clients are configured to use the same pure Capella network settings (CAPELL
 | **Teku** | CLI arguments | Uses `--Xnetwork-*-fork-epoch=0` command-line arguments (no code modification needed) |
 | **Lodestar** | Code modification | Hardcoded pure Capella config in `transition.js` (Line 364-370) |
 
-**Note**: The `Converter/pure_capella_configs/` directory contains only the Lighthouse testnet config.
 ---
+**Note**: The `Converter/pure_capella_configs/` directory contains only the Lighthouse testnet config.
 
 ## Modification Rationale
 
