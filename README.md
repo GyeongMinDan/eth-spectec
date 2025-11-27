@@ -1,7 +1,6 @@
-# SpecTec-Core
+# ETH-SpecTec
 
-A spec programming framework.
-SpecTec was originally developed for WebAssembly (Wasm-SpecTec), then adapted/generalized for P4 (P4-SpecTec). SpecTec Core is a stripped down version of P4-SpecTec's algorithmic flavor, meant to serve as a base for adaptation to other languages or domains.
+ETH-SpecTec is a SpecTec implementation of the official Ethereum 2.0 Consensus Spec. It extends [SpecTec-Core](https://github.com/kaist-plrg/spectec-core) with support for large byte values, and includes python scripts for conversion as well as a diff-testing framework for Ethereum 2.0 clients.
 
 ### Installation
 
@@ -71,20 +70,6 @@ make exe
 ```
 
 This creates an executable `spectec-core` in the project root.
-
-### Structure
-
-SpecTec-Core currently consists of three main components.
-* SpecTec EL is the surface language in which the spec is authored.
-* SpecTec IL (internal language). EL -> IL conversion is called "elaboration". Elaboration makes the spec more algorithmic and unambiguous.
-* An interpreter backend for IL.
-  * Needs to be coupled with a parser that converts an input file into a SpecTec IL value to properly produce output.
-
-### Commands
-```bash
-# elaborate a SpecTec spec
-./spectec-core elab spec/*.spectec
-```
 
 ## Testing Scripts
 
@@ -204,10 +189,6 @@ python diff_testing.py <beaconstate_dir> <block_dir> <output_dir> --workflow seq
 
 **Note:** This script requires the modified clients built by `init_beaconnode.sh`. The modifications ensure compatibility across different client implementations for differential testing.
 
-### Contributing
-
-SpecTec-Core is an open-source project. Please feel free to contribute by opening issues or pull requests.
-
 ### License
 
-SpecTec-Core is released under the [Apache 2.0 license](LICENSE).
+ETH-SpecTec is released under the [Apache 2.0 license](LICENSE).
