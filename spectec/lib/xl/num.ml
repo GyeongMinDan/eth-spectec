@@ -18,8 +18,8 @@ let compare (n_a : t) (n_b : t) : int =
   match (n_a, n_b) with
   | `Nat n_a, `Nat n_b -> Bigint.compare n_a n_b
   | `Int i_a, `Int i_b -> Bigint.compare i_a i_b
-  | `Nat _, `Int _ -> -1
-  | `Int _, `Nat _ -> 1
+  | `Nat n_a, `Int i_b -> Bigint.compare n_a i_b
+  | `Int i_a, `Nat n_b -> Bigint.compare i_a n_b
 
 (* Equality *)
 (* For equality, compare the actual values *)

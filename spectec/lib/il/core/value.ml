@@ -21,6 +21,8 @@ let rec compare (value_l : t) (value_r : t) =
   match (value_l.it, value_r.it) with
   | BoolV b_l, BoolV b_r -> Stdlib.compare b_l b_r
   | NumV n_l, NumV n_r -> Xl.Num.compare n_l n_r
+  | NumV n_l, BytesV { num = n_r; _ } -> Xl.Num.compare n_l (`Nat n_r)
+  | BytesV { num = n_l; _ }, NumV n_r -> Xl.Num.compare (`Nat n_l) n_r
   | TextV s_l, TextV s_r -> String.compare s_l s_r
   | BytesV { num = n1; len = l1 }, BytesV { num = n2; len = l2 } ->
       let len_cmp = Int.compare l1 l2 in
