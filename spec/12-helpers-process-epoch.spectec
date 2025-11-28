@@ -812,7 +812,7 @@ def $activate_one(state_in, validatorIndex_vi) = state_out
 ;; (i, v) 한 쌍 처리: eligibility_epoch 설정 및 eject
 dec $process_registry_one(beaconState, (nat, validator)) : beaconState
 
-;; case 1: activation queue 자격 → eligibility_epoch 갱신, 그리고 eject 검사
+;; case 1: activation queue 자격 O + ejection 조건 O → eligibility_epoch 갱신 + eject
 def $process_registry_one(state_in, (nat_i, validator_v)) = state_after
   -- if $get_current_epoch(state_in) = epoch_cur
   -- if $is_eligible_for_activation_queue(validator_v) = true
@@ -824,7 +824,19 @@ def $process_registry_one(state_in, (nat_i, validator_v)) = state_after
   -- if $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE)
   -- if state_after = $initiate_validator_exit(state_elig, nat_i)
 
-;; case 2: 자격 아님 → eject 검사만
+;; case 2: activation queue 자격 O + ejection 조건 X → eligibility_epoch 갱신만
+def $process_registry_one(state_in, (nat_i, validator_v)) = state_after
+  -- if $get_current_epoch(state_in) = epoch_cur
+  -- if $is_eligible_for_activation_queue(validator_v) = true
+  -- if epoch_elig = $(epoch_cur + 1)
+  -- if validator_set_elig = validator_v[.ACTIVATION_ELIGIBILITY_EPOCH = epoch_elig]
+  -- if state_elig = state_in[.VALIDATORS = state_in.VALIDATORS[[nat_i] = validator_set_elig]]
+  -- if state_elig.VALIDATORS[nat_i] = validator_read
+  -- if ~( $is_active_validator(validator_read, epoch_cur) = true
+         /\ $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE) )
+  -- if state_after = state_elig
+
+;; case 3: 자격 X + eject 조건 O → eject만
 def $process_registry_one(state_in, (nat_i, validator_v)) = state_after
   -- if $get_current_epoch(state_in) = epoch_cur
   -- if $is_eligible_for_activation_queue(validator_v) = false
@@ -834,7 +846,7 @@ def $process_registry_one(state_in, (nat_i, validator_v)) = state_after
   -- if $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE) = true
   -- if state_after = $initiate_validator_exit(state_mid, nat_i)
 
-;; case 3: 그 외 → 변화 없음
+;; case 4: 그 외 → 변화 없음
 def $process_registry_one(state_in, (nat_i, validator_v)) = state_in
   -- otherwise
 
