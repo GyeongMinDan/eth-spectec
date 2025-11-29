@@ -9,7 +9,7 @@ Converter/
 ├── CompareResult.py              # SSZ file comparison tool
 ├── snappyDecompressor.py         # Snappy decompression tool
 ├── eth2specResult.py             # eth2spec state transition execution tool
-├── run_test_suite.py             # Complete test suite runner
+├── run_test_suite.py             # Complete test suite runner (independent / sequential modes)
 ├── JsonToSSZ/                    # JSON → SSZ conversion tools
 │   ├── BeaconStateJsonToSSZ.py
 │   └── SignedBeaconBlockJsonToSSZ.py
@@ -139,22 +139,42 @@ python eth2specResult.py --pre pre.ssz --block blocks_0.ssz --out eth2specResult
 
 Automatically runs the complete workflow for official test suites.
 
-**Workflow:**
-1. Decompress Snappy files (pre.ssz_snappy, blocks_*.ssz_snappy → pre.ssz, blocks_*.ssz)
-2. Convert SSZ to JSON (pre.ssz → pre.json, blocks_*.ssz → blocks_*.json)
-3. Run Spectec program
-4. Convert Spectec result to SSZ (spectec_output.json → spectec_output.ssz)
-5. Execute eth2specResult.py (pre.ssz, blocks_*.ssz → eth2specResult.ssz)
-6. Compare results (spectec_output.ssz vs eth2specResult.ssz)
+**Workflow modes:**
+
+- **independent (default)**  
+  Each `blocks_i` is tested **independently** from the same `pre` state:
+  1. Decompress Snappy files (pre.ssz_snappy, blocks_*.ssz_snappy → pre.ssz, blocks_*.ssz)
+  2. Convert SSZ to JSON (pre.ssz → pre.json, blocks_*.ssz → blocks_*.json)
+  3. Run Spectec once per block, always starting from the original `pre.json`
+  4. Convert each Spectec result to SSZ (spectec_output_i.json → spectec_output_i.ssz)
+  5. Execute eth2specResult.py once per block, always starting from the original `pre.ssz`
+  6. Compare results per block (spectec_output_i.ssz vs eth2specResult_i.ssz)
+
+- **sequential**  
+  Blocks are applied **sequentially**: `pre → blocks_0 → postState_0 → blocks_1 → ...`:
+  1. Decompress Snappy files (pre.ssz_snappy, blocks_*.ssz_snappy → pre.ssz, blocks_*.ssz)
+  2. Convert SSZ to JSON (pre.ssz → pre.json, blocks_*.ssz → blocks_*.json)
+  3. Run Spectec in a chain: `pre.json → blocks_0 → postState_0 → blocks_1 → ...`
+  4. Convert each chained Spectec postState to SSZ (spectec_output_i.json → spectec_output_i.ssz)
+  5. Execute eth2specResult.py in the same chained way on SSZ (`pre.ssz → blocks_0 → ...`)
+  6. Compare postState SSZ results for each step
 
 **Usage:**
 
 ```bash
 python run_test_suite.py <test_suite_dir> --spectec-bin <spectec_binary> [options]
 
-# Example
+# Examples (independent mode, default)
 python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core
 python run_test_suite.py OfficialTestSuite/sanity/blocks --spectec-bin ../spectec-core --verbose
+
+# Examples (sequential mode, v2-style chained execution)
+python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core --workflow sequential
+python run_test_suite.py OfficialTestSuite/sanity/blocks --spectec-bin ../spectec-core --workflow sequential --verbose
+
+# Examples with custom output directory
+python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core --output-dir custom_results
+python run_test_suite.py OfficialTestSuite/sanity/blocks --spectec-bin ../spectec-core --workflow sequential --output-dir ./my_test_results --verbose
 ```
 
 **Required Arguments:**
@@ -164,10 +184,11 @@ python run_test_suite.py OfficialTestSuite/sanity/blocks --spectec-bin ../specte
 **Optional Arguments:**
 - `--converter-dir <dir>`: Path to Converter directory (default: auto-detect from script location)
 - `--spec-dir <dir>`: Path to spec files directory (default: `spectec-core/spec`)
-- `--output-dir <dir>`: Output directory (default: `test_suite/_results`)
+- `--output-dir <dir>`: Output directory for test results (default: `test_suite/_results`). All intermediate files (SSZ, JSON) and comparison results are saved here. Example: `--output-dir custom_results` or `--output-dir ./my_test_results`
 - `--filter <name>`: Filter test cases by name (e.g., `randomized_0`)
 - `-v, --verbose`: Verbose output
 - `--run-mode <mode>`: Execution mode (`run-il` or `run-sl`, default: `run-il`)
+ - `--workflow <mode>`: Test workflow mode (`independent` or `sequential`, default: `independent`)
 
 **Output:**
 - Intermediate and result files created in work directory for each test case

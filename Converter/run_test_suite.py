@@ -2,13 +2,18 @@
 """
 OfficialTestSuite 테스트 케이스에 대해 전체 워크플로우를 자동으로 실행하는 스크립트
 
-워크플로우:
+지원 워크플로우 모드:
+1. independent (기본): 각 block을 원본 pre 상태에서 독립적으로 처리
+   - 기존 run_test_suite.py의 동작 방식
+2. sequential: pre -> blocks_0 -> postState_0 -> blocks_1 ... 순으로 연쇄 처리
+
+공통 단계:
 1. snappy 파일 압축 해제 (pre.ssz_snappy, blocks_*.ssz_snappy -> pre.ssz, blocks_*.ssz)
 2. SSZ를 JSON으로 변환 (pre.ssz -> pre.json, blocks_*.ssz -> blocks_*.json)
 3. Spectec 프로그램 실행
-4. Spectec 결과를 SSZ로 변환 (spectec_output.json -> spectec_output.ssz)
-5. eth2specResult.py 실행 (pre.ssz, blocks_*.ssz -> eth2specResult.ssz)
-6. 결과 비교 (spectec_output.ssz vs eth2specResult.ssz)
+4. Spectec 결과를 SSZ로 변환 (spectec_output*.json -> spectec_output*.ssz)
+5. eth2specResult.py 실행 (pre.ssz, blocks_*.ssz -> eth2specResult*.ssz)
+6. 결과 비교 (spectec_output*.ssz vs eth2specResult*.ssz)
 """
 
 import os
@@ -23,17 +28,26 @@ from typing import List, Tuple, Optional
 
 
 class TestRunner:
-    def __init__(self, converter_dir: str, spectec_bin: str, spec_dir: str = None, run_mode: str = "run-il"):
+    def __init__(
+        self,
+        converter_dir: str,
+        spectec_bin: str,
+        spec_dir: str = None,
+        run_mode: str = "run-il",
+        workflow: str = "independent",
+    ):
         """
         Args:
             converter_dir: Converter 디렉터리 경로
             spectec_bin: Spectec 실행 파일 경로
             spec_dir: spec 파일들이 있는 디렉터리 (기본값: spectec-core/spec)
             run_mode: 실행 모드 ("run-il" 또는 "run-sl", 기본값: "run-il")
+            workflow: 테스트 워크플로우 모드 ("independent" 또는 "sequential", 기본값: "independent")
         """
         self.converter_dir = Path(converter_dir).resolve()
         self.spectec_bin = Path(spectec_bin).resolve()
         self.run_mode = run_mode
+        self.workflow = workflow
         
         # 기본 경로 설정
         if spec_dir:
@@ -475,6 +489,255 @@ class TestRunner:
             if error_mismatch_blocks:
                 error_msg_parts.append(f"Error inconsistency in block(s): {', '.join(error_mismatch_blocks)}")
             return False, "; ".join(error_msg_parts)
+
+    def process_test_case_sequential(self, test_case_dir: Path, work_dir: Path, verbose: bool = False) -> Tuple[bool, str]:
+        """
+        단일 테스트 케이스를 순차(sequential) 모드로 처리합니다.
+
+        워크플로우(v2 연쇄 버전):
+        1. snappy 파일 압축 해제
+        2. SSZ를 JSON으로 변환
+        3. Spectec를 pre -> blocks_0 -> postState_0 -> blocks_1 ... 순으로 연쇄 실행
+        4. 각 Spectec postState를 SSZ로 변환
+        5. eth2specResult.py를 동일한 방식으로 연쇄 실행
+        6. 각 단계의 postState를 비교
+
+        Returns:
+            (success, message) 튜플
+        """
+        test_name = test_case_dir.name
+
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"[sequential] Processing test case: {test_name}")
+            print(f"Directory: {test_case_dir}")
+            print(f"{'='*60}")
+
+        # 1. pre.ssz_snappy와 blocks_*.ssz_snappy 찾기
+        pre_snappy = test_case_dir / "pre.ssz_snappy"
+        if not pre_snappy.exists():
+            return False, f"pre.ssz_snappy not found in {test_case_dir}"
+
+        # blocks_* 파일은 숫자 순서로 정렬 (lexicographic vs numeric 문제 방지)
+        block_snappy_files = sorted(
+            test_case_dir.glob("blocks_*.ssz_snappy"),
+            key=lambda p: int(p.stem.replace("blocks_", ""))
+        )
+        if not block_snappy_files:
+            return False, f"No blocks_*.ssz_snappy files found in {test_case_dir}"
+
+        # 작업 디렉터리에 파일들 준비
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        # 2. Snappy 압축 해제
+        if verbose:
+            print("\n[Step 1] Decompressing snappy files...")
+        pre_ssz = work_dir / "pre.ssz"
+        if not self.decompress_snappy(pre_snappy, pre_ssz):
+            return False, "Failed to decompress pre.ssz_snappy"
+
+        block_ssz_files = []
+        for block_snappy in block_snappy_files:
+            block_num = block_snappy.stem.replace("blocks_", "").replace(".ssz_snappy", "")
+            block_ssz = work_dir / f"blocks_{block_num}.ssz"
+            if not self.decompress_snappy(block_snappy, block_ssz):
+                return False, f"Failed to decompress {block_snappy.name}"
+            block_ssz_files.append(block_ssz)
+
+        if verbose:
+            print("  ✓ All snappy files decompressed")
+
+        # 3. SSZ를 JSON으로 변환
+        if verbose:
+            print("\n[Step 2] Converting SSZ to JSON...")
+        pre_json = work_dir / "pre.json"
+        if not self.ssz_to_json(pre_ssz, pre_json, is_beacon_state=True):
+            return False, "Failed to convert pre.ssz to JSON"
+
+        block_json_files = []
+        for block_ssz in block_ssz_files:
+            block_num = block_ssz.stem.replace("blocks_", "").replace(".ssz", "")
+            block_json = work_dir / f"blocks_{block_num}.json"
+            if not self.ssz_to_json(block_ssz, block_json, is_beacon_state=False):
+                return False, f"Failed to convert {block_ssz.name} to JSON"
+            block_json_files.append(block_json)
+
+        if verbose:
+            print("  ✓ All SSZ files converted to JSON")
+
+        # 3. Spectec 실행 (이전 블록의 postState를 다음 블록의 pre로 연쇄 적용)
+        spectec_results = []
+        spectec_errors = {}
+        spectec_current_pre = pre_json
+
+        for idx, block_json in enumerate(block_json_files):
+            block_num = block_json.stem.replace("blocks_", "").replace(".json", "")
+            if verbose:
+                if idx == 0:
+                    print(f"\n[Step 3] Running Spectec with {block_json.name} (starting from initial pre)")
+                else:
+                    prev_block = block_json_files[idx - 1].stem.replace("blocks_", "").replace(".json", "")
+                    print(f"\n[Step 3] Running Spectec with {block_json.name} (using postState from block {prev_block})")
+
+            spectec_output_json = work_dir / f"spectec_output_{block_num}.json"
+            success, error = self.run_spectec(spectec_current_pre, block_json, spectec_output_json, verbose=verbose)
+
+            if not success:
+                spectec_errors[block_num] = error
+                # verbose가 아니어도 에러 메시지는 항상 출력
+                print(f"  ✗ Spectec failed at block {block_num}: {error}")
+                if verbose:
+                    print(f"  → Sequential execution stopped at block {block_num}")
+                else:
+                    print(f"  → Sequential execution stopped at block {block_num}")
+                    print(f"  → Use -v/--verbose flag for more details")
+                break
+
+            if verbose:
+                print("  ✓ Spectec execution succeeded")
+
+            spectec_current_pre = spectec_output_json  # 다음 블록의 pre로 사용
+
+            if verbose:
+                print(f"\n[Step 4] Converting Spectec output {block_num} to SSZ...")
+            spectec_output_ssz = work_dir / f"spectec_output_{block_num}.ssz"
+            if not self.json_to_ssz(spectec_output_json, spectec_output_ssz):
+                spectec_errors[block_num] = f"Failed to convert Spectec output {block_num} to SSZ"
+                if verbose:
+                    print(f"  ✗ SSZ conversion failed (continuing for chained execution)")
+                continue
+
+            if verbose:
+                print("  ✓ Spectec output converted to SSZ")
+
+            spectec_results.append({
+                "block_num": block_num,
+                "ssz_path": spectec_output_ssz
+            })
+
+        # 5. eth2specResult.py 실행 (연쇄 적용)
+        eth2spec_results = []
+        eth2spec_errors = {}
+        eth2spec_current_pre = pre_ssz
+
+        for idx, block_ssz in enumerate(block_ssz_files):
+            block_num = block_ssz.stem.replace("blocks_", "").replace(".ssz", "")
+            if verbose:
+                if idx == 0:
+                    print(f"\n[Step 5] Running eth2specResult.py with {block_ssz.name} (starting from initial pre)")
+                else:
+                    prev_block = block_ssz_files[idx - 1].stem.replace("blocks_", "").replace(".ssz", "")
+                    print(f"\n[Step 5] Running eth2specResult.py with {block_ssz.name} (using postState from block {prev_block})")
+
+            eth2spec_output_ssz = work_dir / f"eth2specResult_{block_num}.ssz"
+            success, error = self.run_eth2spec(eth2spec_current_pre, block_ssz, eth2spec_output_ssz)
+
+            if not success:
+                eth2spec_errors[block_num] = error
+                if verbose:
+                    print(f"  ✗ eth2specResult.py failed: {error}")
+                    print(f"  → Sequential execution stopped at block {block_num}")
+                break
+
+            if verbose:
+                print("  ✓ eth2specResult.py execution succeeded")
+
+            eth2spec_current_pre = eth2spec_output_ssz  # 다음 블록의 pre로 사용
+
+            eth2spec_results.append({
+                "block_num": block_num,
+                "ssz_path": eth2spec_output_ssz
+            })
+
+        # 6. 에러 체크 및 결과 비교
+        # Note: Spectec이 실패해도 항상 실행됨 (에러 일관성 확인 및 결과 비교)
+        # 각 block에 대해 독립적으로 비교
+        all_match = True
+        mismatch_blocks = []
+        error_mismatch_blocks = []
+
+        # 모든 block 번호 수집
+        all_block_nums = set()
+        for res in spectec_results:
+            all_block_nums.add(res["block_num"])
+        for res in eth2spec_results:
+            all_block_nums.add(res["block_num"])
+        for block_num in spectec_errors.keys():
+            all_block_nums.add(block_num)
+        for block_num in eth2spec_errors.keys():
+            all_block_nums.add(block_num)
+
+        if verbose:
+            print("\n[Step 6] Comparing results for each block...")
+
+        for block_num in sorted(all_block_nums):
+            spectec_res = next((r for r in spectec_results if r["block_num"] == block_num), None)
+            eth2spec_res = next((r for r in eth2spec_results if r["block_num"] == block_num), None)
+            spectec_error = spectec_errors.get(block_num)
+            eth2spec_error = eth2spec_errors.get(block_num)
+
+            if verbose:
+                print(f"\n  Block {block_num}:")
+
+            # 둘 다 실패한 경우
+            if spectec_error and eth2spec_error:
+                if verbose:
+                    print(f"    Both Spectec and eth2spec failed (expected if consistent)")
+                    print(f"    Spectec error: {spectec_error}")
+                    print(f"    eth2spec error: {eth2spec_error}")
+                # 에러 일관성은 간단하게 처리 (향후 개선 가능)
+                continue
+
+            # 하나만 실패한 경우 (불일치)
+            elif spectec_error:
+                all_match = False
+                error_mismatch_blocks.append(block_num)
+                if verbose:
+                    print(f"    ✗ Spectec failed but eth2spec succeeded (inconsistent)")
+                    print(f"    Spectec error: {spectec_error}")
+
+            elif eth2spec_error:
+                all_match = False
+                error_mismatch_blocks.append(block_num)
+                if verbose:
+                    print(f"    ✗ eth2spec failed but Spectec succeeded (inconsistent)")
+                    print(f"    eth2spec error: {eth2spec_error}")
+
+            # 둘 다 성공한 경우 - 결과 비교 (postState 비교)
+            elif spectec_res and eth2spec_res:
+                if verbose:
+                    print(f"    Comparing postState (BeaconState) results...")
+                    print(f"      Spectec postState: {spectec_res['ssz_path']}")
+                    print(f"      eth2spec postState: {eth2spec_res['ssz_path']}")
+
+                if self.compare_results(spectec_res["ssz_path"], eth2spec_res["ssz_path"]):
+                    if verbose:
+                        print(f"    ✓ PostState results match!")
+                else:
+                    all_match = False
+                    mismatch_blocks.append(block_num)
+                    if verbose:
+                        print(f"    ✗ PostState results do not match")
+
+            # 하나만 성공한 경우 (이상한 경우)
+            else:
+                all_match = False
+                error_mismatch_blocks.append(block_num)
+                if verbose:
+                    print(f"    ✗ Inconsistent state: one succeeded but the other has no result")
+
+        # 최종 결과 반환
+        if all_match:
+            if verbose:
+                print(f"\n  ✓ All {len(all_block_nums)} postState(s) match or consistently failed!")
+            return True, f"All {len(all_block_nums)} postState(s) match or consistently failed"
+        else:
+            error_msg_parts = []
+            if mismatch_blocks:
+                error_msg_parts.append(f"PostState mismatch in block(s): {', '.join(mismatch_blocks)}")
+            if error_mismatch_blocks:
+                error_msg_parts.append(f"Error inconsistency in block(s): {', '.join(error_mismatch_blocks)}")
+            return False, "; ".join(error_msg_parts)
     
     def run_tests(self, test_suite_dir: str, output_dir: str = None, verbose: bool = False, 
                   test_filter: str = None) -> dict:
@@ -539,8 +802,11 @@ class TestRunner:
             print(f"Path: {test_case_dir}")
             print(f"Output: {work_dir}")
             print(f"{'='*60}")
-            
-            success, message = self.process_test_case(test_case_dir, work_dir, verbose=verbose)
+
+            if self.workflow == "sequential":
+                success, message = self.process_test_case_sequential(test_case_dir, work_dir, verbose=verbose)
+            else:
+                success, message = self.process_test_case(test_case_dir, work_dir, verbose=verbose)
             
             if success:
                 print(f"✓ PASSED: {message}")
@@ -619,6 +885,12 @@ def main():
         choices=["run-il", "run-sl"],
         help="Execution mode: run-il or run-sl (default: run-il)"
     )
+    parser.add_argument(
+        "--workflow",
+        default="independent",
+        choices=["independent", "sequential"],
+        help="Test workflow mode: independent (default) or sequential (v2-style chained execution)"
+    )
     
     args = parser.parse_args()
     
@@ -662,7 +934,8 @@ def main():
         converter_dir=str(converter_dir),
         spectec_bin=str(spectec_bin),
         spec_dir=args.spec_dir,
-        run_mode=args.run_mode
+        run_mode=args.run_mode,
+        workflow=args.workflow,
     )
     
     results = runner.run_tests(
