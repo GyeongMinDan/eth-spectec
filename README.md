@@ -92,7 +92,8 @@ SpecTec-Core currently consists of three main components.
 
 **Environment:**
 - Tested on: Ubuntu 22.04 LTS (WSL2, x86_64)
-- Minimum requirement: Debian/Ubuntu-based Linux with `apt` package manager (recommended: Ubuntu 20.04 LTS or later)
+- Minimum requirement: Debian/Ubuntu-based Linux with `apt` package manager
+- Recommended: Ubuntu 22.04 LTS or later (OpenJDK 21 is required, which may require additional setup on Ubuntu 20.04)
 
 Sets up and builds all Ethereum 2.0 client implementations (Lighthouse, Prysm, Nimbus, Teku, Lodestar) for differential testing. This script automatically applies necessary code modifications and rebuilds the clients.
 
