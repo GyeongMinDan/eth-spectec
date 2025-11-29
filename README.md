@@ -90,6 +90,10 @@ SpecTec-Core currently consists of three main components.
 
 ### 1. init_beaconnode.sh
 
+**Environment:**
+- Tested on: Ubuntu 22.04 LTS (WSL2, x86_64)
+- Minimum requirement: Debian/Ubuntu-based Linux with `apt` package manager (recommended: Ubuntu 20.04 LTS or later)
+
 Sets up and builds all Ethereum 2.0 client implementations (Lighthouse, Prysm, Nimbus, Teku, Lodestar) for differential testing. This script automatically applies necessary code modifications and rebuilds the clients.
 
 **Usage:**
@@ -121,31 +125,65 @@ bash init_beaconnode.sh
 
 ### 2. diff_testing.py
 
-Performs differential testing across multiple Ethereum 2.0 clients by running state transitions and comparing results.
+Performs differential testing across multiple Ethereum 2.0 clients (Lighthouse, Prysm, Nimbus, Teku, Lodestar) by running state transitions and comparing results.
+
+**Features:**
+- Automatically decompresses `.ssz_snappy` files to `.ssz` (no manual conversion needed)
+- Supports both `OfficialTestSuite` directories (with `.ssz_snappy` files) and already-decompressed directories (with `.ssz` files)
+- Compares postState SSZ files across all successful clients
+- Generates detailed reports (Markdown) and CSV files (execution time, status, differences)
+- Supports two workflow modes: **independent** (default) and **sequential** (chained execution)
+
+**Workflow Modes:**
+
+- **independent** (default)  
+  Each block is processed **independently** from the original `pre` state:
+  - All blocks start from the same original `pre` state
+  - Each block's postState is computed independently
+  - Useful for testing individual block transitions
+
+- **sequential**  
+  Blocks are applied **sequentially**: `pre → blocks_0 → postState_0 → blocks_1 → postState_1 → ...`:
+  - First block starts from original `pre` state
+  - Subsequent blocks use the previous block's postState as their pre state
+  - Useful for testing chained state transitions across multiple blocks
 
 **Usage:**
 ```bash
-# Single directory mode
+# Test suite mode (independent mode, default)
+python diff_testing.py --test-suite Converter/OfficialTestSuite/random
+
+# Test suite mode (sequential mode, chained execution)
+python diff_testing.py --test-suite Converter/OfficialTestSuite/random --workflow sequential
+
+# Test suite mode with custom output directory
+python diff_testing.py --test-suite Converter/OfficialTestSuite/random --output-base custom_client_results
+
+# Single directory mode (requires already-decompressed .ssz files)
 python diff_testing.py <beaconstate_dir> <block_dir> <output_dir>
 
-# Test suite mode (automatically processes all test cases)
-python diff_testing.py --test-suite <test_suite_dir> --output-base <output_dir>
-
-# Examples
-python diff_testing.py --test-suite Converter/OfficialTestSuite/sanity/blocks/pyspec_tests/_results
-python diff_testing.py --test-suite Converter/OfficialTestSuite/random/pyspec_tests/_results
+# Single directory mode with sequential workflow
+python diff_testing.py <beaconstate_dir> <block_dir> <output_dir> --workflow sequential
 ```
 
 **Options:**
-- `--test-suite <dir>`: Test suite directory (automatically finds all subdirectories containing pre.ssz files)
-- `--output-base <dir>`: (Optional) Base output directory (default: test_suite_dir/client_results)
+- `--test-suite <dir>`: Test suite directory (automatically finds all subdirectories containing `pre.ssz` or `pre.ssz_snappy` files)
+- `--output-base <dir>`: (Optional) Base output directory (default: `test_suite_dir/client_results`)
+- `--workflow <mode>`: Test workflow mode (`independent` or `sequential`, default: `independent`)
+
+**Note:** When using `--test-suite` with `OfficialTestSuite` directories containing `.ssz_snappy` files, the script automatically:
+1. Finds all test case directories containing `pre.ssz_snappy`
+2. Decompresses `pre.ssz_snappy` and `blocks_*.ssz_snappy` files to `.ssz`
+3. Runs differential testing on all clients
+4. Compares results and generates reports
 
 **Output:**
-- Post-state SSZ files for each client
-- **Differences CSV** (`Differences_*.csv`): **Core result** - Shows which client pairs produce different SSZ outputs (binary comparison)
-- **Status CSV** (`Output_Status_*.csv`): Success/failure status for each client per test case
-- **Time CSV** (`Output_Time_*.csv`): Execution time for each client per test case
-- **Markdown reports** (`report_eth2diff_*.md`): Detailed logs with commands, stdout, and stderr for each client
+- Client output directories: `<output_dir>/<client_name>/output/poststate_*.ssz`
+- Markdown report: `<output_dir>/report_eth2diff_*.md`
+- CSV files:
+  - `Output_Time_*.csv`: Execution time for each client
+  - `Output_Status_*.csv`: Status code for each client
+  - `Differences_*.csv`: SSZ file differences between clients (core result showing where clients disagree)
 
 **Note:** 
 - SSZ file comparison across clients is always performed automatically
@@ -154,7 +192,7 @@ python diff_testing.py --test-suite Converter/OfficialTestSuite/random/pyspec_te
 
 **Prerequisites:**
 - Run `init_beaconnode.sh` first to build all clients
-- Test cases with `pre.ssz` and `blocks_*.ssz` files
+- Test cases with `pre.ssz`/`pre.ssz_snappy` and `blocks_*.ssz`/`blocks_*.ssz_snappy` files
 
 **Note:** This script requires the modified clients built by `init_beaconnode.sh`. The modifications ensure compatibility across different client implementations for differential testing.
 

@@ -54,14 +54,43 @@ class Clients:
         self.log_stderr()
 
 
-def parse_state_block(state_dir, block_dir, output_parent_dir):
+def decompress_snappy(converter_dir, input_file, output_file):
+    """
+    snappy 파일을 압축 해제합니다.
+    
+    Args:
+        converter_dir: Converter 디렉터리 경로
+        input_file: 입력 snappy 파일 경로
+        output_file: 출력 SSZ 파일 경로
+    """
+    snappy_decompressor = Path(converter_dir) / "Converter" / "snappyDecompressor.py"
+    if not snappy_decompressor.exists():
+        # 스크립트가 spectec-core 디렉터리에 있는 경우
+        snappy_decompressor = Path(converter_dir) / "snappyDecompressor.py"
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, str(snappy_decompressor), str(input_file), str(output_file)],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"  ✗ Snappy decompression failed: {e.stderr}")
+        return False
+
+
+def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=None):
     """
     state_dir와 block_dir에서 SSZ 파일 쌍을 찾아서 yield합니다.
     
     지원하는 파일 형태:
-    1. pre.ssz + blocks_*.ssz 형태 (run_test_suite.py에서 사용)
-    2. state_*.ssz + block_*.ssz 형태 (기존 형태)
+    1. pre.ssz_snappy + blocks_*.ssz_snappy 형태 (OfficialTestSuite 원본)
+    2. pre.ssz + blocks_*.ssz 형태 (run_test_suite.py에서 사용)
+    3. state_*.ssz + block_*.ssz 형태 (기존 형태)
     
+    .ssz_snappy 파일이 있으면 자동으로 .ssz로 변환합니다.
     각 block에 대해 원본 pre/state에서 독립적으로 처리합니다.
     """
     tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
@@ -72,16 +101,87 @@ def parse_state_block(state_dir, block_dir, output_parent_dir):
         os.makedirs(output_dir, exist_ok=True)
         paths[tool] = {"output_dir": output_dir}
 
-    # pre.ssz 파일 찾기 (run_test_suite.py 형태)
+    # pre.ssz 또는 pre.ssz_snappy 파일 찾기
     pre_ssz = os.path.join(state_dir, "pre.ssz")
-    if os.path.exists(pre_ssz):
-        # blocks_*.ssz 파일들 찾기
-        block_files = sorted([f for f in os.listdir(block_dir) if f.startswith("blocks_") and f.endswith(".ssz")])
+    pre_snappy = os.path.join(state_dir, "pre.ssz_snappy")
+    
+    # 변환이 필요한지 확인
+    needs_decompression = False
+    decompressed_dir = None
+    
+    # .ssz_snappy 파일이 있으면 .ssz로 변환
+    if os.path.exists(pre_snappy) and not os.path.exists(pre_ssz):
+        needs_decompression = True
+        # 변환된 파일들을 저장할 임시 디렉터리 (output_parent_dir 내부)
+        decompressed_dir = os.path.join(output_parent_dir, "_decompressed")
+        os.makedirs(decompressed_dir, exist_ok=True)
         
-        for block_file in block_files:
-            # block 번호 추출 (blocks_0.ssz -> 0)
+        if converter_dir is None:
+            # 스크립트 위치에서 spectec-core 디렉터리 찾기
+            script_dir = Path(__file__).parent.resolve()
+            converter_dir = script_dir
+        
+        decompressed_pre = os.path.join(decompressed_dir, "pre.ssz")
+        print(f"[+] Decompressing {pre_snappy} -> {decompressed_pre}")
+        if not decompress_snappy(converter_dir, pre_snappy, decompressed_pre):
+            print(f"[!] Failed to decompress pre.ssz_snappy, skipping...")
+            # 실패 시 빈 디렉터리 정리
+            if decompressed_dir and os.path.exists(decompressed_dir) and not os.listdir(decompressed_dir):
+                os.rmdir(decompressed_dir)
+            return
+        if os.path.exists(decompressed_pre):
+            print(f"[+] Successfully decompressed pre.ssz to {decompressed_pre}")
+        pre_ssz = decompressed_pre
+    
+    if os.path.exists(pre_ssz):
+        # blocks_*.ssz 또는 blocks_*.ssz_snappy 파일들 찾기 (숫자 순서로 정렬)
+        block_ssz_files = sorted(
+            [f for f in os.listdir(block_dir) if f.startswith("blocks_") and f.endswith(".ssz")],
+            key=lambda f: int(f.replace("blocks_", "").replace(".ssz", "")) if f.replace("blocks_", "").replace(".ssz", "").isdigit() else float('inf')
+        )
+        block_snappy_files = sorted(
+            [f for f in os.listdir(block_dir) if f.startswith("blocks_") and f.endswith(".ssz_snappy")],
+            key=lambda f: int(f.replace("blocks_", "").replace(".ssz_snappy", "")) if f.replace("blocks_", "").replace(".ssz_snappy", "").isdigit() else float('inf')
+        )
+        
+        # .ssz_snappy 파일이 있으면 .ssz로 변환
+        if block_snappy_files and not block_ssz_files:
+            # 변환이 필요한데 디렉터리가 없으면 생성
+            if not needs_decompression:
+                decompressed_dir = os.path.join(output_parent_dir, "_decompressed")
+                os.makedirs(decompressed_dir, exist_ok=True)
+                needs_decompression = True
+            
+            if converter_dir is None:
+                script_dir = Path(__file__).parent.resolve()
+                converter_dir = script_dir
+            
+            for block_snappy_file in block_snappy_files:
+                block_num = block_snappy_file.replace("blocks_", "").replace(".ssz_snappy", "")
+                block_snappy_path = os.path.join(block_dir, block_snappy_file)
+                decompressed_block = os.path.join(decompressed_dir, f"blocks_{block_num}.ssz")
+                print(f"[+] Decompressing {block_snappy_file} -> blocks_{block_num}.ssz")
+                if not decompress_snappy(converter_dir, block_snappy_path, decompressed_block):
+                    print(f"[!] Failed to decompress {block_snappy_file}, skipping...")
+                    continue
+                if os.path.exists(decompressed_block):
+                    print(f"[+] Successfully decompressed {block_snappy_file} to {decompressed_block}")
+                block_ssz_files.append(f"blocks_{block_num}.ssz")
+        
+        # 변환된 파일 경로 결정
+        use_decompressed = (decompressed_dir in pre_ssz) or (block_snappy_files and not os.path.exists(os.path.join(block_dir, "blocks_0.ssz")))
+        
+        for block_file in block_ssz_files:
             block_index = block_file.replace("blocks_", "").replace(".ssz", "")
-            block_path = os.path.join(block_dir, block_file)
+            
+            # 변환된 파일이면 decompressed_dir에서, 아니면 원본 디렉터리에서 찾기
+            if use_decompressed and os.path.exists(os.path.join(decompressed_dir, block_file)):
+                block_path = os.path.join(decompressed_dir, block_file)
+            else:
+                block_path = os.path.join(block_dir, block_file)
+            
+            if not os.path.exists(block_path):
+                continue
             
             paths_per_pair = {
                 tool: {
@@ -462,9 +562,10 @@ def create_csv_time(all_results, output_parent_dir):
     print(f"[+] CSV log saved at {csv_file_path}")
 
 
-def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=None):
+def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=None, workflow="independent"):
     """
     spectec_core_dir: spectec-core 디렉터리 경로 (testing_clients 경로를 찾기 위해 사용)
+    workflow: "independent" (기본) 또는 "sequential" 모드
     Returns: successful_clients_by_index dict mapping index to list of successful client names
     """
     eth2_clients_results = []
@@ -473,58 +574,136 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
     all_status  = []  
     successful_clients_by_index = {}
 
-    for state, block, paths in parse_state_block(state_dir, block_dir, output_parent_dir):
-        print(f"[+] Processing pair: {state} and {block}")
-        eth2_clients = process_clients(state, block, paths, spectec_core_dir=spectec_core_dir)
-        eth2_clients_results.extend(eth2_clients)
-        print(f"\n\n")
-
-        # Extract index from state or block filename
-        if "pre.ssz" in state:
-            # For pre.ssz format, extract from block filename
+    if workflow == "sequential":
+        # Sequential 모드: pre -> blocks_0 -> postState_0 -> blocks_1 -> ...
+        # 모든 block을 먼저 수집
+        block_pairs = list(parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=spectec_core_dir))
+        
+        if not block_pairs:
+            return successful_clients_by_index
+        
+        # 첫 번째 block의 원본 pre 상태 저장
+        initial_state, first_block, first_paths = block_pairs[0]
+        current_state = initial_state
+        
+        for idx, (_, block, paths) in enumerate(block_pairs):
             block_file = os.path.basename(block)
-            index = block_file.replace("blocks_", "").replace(".ssz", "")
-        else:
-            # For state_*.ssz format
-            index = state.split("_")[-1].split(".")[0]
-        
-        pair_results = {'Pair #': index, 
-                        'Successful Transition': [], 
-                        'Handled Exception': [], 
-                        'Unhandled Errors': []
-                        }
-        pair_times = {'Pair #': index}
-        pair_status = {'Pair #': index}
-        
-        for client in eth2_clients:
-            # parse logs before storing them in arrays, unnecessary portion of logs hinders readability
-            parsed_log = parse_output(client)
-            pair_results[client.name] = parsed_log
-            labelled = f"{client.status_code}({STATUS_LABEL.get(client.status_code, 'UNKNOWN')})"
-            pair_status[client.name] = labelled
+            block_index = block_file.replace("blocks_", "").replace(".ssz", "")
+            
+            if idx == 0:
+                print(f"[+] Processing pair (sequential): {current_state} and {block} (starting from initial pre)")
+            else:
+                prev_block_file = os.path.basename(block_pairs[idx-1][1])
+                prev_index = prev_block_file.replace("blocks_", "").replace(".ssz", "")
+                print(f"[+] Processing pair (sequential): {current_state} and {block} (using postState from block {prev_index})")
+            
+            eth2_clients = process_clients(current_state, block, paths, spectec_core_dir=spectec_core_dir)
+            eth2_clients_results.extend(eth2_clients)
+            print(f"\n\n")
 
-            if(client.status_code == 0):
-                pair_results['Successful Transition'].append(client.name)
-            if(client.status_code == 1):
-                pair_results['Handled Exception'].append(client.name)
-            if(client.status_code == 2):
-                pair_results['Unhandled Errors'].append(client.name)
+            pair_results = {'Pair #': block_index, 
+                            'Successful Transition': [], 
+                            'Handled Exception': [], 
+                            'Unhandled Errors': []
+                            }
+            pair_times = {'Pair #': block_index}
+            pair_status = {'Pair #': block_index}
+            
+            for client in eth2_clients:
+                parsed_log = parse_output(client)
+                pair_results[client.name] = parsed_log
+                labelled = f"{client.status_code}({STATUS_LABEL.get(client.status_code, 'UNKNOWN')})"
+                pair_status[client.name] = labelled
 
-            pair_times[client.name] = client.timestamp
+                if(client.status_code == 0):
+                    pair_results['Successful Transition'].append(client.name)
+                if(client.status_code == 1):
+                    pair_results['Handled Exception'].append(client.name)
+                if(client.status_code == 2):
+                    pair_results['Unhandled Errors'].append(client.name)
 
-        # Store successful clients for this index
-        if pair_results['Successful Transition']:
-            successful_clients_by_index[index] = pair_results['Successful Transition']
+                pair_times[client.name] = client.timestamp
 
-        all_results.append(pair_results)
-        all_times.append(pair_times)
-        all_status.append(pair_status) 
+            # Store successful clients for this index
+            if pair_results['Successful Transition']:
+                successful_clients_by_index[block_index] = pair_results['Successful Transition']
+
+            all_results.append(pair_results)
+            all_times.append(pair_times)
+            all_status.append(pair_status)
+            
+            # 다음 block의 pre로 사용할 postState 결정 (성공한 클라이언트 중 하나 선택)
+            # 모든 클라이언트가 같은 결과를 생성해야 하므로 첫 번째 성공한 클라이언트의 결과 사용
+            next_state = None
+            for client in eth2_clients:
+                # client.name은 "Lighthouse", "Prysm" 등 대문자로 시작, paths 키는 소문자
+                client_key = client.name.lower()
+                if client.status_code == 0 and client_key in paths and os.path.exists(paths[client_key]["output"]):
+                    next_state = paths[client_key]["output"]
+                    break
+            
+            if next_state is None:
+                print(f"[!] No successful client output found for block {block_index}, stopping sequential execution")
+                break
+            
+            current_state = next_state
+    else:
+        # Independent 모드 (기본): 각 block을 원본 pre 상태에서 독립적으로 처리
+        for state, block, paths in parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=spectec_core_dir):
+            print(f"[+] Processing pair: {state} and {block}")
+            eth2_clients = process_clients(state, block, paths, spectec_core_dir=spectec_core_dir)
+            eth2_clients_results.extend(eth2_clients)
+            print(f"\n\n")
+
+            # Extract index from state or block filename
+            if "pre.ssz" in state:
+                # For pre.ssz format, extract from block filename
+                block_file = os.path.basename(block)
+                index = block_file.replace("blocks_", "").replace(".ssz", "")
+            else:
+                # For state_*.ssz format
+                index = state.split("_")[-1].split(".")[0]
+            
+            pair_results = {'Pair #': index, 
+                            'Successful Transition': [], 
+                            'Handled Exception': [], 
+                            'Unhandled Errors': []
+                            }
+            pair_times = {'Pair #': index}
+            pair_status = {'Pair #': index}
+            
+            for client in eth2_clients:
+                # parse logs before storing them in arrays, unnecessary portion of logs hinders readability
+                parsed_log = parse_output(client)
+                pair_results[client.name] = parsed_log
+                labelled = f"{client.status_code}({STATUS_LABEL.get(client.status_code, 'UNKNOWN')})"
+                pair_status[client.name] = labelled
+
+                if(client.status_code == 0):
+                    pair_results['Successful Transition'].append(client.name)
+                if(client.status_code == 1):
+                    pair_results['Handled Exception'].append(client.name)
+                if(client.status_code == 2):
+                    pair_results['Unhandled Errors'].append(client.name)
+
+                pair_times[client.name] = client.timestamp
+
+            # Store successful clients for this index
+            if pair_results['Successful Transition']:
+                successful_clients_by_index[index] = pair_results['Successful Transition']
+
+            all_results.append(pair_results)
+            all_times.append(pair_times)
+            all_status.append(pair_status) 
 
     # Store reports and CSV files
     create_report(eth2_clients_results, output_parent_dir)
     #print(all_results)
     create_csv_time(all_times, output_parent_dir)
     create_csv_status(all_status, output_parent_dir)
+    
+    # Note: _decompressed directory is kept for debugging/verification purposes
+    # The decompressed .ssz files remain in _decompressed/ directory
     
     return successful_clients_by_index
 
@@ -667,14 +846,21 @@ def compare_ssz_files_in_output(output_parent_dir, successful_clients_by_index=N
 def find_test_case_dirs(test_suite_dir):
     """
     테스트 스위트 디렉터리에서 모든 테스트 케이스 디렉터리를 찾습니다.
-    각 테스트 케이스 디렉터리는 pre.ssz 파일을 포함해야 합니다.
+    각 테스트 케이스 디렉터리는 pre.ssz 또는 pre.ssz_snappy 파일을 포함해야 합니다.
     """
     test_suite_path = Path(test_suite_dir).resolve()
     test_case_dirs = []
     
-    # pre.ssz 파일이 있는 모든 디렉터리 찾기
-    for pre_file in test_suite_path.rglob("pre.ssz"):
+    # pre.ssz_snappy 파일이 있는 모든 디렉터리 찾기 (OfficialTestSuite 원본 형태)
+    for pre_file in test_suite_path.rglob("pre.ssz_snappy"):
         test_case_dirs.append(pre_file.parent)
+    
+    # pre.ssz 파일이 있는 모든 디렉터리 찾기 (이미 변환된 형태)
+    for pre_file in test_suite_path.rglob("pre.ssz"):
+        parent = pre_file.parent
+        # 중복 제거 (pre.ssz_snappy와 pre.ssz가 모두 있는 경우)
+        if parent not in test_case_dirs:
+            test_case_dirs.append(parent)
     
     return sorted(test_case_dirs)
 
@@ -687,8 +873,9 @@ def main():
     
     
     parser.add_argument("--test-suite", type=str, default=None,
-                       help="Test suite directory (e.g., Converter/OfficialTestSuite/sanity/_results). "
-                            "If provided, automatically finds all test cases with pre.ssz files.")
+                       help="Test suite directory (e.g., Converter/OfficialTestSuite/random). "
+                            "If provided, automatically finds all test cases with pre.ssz or pre.ssz_snappy files. "
+                            ".ssz_snappy files are automatically decompressed to .ssz.")
     parser.add_argument("beaconstate_dir_path", nargs="?", default=None,
                        help="Path to beaconstate files dir (required if --test-suite is not used)")
     parser.add_argument("block_dir_path", nargs="?", default=None,
@@ -697,6 +884,9 @@ def main():
                        help="Path to output directory (required if --test-suite is not used)")                   
     parser.add_argument("--output-base", type=str, default=None,
                        help="Base output directory when using --test-suite (default: test_suite_dir/client_results)")
+    parser.add_argument("--workflow", type=str, default="independent",
+                       choices=["independent", "sequential"],
+                       help="Test workflow mode: independent (default) or sequential (chained execution)")
 
     args = parser.parse_args()
 
@@ -717,7 +907,7 @@ def main():
         
         if not test_case_dirs:
             print(f"No test cases found in {test_suite_path}")
-            print("Looking for directories containing pre.ssz files...")
+            print("Looking for directories containing pre.ssz or pre.ssz_snappy files...")
             sys.exit(1)
         
         print(f"Found {len(test_case_dirs)} test case(s)")
@@ -755,7 +945,8 @@ def main():
                     str(test_case_dir),
                     str(test_case_dir),
                     str(output_dir),
-                    spectec_core_dir=script_dir
+                    spectec_core_dir=script_dir,
+                    workflow=args.workflow
                 )
                 
                 # SSZ 파일 비교 실행 (성공한 클라이언트만 비교)
@@ -785,7 +976,8 @@ def main():
             args.beaconstate_dir_path,
             args.block_dir_path,
             args.output,
-            spectec_core_dir=script_dir
+            spectec_core_dir=script_dir,
+            workflow=args.workflow
         )
         
         # SSZ 파일 비교 실행 (성공한 클라이언트만 비교)
