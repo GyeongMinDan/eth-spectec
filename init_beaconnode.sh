@@ -722,51 +722,87 @@ new_lines = []
 i = 0
 while i < len(lines):
     line = lines[i]
-    new_lines.append(line)
     
-    # Check if this is the debug line after post-block tree hash calculation
-    if 'debug!("Post-block tree hash: {:?}", t.elapsed());' in line:
-        # Check if we're inside the exclude_post_block_thc block and haven't added verification yet
-        if i > 0:
-            # Look back to see if we're in the right context
-            context = '\n'.join(lines[max(0, i-5):i+1])
-            if 'if !config.exclude_post_block_thc' in context and 'update_tree_hash_cache' in context:
-                # Check if verification is not already present
-                if 'block.state_root()' not in '\n'.join(lines[i:i+10]):
-                    indent = len(line) - len(line.lstrip())
+    # Check if this is the if block start
+    if 'if !config.exclude_post_block_thc' in line:
+        new_lines.append(line)
+        i += 1
+        
+        # Process the if block - look for the pattern:
+        # let t = Instant::now();
+        # pre_state
+        #     .update_tree_hash_cache()
+        #     .map_err(...)?;
+        # debug!("Post-block tree hash: {:?}", t.elapsed());
+        
+        found_update = False
+        if_block_indent = len(line) - len(line.lstrip())
+        
+        while i < len(lines):
+            inner_line = lines[i]
+            inner_indent = len(inner_line) - len(inner_line.lstrip())
+            
+            # Check if we're still in the if block
+            if inner_line.strip() == '}' and inner_indent == if_block_indent:
+                # End of if block
+                new_lines.append(inner_line)
+                i += 1
+                break
+            
+            # Check if this is the pre_state line (before update_tree_hash_cache)
+            if not found_update and 'pre_state' in inner_line and 'update_tree_hash_cache()' not in inner_line:
+                # Look ahead to see if update_tree_hash_cache is on the next line
+                if i + 1 < len(lines) and '.update_tree_hash_cache()' in lines[i + 1]:
+                    found_update = True
+                    indent = len(inner_line) - len(inner_line.lstrip())
                     indent_str = ' ' * indent
-                    # Check if post_state_root is already captured
-                    if 'let post_state_root' not in context:
-                        # Need to modify the previous lines to capture the return value
-                        # Find the update_tree_hash_cache line and modify it
-                        for j in range(i-3, i):
-                            if j >= 0 and 'update_tree_hash_cache()' in lines[j]:
-                                # Replace the line to capture return value
-                                new_lines[-1] = indent_str + '        let post_state_root = pre_state\n'
-                                new_lines.append(indent_str + '            .update_tree_hash_cache()\n')
-                                # Skip the original line
-                                i += 1
-                                if i < len(lines) and '.map_err' in lines[i]:
-                                    new_lines.append(lines[i])
-                                    i += 1
-                                if i < len(lines) and lines[i].strip() == '?;':
-                                    new_lines.append(lines[i])
-                                    i += 1
-                                # Add debug line
-                                if i < len(lines) and 'debug!("Post-block tree hash' in lines[i]:
-                                    new_lines.append(lines[i])
-                                    i += 1
-                                break
-                    # Add state root verification
-                    new_lines.append('\n')
-                    new_lines.append(indent_str + '        // Verify that the computed post-state root matches the state root in the block\n')
-                    new_lines.append(indent_str + '        let block_state_root = block.state_root();\n')
-                    new_lines.append(indent_str + '        if post_state_root != block_state_root {\n')
-                    new_lines.append(indent_str + '            return Err(format!(\n')
-                    new_lines.append(indent_str + '                "State root mismatch! Block contains {}, but computed post-state root is {}",\n')
-                    new_lines.append(indent_str + '                block_state_root, post_state_root\n')
-                    new_lines.append(indent_str + '            ));\n')
-                    new_lines.append(indent_str + '        }\n')
+                    
+                    # Check if we need to add "let t = Instant::now();" first
+                    if i > 0 and 'let t = Instant::now();' not in lines[i-1]:
+                        new_lines.append(indent_str + '        let t = Instant::now();\n')
+                    
+                    # Add the modified update_tree_hash_cache with return value capture
+                    new_lines.append(indent_str + '        let post_state_root = pre_state\n')
+                    new_lines.append(indent_str + '            .update_tree_hash_cache()\n')
+                    
+                    # Skip the original pre_state line and process the rest
+                    i += 1
+                    # Skip .update_tree_hash_cache() line (already added)
+                    if i < len(lines) and '.update_tree_hash_cache()' in lines[i]:
+                        i += 1
+                    
+                    # Process until we find the debug line
+                    while i < len(lines):
+                        if 'debug!("Post-block tree hash' in lines[i]:
+                            # Add .map_err line and debug line
+                            new_lines.append(indent_str + '            .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;\n')
+                            new_lines.append(lines[i])  # debug line
+                            i += 1
+                            # Add state root verification
+                            new_lines.append('\n')
+                            new_lines.append(indent_str + '        // Verify that the computed post-state root matches the state root in the block\n')
+                            new_lines.append(indent_str + '        let block_state_root = block.state_root();\n')
+                            new_lines.append(indent_str + '        if post_state_root != block_state_root {\n')
+                            new_lines.append(indent_str + '            return Err(format!(\n')
+                            new_lines.append(indent_str + '                "State root mismatch! Block contains {}, but computed post-state root is {}",\n')
+                            new_lines.append(indent_str + '                block_state_root, post_state_root\n')
+                            new_lines.append(indent_str + '            ));\n')
+                            new_lines.append(indent_str + '        }\n')
+                            break
+                        elif '.map_err' in lines[i] or lines[i].strip() == '?;' or lines[i].strip().startswith('.update_tree_hash_cache'):
+                            # Skip these as we're replacing them
+                            i += 1
+                        else:
+                            # Keep other lines
+                            new_lines.append(lines[i])
+                            i += 1
+                    continue
+            
+            new_lines.append(inner_line)
+            i += 1
+        continue
+    
+    new_lines.append(line)
     i += 1
 
 with open(file_path, 'w') as f:
