@@ -169,13 +169,13 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
                 block_ssz_files.append(f"blocks_{block_num}.ssz")
         
         # 변환된 파일 경로 결정
-        use_decompressed = (decompressed_dir in pre_ssz) or (block_snappy_files and not os.path.exists(os.path.join(block_dir, "blocks_0.ssz")))
+        use_decompressed = (decompressed_dir is not None and decompressed_dir in pre_ssz) or (block_snappy_files and not os.path.exists(os.path.join(block_dir, "blocks_0.ssz")))
         
         for block_file in block_ssz_files:
             block_index = block_file.replace("blocks_", "").replace(".ssz", "")
             
             # 변환된 파일이면 decompressed_dir에서, 아니면 원본 디렉터리에서 찾기
-            if use_decompressed and os.path.exists(os.path.join(decompressed_dir, block_file)):
+            if use_decompressed and decompressed_dir is not None and os.path.exists(os.path.join(decompressed_dir, block_file)):
                 block_path = os.path.join(decompressed_dir, block_file)
             else:
                 block_path = os.path.join(block_dir, block_file)
@@ -656,13 +656,17 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
             print(f"\n\n")
 
             # Extract index from state or block filename
-            if "pre.ssz" in state:
+            if state and "pre.ssz" in state:
                 # For pre.ssz format, extract from block filename
                 block_file = os.path.basename(block)
                 index = block_file.replace("blocks_", "").replace(".ssz", "")
-            else:
+            elif state:
                 # For state_*.ssz format
                 index = state.split("_")[-1].split(".")[0]
+            else:
+                # Fallback: extract from block filename if state is None
+                block_file = os.path.basename(block)
+                index = block_file.replace("blocks_", "").replace(".ssz", "")
             
             pair_results = {'Pair #': index, 
                             'Successful Transition': [], 
@@ -844,22 +848,24 @@ def compare_ssz_files_in_output(output_parent_dir, successful_clients_by_index=N
     create_csv_differences(results, output_parent_dir)
 
 def find_test_case_dirs(test_suite_dir):
-    """
-    테스트 스위트 디렉터리에서 모든 테스트 케이스 디렉터리를 찾습니다.
-    각 테스트 케이스 디렉터리는 pre.ssz 또는 pre.ssz_snappy 파일을 포함해야 합니다.
-    """
     test_suite_path = Path(test_suite_dir).resolve()
     test_case_dirs = []
     
     # pre.ssz_snappy 파일이 있는 모든 디렉터리 찾기 (OfficialTestSuite 원본 형태)
     for pre_file in test_suite_path.rglob("pre.ssz_snappy"):
-        test_case_dirs.append(pre_file.parent)
+        parent = pre_file.parent
+        # 출력 디렉터리 제외: 경로의 어느 부분이든 _로 시작하는 디렉터리 이름이 있으면 제외
+        # 예: .../_sanity_independent/... 또는 .../_results/... 등
+        parent_parts = parent.parts
+        if not any(part.startswith('_') for part in parent_parts):
+            test_case_dirs.append(parent)
     
     # pre.ssz 파일이 있는 모든 디렉터리 찾기 (이미 변환된 형태)
     for pre_file in test_suite_path.rglob("pre.ssz"):
         parent = pre_file.parent
-        # 중복 제거 (pre.ssz_snappy와 pre.ssz가 모두 있는 경우)
-        if parent not in test_case_dirs:
+        # 중복 제거 및 출력 디렉터리 제외
+        parent_parts = parent.parts
+        if parent not in test_case_dirs and not any(part.startswith('_') for part in parent_parts):
             test_case_dirs.append(parent)
     
     return sorted(test_case_dirs)
