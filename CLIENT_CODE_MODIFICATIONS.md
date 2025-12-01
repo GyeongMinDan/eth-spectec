@@ -65,6 +65,44 @@ This document summarizes the internal code modifications made to each node imple
 - **Purpose**: Handle errors that occur during caching
 - **Impact**: Cache state does not affect state transition correctness
 
+### Modification 3: Add state root verification
+- **Location**: Line 427-441
+- **Original Code**:
+  ```rust
+  if !config.exclude_post_block_thc {
+      let t = Instant::now();
+      pre_state
+          .update_tree_hash_cache()
+          .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
+      debug!("Post-block tree hash: {:?}", t.elapsed());
+  }
+
+  Ok(pre_state)
+  ```
+- **Modified Code**:
+  ```rust
+  if !config.exclude_post_block_thc {
+      let t = Instant::now();
+      let post_state_root = pre_state
+          .update_tree_hash_cache()
+          .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
+      debug!("Post-block tree hash: {:?}", t.elapsed());
+
+      // Verify that the computed post-state root matches the state root in the block
+      let block_state_root = block.state_root();
+      if post_state_root != block_state_root {
+          return Err(format!(
+              "State root mismatch! Block contains {}, but computed post-state root is {}",
+              block_state_root, post_state_root
+          ));
+      }
+  }
+
+  Ok(pre_state)
+  ```
+- **Purpose**: Verify that the computed post-state root matches the state root contained in the block. This is essential for detecting invalid blocks with incorrect state roots (e.g., `invalid_incorrect_state_root` test cases)
+- **Impact**: Blocks with incorrect state roots will now be properly rejected, ensuring consistency with other clients like Lodestar
+
 These adjustments are applied only to the testing build of the `lcli transition-blocks` tool; the production Lighthouse beacon node is not modified.
 
 ---
@@ -102,6 +140,21 @@ These adjustments are applied only to the testing build of the `lcli transition-
   ```
 - **Purpose**: Save post state as SSZ file after state transition to enable comparison with other nodes
 - **Modification Method**: Automatically inserted via awk command in `init_beaconnode.sh`
+
+### Modification 3: Add state root verification
+- **Location**: Line 302-306
+- **Added Code**:
+  ```go
+  // Verify that the computed post-state root matches the state root in the block
+  blockStateRoot := block.Block().StateRoot()
+  if !bytes.Equal(postRoot[:], blockStateRoot[:]) {
+      log.Fatalf("State root mismatch! Block contains %#x, but computed post-state root is %#x", blockStateRoot, postRoot)
+  }
+  ```
+- **Purpose**: Verify that the computed post-state root matches the state root contained in the block. This is essential for detecting invalid blocks with incorrect state roots (e.g., `invalid_incorrect_state_root` test cases)
+- **Impact**: Blocks with incorrect state roots will now be properly rejected, ensuring consistency with other clients like Lodestar
+- **Modification Method**: Automatically inserted via Python script in `init_beaconnode.sh`
+- **Note**: Requires `bytes` package import (automatically added by the script)
 
 All Prysm changes are limited to the `pcli` testing tool; the Prysm beacon node remains unmodified.
 
@@ -154,8 +207,8 @@ This modification affects only the `ncli` CLI tool; the Nimbus beacon node is no
 
 | Node | Code Modified | Modified File | Modifications |
 |------|---------------|---------------|---------------|
-| **Lighthouse** | ✅ | `lcli/src/transition_blocks.rs` | 1. Comment out all_caches_built() assertion<br>2. Comment out indexed attestation cache assertion<br> |
-| **Prysm** | ✅ | `tools/pcli/main.go` | 1. Add pure Capella config (default network)<br>2. Add post state saving code |
+| **Lighthouse** | ✅ | `lcli/src/transition_blocks.rs` | 1. Comment out all_caches_built() assertion<br>2. Comment out indexed attestation cache assertion<br>3. Add state root verification |
+| **Prysm** | ✅ | `tools/pcli/main.go` | 1. Add pure Capella config (default network)<br>2. Add post state saving code<br>3. Add state root verification |
 | **Nimbus** | ✅ | `ncli/ncli.nim` | Override fork epochs for pure Capella network |
 | **Teku** | ❌ | - | CLI arguments only |
 | **Lodestar** | Separate | `transition.js`, `generateCachedStateCapella.js` | Custom implementation (excluded) |

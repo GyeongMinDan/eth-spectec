@@ -707,6 +707,75 @@ PYTHON_SCRIPT
         fi
     fi
     
+    # 4. Add state root verification (if not already added)
+    if ! grep -q "Verify that the computed post-state root matches the state root in the block" lighthouse/lcli/src/transition_blocks.rs; then
+        # Use Python to add state root verification after post-block tree hash calculation
+        python3 << 'PYTHON_SCRIPT'
+import re
+
+file_path = 'lighthouse/lcli/src/transition_blocks.rs'
+with open(file_path, 'r') as f:
+    lines = f.readlines()
+
+# Find the post-block tree hash section and add state root verification
+new_lines = []
+i = 0
+while i < len(lines):
+    line = lines[i]
+    new_lines.append(line)
+    
+    # Check if this is the debug line after post-block tree hash calculation
+    if 'debug!("Post-block tree hash: {:?}", t.elapsed());' in line:
+        # Check if we're inside the exclude_post_block_thc block and haven't added verification yet
+        if i > 0:
+            # Look back to see if we're in the right context
+            context = '\n'.join(lines[max(0, i-5):i+1])
+            if 'if !config.exclude_post_block_thc' in context and 'update_tree_hash_cache' in context:
+                # Check if verification is not already present
+                if 'block.state_root()' not in '\n'.join(lines[i:i+10]):
+                    indent = len(line) - len(line.lstrip())
+                    indent_str = ' ' * indent
+                    # Check if post_state_root is already captured
+                    if 'let post_state_root' not in context:
+                        # Need to modify the previous lines to capture the return value
+                        # Find the update_tree_hash_cache line and modify it
+                        for j in range(i-3, i):
+                            if j >= 0 and 'update_tree_hash_cache()' in lines[j]:
+                                # Replace the line to capture return value
+                                new_lines[-1] = indent_str + '        let post_state_root = pre_state\n'
+                                new_lines.append(indent_str + '            .update_tree_hash_cache()\n')
+                                # Skip the original line
+                                i += 1
+                                if i < len(lines) and '.map_err' in lines[i]:
+                                    new_lines.append(lines[i])
+                                    i += 1
+                                if i < len(lines) and lines[i].strip() == '?;':
+                                    new_lines.append(lines[i])
+                                    i += 1
+                                # Add debug line
+                                if i < len(lines) and 'debug!("Post-block tree hash' in lines[i]:
+                                    new_lines.append(lines[i])
+                                    i += 1
+                                break
+                    # Add state root verification
+                    new_lines.append('\n')
+                    new_lines.append(indent_str + '        // Verify that the computed post-state root matches the state root in the block\n')
+                    new_lines.append(indent_str + '        let block_state_root = block.state_root();\n')
+                    new_lines.append(indent_str + '        if post_state_root != block_state_root {\n')
+                    new_lines.append(indent_str + '            return Err(format!(\n')
+                    new_lines.append(indent_str + '                "State root mismatch! Block contains {}, but computed post-state root is {}",\n')
+                    new_lines.append(indent_str + '                block_state_root, post_state_root\n')
+                    new_lines.append(indent_str + '            ));\n')
+                    new_lines.append(indent_str + '        }\n')
+    i += 1
+
+with open(file_path, 'w') as f:
+    f.writelines(new_lines)
+print("Lighthouse: Added state root verification")
+PYTHON_SCRIPT
+        NEEDS_REBUILD=true
+    fi
+    
     # Rebuild Lighthouse if any changes were made
     if [ "$NEEDS_REBUILD" = true ]; then
         cd lighthouse/lcli
@@ -790,6 +859,84 @@ if [ -f "prysm/tools/pcli/main.go" ]; then
         else
             echo "Warning: Could not find insertion point in Prysm main.go"
         fi
+    fi
+    
+    # 3. Add state root verification (if not already added)
+    if ! grep -q "Verify that the computed post-state root matches the state root in the block" prysm/tools/pcli/main.go; then
+        # Check if bytes package is imported
+        if ! grep -q '"bytes"' prysm/tools/pcli/main.go; then
+            # Add bytes import
+            python3 << 'PYTHON_SCRIPT'
+import re
+
+file_path = 'prysm/tools/pcli/main.go'
+with open(file_path, 'r') as f:
+    lines = f.readlines()
+
+# Find the import block and add bytes
+new_lines = []
+in_import = False
+import_added = False
+for i, line in enumerate(lines):
+    if line.strip() == 'import (':
+        in_import = True
+        new_lines.append(line)
+    elif in_import and line.strip() == ')':
+        if not import_added:
+            # Add bytes import before the closing parenthesis
+            new_lines.append('\t"bytes"\n')
+            import_added = True
+        new_lines.append(line)
+        in_import = False
+    elif in_import and not import_added and line.strip().startswith('"bufio"'):
+        # Add bytes after bufio
+        new_lines.append(line)
+        new_lines.append('\t"bytes"\n')
+        import_added = True
+    else:
+        new_lines.append(line)
+
+with open(file_path, 'w') as f:
+    f.writelines(new_lines)
+print("Prysm: Added bytes import")
+PYTHON_SCRIPT
+        fi
+        
+        # Add state root verification after postRoot calculation
+        python3 << 'PYTHON_SCRIPT'
+import re
+
+file_path = 'prysm/tools/pcli/main.go'
+with open(file_path, 'r') as f:
+    lines = f.readlines()
+
+# Find the line with "Finished state transition with post state root"
+new_lines = []
+i = 0
+while i < len(lines):
+    line = lines[i]
+    # Check if this is the log line after postRoot calculation
+    if 'log.Infof("Finished state transition with post state root' in line:
+        new_lines.append(line)
+        i += 1
+        # Add state root verification after this line
+        indent = len(line) - len(line.lstrip())
+        indent_str = '\t' * (indent // 8) if indent >= 8 else '\t'
+        new_lines.append('\n')
+        new_lines.append(indent_str + '\t// Verify that the computed post-state root matches the state root in the block\n')
+        new_lines.append(indent_str + '\tblockStateRoot := block.Block().StateRoot()\n')
+        new_lines.append(indent_str + '\tif !bytes.Equal(postRoot[:], blockStateRoot[:]) {\n')
+        new_lines.append(indent_str + '\t\tlog.Fatalf("State root mismatch! Block contains %#x, but computed post-state root is %#x", blockStateRoot, postRoot)\n')
+        new_lines.append(indent_str + '\t}\n')
+        continue
+    new_lines.append(line)
+    i += 1
+
+with open(file_path, 'w') as f:
+    f.writelines(new_lines)
+print("Prysm: Added state root verification")
+PYTHON_SCRIPT
+        NEEDS_REBUILD=true
     fi
     
     # Rebuild Prysm if any changes were made

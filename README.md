@@ -114,10 +114,17 @@ bash init_beaconnode.sh
    - Teku (25.11.0)
    - Lodestar (v1.36.0)
 3. Applies code modifications for differential testing compatibility:
-   - Lighthouse: Comments out cache-related assertions
-   - Prysm: Adds pure Capella config and post-state saving
-   - Nimbus: Overrides fork epochs for pure Capella network
-   - Lodestar: Comments out `postState.commit()` calls
+   - **Lighthouse**: 
+     - Comments out cache-related assertions (all_caches_built, indexed attestation cache)
+     - Adds state root verification (compares computed post-state root with block's state root)
+   - **Prysm**: 
+     - Adds pure Capella config as default network configuration
+     - Adds post-state saving functionality
+     - Adds state root verification (compares computed post-state root with block's state root)
+   - **Nimbus**: 
+     - Overrides fork epochs for pure Capella network (CAPELLA_FORK_EPOCH = 0)
+   - **Lodestar**: 
+     - Comments out `postState.commit()` calls
 4. Rebuilds clients after modifications
 
 **Note:** After running this script, all clients are ready for differential testing. You only need test cases (pre.ssz and blocks_*.ssz files) to run `diff_testing.py`.
