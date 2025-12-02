@@ -107,8 +107,13 @@ class TestRunner:
             else:
                 script = self.signed_block_to_json
             
+            # Fork에 맞는 type-module 지정
+            type_module = f"eth2spec.{self.fork}.mainnet"
+            
             result = subprocess.run(
-                [sys.executable, str(script), "--in", str(ssz_file), "--out", str(json_file)],
+                [sys.executable, str(script), 
+                 "--type-module", type_module,
+                 "--in", str(ssz_file), "--out", str(json_file)],
                 capture_output=True,
                 text=True,
                 check=True
@@ -121,8 +126,13 @@ class TestRunner:
     def json_to_ssz(self, json_file: Path, ssz_file: Path) -> bool:
         """JSON 파일을 SSZ로 변환합니다."""
         try:
+            # Fork에 맞는 type-module 지정
+            type_module = f"eth2spec.{self.fork}.mainnet"
+            
             result = subprocess.run(
-                [sys.executable, str(self.json_to_ssz_script), "--in", str(json_file), "--out", str(ssz_file)],
+                [sys.executable, str(self.json_to_ssz_script), 
+                 "--type-module", type_module,
+                 "--in", str(json_file), "--out", str(ssz_file)],
                 capture_output=True,
                 text=True,
                 check=True
@@ -246,7 +256,8 @@ class TestRunner:
                 [sys.executable, str(self.eth2spec_result), 
                  "--pre", str(pre_ssz),
                  "--block", str(block_ssz),
-                 "--out", str(output_ssz)],
+                 "--out", str(output_ssz),
+                 "--fork", self.fork],
                 capture_output=True,
                 text=True,
                 check=True,
