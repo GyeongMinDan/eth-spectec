@@ -164,9 +164,13 @@ Automatically runs the complete workflow for official test suites.
 ```bash
 python run_test_suite.py <test_suite_dir> --spectec-bin <spectec_binary> [options]
 
-# Examples (independent mode, default)
+# Examples (independent mode, default, using Deneb fork)
 python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core
 python run_test_suite.py OfficialTestSuite/sanity/blocks --spectec-bin ../spectec-core --verbose
+
+# Examples (using Capella fork)
+python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core --fork capella
+python run_test_suite.py OfficialTestSuite/sanity/blocks --spectec-bin ../spectec-core --fork capella --verbose
 
 # Examples (sequential mode, v2-style chained execution)
 python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core --workflow sequential
@@ -183,7 +187,8 @@ python run_test_suite.py OfficialTestSuite/sanity/blocks --spectec-bin ../specte
 
 **Optional Arguments:**
 - `--converter-dir <dir>`: Path to Converter directory (default: auto-detect from script location)
-- `--spec-dir <dir>`: Path to spec files directory (default: `spectec-core/spec`)
+- `--spec-dir <dir>`: Path to spec files directory (default: `spectec-core/spec/spec_{fork}`). If not specified, automatically uses the fork-specific directory based on `--fork` option.
+- `--fork <fork>`: Fork name to use (`deneb` or `capella`, default: `deneb`). Spec files will be loaded from `spec/spec_{fork}/` directory.
 - `--output-dir <dir>`: Output directory for test results (default: `test_suite/_results`). All intermediate files (SSZ, JSON) and comparison results are saved here. Example: `--output-dir custom_results` or `--output-dir ./my_test_results`
 - `--filter <name>`: Filter test cases by name (e.g., `randomized_0`)
 - `-v, --verbose`: Verbose output
@@ -300,8 +305,11 @@ python CompareResult.py pre.ssz pre_converted.ssz
 
 ### Complete Test Suite Workflow
 ```bash
-# Run complete test suite (automated workflow)
+# Run complete test suite (automated workflow, using Deneb by default)
 python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core --verbose
+
+# Run with Capella fork
+python run_test_suite.py OfficialTestSuite/random --spectec-bin ../spectec-core --fork capella --verbose
 
 # Run with specific test filter
 python run_test_suite.py OfficialTestSuite/sanity/blocks --spectec-bin ../spectec-core --filter randomized_0

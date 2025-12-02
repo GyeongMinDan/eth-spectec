@@ -35,19 +35,22 @@ class TestRunner:
         spec_dir: str = None,
         run_mode: str = "run-il",
         workflow: str = "independent",
+        fork: str = "deneb",
     ):
         """
         Args:
             converter_dir: Converter 디렉터리 경로
             spectec_bin: Spectec 실행 파일 경로
-            spec_dir: spec 파일들이 있는 디렉터리 (기본값: spectec-core/spec)
+            spec_dir: spec 파일들이 있는 디렉터리 (기본값: spectec-core/spec/spec_{fork})
             run_mode: 실행 모드 ("run-il" 또는 "run-sl", 기본값: "run-il")
             workflow: 테스트 워크플로우 모드 ("independent" 또는 "sequential", 기본값: "independent")
+            fork: 사용할 fork 이름 (예: "deneb", "capella", 기본값: "deneb")
         """
         self.converter_dir = Path(converter_dir).resolve()
         self.spectec_bin = Path(spectec_bin).resolve()
         self.run_mode = run_mode
         self.workflow = workflow
+        self.fork = fork
         
         # 기본 경로 설정
         if spec_dir:
@@ -55,7 +58,8 @@ class TestRunner:
         else:
             # spectec-core/spec 디렉터리 찾기
             spectec_core = self.converter_dir.parent
-            self.spec_dir = spectec_core / "spec"
+            # spec_deneb 또는 spec_capella 같은 하위 디렉터리 사용
+            self.spec_dir = spectec_core / "spec" / f"spec_{fork}"
         
         # 스크립트 경로들
         self.snappy_decompressor = self.converter_dir / "snappyDecompressor.py"
@@ -132,7 +136,8 @@ class TestRunner:
         """Spectec 프로그램을 실행합니다."""
         try:
             # spec 파일 찾기 및 파일명 순서대로 정렬
-            spec_files = sorted(self.spec_dir.glob("*.spectec"), key=lambda f: f.name)
+            # 하위 디렉터리도 재귀적으로 검색 (spec_deneb, spec_capella 등)
+            spec_files = sorted(self.spec_dir.rglob("*.spectec"), key=lambda f: f.name)
             if not spec_files:
                 return False, f"No .spectec files found in {self.spec_dir}"
             
@@ -144,7 +149,8 @@ class TestRunner:
                 pre_json_rel = pre_json.relative_to(spectec_core_dir)
                 block_json_rel = block_json.relative_to(spectec_core_dir)
                 output_json_rel = output_json.relative_to(spectec_core_dir)
-                spec_args = [f"spec/{f.name}" for f in spec_files]  # spec/*.spectec 형태, 파일명 순서대로
+                # spec_deneb/00-types.spectec 같은 형태로 변환
+                spec_args = [str(f.relative_to(spectec_core_dir)) for f in spec_files]
             except ValueError:
                 # 상대 경로로 변환할 수 없으면 절대 경로 사용
                 pre_json_rel = pre_json
@@ -862,7 +868,13 @@ def main():
     parser.add_argument(
         "--spec-dir",
         default=None,
-        help="Path to spec directory containing .spectec files (default: spectec-core/spec)"
+        help="Path to spec directory containing .spectec files (default: spectec-core/spec/spec_{fork})"
+    )
+    parser.add_argument(
+        "--fork",
+        default="deneb",
+        choices=["deneb", "capella"],
+        help="Fork name to use (default: deneb). Spec files will be loaded from spec/spec_{fork}/"
     )
     parser.add_argument(
         "--output-dir",
@@ -936,6 +948,7 @@ def main():
         spec_dir=args.spec_dir,
         run_mode=args.run_mode,
         workflow=args.workflow,
+        fork=args.fork,
     )
     
     results = runner.run_tests(
