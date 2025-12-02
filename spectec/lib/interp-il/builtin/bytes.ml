@@ -359,6 +359,27 @@ let extract_execution_address ~at (bytes32_val : Num.t) :
   let execution_address = Bigint.bit_and bytes32_val bytes20_mask in
   Ok (make_bytes ~num:execution_address ~len:20)
 
+(* dec $make_versioned_hash(bytes1, bytes31) : bytes32 *)
+
+let make_versioned_hash ~at (bytes1_prefix : Num.t) (bytes31_suffix : Num.t) :
+    (Value.t, Err.t) result =
+  let bytes1_prefix = Num.to_int bytes1_prefix in
+  let bytes31_suffix = Num.to_int bytes31_suffix in
+  at |> ignore;
+  (* Validate bytes1 (1 byte) *)
+  let* () = validate_bytes1 at bytes1_prefix in
+  (* Validate bytes31 (31 bytes) *)
+  let* () = validate_bytes31 at bytes31_suffix in
+  (* Concatenate: bytes1 (1 byte) + bytes31 (31 bytes) = bytes32 (32 bytes) *)
+  (* Shift bytes1_prefix left by 31 bytes (248 bits) *)
+  let prefix_shifted = Bigint.shift_left bytes1_prefix 248 in
+  (* Final result: prefix + suffix *)
+  let result = Bigint.(prefix_shifted + bytes31_suffix) in
+  (* Validate result is within bytes32 range *)
+  let* () = validate_bytes32 at result in
+  (* Return as BytesV with length 32 (bytes32) *)
+  Ok (make_bytes ~num:result ~len:32)
+
 (* ============================================================ *)
 (* Fixed-width Little-Endian encoders for eth2spec compatibility *)
 (* ============================================================ *)
@@ -506,6 +527,8 @@ let builtins : (string * Define.t) list =
     ("concat_domain", Define.T0.a2 Arg.num Arg.num concat_domain);
     ( "make_withdrawal_credentials_eth1",
       Define.T0.a1 Arg.num make_withdrawal_credentials_eth1 );
+    ( "make_versioned_hash",
+      Define.T0.a2 Arg.num Arg.num make_versioned_hash );
     ("first_28_bytes", Define.T0.a1 Arg.value first_28_bytes);
     ("get_first_byte", Define.T0.a1 Arg.value get_first_byte);
     ("strip_first_byte", Define.T0.a1 Arg.value strip_first_byte);
