@@ -103,8 +103,8 @@ fi
 # Lighthouse
 echo "Setting up Lighthouse..."
 cd ${workspace}/testing_clients
-if [ -d "lighthouse" ]; then
-    echo "Lighthouse directory already exists."
+if [ -d "lighthouse" ] && [ -d "lighthouse/.git" ]; then
+    echo "Lighthouse repository found."
     cd lighthouse
     # 이미 수정된 코드가 git에 커밋되어 있으면 checkout 하지 않음
     if git diff --quiet HEAD 2>/dev/null && [ -z "$(git status --porcelain)" ]; then
@@ -115,6 +115,8 @@ if [ -d "lighthouse" ]; then
         echo "Lighthouse has local modifications. Keeping current state..."
     fi
 else
+    echo "Lighthouse is missing or corrupt (not a git repo). Re-cloning..."
+    rm -rf lighthouse
     git clone https://github.com/sigp/lighthouse.git
     cd lighthouse
     git checkout v8.0.0
@@ -132,7 +134,7 @@ fi
 # Prysm
 echo "Setting up Prysm..."
 cd ${workspace}/testing_clients
-if [ -d "prysm" ]; then
+if [ -d "prysm" ] && [ -d "prysm/.git" ]; then
     echo "Prysm directory already exists."
     cd prysm
     # 이미 수정된 코드가 git에 커밋되어 있으면 checkout 하지 않음
@@ -144,6 +146,8 @@ if [ -d "prysm" ]; then
         echo "Prysm has local modifications. Keeping current state..."
     fi
 else
+    echo "Prysm is missing or corrupt (not a git repo). Re-cloning..."
+    rm -rf prysm
     git clone https://github.com/prysmaticlabs/prysm
     cd prysm
     git checkout v7.0.0
@@ -161,7 +165,7 @@ fi
 # Nimbus
 echo "Setting up Nimbus..."
 cd ${workspace}/testing_clients
-if [ -d "nimbus-eth2" ]; then
+if [ -d "nimbus-eth2" ] && [ -d "nimbus-eth2/.git" ]; then
     echo "Nimbus directory already exists."
     cd nimbus-eth2
     # 이미 수정된 코드가 git에 커밋되어 있으면 checkout 하지 않음
@@ -173,6 +177,8 @@ if [ -d "nimbus-eth2" ]; then
         echo "Nimbus has local modifications. Keeping current state..."
     fi
 else
+    echo "Nimbus is missing of corrupt (not a git repo). Re-cloning..."
+    rm -rf nimbus-eth2
     git clone https://github.com/status-im/nimbus-eth2
     cd nimbus-eth2
     git checkout v25.11.0
@@ -300,7 +306,7 @@ fi
 # Teku
 echo "Setting up Teku..."
 cd ${workspace}/testing_clients
-if [ -d "teku" ]; then
+if [ -d "teku" ] && [ -d "teku/.git" ]; then
     echo "Teku directory already exists."
     cd teku
     # 이미 수정된 코드가 git에 커밋되어 있으면 checkout 하지 않음
@@ -312,6 +318,8 @@ if [ -d "teku" ]; then
         echo "Teku has local modifications. Keeping current state..."
     fi
 else
+    echo "Teku is missing or corrupt (not a git repo). Re-cloning..."
+    rm -rf teku
     git clone https://github.com/Consensys/teku.git
     cd teku
     git checkout 25.11.0
