@@ -1,0 +1,148 @@
+;; =========================
+;; generic helpers
+;; =========================
+
+;; =========================
+;; filter_list (if bool) (X* -> X*)
+;; =========================
+dec $filter_list_<X>(X*, def $cond(X) : bool)
+  : X*
+def $filter_list_<X>(eps, def $cond) = eps
+def $filter_list_<X>(X_h :: X_t*, def $cond)
+  = X_h :: $filter_list_<X>(X_t*, def $cond)
+  -- if $cond(X_h) = true
+def $filter_list_<X>(X_h :: X_t*, def $cond)
+  = $filter_list_<X>(X_t*, def $cond)
+  -- if $cond(X_h) = false
+
+dec $filter_list_2_<X, Y>(X*, Y, def $cond(X, Y) : bool) : X*
+def $filter_list_2_<X, Y>(eps, Y, def $cond) = eps
+def $filter_list_2_<X, Y>(X_h :: X_t*, Y, def $cond)
+  = X_h :: $filter_list_2_<X, Y>(X_t*, Y, def $cond)
+  -- if $cond(X_h, Y) = true
+def $filter_list_2_<X, Y>(X_h :: X_t*, Y, def $cond)
+  = $filter_list_2_<X, Y>(X_t*, Y, def $cond)
+  -- if $cond(X_h, Y) = false
+
+;; =========================
+;; Generic fold 
+;; =========================
+dec $fold_<X, Y>(def $fold_func(X, Y): X, X, Y*) : X
+def $fold_<X, Y>(def $fold_func, X, eps) = X
+def $fold_<X, Y>(def $fold_func, X, Y_h :: Y_t*)
+= $fold_<X, Y>(def $fold_func, $fold_func(X, Y_h), Y_t*)
+
+
+;; =========================
+;; flag helpers
+;; =========================
+;; --------------------------------------------
+;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
+;; --------------------------------------------
+
+;; uint8 범위 내에 없으면 false
+dec $has_flag(participationFlags, nat) : boolean
+
+def $has_flag(participationFlags, n) = false
+  -- if $( n >= 8 )
+
+def $has_flag(participationFlags, n) = true
+  -- if $( ((participationFlags / $pow2(n)) \ 2) = 1 )
+
+def $has_flag(participationFlags, n) = false
+  -- otherwise
+
+
+;; --------------------------------------------
+;; add_flag: flags의 i번째 비트를 더해서(or) 반환
+;; --------------------------------------------
+dec $add_flag(participationFlags, nat) : participationFlags
+
+;; uint8 범위 내에 없으면 false
+def $add_flag(participationFlags, n) = participationFlags
+  -- if $( n >= 8 )
+
+def $add_flag(participationFlags, n) = participationFlags
+  -- if $( ((participationFlags / $pow2(n)) \ 2) = 1 )
+
+def $add_flag(participationFlags, n) = $( participationFlags + $pow2(n) )
+  -- if $( ((participationFlags / $pow2(n)) \ 2) = 0 )
+
+
+;; =========================
+;; max, min helpers
+;; =========================
+;; max for uint64
+dec $max_uint64(uint64, uint64) : uint64
+def $max_uint64(uint64_x, uint64_y) = uint64_x
+  -- if $(uint64_x >= uint64_y)
+def $max_uint64(uint64_x, uint64_y) = uint64_y
+  -- otherwise
+
+;; min for uint64
+dec $min_uint64(uint64, uint64) : uint64
+def $min_uint64(uint64_x, uint64_y) = uint64_x
+  -- if $(uint64_x <= uint64_y)
+def $min_uint64(uint64_x, uint64_y) = uint64_y
+  -- otherwise
+
+
+;; ------------------------------------------------------------
+;; eth_fast_aggregate_verify
+;; ------------------------------------------------------------
+dec $eth_fast_aggregate_verify(blsPubkey*, bytes32, blsSignature) : boolean
+
+def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) = true
+  -- if $( |blsPubkey_list*| = 0 )
+  -- if $( blsSignature_sig = $G2_POINT_AT_INFINITY )
+
+def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) =
+  $bls_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig)
+  -- otherwise
+
+;; --- 실행 엔진 ---
+dec $ee_verify_and_notify_new_payload(executionPayload) : boolean
+def $ee_verify_and_notify_new_payload(executionPayload) = true
+
+;; (n, v)에서 v.PUBKEY == pk ?
+dec $pubkey_match_en((nat, validator), blsPubkey) : bool
+
+def $pubkey_match_en((n_i, validator_v), blsPubkey_pk) = true
+  -- if $(validator_v.PUBKEY = blsPubkey_pk)
+
+def $pubkey_match_en((n_i, validator_v), blsPubkey_pk) = false
+  -- otherwise
+
+;; (n, v) → ValidatorIndex(n)
+dec $pick_index_en_validator((nat, validator)) : validatorIndex
+def $pick_index_en_validator((n_i, validator_v)) = validatorIndex_vi
+  -- if validatorIndex_vi = n_i
+
+
+;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
+;; --------------------------------------------
+;; index_of_pubkey(state, pk) : validatorIndex
+;; --------------------------------------------
+dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
+
+def $index_of_pubkey(state, blsPubkey_pk) = validatorIndex_idx
+  -- if state.VALIDATORS = validator_list*
+  -- if $enumerate_<validator>(validator_list*) = (n_i, validator_v)*
+  -- if $filter_list_2_<(nat, validator), blsPubkey>(
+         (n_i, validator_v)*,
+         blsPubkey_pk,
+         def $pubkey_match_en
+       ) = (n_sel, validator_sel)*
+  -- if $( |(n_sel, validator_sel)*| ) = 1
+  -- if (nat_n0, validator_v0) = (n_sel, validator_sel)*[0]
+  -- if $pick_index_en_validator((nat_n0, validator_v0)) = validatorIndex_idx
+
+;; New in Deneb
+dec $kzg_commitment_to_versioned_hash(kzgCommitment) : versionedHash
+def $kzg_commitment_to_versioned_hash(kzgCommitment_in) = versionedHash_result
+  -- if $hash_<kzgCommitment>(kzgCommitment_in) = bytes32_hash
+  -- if $strip_first_byte(bytes32_hash) = bytes31_tail
+  -- if $VERSIONED_HASH_VERSION_KZG = bytes1_version
+  -- if $make_versioned_hash(bytes1_version, bytes31_tail) = bytes32_result
+  -- if versionedHash_result = bytes32_result
+  

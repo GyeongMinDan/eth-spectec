@@ -1,0 +1,29 @@
+;;
+;; state_transition(state, signed_block, validate_result) : beaconState
+;;
+
+relation State_transition:
+  beaconState signedBeaconBlock boolean ~>* beaconState
+  hint(input %0 %1 %2)
+
+;; -----------------------------
+;; validate_result = true
+;; -----------------------------
+rule State_transition/validate:
+  state_in signedBeaconBlock true ~>* state_out
+  -- if beaconBlock_block = signedBeaconBlock.MESSAGE
+  -- Process_slots: state_in beaconBlock_block.SLOT ~> state_after_slots
+  -- if $verify_block_signature(state_after_slots, signedBeaconBlock) = true
+  -- ProcessBlock: state_after_slots beaconBlock_block ~>* state_after_block
+  -- if $hash_tree_root_beaconState(state_after_block) = root_after
+  -- if $( beaconBlock_block.STATE_ROOT = root_after )
+  -- if state_out = state_after_block
+
+;; -----------------------------
+;; validate_result = false
+;; -----------------------------
+rule State_transition/skip-validate:
+  state_in signedBeaconBlock false ~>* state_out
+  -- if beaconBlock_block = signedBeaconBlock.MESSAGE
+  -- Process_slots: state_in beaconBlock_block.SLOT ~> state_after_slots
+  -- ProcessBlock: state_after_slots beaconBlock_block ~>* state_out
