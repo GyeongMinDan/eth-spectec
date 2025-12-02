@@ -59,6 +59,7 @@ if ! command -v bazel &> /dev/null; then
     fi
     sudo apt update
     sudo apt install -y bazel-7.4.1
+    sudo ln -s /usr/bin/bazel-7.4.1 /usr/bin/bazel
     if ! command -v bazel &> /dev/null; then
         echo "Error: Bazel installation failed."
         exit 1
