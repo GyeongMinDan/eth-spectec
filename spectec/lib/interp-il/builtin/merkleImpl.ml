@@ -802,50 +802,72 @@ let hash_tree_root_eth1Data ~at (v : Value.t) : (Value.t, Err.t) result =
 let hash_tree_root_executionPayload ~at (v : Value.t) : (Value.t, Err.t) result
     =
   let get_nat v = v |> Value.get_num |> Num.to_int in
-  (* 15 fields *)
-  let* temp =
+  (* Detect fork by field count: 15 fields = Capella, 17 fields = Deneb *)
+  let* ( parent_hash,
+         fee_recipient,
+         state_root,
+         receipts_root,
+         logs_bloom,
+         prev_randao,
+         block_number,
+         gas_limit,
+         gas_used,
+         timestamp,
+         extra_data,
+         base_fee_per_gas,
+         block_hash,
+         transactions,
+         withdrawals,
+         blob_gas_used,
+         excess_blob_gas ) =
     match v.it with
-    | StructV
-        [
-          (_, v1);
-          (_, v2);
-          (_, v3);
-          (_, v4);
-          (_, v5);
-          (_, v6);
-          (_, v7);
-          (_, v8);
-          (_, v9);
-          (_, v10);
-          (_, v11);
-          (_, v12);
-          (_, v13);
-          (_, v14);
-          (_, v15);
-        ]
-    | TupleV
-        [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15 ]
-    | ListV [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15 ]
-      ->
-        Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15)
+    | StructV fields ->
+        let count = List.length fields in
+        if count = 15 then
+          (match fields with
+          | [ (_, v1); (_, v2); (_, v3); (_, v4); (_, v5); (_, v6); (_, v7);
+              (_, v8); (_, v9); (_, v10); (_, v11); (_, v12); (_, v13);
+              (_, v14); (_, v15) ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, None, None)
+          | _ -> Error (Err.runtime at "executionPayload: unexpected field count"))
+        else if count = 17 then
+          (match fields with
+          | [ (_, v1); (_, v2); (_, v3); (_, v4); (_, v5); (_, v6); (_, v7);
+              (_, v8); (_, v9); (_, v10); (_, v11); (_, v12); (_, v13);
+              (_, v14); (_, v15); (_, v16); (_, v17) ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, Some v16, Some v17)
+          | _ -> Error (Err.runtime at "executionPayload: unexpected field count"))
+        else
+          Error (Err.runtime at "executionPayload: unexpected field count")
+    | TupleV fields ->
+        let count = List.length fields in
+        if count = 15 then
+          (match fields with
+          | [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15 ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, None, None)
+          | _ -> Error (Err.runtime at "executionPayload: unexpected field count"))
+        else if count = 17 then
+          (match fields with
+          | [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15; v16; v17 ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, Some v16, Some v17)
+          | _ -> Error (Err.runtime at "executionPayload: unexpected field count"))
+        else
+          Error (Err.runtime at "executionPayload: unexpected field count")
+    | ListV fields ->
+        let count = List.length fields in
+        if count = 15 then
+          (match fields with
+          | [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15 ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, None, None)
+          | _ -> Error (Err.runtime at "executionPayload: unexpected field count"))
+        else if count = 17 then
+          (match fields with
+          | [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15; v16; v17 ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, Some v16, Some v17)
+          | _ -> Error (Err.runtime at "executionPayload: unexpected field count"))
+        else
+          Error (Err.runtime at "executionPayload: unexpected field count")
     | _ -> Error (Err.runtime at "executionPayload: unexpected value shape")
-  in
-  let ( parent_hash,
-        fee_recipient,
-        state_root,
-        receipts_root,
-        logs_bloom,
-        prev_randao,
-        block_number,
-        gas_limit,
-        gas_used,
-        timestamp,
-        extra_data,
-        base_fee_per_gas,
-        block_hash,
-        transactions,
-        withdrawals ) =
-    temp
   in
   (* 1. parent_hash: bytes32 *)
   let* () = ensure_fits_bytes ~at (get_nat parent_hash) ~len:32 in
@@ -985,40 +1007,64 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : (Value.t, Err.t) result
   let ws = get_list withdrawals in
   let* r_withdrawals_v = hash_tree_root_withdrawals ~at ws in
   let* r_withdrawals = to_b32_exn ~at r_withdrawals_v in
+  (* Deneb fields (16-17): blob_gas_used, excess_blob_gas *)
+  let* (r_blob_gas_used, r_excess_blob_gas) =
+    match (blob_gas_used, excess_blob_gas) with
+    | Some bg, Some eb ->
+        (* 16. blob_gas_used: uint64 *)
+        let* () = ensure_fits_bytes ~at (get_nat bg) ~len:8 in
+        let r_bg = leaf_uint_le (get_nat bg) ~nbytes:8 in
+        (* 17. excess_blob_gas: uint64 *)
+        let* () = ensure_fits_bytes ~at (get_nat eb) ~len:8 in
+        let r_eb = leaf_uint_le (get_nat eb) ~nbytes:8 in
+        Ok (r_bg, r_eb)
+    | None, None -> Ok (zero32, zero32)
+    | _ -> Error (Err.runtime at "executionPayload: inconsistent Deneb fields")
+  in
   (* 정해진 순서로 배열 *)
-  (* Printf.printf "[DEBUG exec] 1. parent_hash: %s\n%!" (bytes_to_hex r_parent_hash); *)
-  (* Printf.printf "[DEBUG exec] 2. fee_recipient: %s\n%!" (bytes_to_hex r_fee_recipient); *)
-  (* Printf.printf "[DEBUG exec] 3. state_root: %s\n%!" (bytes_to_hex r_state_root); *)
-  (* Printf.printf "[DEBUG exec] 4. receipts_root: %s\n%!" (bytes_to_hex r_receipts_root); *)
-  (* Printf.printf "[DEBUG exec] 5. logs_bloom: %s\n%!" (bytes_to_hex r_logs_bloom); *)
-  (* Printf.printf "[DEBUG exec] 6. prev_randao: %s\n%!" (bytes_to_hex r_prev_randao); *)
-  (* Printf.printf "[DEBUG exec] 7. block_number: %s\n%!" (bytes_to_hex r_block_number); *)
-  (* Printf.printf "[DEBUG exec] 8. gas_limit: %s\n%!" (bytes_to_hex r_gas_limit); *)
-  (* Printf.printf "[DEBUG exec] 9. gas_used: %s\n%!" (bytes_to_hex r_gas_used); *)
-  (* Printf.printf "[DEBUG exec] 10. timestamp: %s\n%!" (bytes_to_hex r_timestamp); *)
-  (* Printf.printf "[DEBUG exec] 11. extra_data: %s\n%!" (bytes_to_hex r_extra_data); *)
-  (* Printf.printf "[DEBUG exec] 12. base_fee_per_gas: %s\n%!" (bytes_to_hex r_base_fee); *)
-  (* Printf.printf "[DEBUG exec] 13. block_hash: %s\n%!" (bytes_to_hex r_block_hash); *)
-  (* Printf.printf "[DEBUG exec] 14. transactions: %s\n%!" (bytes_to_hex r_transactions); *)
-  (* Printf.printf "[DEBUG exec] 15. withdrawals: %s\n%!" (bytes_to_hex r_withdrawals); *)
   let field_roots =
-    [|
-      r_parent_hash;
-      r_fee_recipient;
-      r_state_root;
-      r_receipts_root;
-      r_logs_bloom;
-      r_prev_randao;
-      r_block_number;
-      r_gas_limit;
-      r_gas_used;
-      r_timestamp;
-      r_extra_data;
-      r_base_fee;
-      r_block_hash;
-      r_transactions;
-      r_withdrawals;
-    |]
+    match (blob_gas_used, excess_blob_gas) with
+    | None, None ->
+        (* Capella: 15 fields *)
+        [|
+          r_parent_hash;
+          r_fee_recipient;
+          r_state_root;
+          r_receipts_root;
+          r_logs_bloom;
+          r_prev_randao;
+          r_block_number;
+          r_gas_limit;
+          r_gas_used;
+          r_timestamp;
+          r_extra_data;
+          r_base_fee;
+          r_block_hash;
+          r_transactions;
+          r_withdrawals;
+        |]
+    | Some _, Some _ ->
+        (* Deneb: 17 fields *)
+        [|
+          r_parent_hash;
+          r_fee_recipient;
+          r_state_root;
+          r_receipts_root;
+          r_logs_bloom;
+          r_prev_randao;
+          r_block_number;
+          r_gas_limit;
+          r_gas_used;
+          r_timestamp;
+          r_extra_data;
+          r_base_fee;
+          r_block_hash;
+          r_transactions;
+          r_withdrawals;
+          r_blob_gas_used;
+          r_excess_blob_gas;
+        |]
+    | _ -> assert false
   in
   let root_bytes = merkleize_leaves field_roots in
   (* Printf.printf "[DEBUG exec] FINAL EXECUTION_PAYLOAD_ROOT: %s\n%!" (bytes_to_hex root_bytes); *)
@@ -1511,51 +1557,73 @@ let hash_tree_root_SyncCommittee ~at (v : Value.t) : (Value.t, Err.t) result =
 let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) :
     (Value.t, Err.t) result =
   let get_nat v = v |> Value.get_num |> Num.to_int in
-  (* 15 fields *)
-  let* temp =
+  (* Detect fork by field count: 15 fields = Capella, 17 fields = Deneb *)
+  let* ( parent_hash,
+         fee_recipient,
+         state_root,
+         receipts_root,
+         logs_bloom,
+         prev_randao,
+         block_number,
+         gas_limit,
+         gas_used,
+         timestamp,
+         extra_data,
+         base_fee_per_gas,
+         block_hash,
+         transactions_root,
+         withdrawals_root,
+         blob_gas_used,
+         excess_blob_gas ) =
     match v.it with
-    | StructV
-        [
-          (_, v1);
-          (_, v2);
-          (_, v3);
-          (_, v4);
-          (_, v5);
-          (_, v6);
-          (_, v7);
-          (_, v8);
-          (_, v9);
-          (_, v10);
-          (_, v11);
-          (_, v12);
-          (_, v13);
-          (_, v14);
-          (_, v15);
-        ]
-    | TupleV
-        [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15 ]
-    | ListV [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15 ]
-      ->
-        Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15)
+    | StructV fields ->
+        let count = List.length fields in
+        if count = 15 then
+          (match fields with
+          | [ (_, v1); (_, v2); (_, v3); (_, v4); (_, v5); (_, v6); (_, v7);
+              (_, v8); (_, v9); (_, v10); (_, v11); (_, v12); (_, v13);
+              (_, v14); (_, v15) ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, None, None)
+          | _ -> Error (Err.runtime at "ExecutionPayloadHeader: unexpected field count"))
+        else if count = 17 then
+          (match fields with
+          | [ (_, v1); (_, v2); (_, v3); (_, v4); (_, v5); (_, v6); (_, v7);
+              (_, v8); (_, v9); (_, v10); (_, v11); (_, v12); (_, v13);
+              (_, v14); (_, v15); (_, v16); (_, v17) ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, Some v16, Some v17)
+          | _ -> Error (Err.runtime at "ExecutionPayloadHeader: unexpected field count"))
+        else
+          Error (Err.runtime at "ExecutionPayloadHeader: unexpected field count")
+    | TupleV fields ->
+        let count = List.length fields in
+        if count = 15 then
+          (match fields with
+          | [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15 ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, None, None)
+          | _ -> Error (Err.runtime at "ExecutionPayloadHeader: unexpected field count"))
+        else if count = 17 then
+          (match fields with
+          | [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15; v16; v17 ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, Some v16, Some v17)
+          | _ -> Error (Err.runtime at "ExecutionPayloadHeader: unexpected field count"))
+        else
+          Error (Err.runtime at "ExecutionPayloadHeader: unexpected field count")
+    | ListV fields ->
+        let count = List.length fields in
+        if count = 15 then
+          (match fields with
+          | [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15 ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, None, None)
+          | _ -> Error (Err.runtime at "ExecutionPayloadHeader: unexpected field count"))
+        else if count = 17 then
+          (match fields with
+          | [ v1; v2; v3; v4; v5; v6; v7; v8; v9; v10; v11; v12; v13; v14; v15; v16; v17 ] ->
+              Ok (v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, Some v16, Some v17)
+          | _ -> Error (Err.runtime at "ExecutionPayloadHeader: unexpected field count"))
+        else
+          Error (Err.runtime at "ExecutionPayloadHeader: unexpected field count")
     | _ ->
         Error (Err.runtime at "ExecutionPayloadHeader: unexpected value shape")
-  in
-  let ( parent_hash,
-        fee_recipient,
-        state_root,
-        receipts_root,
-        logs_bloom,
-        prev_randao,
-        block_number,
-        gas_limit,
-        gas_used,
-        timestamp,
-        extra_data,
-        base_fee_per_gas,
-        block_hash,
-        transactions_root,
-        withdrawals_root ) =
-    temp
   in
   (* 1. parent_hash: bytes32 *)
   let* () = ensure_fits_bytes ~at (get_nat parent_hash) ~len:32 in
@@ -1634,25 +1702,64 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) :
   (* 15. withdrawals_root: bytes32 (이미 루트) *)
   let* () = ensure_fits_bytes ~at (get_nat withdrawals_root) ~len:32 in
   let r_withdrawals_root = leaf_bytes32 (get_nat withdrawals_root) in
+  (* Deneb fields (16-17): blob_gas_used, excess_blob_gas *)
+  let* (r_blob_gas_used, r_excess_blob_gas) =
+    match (blob_gas_used, excess_blob_gas) with
+    | Some bg, Some eb ->
+        (* 16. blob_gas_used: uint64 *)
+        let* () = ensure_fits_bytes ~at (get_nat bg) ~len:8 in
+        let r_bg = leaf_uint_le (get_nat bg) ~nbytes:8 in
+        (* 17. excess_blob_gas: uint64 *)
+        let* () = ensure_fits_bytes ~at (get_nat eb) ~len:8 in
+        let r_eb = leaf_uint_le (get_nat eb) ~nbytes:8 in
+        Ok (r_bg, r_eb)
+    | None, None -> Ok (zero32, zero32)
+    | _ -> Error (Err.runtime at "ExecutionPayloadHeader: inconsistent Deneb fields")
+  in
   (* 정해진 순서로 배열 *)
   let field_roots =
-    [|
-      r_parent_hash;
-      r_fee_recipient;
-      r_state_root;
-      r_receipts_root;
-      r_logs_bloom;
-      r_prev_randao;
-      r_block_number;
-      r_gas_limit;
-      r_gas_used;
-      r_timestamp;
-      r_extra_data;
-      r_base_fee;
-      r_block_hash;
-      r_transactions_root;
-      r_withdrawals_root;
-    |]
+    match (blob_gas_used, excess_blob_gas) with
+    | None, None ->
+        (* Capella: 15 fields *)
+        [|
+          r_parent_hash;
+          r_fee_recipient;
+          r_state_root;
+          r_receipts_root;
+          r_logs_bloom;
+          r_prev_randao;
+          r_block_number;
+          r_gas_limit;
+          r_gas_used;
+          r_timestamp;
+          r_extra_data;
+          r_base_fee;
+          r_block_hash;
+          r_transactions_root;
+          r_withdrawals_root;
+        |]
+    | Some _, Some _ ->
+        (* Deneb: 17 fields *)
+        [|
+          r_parent_hash;
+          r_fee_recipient;
+          r_state_root;
+          r_receipts_root;
+          r_logs_bloom;
+          r_prev_randao;
+          r_block_number;
+          r_gas_limit;
+          r_gas_used;
+          r_timestamp;
+          r_extra_data;
+          r_base_fee;
+          r_block_hash;
+          r_transactions_root;
+          r_withdrawals_root;
+          r_blob_gas_used;
+          r_excess_blob_gas;
+        |]
+    | _ -> assert false
   in
   let root_bytes = merkleize_leaves field_roots in
   Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
@@ -1684,6 +1791,7 @@ let hash_tree_root_HistoricalSummary ~at (v : Value.t) : (Value.t, Err.t) result
 let hash_tree_root_beaconBlockBody ~at (v : Value.t) : (Value.t, Err.t) result =
   let get_nat x = x |> Value.get_num |> Num.to_int in
   let get_list vv = match vv.it with ListV xs -> xs | _ -> [] in
+  (* Detect fork by field count: 11 fields = Capella, 12 fields = Deneb *)
   let* ( randao_reveal,
          eth1_data,
          graffiti,
@@ -1694,25 +1802,53 @@ let hash_tree_root_beaconBlockBody ~at (v : Value.t) : (Value.t, Err.t) result =
          voluntary_exits,
          sync_aggregate,
          execution_payload,
-         bls_to_execution_changes ) =
+         bls_to_execution_changes,
+         blob_kzg_commitments ) =
     match v.it with
-    | StructV
-        [
-          (_, a1);
-          (_, a2);
-          (_, a3);
-          (_, a4);
-          (_, a5);
-          (_, a6);
-          (_, a7);
-          (_, a8);
-          (_, a9);
-          (_, a10);
-          (_, a11);
-        ]
-    | TupleV [ a1; a2; a3; a4; a5; a6; a7; a8; a9; a10; a11 ]
-    | ListV [ a1; a2; a3; a4; a5; a6; a7; a8; a9; a10; a11 ] ->
-        Ok (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11)
+    | StructV fields ->
+        let count = List.length fields in
+        if count = 11 then
+          (match fields with
+          | [ (_, a1); (_, a2); (_, a3); (_, a4); (_, a5); (_, a6); (_, a7);
+              (_, a8); (_, a9); (_, a10); (_, a11) ] ->
+              Ok (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, None)
+          | _ -> Error (Err.runtime at "beaconBlockBody: unexpected field count"))
+        else if count = 12 then
+          (match fields with
+          | [ (_, a1); (_, a2); (_, a3); (_, a4); (_, a5); (_, a6); (_, a7);
+              (_, a8); (_, a9); (_, a10); (_, a11); (_, a12) ] ->
+              Ok (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, Some a12)
+          | _ -> Error (Err.runtime at "beaconBlockBody: unexpected field count"))
+        else
+          Error (Err.runtime at "beaconBlockBody: unexpected field count")
+    | TupleV fields ->
+        let count = List.length fields in
+        if count = 11 then
+          (match fields with
+          | [ a1; a2; a3; a4; a5; a6; a7; a8; a9; a10; a11 ] ->
+              Ok (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, None)
+          | _ -> Error (Err.runtime at "beaconBlockBody: unexpected field count"))
+        else if count = 12 then
+          (match fields with
+          | [ a1; a2; a3; a4; a5; a6; a7; a8; a9; a10; a11; a12 ] ->
+              Ok (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, Some a12)
+          | _ -> Error (Err.runtime at "beaconBlockBody: unexpected field count"))
+        else
+          Error (Err.runtime at "beaconBlockBody: unexpected field count")
+    | ListV fields ->
+        let count = List.length fields in
+        if count = 11 then
+          (match fields with
+          | [ a1; a2; a3; a4; a5; a6; a7; a8; a9; a10; a11 ] ->
+              Ok (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, None)
+          | _ -> Error (Err.runtime at "beaconBlockBody: unexpected field count"))
+        else if count = 12 then
+          (match fields with
+          | [ a1; a2; a3; a4; a5; a6; a7; a8; a9; a10; a11; a12 ] ->
+              Ok (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, Some a12)
+          | _ -> Error (Err.runtime at "beaconBlockBody: unexpected field count"))
+        else
+          Error (Err.runtime at "beaconBlockBody: unexpected field count")
     | _ -> Error (Err.runtime at "beaconBlockBody: unexpected value shape")
   in
   (* randao_reveal: BLSSignature(96) *)
@@ -1821,20 +1957,71 @@ let hash_tree_root_beaconBlockBody ~at (v : Value.t) : (Value.t, Err.t) result =
   (* Printf.printf "[DEBUG body] 11. BLS_TO_EXECUTION_CHANGES: %s (int: %s)\n%!"  *)
   (*   (bytes_to_hex r_bls2exec) *)
   (*   (bigint_of_be_bytes r_bls2exec |> Bigint.to_string); *)
+  (* Deneb field (12): blob_kzg_commitments *)
+  let* r_blob_kzg_commitments =
+    match blob_kzg_commitments with
+    | Some commitments ->
+        (* blob_kzg_commitments: List[KZGCommitment, MAX_BLOB_COMMITMENTS_PER_BLOCK] *)
+        (* KZGCommitment is bytes48, so we need to process each commitment *)
+        let max_blob_commitments = 4096 in
+        (* MAX_BLOB_COMMITMENTS_PER_BLOCK *)
+        let commitments_list = get_list commitments in
+        (* Process each KZGCommitment (bytes48) *)
+        let process_kzg_commitment (commitment : Value.t) : (Bytes.t, Err.t) result =
+          (* KZGCommitment: bytes48 *)
+          let* () = ensure_fits_bytes ~at (get_nat commitment) ~len:48 in
+          let bytes48 = be_of_bigint_fixed (get_nat commitment) ~len:48 in
+          (* bytes48을 chunkize하여 merkleize *)
+          let chunks = chunkize_bytevector_fixed bytes48 ~len:48 in
+          Ok (merkleize_leaves chunks)
+        in
+        let rec mapM acc = function
+          | [] -> Ok (List.rev acc)
+          | x :: tl ->
+              let* rv = process_kzg_commitment x in
+              mapM (rv :: acc) tl
+        in
+        let* commitment_roots = mapM [] commitments_list in
+        let arr = Array.of_list commitment_roots in
+        (* SSZ 규칙: 최대 길이까지 zero32 패딩 후 merkleize *)
+        let vec_root = merkleize_list_composite_with_limit arr max_blob_commitments in
+        Ok (mix_in_length vec_root (Bigint.of_int (Array.length arr)))
+    | None -> Ok zero32
+  in
+  (* 정해진 순서로 배열 *)
   let field_roots =
-    [|
-      r_randao;
-      r_eth1;
-      r_graffiti;
-      r_prop_slash;
-      r_att_slash;
-      r_attest;
-      r_deposits;
-      r_vol;
-      r_sync;
-      r_exec;
-      r_bls2exec;
-    |]
+    match blob_kzg_commitments with
+    | None ->
+        (* Capella: 11 fields *)
+        [|
+          r_randao;
+          r_eth1;
+          r_graffiti;
+          r_prop_slash;
+          r_att_slash;
+          r_attest;
+          r_deposits;
+          r_vol;
+          r_sync;
+          r_exec;
+          r_bls2exec;
+        |]
+    | Some _ ->
+        (* Deneb: 12 fields *)
+        [|
+          r_randao;
+          r_eth1;
+          r_graffiti;
+          r_prop_slash;
+          r_att_slash;
+          r_attest;
+          r_deposits;
+          r_vol;
+          r_sync;
+          r_exec;
+          r_bls2exec;
+          r_blob_kzg_commitments;
+        |]
   in
   let root_bytes = merkleize_leaves field_roots in
   (* Printf.printf "[DEBUG body] FINAL BODY_ROOT: %s (int: %s)\n%!"  *)
