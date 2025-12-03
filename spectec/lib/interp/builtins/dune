@@ -1,0 +1,10 @@
+(library
+ (name builtins)
+ (public_name spectec.interp.builtins)
+ (libraries
+  spectec.common
+  spectec.lang
+  spectec.semantics
+  define
+  eth
+  builtin_p4))

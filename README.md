@@ -87,6 +87,13 @@ Sets up and builds all Ethereum 2.0 client implementations (Lighthouse, Prysm, N
 cd spectec-core
 bash init_beaconnode.sh
 ```
+### Testing
+```bash
+make test
+```
+
+- Checks parsing, elaboration and structuring using the `examples/p4-concrete` spec corpus.
+- Checks IL/SL interpreter coupled with the P4 parser using `tests/interp/p4-tests` files.
 
 **Note:** This script must be run from the `spectec-core` directory.
 

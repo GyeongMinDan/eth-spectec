@@ -1,0 +1,77 @@
+open Common.Source
+open Lang.Il
+module Arg : module type of Arg
+module Error : module type of Error
+
+type t = at:region -> targ list -> value list -> Value.t Error.result
+
+(* Builtins with no type arguments *)
+module T0 : sig
+  val a0 : (at:region -> Value.t Error.result) -> t
+  val a1 : 'a Arg.t -> (at:region -> 'a -> Value.t Error.result) -> t
+
+  val a2 :
+    'a Arg.t -> 'b Arg.t -> (at:region -> 'a -> 'b -> Value.t Error.result) -> t
+
+  val a3 :
+    'a Arg.t ->
+    'b Arg.t ->
+    'c Arg.t ->
+    (at:region -> 'a -> 'b -> 'c -> Value.t Error.result) ->
+    t
+
+  val a4 :
+    'a Arg.t ->
+    'b Arg.t ->
+    'c Arg.t ->
+    'd Arg.t ->
+    (at:region -> 'a -> 'b -> 'c -> 'd -> Value.t Error.result) ->
+    t
+
+  val a5 :
+    'a Arg.t ->
+    'b Arg.t ->
+    'c Arg.t ->
+    'd Arg.t ->
+    'e Arg.t ->
+    (at:region -> 'a -> 'b -> 'c -> 'd -> 'e -> Value.t Error.result) ->
+    t
+end
+
+(* Builtins with one type argument *)
+
+module T1 : sig
+  val a1 : 'a Arg.t -> (at:region -> targ -> 'a -> Value.t Error.result) -> t
+
+  val a2 :
+    'a Arg.t ->
+    'b Arg.t ->
+    (at:region -> targ -> 'a -> 'b -> Value.t Error.result) ->
+    t
+
+  val a3 :
+    'a Arg.t ->
+    'b Arg.t ->
+    'c Arg.t ->
+    (at:region -> targ -> 'a -> 'b -> 'c -> Value.t Error.result) ->
+    t
+end
+
+(* Builtins with two type arguments *)
+module T2 : sig
+  val a1 :
+    'a Arg.t -> (at:region -> targ -> targ -> 'a -> Value.t Error.result) -> t
+
+  val a2 :
+    'a Arg.t ->
+    'b Arg.t ->
+    (at:region -> targ -> targ -> 'a -> 'b -> Value.t Error.result) ->
+    t
+
+  val a3 :
+    'a Arg.t ->
+    'b Arg.t ->
+    'c Arg.t ->
+    (at:region -> targ -> targ -> 'a -> 'b -> 'c -> Value.t Error.result) ->
+    t
+end

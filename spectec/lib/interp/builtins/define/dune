@@ -1,0 +1,4 @@
+(library
+ (name define)
+ (public_name spectec.interp.builtins.define)
+ (libraries spectec.common spectec.lang))

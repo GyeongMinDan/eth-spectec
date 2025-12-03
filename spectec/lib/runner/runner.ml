@@ -1,5 +1,9 @@
-open Il
-open Util.Source
+open Lang
+open Lang.Il
+open Pass
+open Interface
+open Interp
+open Common.Source
 module Error = Error
 
 type 'a pipeline_result = ('a, Error.t) result
@@ -15,19 +19,19 @@ module Handlers = struct
         effc =
           (fun (type a) (eff : a Effect.t) ->
             match eff with
-            | FreshVid ->
+            | Effects.FreshVid ->
                 Some
                   (fun (k : (a, _) Effect.Deep.continuation) ->
                     let id = !vid_counter in
                     incr vid_counter;
                     Effect.Deep.continue k (fun () -> id))
-            | FreshTid ->
+            | Effects.FreshTid ->
                 Some
                   (fun (k : (a, _) Effect.Deep.continuation) ->
                     let tid = "FRESH__" ^ string_of_int !tid_counter in
                     incr tid_counter;
                     Effect.Deep.continue k (fun () -> tid))
-            | ValueCreated _ ->
+            | Effects.ValueCreated _ ->
                 Some
                   (fun (k : (a, _) Effect.Deep.continuation) ->
                     (* No-op *)
@@ -38,6 +42,52 @@ module Handlers = struct
   (* SL interpreter uses IL handler for now *)
   let sl = il
 end
+
+(* Transformations *)
+
+let parse_spec_files filenames : El.spec pipeline_result =
+  let parse_spec_files () =
+    List.concat_map Frontend.Parse.parse_file filenames |> Result.ok
+  in
+  try parse_spec_files ()
+  with Frontend.Error.ParseError (at, msg) ->
+    Error.ParseError (at, msg) |> Result.error
+
+let elaborate spec_el : Il.spec pipeline_result =
+  let elaborate () =
+    Elaborate.Elab.elab_spec spec_el
+    |> Result.map_error (fun elab_err_list -> Error.ElabError elab_err_list)
+  in
+  try elaborate ()
+  with Elaborate.Error.ElabError (at, failtraces) ->
+    Error.ElabError [ (at, failtraces) ] |> Result.error
+
+let structure spec_il : Sl.spec = Structure.Struct.struct_spec spec_il
+
+(* Interpreters *)
+
+let eval_il ~debug ~profile spec_il rid values_input filename_target :
+    (Eval_Il.Ctx.t * Il.Value.t list) pipeline_result =
+  let eval_il () =
+    Eval_Il.Runner.run_relation_fresh ~debug ~profile spec_il rid values_input
+      filename_target
+    |> Result.ok
+  in
+  try eval_il ()
+  with Eval_Il.Error.InterpError (at, msg) ->
+    Error.IlInterpError (at, msg) |> Result.error
+
+let eval_sl spec_sl rid values_input filename_target :
+    (Eval_Sl.Ctx.t * Il.Value.t list) pipeline_result =
+  let eval_sl () =
+    Eval_Sl.Runner.run_relation_fresh spec_sl rid values_input filename_target
+    |> Result.ok
+  in
+  try eval_sl ()
+  with Eval_Sl.Error.InterpError (at, msg) ->
+    Error.SlInterpError (at, msg) |> Result.error
+
+(* P4 Parsing *)
 
 let parse_p4_file includes_target filename_target : Il.Value.t pipeline_result =
   let parse_p4_file () =
@@ -55,92 +105,27 @@ let parse_p4_string filename_target string : Il.Value.t pipeline_result =
   with P4.Error.P4ParseError (at, msg) ->
     Error.P4ParseError (at, msg) |> Result.error
 
+(* JSON parsing *)
+
 let parse_json filename_target input_type spec_il : Il.Value.t pipeline_result =
   let parse_json () =
     let ctx_init =
-      Interp_il.Ctx.empty ~debug:false ~profile:false filename_target
+      Eval_Il.Ctx.empty ~debug:false ~profile:false filename_target
     in
-    let ctx = Interp_il.Interp.load_spec ctx_init spec_il in
+    let ctx = Eval_Il.Interp.load_spec ctx_init spec_il in
     let json_data = Yojson.Safe.from_file filename_target in
     let* value_il =
-      Interface_json.Parse.json_to_value ctx.global.tdenv
+      Interface.JSON.Parse.json_to_value ctx.global.tdenv
         (Il.Typ.var input_type []) json_data
       |> Result.map_error (fun err ->
-             let msg = Interface_json.Parse.string_of_error err in
+             let msg = Interface.JSON.Parse.string_of_error err in
              Error.JsonParseError (no_region, msg))
     in
     Ok value_il
   in
   Handlers.il parse_json
 
-let parse_spec_files filenames : El.Ast.spec pipeline_result =
-  let parse_spec_files () =
-    List.concat_map Frontend.Parse.parse_file filenames |> Result.ok
-  in
-  try parse_spec_files ()
-  with Frontend.Error.ParseError (at, msg) ->
-    Error.ParseError (at, msg) |> Result.error
-
-let elaborate spec_el : Il.spec pipeline_result =
-  let elaborate () =
-    Elaborate.Elab.elab_spec spec_el
-    |> Result.map_error (fun elab_err_list -> Error.ElabError elab_err_list)
-  in
-  try elaborate ()
-  with Elaborate.Error.ElabError (at, failtraces) ->
-    Error.ElabError [ (at, failtraces) ] |> Result.error
-
-let run_il_eth ~debug ~profile spec_il ~validate pre_state block :
-    (Interp_il.Ctx.t * Il.Value.t list) pipeline_result =
-  let run_il () =
-    let ctx_init = Interp_il.Runner.init ~debug ~profile "runner_il" in
-    let values_input = [ pre_state; block; Il.Value.bool validate ] in
-    Interp_il.Runner.run_relation ctx_init spec_il "State_transition"
-      values_input
-    |> Result.ok
-  in
-  try Handlers.il run_il
-  with Interp_il.Error.InterpError (at, msg) ->
-    Error.IlInterpError (at, msg) |> Result.error
-
-let run_il_p4 ~debug ~profile spec_il includes_target filename_target :
-    (Interp_il.Ctx.t * Il.Value.t list) pipeline_result =
-  let interp_il () =
-    let* value_program = parse_p4_file includes_target filename_target in
-    let ctx_init = Interp_il.Runner.init ~debug ~profile filename_target in
-    Interp_il.Runner.run_relation ctx_init spec_il "Program_ok"
-      [ value_program ]
-    |> Result.ok
-  in
-  try Handlers.il interp_il
-  with Interp_il.Error.InterpError (at, msg) ->
-    Error.IlInterpError (at, msg) |> Result.error
-
-let structure spec_il : Sl.Ast.spec = Structure.Struct.struct_spec spec_il
-
-let run_sl_p4 spec_il includes_target filename_target :
-    (Interp_sl.Ctx.t * Il.Value.t list) pipeline_result =
-  let interp_sl () =
-    let* value_program = parse_p4_file includes_target filename_target in
-    Interp_sl.Runner.run_relation_fresh spec_il "Program_ok" [ value_program ]
-      filename_target
-    |> Result.ok
-  in
-  try Handlers.sl interp_sl
-  with Interp_sl.Error.InterpError (at, msg) ->
-    Error.SlInterpError (at, msg) |> Result.error
-
-let run_sl_eth spec_sl ~validate pre_state block :
-    (Interp_sl.Ctx.t * Il.Value.t list) pipeline_result =
-  let run_sl () =
-    let values_input = [ pre_state; block; Il.Value.bool validate ] in
-    Interp_sl.Runner.run_relation_fresh spec_sl "State_transition" values_input
-      "runner_sl"
-    |> Result.ok
-  in
-  try Handlers.sl run_sl
-  with Interp_sl.Error.InterpError (at, msg) ->
-    Error.SlInterpError (at, msg) |> Result.error
+(* let print_json values *)
 
 (* Composed functions *)
 
@@ -158,3 +143,27 @@ let parse_p4_file_with_roundtrip roundtrip filenames_spec includes_target
     if eq then unparsed_string |> Result.ok
     else Error.RoundtripError (no_region, "Roundtrip failed") |> Result.error
   else unparsed_string |> Result.ok
+
+let eval_il_p4_typechecker ~debug ~profile spec_il includes_target
+    filename_target : (Eval_Il.Ctx.t * Il.Value.t list) pipeline_result =
+  let* value_program = parse_p4_file includes_target filename_target in
+  eval_il ~debug ~profile spec_il "Program_ok" [ value_program ] filename_target
+
+let eval_sl_p4_typechecker spec_sl includes_target filename_target :
+    (Eval_Sl.Ctx.t * Il.Value.t list) pipeline_result =
+  let* value_program = parse_p4_file includes_target filename_target in
+  eval_sl spec_sl "Program_ok" [ value_program ] filename_target
+
+let eval_il_eth ~debug ~profile spec_il ~validate pre_state block :
+    (Eval_Il.Ctx.t * Il.Value.t list) pipeline_result =
+  let* beaconState_il = parse_json pre_state "beaconState" spec_il in
+  let* block_il = parse_json block "signedBeaconBlock" spec_il in
+  eval_il ~debug ~profile spec_il "State_transition"
+    [ beaconState_il; block_il; Il.Value.bool validate ]
+    "runner_il"
+
+let eval_sl_eth spec_sl ~validate beaconState_il block_il :
+    (Eval_Sl.Ctx.t * Il.Value.t list) pipeline_result =
+  eval_sl spec_sl "State_transition"
+    [ beaconState_il; block_il; Il.Value.bool validate ]
+    "runner_sl"

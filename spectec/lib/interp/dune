@@ -1,0 +1,4 @@
+(library
+ (name interp)
+ (public_name spectec.interp)
+ (libraries builtins eval_il eval_sl))
