@@ -1,49 +1,27 @@
 import argparse
-import importlib
 import os
 import sys
-from typing import Any
 
-# Add eth2spec to path
-# Get the absolute path to ensure it works from any directory
-script_dir = os.path.dirname(os.path.abspath(__file__))
-consensus_specs_path = os.path.abspath(os.path.join(script_dir, '../../consensus-specs/tests/core/pyspec'))
-if consensus_specs_path not in sys.path:
-    sys.path.insert(0, consensus_specs_path)
-
-def compare_ssz_files(file1_path: str, file2_path: str, type_module: str, type_name: str) -> bool:
-    mod = importlib.import_module(type_module)
-    typ = getattr(mod, type_name, None)
-    if typ is None:
-        raise SystemExit(f"Type {type_name!r} not found in module {type_module!r}")
-
+def compare_ssz_files(file1_path: str, file2_path: str) -> bool:
+    """두 SSZ 파일의 바이트를 직접 비교합니다."""
     with open(file1_path, "rb") as f:
         ssz_bytes1 = f.read()
     
     with open(file2_path, "rb") as f:
         ssz_bytes2 = f.read()
 
-    try:
-        view1 = ssz_bytes1
-        view2 = ssz_bytes2
-
-    except Exception as e:
-        raise SystemExit(f"Failed to deserialize SSZ files: {e}")
-
-    return view1 == view2
+    return ssz_bytes1 == ssz_bytes2
 
 def main():
-    # Usage : python CompareResult.py [--type-module <module_path>] [--type <type_name>] <file1> <file2>
-    # Example: python CompareResult.py --type-module eth2spec.capella.mainnet --type BeaconState state1.ssz state2.ssz
-    p = argparse.ArgumentParser(description="Compare two SSZ files for equality.")
-    p.add_argument("--type-module", default="eth2spec.capella.mainnet", help="Python module path containing the remerkleable type (default: eth2spec.capella.mainnet)")
-    p.add_argument("--type", dest="type_name", default="BeaconState", help="Type name inside the module (default: BeaconState)")
+    # Usage : python CompareResult.py <file1> <file2>
+    # Example: python CompareResult.py state1.ssz state2.ssz
+    p = argparse.ArgumentParser(description="Compare two SSZ files for equality (byte-by-byte comparison).")
     p.add_argument("file1", help="First SSZ file path")
     p.add_argument("file2", help="Second SSZ file path")
     args = p.parse_args()
 
     try:
-        are_equal = compare_ssz_files(args.file1, args.file2, args.type_module, args.type_name)
+        are_equal = compare_ssz_files(args.file1, args.file2)
         
         if are_equal:
             print("SUCCESS: The two SSZ files are identical.")
