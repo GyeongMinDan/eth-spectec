@@ -62,19 +62,19 @@ See `CLIENT_CODE_MODIFICATIONS.md` for details on how each client is configured.
 
 ### 1. SSZ-byte Equivalence Checker (CompareResult.py)
 
-Exact-byte comparison of SSZ files.
+Exact-byte comparison of SSZ files. Performs a simple byte-by-byte comparison without deserialization.
 
 ```bash
-python CompareResult.py [--type-module <module_path>] [--type <type_name>] <file1> <file2>
+python CompareResult.py <file1> <file2>
 
 # Example
-python CompareResult.py --type-module eth2spec.capella.mainnet --type BeaconState state1.ssz state2.ssz
+python CompareResult.py state1.ssz state2.ssz
 ```
 
 **Parameters:**
-- `--type-module`: Python module path (default: `eth2spec.capella.mainnet`)
-- `--type`: Type name (default: `BeaconState`)
 - `file1`, `file2`: SSZ file paths to compare
+
+**Note:** This tool performs a direct byte-by-byte comparison of the SSZ files. No fork information or type information is required since it only compares the raw bytes.
 
 ### 2. Snappy Decompression (snappyDecompressor.py)
 
