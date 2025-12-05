@@ -80,7 +80,7 @@ let validate_uint64 (at : region) (x : Bigint.t) : unit result =
   else Error (runtime at "uint64: value must be in range [0, 2^64)")
 
 (* dec $bytes_to_uint64(bytes32) : uint64 *)
-
+(* not used *)
 let bytes_to_uint64 ~at (bytes32_val : Num.t) : Value.t result =
   let bytes32_val = Num.to_int bytes32_val in
   at |> ignore;
@@ -511,7 +511,7 @@ let bytes8_to_uint64_le ~at (v : Value.t) : Value.t result =
 
 let builtins : (string * Define.t) list =
   [
-    ("bytes_to_uint64", Define.T0.a1 Arg.num bytes_to_uint64);
+    ("bytes_to_uint64", Define.T0.a1 Arg.num bytes_to_uint64); (* not used *)
     ("uint_to_bytes", Define.T0.a1 Arg.num uint_to_bytes);
     ("xor", Define.T0.a2 Arg.num Arg.num xor);
     ("concat_domain", Define.T0.a2 Arg.num Arg.num concat_domain);

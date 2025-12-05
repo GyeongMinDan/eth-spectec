@@ -991,48 +991,80 @@ All functions in this module:
 
 These functions convert between different byte representations and numeric types, following eth2spec's encoding rules.
 
-##### `bytes_to_uint64`: Read bytes32[0:8] as Little-Endian uint64
+##### `bytes32_prefix8` and `bytes8_to_uint64_le`: Two-Step bytes32 to uint64 Conversion
 
-This function reads `bytes32[0:8]` (the leftmost 8 bytes) as a little-endian `uint64`. This matches Python's `int.from_bytes(x[:8], 'little')` behavior. If the input is stored internally as a big-endian integer, we first recover the byte array in canonical order, then take the slice `[0:8]` and interpret it as little-endian.
+To extract the leftmost 8 bytes of a `bytes32` and interpret them as a little-endian `uint64`, we use a two-step composition that provides better modularity and reuse:
+
+**Step 1: `bytes32_prefix8` - Extract First 8 Bytes**
+
+Extracts `x[0:8]` (the leftmost 8 bytes) from a `bytes32` value, returning a `bytes8` (BytesV with length 8).
 
 **Implementation:**
 ```ocaml
-let bytes_to_uint64 ~at (bytes32_val : Num.t) : (Value.t, Err.t) result =
-  let bytes32_val = Num.to_int bytes32_val in
-  let* () = validate_bytes32 at bytes32_val in
-  (* Extract each byte from data[0..7] (MSB 8 bytes) *)
-  let byte i =
-    (* i = 0..7: data[i], MSB부터 i번째 바이트 *)
-    let shift_bits = (31 - i) * 8 in
-    Bigint.(bit_and (shift_right bytes32_val shift_bits) (of_int 0xff))
-  in
-  (* Little-endian combination: sum_{i=0..7} byte(i) * 256^i *)
-  let rec loop i acc p =
-    if i = 8 then acc
-    else 
-      let next_i = i + 1 in
-      let open Bigint in
-      let byte_val = byte i in
-      let acc_new = acc + (byte_val * p) in
-      let p_new = p * (of_int 256) in
-      loop next_i acc_new p_new
-  in
-  let open Bigint in
-  let uint64_val = loop 0 zero (of_int 1) in
-  Ok (Value.nat uint64_val)
+let bytes32_prefix8 ~at (x : Num.t) : Value.t result =
+  let x = Num.to_int x in
+  let* () = validate_bytes32 at x in
+  (* Extract upper 8 bytes: x >> (24 * 8) *)
+  let hi8 = Bigint.shift_right x (8 * 24) in
+  (* hi8 is already in BE format, so just create bytes with len=8 *)
+  Ok (make_bytes ~num:hi8 ~len:8)
 ```
 
 **Why This Design:**
-- **Big-endian input**: `bytes32` values are stored as big-endian integers in `Bigint.t`
-- **Little-endian output**: eth2spec often requires little-endian interpretation for numeric operations (e.g., shuffle/sampling logic)
-- **Byte slice extraction**: Extracts the byte slice `x[0:8]` (leftmost 8 bytes) from the 32-byte value
+- **Bit shift extraction**: With big-endian-integer backing, extracting the leftmost 8 bytes is implemented as `x >> 192` (shifting right by 192 bits = 24 bytes)
+- **Modular design**: Separates byte extraction from endianness conversion, enabling reuse
+
+**Step 2: `bytes8_to_uint64_le` - Decode as Little-Endian**
+
+Decodes an 8-byte value as little-endian `uint64`, matching Python's `int.from_bytes(x, 'little')` behavior.
+
+**Implementation:**
+```ocaml
+let bytes8_to_uint64_le ~at (v : Value.t) : Value.t result =
+  match v.it with
+  | BytesV { num; len = 8 } ->
+      let open Bigint in
+      (* Extract each byte from BE representation *)
+      (* num = b[0]*256^7 + b[1]*256^6 + ... + b[7]*256^0 (BE interpretation) *)
+      (* We want LE interpretation: b[0] + b[1]*256 + ... + b[7]*256^7 *)
+      let rec extract_byte i =
+        if i >= 8 then []
+        else
+          let shift_bits = (7 - i) * 8 in
+          let byte_val = bit_and (shift_right num shift_bits) (of_int 0xff) in
+          byte_val :: extract_byte (i + 1)
+      in
+      let bytes = extract_byte 0 in
+      (* LE interpretation: b[0] + b[1]*256 + ... + b[7]*256^7 *)
+      let rec build_le_num i acc shift bytes_list =
+        match bytes_list with
+        | [] -> acc
+        | byte_val :: rest ->
+            build_le_num (i + 1)
+              (acc + (byte_val * shift))
+              (shift * of_int 256)
+              rest
+      in
+      Ok (Value.nat (build_le_num 0 zero (of_int 1) bytes))
+  | _ -> Error (runtime at "bytes8_to_uint64_le: expects 8-byte value")
+```
+
+**Why This Design:**
+- **Big-endian to little-endian conversion**: The `BytesV` stores values as big-endian integers, so we extract bytes and re-interpret them in little-endian order
 - **Accurate conversion**: Reconstructs the value using little-endian semantics: `byte[0] + byte[1]*256 + ... + byte[7]*256^7`
+- **Reusable**: Can be used with any 8-byte value, not just the result of `bytes32_prefix8`
 
 **Example:**
+
+To extract the leftmost 8 bytes of a `bytes32` and interpret them as little-endian `uint64`, we compose the two functions:
+
 - Input: `bytes32 = 0x00000000000000000000000000000000000000000000000000000000000003e8` (represents 1000 in big-endian, with value at the rightmost bytes)
-- Byte slice `x[0:8]`: `[0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]` (leftmost 8 bytes, all zeros)
-- Little-endian interpretation: `0` (as intended - this matches `int.from_bytes(x[:8], 'little')` behavior)
-- Note: For values like 1000 that are stored in the rightmost bytes of a big-endian representation, reading the leftmost 8 bytes yields 0, which is the expected behavior for this function.
+- Step 1 (`bytes32_prefix8`): Extract `x[0:8]` → `bytes8 = 0x0000000000000000` (leftmost 8 bytes, all zeros)
+- Step 2 (`bytes8_to_uint64_le`): Decode as LE → `uint64 = 0` (little-endian interpretation)
+
+This matches Python's `int.from_bytes(x[:8], 'little')` behavior exactly. For values like 1000 that are stored in the rightmost bytes of a big-endian representation, reading the leftmost 8 bytes yields 0, which is the expected behavior.
+
+This two-step approach replaces a monolithic `bytes_to_uint64` operator, providing better modularity and enabling reuse of the LE decoding logic for other 8-byte values.
 
 ##### `uint_to_bytes`: Automatic Length Detection
 
@@ -1074,13 +1106,13 @@ let uint_to_bytes ~at (uint_val : Num.t) : (Value.t, Err.t) result =
 - Input: `1000` → Output: `BytesV {num = 1000; len = 4}` (fits in uint32)
 - Input: `1000000000` → Output: `BytesV {num = 1000000000; len = 8}` (fits in uint64)
 
-##### `bytes32_to_bytes`: Type Conversion
+##### `bytes32_to_bytes` and `bytes4_to_bytes`: Type Conversion
 
-Converts a `bytes32` value to `BytesV` representation, handling both `BytesV` and `NumV` inputs.
+These functions convert `bytes32` and `bytes4` values to `BytesV` representation, handling both `BytesV` and `NumV` inputs.
 
 **Implementation:**
 ```ocaml
-let bytes32_to_bytes ~at (value : Value.t) : (Value.t, Err.t) result =
+let bytes32_to_bytes ~at (value : Value.t) : Value.t result =
   match value.it with
   | BytesV { num = _; len = 32 } ->
       (* Already BytesV with correct length, just return it *)
@@ -1095,14 +1127,144 @@ let bytes32_to_bytes ~at (value : Value.t) : (Value.t, Err.t) result =
       let bytes32_val = Num.to_int n in
       let* () = validate_bytes32 at bytes32_val in
       Ok (make_bytes ~num:bytes32_val ~len:32)
-  | _ ->
-      Error (Err.runtime at "bytes32_to_bytes: expected bytes32 or NumV")
+  | _ -> Error (runtime at "bytes32_to_bytes: expected bytes32 or NumV")
+
+let bytes4_to_bytes ~at (value : Value.t) : Value.t result =
+  match value.it with
+  | BytesV { num = _; len = 4 } ->
+      Ok value
+  | BytesV { num; len = _ } ->
+      let bytes4_val = num in
+      let* () = validate_bytes4 at bytes4_val in
+      Ok (make_bytes ~num:bytes4_val ~len:4)
+  | NumV n ->
+      let bytes4_val = Num.to_int n in
+      let* () = validate_bytes4 at bytes4_val in
+      Ok (make_bytes ~num:bytes4_val ~len:4)
+  | _ -> Error (runtime at "bytes4_to_bytes: expected bytes4 or NumV")
 ```
 
 **Why This Design:**
-- **Unified representation**: Ensures all `bytes32` values are represented as `BytesV` with length 32
+- **Unified representation**: Ensures all `bytes32`/`bytes4` values are represented as `BytesV` with correct length
 - **Type normalization**: Converts `NumV` to `BytesV` when needed, preserving the value
-- **Validation**: Ensures the value fits within `bytes32` range [0, 2^256)
+- **Validation**: Ensures the value fits within the appropriate byte range
+
+##### Little-Endian Encoders: `uint8_to_bytes_le`, `uint32_to_bytes_le`, `uint64_to_bytes_le`
+
+These functions encode unsigned integers as fixed-width little-endian byte sequences, used when constructing SSZ-compatible byte payloads for hashing and signing operations.
+
+**Implementation:**
+```ocaml
+let make_bytes_le ~num ~(len : int) : Value.t =
+  let open Bigint in
+  (* Extract bytes in LE order: b0 (LSB from num), b1, ..., b_{len-1} (MSB from num) *)
+  (* Extract LSB first: byte i = (num >> (i*8)) & 0xff *)
+  (* When stored as BE num: b0 becomes MSB, b_{len-1} becomes LSB *)
+  (* BE num = b0*256^{len-1} + b1*256^{len-2} + ... + b_{len-1}*256^0 *)
+  let rec extract_and_build i bytes_list v =
+    if i >= len then bytes_list
+    else
+      let shift_bits = i * 8 in
+      let byte_val = bit_and (shift_right v shift_bits) (of_int 0xff) in
+      extract_and_build (i + 1) (byte_val :: bytes_list) v
+  in
+  let bytes_list = extract_and_build 0 [] num in
+  (* Reverse to get [b0, b1, ..., b_{len-1}] *)
+  let bytes_forward = List.rev bytes_list in
+  (* Build BE num: b0*256^{len-1} + b1*256^{len-2} + ... + b_{len-1}*256^0 *)
+  let rec build_be_num acc shift = function
+    | [] -> acc
+    | byte_val :: rest ->
+        build_be_num (acc + (byte_val * shift)) (shift / of_int 256) rest
+  in
+  let be_num = build_be_num zero (pow (of_int 256) (of_int (len - 1))) bytes_forward in
+  make_bytes ~num:be_num ~len
+
+let uint8_to_bytes_le ~at (x : Num.t) : Value.t result =
+  let x = Num.to_int x in
+  let* () = validate_uint8 at x in
+  Ok (make_bytes_le ~num:x ~len:1)
+
+let uint32_to_bytes_le ~at (x : Num.t) : Value.t result =
+  let x = Num.to_int x in
+  let* () = validate_uint32 at x in
+  Ok (make_bytes_le ~num:x ~len:4)
+
+let uint64_to_bytes_le ~at (x : Num.t) : Value.t result =
+  let x = Num.to_int x in
+  let* () = validate_uint64 at x in
+  Ok (make_bytes_le ~num:x ~len:8)
+```
+
+**Why This Design:**
+- **SSZ compatibility**: SSZ uses fixed-width little-endian encoding for integers (e.g., `uint64` → exactly 8 bytes LE)
+- **Byte extraction**: Extracts bytes from the integer in little-endian order (LSB first)
+- **Big-endian storage**: The extracted bytes are then stored as a big-endian integer in `BytesV`, but when converted back to raw bytes, they maintain the little-endian byte order
+- **Fixed width**: Always produces the exact byte length required (1, 4, or 8 bytes)
+
+**Example:**
+- Input: `uint64 = 1000` (0x3e8)
+- `uint64_to_bytes_le`: Extracts bytes in LE order → `[0xe8, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]`
+- Stored as `BytesV` with BE interpretation, but when converted to raw bytes, maintains LE order
+
+##### `bytes32_to_bytes1_list` and `bytes1_to_uint64`: Byte List Conversions
+
+These functions enable indexed access to individual bytes within a `bytes32` value.
+
+**`bytes32_to_bytes1_list`**: Converts a `bytes32` into a list of 32 `bytes1` values.
+
+**Implementation:**
+```ocaml
+let bytes32_to_bytes1_list ~at (bytes32_val : Num.t) : Value.t result =
+  let bytes32_val = Num.to_int bytes32_val in
+  let* () = validate_bytes32 at bytes32_val in
+  (* Extract each byte from bytes32 *)
+  let bytes1_list =
+    List.init 32 (fun i ->
+        let shift_amount = (31 - i) * 8 in
+        let byte_val = Bigint.shift_right bytes32_val shift_amount in
+        let byte_val = Bigint.bit_and byte_val (Bigint.of_int 255) in
+        Value.nat byte_val)
+  in
+  Ok (Value.list typ bytes1_list)
+```
+
+**`bytes1_to_uint64`**: Extracts the numeric value (0-255) from a single byte.
+
+**Implementation:**
+```ocaml
+let bytes1_to_uint64 ~at (bytes1_val : Num.t) : Value.t result =
+  let bytes1_val = Num.to_int bytes1_val in
+  let* () = validate_bytes1 at bytes1_val in
+  Ok (Value.nat bytes1_val)
+```
+
+**Why This Design:**
+- **Indexed access**: Enables accessing individual bytes by index (e.g., `bytes32_to_bytes1_list(x)[i]`)
+- **Bit manipulation**: Used in shuffle/sampling algorithms where individual bits need to be extracted
+- **Type conversion**: `bytes1_to_uint64` converts a byte value to a numeric type for arithmetic operations
+
+##### `concat_bytes`: Byte Sequence Concatenation
+
+Concatenates two byte sequences (of any length) into a single `BytesV`, preserving big-endian byte order in the underlying integer representation.
+
+**Implementation:**
+```ocaml
+let concat_bytes ~at (value_a : Value.t) (value_b : Value.t) : Value.t result =
+  match (value_a.it, value_b.it) with
+  | BytesV { num = na; len = la }, BytesV { num = nb; len = lb } ->
+      (* big-endian concat: (na || nb) == na * 256^(lb) + nb *)
+      let shift_bits = 8 * lb in
+      let shift = Bigint.(pow (of_int 2) (of_int shift_bits)) in
+      let num = Bigint.((na * shift) + nb) in
+      Ok (make_bytes ~num ~len:(la + lb))
+  | _ -> Error (runtime at "concat_bytes: expected bytes values")
+```
+
+**Why This Design:**
+- **Big-endian concatenation**: The first sequence is shifted left by `8 * lb` bits, then the second sequence is added
+- **Length preservation**: The result length is the sum of input lengths
+- **Used in hashing**: Commonly used to construct message payloads for hashing (e.g., `concat_bytes(seed, round)` for shuffle operations)
 
 #### 4.4.2 Bitwise Operations
 
@@ -1114,7 +1276,7 @@ Performs XOR operation on two `bytes32` values, used in eth2spec for operations 
 
 **Implementation:**
 ```ocaml
-let xor ~at (bytes32_a : Num.t) (bytes32_b : Num.t) : (Value.t, Err.t) result =
+let xor ~at (bytes32_a : Num.t) (bytes32_b : Num.t) : Value.t result =
   let bytes32_a = Num.to_int bytes32_a in
   let bytes32_b = Num.to_int bytes32_b in
   let* () = validate_bytes32 at bytes32_a in
@@ -1132,6 +1294,43 @@ let xor ~at (bytes32_a : Num.t) (bytes32_b : Num.t) : (Value.t, Err.t) result =
 - Input: `bytes32_a = 0x1234...`, `bytes32_b = 0x5678...`
 - Operation: `0x1234... XOR 0x5678... = 0x444c...` (bitwise)
 - Result: `BytesV {num = 0x444c...; len = 32}`
+
+##### `shr_uint64` and `and_uint64`: Bitwise Operations on uint64
+
+These functions perform bitwise operations on `uint64` values, used for extracting individual bits from bytes during shuffling and selection algorithms.
+
+**`shr_uint64`**: Right shift a `uint64` value by a non-negative amount (0-63).
+
+**Implementation:**
+```ocaml
+let shr_uint64 ~at (x : Num.t) (k : Num.t) : Value.t result =
+  let x = Num.to_int x in
+  let k = Num.to_int k in
+  if Bigint.compare k Bigint.zero < 0 then
+    Error (runtime at "shr_uint64: shift amount must be non-negative")
+  else
+    try
+      let k_int = Bigint.to_int_exn k in
+      if k_int >= 0 && k_int < 64 then
+        Ok (Value.nat (Bigint.shift_right x k_int))
+      else Error (runtime at "shr_uint64: shift amount must be in [0, 64]")
+    with _ -> Error (runtime at "shr_uint64: shift amount too large")
+```
+
+**`and_uint64`**: Bitwise AND of two `uint64` values.
+
+**Implementation:**
+```ocaml
+let and_uint64 ~at:_ (x : Num.t) (y : Num.t) : Value.t result =
+  let x = Num.to_int x in
+  let y = Num.to_int y in
+  Ok (Value.nat (Bigint.bit_and x y))
+```
+
+**Why This Design:**
+- **Bit extraction**: Used in shuffle algorithms to extract individual bits from bytes (e.g., `(byte >> k) & 1`)
+- **Range validation**: `shr_uint64` validates that the shift amount is within the valid range [0, 64)
+- **Type safety**: Both functions operate on `uint64` values, ensuring correct bit-width semantics
 
 ##### `first_28_bytes`: Extract Leftmost 28 Bytes
 
