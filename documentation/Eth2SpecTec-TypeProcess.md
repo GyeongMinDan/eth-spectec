@@ -1,13 +1,13 @@
-# Type Processing in Spectec: Handling Ethereum 2.0 SSZ Bytes Types
+# Type Processing in SpecTec: Handling Ethereum 2.0 SSZ Bytes Types
 Description for builtin funcs : How to implement and how to handle the type in eth2spectec.
 
 ## 1. Introduction
 
-Spectec is a specification language framework designed to express and execute formal specifications. When adapting Spectec for Ethereum 2.0 (eth2spec) consensus specifications, we faced the challenge of representing SSZ (Simple Serialize) byte types—such as `Bytes32`, `Bytes48`, `Bytes96`—within Spectec's type system, which originally only supported four primitive types: `bool`, `nat`, `int`, and `text`.
+SpecTec is a specification language framework designed to express and execute formal specifications. When adapting SpecTec for Ethereum 2.0 (eth2spec) consensus specifications, we faced the challenge of representing SSZ (Simple Serialize) byte types—such as `Bytes32`, `Bytes48`, `Bytes96`—within SpecTec's type system, which originally only supported four primitive types: `bool`, `nat`, `int`, and `text`.
 
 ## 2. Type Representation Strategy
 
-### 2.1 Spectec's Primitive Type System
+### 2.1 SpecTec's Primitive Type System
 
 According to the SpecTec EL language specification, the primitive types are limited to:
 
@@ -16,11 +16,11 @@ syntax primitiveType =
   | 'bool' | 'nat' | 'int' | 'text'
 ```
 
-These primitive types form the foundation of Spectec's type system, and all other types must be defined in terms of these primitives.
+These primitive types form the foundation of SpecTec's type system, and all other types must be defined in terms of these primitives.
 
-### 2.2 Mapping SSZ Bytes Types to Spectec Types
+### 2.2 Mapping SSZ Bytes Types to SpecTec Types
 
-To handle eth2spec's SSZ bytes types, we leverage Spectec's type alias mechanism. In the spec file `00-types.spectec`, we define bytes types as aliases to the `int` primitive type:
+To handle eth2spec's SSZ bytes types, we leverage SpecTec's type alias mechanism. In the spec file `00-types.spectec`, we define bytes types as aliases to the `int` primitive type:
 
 ```spectec
 syntax bytes = int
@@ -975,11 +975,11 @@ All BLS signature verification functions follow these principles:
 
 5. **Efficiency**: Aggregation functions enable efficient batch verification, reducing computational overhead for large validator sets.
 
-These functions enable Spectec to perform all BLS signature verification operations required by eth2spec, ensuring compatibility with Ethereum 2.0's consensus layer cryptographic requirements.
+These functions enable SpecTec to perform all BLS signature verification operations required by eth2spec, ensuring compatibility with Ethereum 2.0's consensus layer cryptographic requirements.
 
 ### 4.4 Bytes Manipulation Functions (`bytes.ml`)
 
-The `bytes.ml` module provides utility functions for bytes operations required by eth2spec. These functions enable Spectec to perform byte-level manipulations that are essential for Ethereum 2.0 consensus operations, such as domain construction, withdrawal credential handling, and byte extraction.
+The `bytes.ml` module provides utility functions for bytes operations required by eth2spec. These functions enable SpecTec to perform byte-level manipulations that are essential for Ethereum 2.0 consensus operations, such as domain construction, withdrawal credential handling, and byte extraction.
 
 All functions in this module:
 1. Accept `BytesV` or `NumV` inputs (handling both representations)
@@ -1532,7 +1532,7 @@ All bytes manipulation functions follow these principles:
 4. **eth2spec Compliance**: All operations match the behavior specified in the Ethereum 2.0 consensus specification
 5. **Precise Byte Operations**: Uses bitwise operations and shifts to ensure byte-level accuracy. Byte slice operations (e.g., `x[a:b]`) are clearly distinguished from bit shift operations (e.g., `x >> k`)
 
-These functions enable Spectec to perform all byte-level operations required by eth2spec, ensuring compatibility with the Ethereum 2.0 consensus layer.
+These functions enable SpecTec to perform all byte-level operations required by eth2spec, ensuring compatibility with the Ethereum 2.0 consensus layer.
 
 ### 4.5 Mathematical Functions (`math.ml`)
 
@@ -1738,13 +1738,13 @@ These functions are essential for implementing eth2spec's state transition logic
 
 ## 5. Conclusion
 
-This document has presented a comprehensive approach to handling Ethereum 2.0's SSZ bytes types within Spectec's type system. Our solution demonstrates how a specification language framework with limited primitive types can be extended to support complex domain-specific requirements without compromising its core simplicity.
+This document has presented a comprehensive approach to handling Ethereum 2.0's SSZ bytes types within SpecTec's type system. Our solution demonstrates how a specification language framework with limited primitive types can be extended to support complex domain-specific requirements without compromising its core simplicity.
 
 ### 5.1 Summary of the Approach
 
 Our type processing strategy for eth2spec consists of four key components:
 
-1. **Type Aliases for Static Type Checking** (Section 2): We leverage Spectec's type alias mechanism to map SSZ bytes types (`bytes32`, `bytes48`, `bytes96`, etc.) and domain-specific aliases (`blsPubkey`, `blsSignature`, `root`, etc.) to the `int` primitive type. This approach preserves type semantics at compile time while maintaining compatibility with existing infrastructure.
+1. **Type Aliases for Static Type Checking** (Section 2): We leverage SpecTec's type alias mechanism to map SSZ bytes types (`bytes32`, `bytes48`, `bytes96`, etc.) and domain-specific aliases (`blsPubkey`, `blsSignature`, `root`, etc.) to the `int` primitive type. This approach preserves type semantics at compile time while maintaining compatibility with existing infrastructure.
 
 2. **Runtime Value Types for Length Preservation** (Section 3): We introduce `BytesV`, a runtime value type that stores both the numeric value (`Bigint.t`) and the byte length (`int`). This solves the critical problem of length information loss that would otherwise occur when bytes types are represented solely as integers.
 
@@ -1754,7 +1754,7 @@ Our type processing strategy for eth2spec consists of four key components:
 
 ### 5.2 Key Achievements
 
-Our implementation successfully addresses the challenges of representing SSZ bytes types in Spectec:
+Our implementation successfully addresses the challenges of representing SSZ bytes types in SpecTec:
 
 - **Complete SSZ Compatibility**: All hash tree root computations, Merkle tree operations, and serialization procedures strictly adhere to the SSZ specification, producing identical results to the Python `eth2spec` reference implementation.
 
@@ -1774,7 +1774,7 @@ Our implementation successfully addresses the challenges of representing SSZ byt
 
 Throughout this implementation, we maintained several key design principles:
 
-- **Minimal Core Changes**: By using type aliases and runtime value types, we avoided modifications to Spectec's core type system, preserving its simplicity and maintainability.
+- **Minimal Core Changes**: By using type aliases and runtime value types, we avoided modifications to SpecTec's core type system, preserving its simplicity and maintainability.
 
 - **Backward Compatibility**: Existing arithmetic operations and type checking mechanisms continue to work seamlessly with bytes types represented as `int`.
 
@@ -1784,10 +1784,10 @@ Throughout this implementation, we maintained several key design principles:
 
 ### 5.4 Future Work
 
-This type processing strategy enables Spectec to fully support Ethereum 2.0 consensus specifications, allowing formal verification and execution of eth2spec's state transition logic. The approach demonstrates that minimal type systems can be effectively extended to handle complex domain requirements through careful design of type representations and runtime value types.
+This type processing strategy enables SpecTec to fully support Ethereum 2.0 consensus specifications, allowing formal verification and execution of eth2spec's state transition logic. The approach demonstrates that minimal type systems can be effectively extended to handle complex domain requirements through careful design of type representations and runtime value types.
 
 Future extensions could include:
 - Support for additional SSZ types (e.g., variable-length lists with dynamic limits)
 - Support for additional composite types that may be introduced in future versions
 
-The techniques presented in this document provide a foundation for adapting Spectec to other blockchain specifications that require similar byte-level type handling.
+The techniques presented in this document provide a foundation for adapting SpecTec to other blockchain specifications that require similar byte-level type handling.
