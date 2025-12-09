@@ -511,7 +511,8 @@ let bytes8_to_uint64_le ~at (v : Value.t) : Value.t result =
 
 let builtins : (string * Define.t) list =
   [
-    ("bytes_to_uint64", Define.T0.a1 Arg.num bytes_to_uint64); (* not used *)
+    ("bytes_to_uint64", Define.T0.a1 Arg.num bytes_to_uint64);
+    (* not used *)
     ("uint_to_bytes", Define.T0.a1 Arg.num uint_to_bytes);
     ("xor", Define.T0.a2 Arg.num Arg.num xor);
     ("concat_domain", Define.T0.a2 Arg.num Arg.num concat_domain);
