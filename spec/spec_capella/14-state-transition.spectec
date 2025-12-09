@@ -13,10 +13,10 @@ rule State_transition/validate:
   state_0 signedBeaconBlock true ~>* state_2
   -- if signedBeaconBlock.MESSAGE = beaconBlock
   ;; Process slots (including those with no blocks) since block
-  -- Process_Slots: state_0 beaconBlock.SLOT ~> state_1
+  -- ProcessSlots: state_0 beaconBlock.SLOT ~> state_1
   ;; assert (if validate)
   -- if $verify_block_signature(state_1, signedBeaconBlock)
-  -- Process_Block: state_1 beaconBlock ~>* state_2
+  -- ProcessBlock: state_1 beaconBlock ~>* state_2
   ;; assert (if validate)
   -- if $(beaconBlock.STATE_ROOT = $hash_tree_root_beaconState(state_2))
 
@@ -26,5 +26,5 @@ rule State_transition/validate:
 rule State_transition/skip-validate:
   state_0 signedBeaconBlock false ~>* state_2
   -- if signedBeaconBlock.MESSAGE = beaconBlock
-  -- Process_Slots: state_0 beaconBlock.SLOT ~> state_1
-  -- Process_Block: state_1 beaconBlock ~>* state_2
+  -- ProcessSlots: state_0 beaconBlock.SLOT ~> state_1
+  -- ProcessBlock: state_1 beaconBlock ~>* state_2

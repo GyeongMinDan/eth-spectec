@@ -8,13 +8,12 @@ var n : nat
 var state : beaconState
 var body : beaconBlockBody
 var block : beaconBlock
+var vid: validatorIndex
 
 var delta           : gwei
 var current         : gwei
-;;var newBalance      : gwei
-;;var balancesUpdate  : gwei*
 
 var balance : gwei
 
-var reward : gwei 
+var reward : gwei
 var penalty : gwei

@@ -5,94 +5,113 @@
 ;; ========== helpers for this rule ==========
 ;; (한 인덱스에 대해) 보상 → 패널티 적용
 dec $apply_one_delta(beaconState, (validatorIndex, gwei, gwei)) : beaconState
-def $apply_one_delta(state, (validatorIndex_vi, gwei_r, gwei_p)) = state_after
-  -- if state_r     = $increase_balance(state, validatorIndex_vi, gwei_r)
-  -- if state_after = $decrease_balance(state_r, validatorIndex_vi, gwei_p)
+def $apply_one_delta(state, (vid, reward, penalty)) = state_2
+  -- IncreaseBalance: state `[ vid ] `+ reward ~> state_1
+  -- DecreaseBalance: state_1 `[ vid ] `- penalty ~> state_2
 
 ;; 한 세트의 (reward*, penalty*)를 모든 인덱스에 적용 (안쪽 for = fold 1회)
 dec $apply_one_round(beaconState, (validatorIndex*, gwei*, gwei*)) : beaconState
-def $apply_one_round(state, (validatorIndex_vi*, gwei_r*, gwei_p*)) = state_after
+def $apply_one_round(state, (vid*, reward*, penalty*)) = state_after
   -- if $fold_<beaconState, (validatorIndex, gwei, gwei)>(
          def $apply_one_delta,
          state,
-         (validatorIndex_vi, gwei_r, gwei_p)*
+         (vid, reward, penalty)*
        ) = state_after
 
 ;; 바깥 fold에서 항목을 받아 한 라운드 적용
 dec $apply_one_round_captured(beaconState, (validatorIndex*, (gwei*, gwei*))) : beaconState
-def $apply_one_round_captured(state, (validatorIndex_vi*, (gwei_rr*, gwei_pp*))) =
-  $apply_one_round(state, (validatorIndex_vi*, gwei_rr*, gwei_pp*))
+def $apply_one_round_captured(state, (vid*, (gwei_rr*, gwei_pp*))) =
+  $apply_one_round(state, (vid*, gwei_rr*, gwei_pp*))
 
 ;; ------------------------------------------------------------
 ;; per-index inactivity score update
 ;; ------------------------------------------------------------
+relation ApplyInactivity:
+  beaconState `[ validatorIndex ] ~> beaconState
+  hint(input %0 %1)
 dec $update_inactivity_one(beaconState, validatorIndex) : beaconState
 
 ;; case A: index ∈ unslashed participating (prev epoch)
-def $update_inactivity_one(state, validatorIndex_vi) = state_after
+rule ApplyInactivity/unslashed_participating_leak_free:
+  state `[ vid ] ~> state_updated
   -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_participating_prev*
-  -- if ( validatorIndex_vi <- validatorIndex_participating_prev* )
-  -- if $(validatorIndex_vi < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s0
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
+  ----
+  ;; branch
+  -- if ( vid <- vid_participating_prev* )
+  -- if $(vid < |state.INACTIVITY_SCORES|)
+  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
   -- if $min_uint64(1, uint64_s0) = uint64_dec1
   -- if $(uint64_s0 - uint64_dec1) = uint64_s1
-  -- if state.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s1] = uint64_scores_mid*
+  -- if state.INACTIVITY_SCORES[[vid] = uint64_s1] = uint64_scores_mid*
   -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
   ;; leak-free 추가 회복(감소)
   -- if $is_in_inactivity_leak(state) = false
-  -- if state_mid.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s1_read
+  -- if state_mid.INACTIVITY_SCORES[vid] = uint64_s1_read
   -- if $min_uint64($INACTIVITY_SCORE_RECOVERY_RATE, uint64_s1_read) = uint64_dec2
   -- if $(uint64_s1_read - uint64_dec2) = uint64_s2
-  -- if state_mid.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s2] = uint64_scores_after*
-  -- if state_after = state_mid[.INACTIVITY_SCORES = uint64_scores_after*]
+  -- if state_updated = state_mid[.INACTIVITY_SCORES[vid] = uint64_s2]
 
-def $update_inactivity_one(state, validatorIndex_vi) = state_mid
+rule ApplyInactivity/unslashed_participating_leak:
+  state `[ vid ] ~> state_mid
   -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_participating_prev*
-  -- if ( validatorIndex_vi <- validatorIndex_participating_prev* )
-  -- if $(validatorIndex_vi < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s0
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
+  ----
+  ;; branch
+  -- if ( vid <- vid_participating_prev* )
+  -- if $(vid < |state.INACTIVITY_SCORES|)
+  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
   -- if $min_uint64(1, uint64_s0) = uint64_dec1
   -- if $(uint64_s0 - uint64_dec1) = uint64_s1
-  -- if state.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s1] = uint64_scores_mid*
   -- if $is_in_inactivity_leak(state) = true
+  -- if state.INACTIVITY_SCORES[[vid] = uint64_s1] = uint64_scores_mid*
   -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
 
 ;; case B: index ∉ unslashed participating (prev epoch)
-def $update_inactivity_one(state, validatorIndex_vi) = state_after
+rule ApplyInactivity/inactive_leak_free:
+  state `[ vid ] ~> state_updated
   -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_participating_prev*
-  -- if ~( validatorIndex_vi <- validatorIndex_participating_prev* )
-  -- if $(validatorIndex_vi < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s0
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
+  ----
+  ;; branch
+  -- if ~( vid <- vid_participating_prev* )
+  -- if $(vid < |state.INACTIVITY_SCORES|)
+  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
   -- if $(uint64_s0 + $INACTIVITY_SCORE_BIAS) = uint64_s1
-  -- if state.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s1] = uint64_scores_mid*
+  -- if state.INACTIVITY_SCORES[[vid] = uint64_s1] = uint64_scores_mid*
   -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
   ;; leak-free 추가 회복(감소)
   -- if $is_in_inactivity_leak(state) = false
-  -- if state_mid.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s1_read
+  -- if state_mid.INACTIVITY_SCORES[vid] = uint64_s1_read
   -- if $min_uint64($INACTIVITY_SCORE_RECOVERY_RATE, uint64_s1_read) = uint64_dec2
   -- if $(uint64_s1_read - uint64_dec2) = uint64_s2
-  -- if state_mid.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s2] = uint64_scores_after*
-  -- if state_after = state_mid[.INACTIVITY_SCORES = uint64_scores_after*]
+  -- if state_updated = state_mid[.INACTIVITY_SCORES[vid] = uint64_s2]
 
-def $update_inactivity_one(state, validatorIndex_vi) = state_mid
+rule ApplyInactivity/inactive_leak:
+  state `[ vid ] ~> state_mid
   -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_participating_prev*
-  -- if ~( validatorIndex_vi <- validatorIndex_participating_prev* )
-  -- if $(validatorIndex_vi < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[validatorIndex_vi] = uint64_s0
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
+  ----
+  ;; branch
+  -- if ~( vid <- vid_participating_prev* )
+  -- if $(vid < |state.INACTIVITY_SCORES|)
+  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
   -- if $(uint64_s0 + $INACTIVITY_SCORE_BIAS) = uint64_s1
-  -- if state.INACTIVITY_SCORES[[validatorIndex_vi] = uint64_s1] = uint64_scores_mid*
+  -- if state.INACTIVITY_SCORES[[vid] = uint64_s1] = uint64_scores_mid*
   -- if $is_in_inactivity_leak(state) = true
   -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
 
+relation ApplyInactivities:
+  beaconState `[ validatorIndex* ] ~>* beaconState
+  hint(input %0 %1)
 
-;; fold helper (beaconState, validatorIndex) -> beaconState
-dec $apply_inactivity_one(beaconState, validatorIndex) : beaconState
-def $apply_inactivity_one(state, validatorIndex_vi) = state_updated
-  -- if state_updated = $update_inactivity_one(state, validatorIndex_vi)
+rule ApplyInactivities/nil:
+  state `[ eps ] ~>* state
+
+rule ApplyInactivities/cons:
+  state `[ (vid_h :: vid_t*) ] ~>* state_updated
+  -- ApplyInactivity: state `[ vid_h ] ~> state_1
+  -- ApplyInactivities: state_1 `[ vid_t* ] ~>* state_updated
 
 ;; --------------------------------------------
 ;; predicate: (i, v)가 이번 epoch에 슬래시 벌점 집행 대상인가?
@@ -116,13 +135,13 @@ def $is_due_slashing_en((i, validator), epoch_cur) = false
 dec $compute_slash_penalty_en((nat, validator), (gwei, gwei)) : (validatorIndex, gwei)
 
 def $compute_slash_penalty_en((i, validator), (gwei_adj_total_slash, gwei_total_active))
-  = (validatorIndex_vi, gwei_penalty)
-  -- if validatorIndex_vi = i                 ;; nat → validatorIndex
+  = (vid, penalty)
+  -- if vid = i                 ;; nat → validatorIndex
   -- if $EFFECTIVE_BALANCE_INCREMENT = gwei_inc 
   -- if $( validator.EFFECTIVE_BALANCE / gwei_inc ) = uint64_incs 
   -- if $( uint64_incs * gwei_adj_total_slash ) = gwei_pen_num 
   -- if $( gwei_pen_num / gwei_total_active ) = gwei_pen_div 
-  -- if $( gwei_pen_div * gwei_inc ) = gwei_penalty 
+  -- if $( gwei_pen_div * gwei_inc ) = penalty 
 
 
 ;; --------------------------------------------
@@ -130,8 +149,8 @@ def $compute_slash_penalty_en((i, validator), (gwei_adj_total_slash, gwei_total_
 ;; --------------------------------------------
 dec $apply_one_decrease(beaconState, (validatorIndex, gwei)) : beaconState
 
-def $apply_one_decrease(state, (validatorIndex_vi, gwei_penalty)) = state_out
-  -- if state_out = $decrease_balance(state, validatorIndex_vi, gwei_penalty)
+def $apply_one_decrease(state, (vid, penalty)) = state_out
+  -- DecreaseBalance: state `[ vid ] `- penalty ~> state_out
 
 ;; ============================================================
 ;; weigh_justification_and_finalization
@@ -784,30 +803,41 @@ def $is_eligible_activation_en((i, validator), state) =
 
 ;; (i, v) ↦ (v.ACTIVATION_ELIGIBILITY_EPOCH, ValidatorIndex(i))  (state 캡처 안 씀)
 dec $activation_key_en((nat, validator), beaconState) : (epoch, validatorIndex)
-def $activation_key_en((i, validator), state) = (epoch_key, validatorIndex_vi)
+def $activation_key_en((i, validator), state) = (epoch_key, vid)
   -- if epoch_key = validator.ACTIVATION_ELIGIBILITY_EPOCH
-  -- if validatorIndex_vi = i
-
-;; (epoch, vi) → vi   (단항 맵으로 변경)
-dec $pick_vi_from_key_1((epoch, validatorIndex)) : validatorIndex
-def $pick_vi_from_key_1((epoch_e, validatorIndex_vi)) = validatorIndex_vi
+  -- if vid = i
 
 ;; enumerate 결과 (n, vi)에서 n < limit ?
 dec $idx_lt_limit((nat, validatorIndex), uint64) : boolean
-def $idx_lt_limit((i, validatorIndex_vi), uint64_lim) = true
+def $idx_lt_limit((i, vid), uint64_lim) = true
   -- if $(i < uint64_lim)
-def $idx_lt_limit((i, validatorIndex_vi), uint64_lim) = false
+def $idx_lt_limit((i, vid), uint64_lim) = false
   -- otherwise
 
-;; dequeue 대상 하나에 대해 ACTIVATION_EPOCH 세팅
-dec $activate_one(beaconState, validatorIndex) : beaconState
-def $activate_one(state, validatorIndex_vi) = state_out
+;; set the activation epoch for a given validator
+relation SetActivation:
+  beaconState validatorIndex ~> beaconState
+  hint(input %0 %1)
+
+rule SetActivation:
+  state validatorIndex ~> state_out
   -- if $get_current_epoch(state) = epoch_cur
   -- if $compute_activation_exit_epoch(epoch_cur) = epoch_act
-  -- if $(validatorIndex_vi < |state.VALIDATORS|)
-  -- if validator_old = state.VALIDATORS[validatorIndex_vi]
-  -- if validator_new = validator_old[.ACTIVATION_EPOCH = epoch_act]
-  -- if state_out = state[.VALIDATORS = state.VALIDATORS[[validatorIndex_vi] = validator_new]]
+  -- if $(validatorIndex < |state.VALIDATORS|)
+  -- if validator_new = state.VALIDATORS[validatorIndex][.ACTIVATION_EPOCH = epoch_act]
+  -- if state_out = state[.VALIDATORS[validatorIndex] = validator_new]
+
+relation SetActivations:
+  beaconState validatorIndex* ~>* beaconState
+  hint(input %0 %1)
+
+rule SetActivations/nil:
+  state eps ~>* state
+
+rule SetActivations:
+  state (vid_h :: vid_t*) ~>* state_out
+  -- SetActivation: state vid_h ~> state'
+  -- SetActivations: state' vid_t* ~>* state_out
 
 ;; (i, v) 한 쌍 처리: eligibility_epoch 설정 및 eject
 dec $process_registry_one(beaconState, (nat, validator)) : beaconState
@@ -849,7 +879,3 @@ def $process_registry_one(state, (i, validator)) = state_after
 ;; case 4: 그 외 → 변화 없음
 def $process_registry_one(state, (i, validator)) = state
   -- otherwise
-
-;; enumerate 결과에서 index만 뽑기
-dec $pick_vi_from_enumerated_1((nat, validatorIndex)) : validatorIndex
-def $pick_vi_from_enumerated_1((i, validatorIndex)) = validatorIndex
