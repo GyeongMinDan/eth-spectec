@@ -2,67 +2,85 @@
 ;; Epoch processing 
 ;;
 
-relation ProcessEpoch:
+relation Process_Epoch:
   beaconState ~>* beaconState
   hint(input %0)
 
-rule ProcessEpoch/main:
-  state_beaconState ~>* state_11
-  -- Process_justification_and_finalization:  state_beaconState ~> state_0
+rule Process_Epoch/main:
+  state ~>* state_11
+  ;; Phase0 -> Altair
+  -- Process_justification_and_finalization:  state ~> state_0
+  ;; Altair
   -- Process_inactivity_updates:              state_0           ~> state_1
+  ;; Phase0 -> Altair
   -- Process_rewards_and_penalties:           state_1           ~> state_2
-  -- Process_registry_updates:                state_2           ~> state_3
+  ;; Phase0
+  -- Process_Registry_Updates:                state_2           ~> state_3
+  ;; Phase0 -> Altair
   -- Process_slashings:                       state_3           ~> state_4
+  ;; Phase0
   -- Process_eth1_data_reset:                 state_4           ~> state_5
+  ;; Phase0
   -- Process_effective_balance_updates:       state_5           ~> state_6
+  ;; Phase0
   -- Process_slashings_reset:                 state_6           ~> state_7
+  ;; Phase0
   -- Process_randao_mixes_reset:              state_7           ~> state_8
-  -- Process_historical_summaries_update:     state_8           ~> state_9
+  ;; Capella
+  -- Process_Historical_Summaries_Update:     state_8           ~> state_9
+  ;; Altair
   -- Process_participation_flag_updates:      state_9           ~> state_10
+  ;; Altair
   -- Process_sync_committee_updates:          state_10          ~> state_11
 
 ;;
 ;; process_slots
 ;;
-relation Process_slots_loop:
+relation Process_Slots_loop:
   beaconState slot ~> beaconState
   hint(input %0 %1)
 
-;; 종료: state.SLOT >= slot_target
-rule Process_slots_loop/base:
-  state_in slot_target ~> state_in
-  -- if $( state_in.SLOT < slot_target ) = false
+;; break loop: state.SLOT >= slot_target
+rule Process_Slots_loop/base:
+  state slot_target ~> state
+  -- if $( state.SLOT >= slot_target )
 
-;; step (epoch 경계 아님)
-rule Process_slots_loop/step-no-epoch:
-  state_in slot_target ~> state_out
-  -- if $( state_in.SLOT < slot_target ) = true
-  -- Process_slot: state_in ~> state_after_slot
+;; step (non-boundary)
+rule Process_Slots_loop/step-no-epoch:
+  state slot_target ~> state_out
+  ;; assert: terminates loop if state_in.SLOT >= slot_target
+  -- if $( state.SLOT < slot_target )
+  -- Process_Slot: state ~> state_after_slot
   -- if slot_cur = state_after_slot.SLOT
   -- if $( slot_cur + 1 ) = slot_next
-  -- if $( slot_next \ $SLOTS_PER_EPOCH ) = nat_mod
-  -- if ~( nat_mod = 0 )
-  -- if state_inc = state_after_slot[.SLOT = slot_next]
-  -- Process_slots_loop: state_inc slot_target ~> state_out
+  ;; branch
+  -- if $( slot_next \ $SLOTS_PER_EPOCH =/= 0)
+  -- if state_next = state_after_slot[.SLOT = slot_next]
+  ;; converge
+  -- Process_Slots_loop: state_next slot_target ~> state_out
 
-;; step (epoch 경계)
-rule Process_slots_loop/step-epoch:
-  state_in slot_target ~> state_out
-  -- if $( state_in.SLOT < slot_target ) = true
-  -- Process_slot: state_in ~> state_after_slot
+;; step (epoch boundary)
+rule Process_Slots_loop/step-epoch:
+  state slot_target ~> state_out
+  ;; assert: terminates loop if state_in.SLOT >= slot_target
+  -- if $( state.SLOT < slot_target )
+  -- Process_Slot: state ~> state_after_slot
   -- if slot_cur = state_after_slot.SLOT
   -- if $( slot_cur + 1 ) = slot_next
+  ;; branch
   -- if $( slot_next \ $SLOTS_PER_EPOCH ) = 0
-  -- ProcessEpoch: state_after_slot ~>* state_after_epoch
-  -- if state_inc = state_after_epoch[.SLOT = slot_next]
-  -- Process_slots_loop: state_inc slot_target ~> state_out
+  -- Process_Epoch: state_after_slot ~>* state_after_epoch
+  -- if state_next = state_after_epoch[.SLOT = slot_next]
+  ;; converge
+  -- Process_Slots_loop: state_next slot_target ~> state_out
 
 
-relation Process_slots:
+relation Process_Slots:
   beaconState slot ~> beaconState
   hint(input %0 %1)
 
-rule Process_slots/main:
+rule Process_Slots/main:
   state_in slot_target ~> state_out
+  ;; assert: redundant
   -- if $( state_in.SLOT < slot_target )
-  -- Process_slots_loop: state_in slot_target ~> state_out
+  -- Process_Slots_loop: state_in slot_target ~> state_out

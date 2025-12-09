@@ -1,7 +1,7 @@
 ;;
 ;; process_slot
 ;;
-relation Process_slot:
+relation Process_Slot:
   beaconState ~> beaconState
   hint(input %0)
 
@@ -11,13 +11,13 @@ relation Process_slot:
 ;;   - 헤더의 STATE_ROOT 채우기
 ;;   - block root 캐시
 ;; ------------------------------------------------------------
-rule Process_slot/header_root_empty:
-  state_in ~> state_out
-  -- if $hash_tree_root_beaconState(state_in) = root_state_prev
-  -- if $( state_in.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
+rule Process_Slot/header_root_empty:
+  state ~> state_out
+  -- if $hash_tree_root_beaconState(state) = root_state_prev
+  -- if $( state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
   ;; STATE_ROOTS[slot % SLOTS_PER_HISTORICAL_ROOT] ← root_state_prev
-  -- if state_in.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
-  -- if state_sr = state_in[.STATE_ROOTS = root_state_list_updated*]
+  -- if state.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
+  -- if state_sr = state[.STATE_ROOTS = root_state_list_updated*]
   ;; 헤더의 STATE_ROOT 가 비어있으면 채움
   -- if state_sr.LATEST_BLOCK_HEADER = beaconBlockHeader_old
   -- if $( beaconBlockHeader_old.STATE_ROOT = $ZERO_ROOT )
@@ -34,13 +34,13 @@ rule Process_slot/header_root_empty:
 ;;   - 헤더는 그대로
 ;;   - block root 캐시
 ;; ------------------------------------------------------------
-rule Process_slot/header_root_present:
-  state_in ~> state_out
-  -- if $hash_tree_root_beaconState(state_in) = root_state_prev
-  -- if $( state_in.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
-  -- if state_in.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
+rule Process_Slot/header_root_present:
+  state ~> state_out
+  -- if $hash_tree_root_beaconState(state) = root_state_prev
+  -- if $( state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
+  -- if state.STATE_ROOTS[[uint64_idx] = root_state_prev] = root_state_list_updated*
   ;; STATE_ROOTS[slot % SLOTS_PER_HISTORICAL_ROOT] ← root_state_prev
-  -- if state_sr = state_in[.STATE_ROOTS = root_state_list_updated*]
+  -- if state_sr = state[.STATE_ROOTS = root_state_list_updated*]
   -- if state_sr.LATEST_BLOCK_HEADER = beaconBlockHeader_read
   -- if ~( beaconBlockHeader_read.STATE_ROOT = $ZERO_ROOT )
   ;; 이전 블록 루트 계산 및 BLOCK_ROOTS에 캐시
@@ -57,20 +57,20 @@ relation Process_justification_and_finalization:
   hint(input %0)
 
 rule Process_justification_and_finalization/skip:
-  state_beaconState ~> state_beaconState
-  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  state ~> state
+  -- if $get_current_epoch(state) = epoch_cur
   -- if $(epoch_cur <= ($GENESIS_EPOCH + 1))
 
 rule Process_justification_and_finalization/main:
-  state_beaconState ~> state_weighed
-  -- if $get_current_epoch(state_beaconState) = epoch_cur
-  -- if $get_previous_epoch(state_beaconState) = epoch_prev
-  -- if $get_unslashed_participating_indices(state_beaconState, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_prev_indices*
-  -- if $get_unslashed_participating_indices(state_beaconState, $TIMELY_TARGET_FLAG_INDEX, epoch_cur)  = validatorIndex_curr_indices*
-  -- if $get_total_active_balance(state_beaconState) = gwei_total_active
-  -- if $get_total_balance(state_beaconState, validatorIndex_prev_indices*) = gwei_prev_target_bal
-  -- if $get_total_balance(state_beaconState, validatorIndex_curr_indices*) = gwei_curr_target_bal
-  -- if $weigh_justification_and_finalization(state_beaconState, gwei_total_active, gwei_prev_target_bal, gwei_curr_target_bal) = state_weighed
+  state ~> state_weighed
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = validatorIndex_prev_indices*
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_cur)  = validatorIndex_curr_indices*
+  -- if $get_total_active_balance(state) = gwei_total_active
+  -- if $get_total_balance(state, validatorIndex_prev_indices*) = gwei_prev_target_bal
+  -- if $get_total_balance(state, validatorIndex_curr_indices*) = gwei_curr_target_bal
+  -- if $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_target_bal, gwei_curr_target_bal) = state_weighed
 
 
 ;;
@@ -81,17 +81,17 @@ relation Process_inactivity_updates:
   hint(input %0)
 
 rule Process_inactivity_updates/skip:
-  state_beaconState ~> state_beaconState
-  -- if $get_current_epoch(state_beaconState) = $GENESIS_EPOCH
+  state ~> state
+  -- if $get_current_epoch(state) = $GENESIS_EPOCH
 
 rule Process_inactivity_updates/main:
-  state_beaconState ~> state_updated
-  -- if $get_current_epoch(state_beaconState) = epoch_cur
+  state ~> state_updated
+  -- if $get_current_epoch(state) = epoch_cur
   -- if ~(epoch_cur = $GENESIS_EPOCH)
-  -- if $get_eligible_validator_indices(state_beaconState) = validatorIndex_eligible*
+  -- if $get_eligible_validator_indices(state) = validatorIndex_eligible*
   -- if $fold_<beaconState, validatorIndex>(
          def $apply_inactivity_one,
-         state_beaconState,
+         state,
          validatorIndex_eligible*
        ) = state_updated
 
@@ -130,33 +130,30 @@ rule Process_rewards_and_penalties/main:
 ;;
 ;; process_registry_updates
 ;;
-relation Process_registry_updates:
+relation Process_Registry_Updates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_registry_updates/main:
-  state_in ~> state_out
-  ;; (1) 1차 패스: eligibility_epoch 설정 및 eject 처리 (for each validator)
-  -- if validator_list* = state_in.VALIDATORS
-  -- if $enumerate_<validator>(validator_list*) = (nat_i, validator_v)*
+rule Process_Registry_Updates/main:
+  state ~> state_out
+  ;; (1) pass 1: process eligibility and ejections for each validator
+  -- if $enumerate_<validator>(state.VALIDATORS) = (i, validator_v)*
   -- if state_pass1 = $fold_<beaconState, (nat, validator)>(
          def $process_registry_one,
-         state_in,
-         (nat_i, validator_v)*
+         state,
+         (i, validator_v)*
        )
   ;; (2) activation 후보 인덱스 수집 + (elig_epoch, index) 키로 정렬
   -- if validator_list1* = state_pass1.VALIDATORS
-  -- if $enumerate_<validator>(validator_list1*) = (nat_j, validator_w)*
+  -- if $enumerate_<validator>(validator_list1*) = (j, validator_w)*
   -- if $filter_list_2_<(nat, validator), beaconState>(
-         (nat_j, validator_w)*,
+         (j, validator_w)*,
          state_pass1,
          def $is_eligible_activation_en
        ) = (nat_elg, validator_elg)*
-  ;; change map_list_2_
   -- if ($activation_key_en((nat_elg, validator_elg), state_pass1) = (epoch_key, validatorIndex_vi))*
   -- if $sort_<(epoch, validatorIndex)>((epoch_key, validatorIndex_vi)*) =
          (epoch_sorted, validatorIndex_sorted_vi)*
-  ;; change map_list_1_       
   -- if ($pick_vi_from_key_1((epoch_sorted, validatorIndex_sorted_vi)) = validatorIndex_sorted)*
   ;; (3) churn limit 만큼만 dequeue → ACTIVATION_EPOCH 세팅
   -- if $get_validator_churn_limit(state_pass1) = uint64_churn_limit
@@ -166,7 +163,6 @@ rule Process_registry_updates/main:
         uint64_churn_limit,
         def $idx_lt_limit
       ) = (nat_take, validatorIndex_take)*
-  ;; change map_list_1_   
   -- if ($pick_vi_from_enumerated_1((nat_take, validatorIndex_take)) = validatorIndex_to_activate)*
   -- if state_out = $fold_<beaconState, validatorIndex>(
         def $activate_one,
@@ -182,15 +178,15 @@ relation Process_slashings:
   hint(input %0)
 
 rule Process_slashings:
-  state_in ~> state_out
+  state ~> state_out
   ;; 1 계산에 사용할 값들 
-  -- if $get_current_epoch(state_in) = epoch_cur 
-  -- if $get_total_active_balance(state_in) = gwei_total_active
-  -- if $sum_<gwei>(state_in.SLASHINGS) = gwei_slash_sum 
+  -- if $get_current_epoch(state) = epoch_cur 
+  -- if $get_total_active_balance(state) = gwei_total_active
+  -- if $sum_<gwei>(state.SLASHINGS) = gwei_slash_sum 
   -- if $( gwei_slash_sum * $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX ) = gwei_scaled
   -- if $min_uint64(gwei_scaled, gwei_total_active) = gwei_adj_total_slash
   ;; 2 validator 인덱스 for 문으로 inices 뽑고, 그 안에서 slashing 할 조건으로 index 추출
-  -- if validator_list* = state_in.VALIDATORS
+  -- if validator_list* = state.VALIDATORS
   -- if $enumerate_<validator>(validator_list*) = (nat_i, validator_v)*
   -- if $filter_list_2_<(nat, validator), epoch>(
          (nat_i, validator_v)*,
@@ -203,7 +199,7 @@ rule Process_slashings:
   ;; 4 fold 로 적용
   -- if $fold_<beaconState, (validatorIndex, gwei)>(
          def $apply_one_decrease,
-         state_in,
+         state,
          (validatorIndex_vi, gwei_penalty)*
        ) = state_out
 
@@ -216,16 +212,16 @@ relation Process_eth1_data_reset:
   hint(input %0)
 
 rule Process_eth1_data_reset/skip:
-  state_beaconState ~> state_beaconState
-  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = uint64_r
-  -- if ~(uint64_r = 0)
+  state ~> state
+  -- if $($get_current_epoch(state) + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) =/= 0
 
 rule Process_eth1_data_reset/main:
-  state_beaconState ~> state_updated
-  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  state ~> state_updated
+  -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; loop guard
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
-  -- if state_updated = state_beaconState[.ETH1_DATA_VOTES = eps]
+  -- if state_updated = state[.ETH1_DATA_VOTES = eps]
 
 
 ;;
@@ -236,12 +232,12 @@ relation Process_effective_balance_updates:
   hint(input %0)
 
 rule Process_effective_balance_updates:
-  state_beaconState ~> state_updated
-  -- if state_beaconState.VALIDATORS = validator_list*
+  state ~> state_updated
+  -- if state.VALIDATORS = validator_list*
   -- if $enumerate_<validator>(validator_list*) = (n, validator_item)*
   ;; change_map_list_2_
-  -- if ($rebalance_validator_enumerated((n, validator_item), state_beaconState) = validator_updated_list)*
-  -- if state_updated = state_beaconState[.VALIDATORS = validator_updated_list*]
+  -- if ($rebalance_validator_enumerated((n, validator_item), state) = validator_updated_list)*
+  -- if state_updated = state[.VALIDATORS = validator_updated_list*]
 ;;
 ;; process_slashings_reset
 ;;
@@ -250,18 +246,18 @@ relation Process_slashings_reset:
   hint(input %0)
 
 rule Process_slashings_reset/skip:
-  state_beaconState ~> state_beaconState
-  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  state ~> state
+  -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = uint64_n
-  -- if $(uint64_n >= |state_beaconState.SLASHINGS|)
+  -- if $(uint64_n >= |state.SLASHINGS|)
 
 rule Process_slashings_reset/main:
-  state_beaconState ~> state_updated
-  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  state ~> state_updated
+  -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = uint64_n
-  -- if $(uint64_n < |state_beaconState.SLASHINGS|)
-  -- if state_beaconState.SLASHINGS[[uint64_n] = 0] = gwei_update*
-  -- if state_updated = state_beaconState[.SLASHINGS = gwei_update*]
+  -- if $(uint64_n < |state.SLASHINGS|)
+  -- if state.SLASHINGS[[uint64_n] = 0] = gwei_update*
+  -- if state_updated = state[.SLASHINGS = gwei_update*]
 
 
 ;;
@@ -272,48 +268,48 @@ relation Process_randao_mixes_reset:
   hint(input %0)
 
 rule Process_randao_mixes_reset/skip:
-  state_beaconState ~> state_beaconState
-  -- if $get_current_epoch(state_beaconState) = epoch_current
+  state ~> state
+  -- if $get_current_epoch(state) = epoch_current
   -- if $(epoch_current + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
-  -- if $(uint64_n >= |state_beaconState.RANDAO_MIXES|)
+  -- if $(uint64_n >= |state.RANDAO_MIXES|)
 
 rule Process_randao_mixes_reset/main:
-  state_beaconState ~> state_updated
-  -- if $get_current_epoch(state_beaconState) = epoch_current
+  state ~> state_updated
+  -- if $get_current_epoch(state) = epoch_current
   -- if $(epoch_current + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
-  -- if $get_randao_mix(state_beaconState, epoch_current) = bytes32_mix
-  -- if $(uint64_n < |state_beaconState.RANDAO_MIXES|)
-  -- if state_beaconState.RANDAO_MIXES[[uint64_n] = bytes32_mix] = bytes32_randao_mixes_update*
-  -- if state_updated = state_beaconState[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+  -- if $get_randao_mix(state, epoch_current) = bytes32_mix
+  -- if $(uint64_n < |state.RANDAO_MIXES|)
+  -- if state.RANDAO_MIXES[[uint64_n] = bytes32_mix] = bytes32_randao_mixes_update*
+  -- if state_updated = state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
 
 
 
 ;;
 ;; process_historical_summaries_update
 ;;
-relation Process_historical_summaries_update:
+relation Process_Historical_Summaries_Update:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_historical_summaries_update/skip:
-  state_beaconState ~> state_beaconState
-  -- if $get_current_epoch(state_beaconState) = epoch_cur
+rule Process_Historical_Summaries_Update/skip:
+  state ~> state
+  -- if $get_current_epoch(state) = epoch_cur
   -- if $(epoch_cur + 1) = epoch_next
-  -- if $(epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH)) = uint64_r
-  -- if ~(uint64_r = 0)
+  -- if $(epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH)) =/= 0
 
-rule Process_historical_summaries_update/main:
-  state_beaconState ~> state_updated
-  -- if $get_current_epoch(state_beaconState) = epoch_cur
+rule Process_Historical_Summaries_Update/main:
+  state ~> state_updated
+  -- if $get_current_epoch(state) = epoch_cur
   -- if $(epoch_cur + 1) = epoch_next
+  ;; loop guard
   -- if $( epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH) ) = 0
-  -- if $hash_tree_root_roots(state_beaconState.BLOCK_ROOTS) = root_block_summary
-  -- if $hash_tree_root_roots(state_beaconState.STATE_ROOTS) = root_state_summary
-  -- if { BLOCK_SUMMARY_ROOT root_block_summary, STATE_SUMMARY_ROOT root_state_summary } = historicalSummary_new
-  -- if state_beaconState.HISTORICAL_SUMMARIES ++ [ historicalSummary_new ] = historicalSummary_update*
-  -- if state_updated = state_beaconState[.HISTORICAL_SUMMARIES = historicalSummary_update*]
+  -- if $hash_tree_root_roots(state.BLOCK_ROOTS) = root_block_summary
+  -- if $hash_tree_root_roots(state.STATE_ROOTS) = root_state_summary
+  -- if { BLOCK_SUMMARY_ROOT root_block_summary, STATE_SUMMARY_ROOT root_state_summary } = historicalSummary
+  -- if state.HISTORICAL_SUMMARIES ++ [ historicalSummary ] = historicalSummary_updated*
+  -- if state_updated = state[.HISTORICAL_SUMMARIES = historicalSummary_updated*]
 
 
 ;;
@@ -324,11 +320,11 @@ relation Process_participation_flag_updates:
   hint(input %0)
 
 rule Process_participation_flag_updates:
-  state_beaconState ~> state_updated
-  -- if participationFlags_prev* = state_beaconState.CURRENT_EPOCH_PARTICIPATION
-  -- if $( |state_beaconState.VALIDATORS| ) = uint64_len_validators
+  state ~> state_updated
+  -- if participationFlags_prev* = state.CURRENT_EPOCH_PARTICIPATION
+  -- if |state.VALIDATORS| = uint64_len_validators
   -- if $repeat_<participationFlags>(0, uint64_len_validators) = participationFlags_zero*
-  -- if state_mid = state_beaconState[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_prev*]
+  -- if state_mid = state[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_prev*]
   -- if state_updated = state_mid[.CURRENT_EPOCH_PARTICIPATION = participationFlags_zero*]
 
 
@@ -340,16 +336,16 @@ relation Process_sync_committee_updates:
   hint(input %0)
 
 rule Process_sync_committee_updates/skip:
-  state_beaconState ~> state_beaconState
-  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  state ~> state
+  -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = uint64_r
   -- if ~(uint64_r = 0)
 
 rule Process_sync_committee_updates/main:
-  state_beaconState ~> state_updated
-  -- if $($get_current_epoch(state_beaconState) + 1) = epoch_next
+  state ~> state_updated
+  -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = 0
-  -- if syncCommittee_next = $get_next_sync_committee(state_beaconState)
+  -- if syncCommittee_next = $get_next_sync_committee(state)
   -- if state_updated =
-       state_beaconState[.CURRENT_SYNC_COMMITTEE = state_beaconState.NEXT_SYNC_COMMITTEE]
+       state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
                         [.NEXT_SYNC_COMMITTEE    = syncCommittee_next]

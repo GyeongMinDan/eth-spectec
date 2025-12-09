@@ -107,10 +107,12 @@ def $get_attesting_indices(state, attestation_att) = validatorIndex_set*
 ;; is_slashable_attestation_data
 ;; ------------------------------------------------------------
 dec $is_slashable_attestation_data(attestationData, attestationData) : bool
-def $is_slashable_attestation_data(attd1, attd2) =
-  ( ~(attd1 = attd2) /\ $( attd1.TARGET.EPOCH = attd2.TARGET.EPOCH ) )
+def $is_slashable_attestation_data(attestationData_1, attestationData_2) =
+  ( ~(attestationData_1 = attestationData_2) 
+    /\ $( attestationData_1.TARGET.EPOCH = attestationData_2.TARGET.EPOCH ) )
   \/
-  ( $( attd1.SOURCE.EPOCH < attd2.SOURCE.EPOCH ) /\ $( attd2.TARGET.EPOCH < attd1.TARGET.EPOCH ) )
+  ( $( attestationData_1.SOURCE.EPOCH < attestationData_2.SOURCE.EPOCH )
+    /\ $( attestationData_2.TARGET.EPOCH < attestationData_1.TARGET.EPOCH ) )
 
 ;;
 ;; is_valid_indexed_attestation

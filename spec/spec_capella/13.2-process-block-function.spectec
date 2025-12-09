@@ -5,14 +5,17 @@ relation Process_block_header:
   beaconState beaconBlock ~> beaconState
   hint(input %0 %1)
 
-rule Process_block_header/main:
-  state_beaconState block_beaconBlock ~> state_updated
-  -- if $(block_beaconBlock.SLOT = state_beaconState.SLOT)
-  -- if $(state_beaconState.LATEST_BLOCK_HEADER.SLOT < block_beaconBlock.SLOT)
-  -- if $get_beacon_proposer_index(state_beaconState) = validatorIndex_prop_vi
-  -- if $(block_beaconBlock.PROPOSER_INDEX = validatorIndex_prop_vi)
-  -- if root_parent_expected_root = $hash_tree_root_beaconBlockHeader(state_beaconState.LATEST_BLOCK_HEADER)
-  -- if $(block_beaconBlock.PARENT_ROOT = root_parent_expected_root)
+rule Process_block_header:
+  state block_beaconBlock ~> state[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
+  ;; assert
+  -- if block_beaconBlock.SLOT = state.SLOT
+  ;; assert
+  -- if $(state.LATEST_BLOCK_HEADER.SLOT < block_beaconBlock.SLOT)
+  -- if $get_beacon_proposer_index(state) = validatorIndex_prop_vi
+  -- if block_beaconBlock.PROPOSER_INDEX = validatorIndex_prop_vi
+  -- if root_parent_expected_root = $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER)
+  ;; assert
+  -- if block_beaconBlock.PARENT_ROOT = root_parent_expected_root
   -- if $hash_tree_root_beaconBlockBody(block_beaconBlock.BODY) = root_body_root_new
   -- if beaconBlockHeader_new =
        { SLOT block_beaconBlock.SLOT,
@@ -20,10 +23,9 @@ rule Process_block_header/main:
          PARENT_ROOT block_beaconBlock.PARENT_ROOT,
          STATE_ROOT $ZERO_ROOT,
          BODY_ROOT root_body_root_new }
-  -- if $(validatorIndex_prop_vi < |state_beaconState.VALIDATORS|)
-  -- if state_beaconState.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
-  -- if $(validator_proposer.SLASHED = false)
-  -- if state_updated = state_beaconState[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
+  -- if $(validatorIndex_prop_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
+  -- if ~validator_proposer.SLASHED
 
 
 ;;
@@ -44,9 +46,9 @@ rule Process_withdrawals/len0:
          state_in,
          withdrawal_exp*
        ) = state_after_debits
-  -- if $( |withdrawal_exp*| ) = uint64_len
-  -- if $( uint64_len = 0 )
-  -- if $( |state_after_debits.VALIDATORS| ) = uint64_N
+  -- if |withdrawal_exp*| = uint64_len
+  -- if uint64_len = 0
+  -- if |state_after_debits.VALIDATORS| = uint64_N
   -- if $( state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX
          + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP ) = uint64_next
   -- if $( uint64_next \ uint64_N ) = validatorIndex_next
@@ -64,15 +66,15 @@ rule Process_withdrawals/lenMax:
          state_in,
          withdrawal_exp*
        ) = state_after_debits
-  -- if $( |withdrawal_exp*| ) = uint64_len
-  -- if $( uint64_len = $MAX_WITHDRAWALS_PER_PAYLOAD )
+  -- if |withdrawal_exp*| = uint64_len
+  -- if uint64_len = $MAX_WITHDRAWALS_PER_PAYLOAD
   -- if $( uint64_len - 1 ) = uint64_last
   -- if withdrawal_exp*[uint64_last] = withdrawal_latest
   ;; next_withdrawal_index = latest.index + 1
   -- if withdrawal_latest.INDEX = withdrawalIndex_last
   -- if $( withdrawalIndex_last + 1 ) = withdrawalIndex_next
   ;; next_withdrawal_validator_index = (latest.validator_index + 1) % N
-  -- if $( |state_after_debits.VALIDATORS| ) = uint64_N
+  -- if |state_after_debits.VALIDATORS| = uint64_N
   -- if withdrawal_latest.VALIDATOR_INDEX = validatorIndex_last_vi
   -- if $( validatorIndex_last_vi + 1 ) = uint64_next_vi_raw
   -- if $( uint64_next_vi_raw \ uint64_N ) = validatorIndex_next_vi
@@ -91,15 +93,15 @@ rule Process_withdrawals/lenPartial:
          state_in,
          withdrawal_exp*
        ) = state_after_debits
-  -- if $( |withdrawal_exp*| ) = uint64_len
+  -- if |withdrawal_exp*| = uint64_len
+  -- if uint64_len =/= $MAX_WITHDRAWALS_PER_PAYLOAD
   -- if $( 0 < uint64_len )
-  -- if ~( $( uint64_len = $MAX_WITHDRAWALS_PER_PAYLOAD ) )
   -- if $( uint64_len - 1 ) = uint64_last
   -- if withdrawal_exp*[uint64_last] = withdrawal_latest
   ;; next_withdrawal_index = latest.index + 1
   -- if $( withdrawal_latest.INDEX + 1 ) = withdrawalIndex_next
   ;; next_withdrawal_validator_index = (state.next_withdrawal_validator_index + SWEEP) % N
-  -- if $( |state_after_debits.VALIDATORS| ) = uint64_N
+  -- if |state_after_debits.VALIDATORS| = uint64_N
   -- if $( state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX
          + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP ) = uint64_next_raw
   -- if $( uint64_next_raw \ uint64_N ) = validatorIndex_next_vi
@@ -120,13 +122,13 @@ relation Process_execution_payload:
   hint(input %0 %1)
 
 rule Process_execution_payload/main:
-  state_beaconState body_beaconBlockBody ~> state_updated
-  -- if executionPayload_block = body_beaconBlockBody.EXECUTION_PAYLOAD
-  -- if $(executionPayload_block.PARENT_HASH = state_beaconState.LATEST_EXECUTION_PAYLOAD_HEADER.BLOCK_HASH)
-  -- if $get_current_epoch(state_beaconState) = epoch_cur
-  -- if $get_randao_mix(state_beaconState, epoch_cur) = bytes32_randao_expected
+  state body ~> state_updated
+  -- if executionPayload_block = body.EXECUTION_PAYLOAD
+  -- if $(executionPayload_block.PARENT_HASH = state.LATEST_EXECUTION_PAYLOAD_HEADER.BLOCK_HASH)
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $get_randao_mix(state, epoch_cur) = bytes32_randao_expected
   -- if $(executionPayload_block.PREV_RANDAO = bytes32_randao_expected)
-  -- if $compute_time_at_slot(state_beaconState, state_beaconState.SLOT) = uint64_ts_expected
+  -- if $compute_time_at_slot(state, state.SLOT) = uint64_ts_expected
   -- if $(executionPayload_block.TIMESTAMP = uint64_ts_expected)
   -- if $ee_verify_and_notify_new_payload(executionPayload_block) = true
   -- if $hash_tree_root_tx(executionPayload_block.TRANSACTIONS) = root_tx
@@ -147,7 +149,7 @@ rule Process_execution_payload/main:
          BLOCK_HASH         executionPayload_block.BLOCK_HASH,
          TRANSACTIONS_ROOT  root_tx,
          WITHDRAWALS_ROOT   root_withdrawal }
-  -- if state_updated = state_beaconState[.LATEST_EXECUTION_PAYLOAD_HEADER = executionPayloadHeader_new]
+  -- if state_updated = state[.LATEST_EXECUTION_PAYLOAD_HEADER = executionPayloadHeader_new]
 
 
 
@@ -159,20 +161,20 @@ relation Process_randao:
   hint(input %0 %1)
 
 rule Process_randao/main:
-  state_beaconState body_beaconBlockBody ~> state_updated
-  -- if $get_current_epoch(state_beaconState) = epoch
-  -- if $get_beacon_proposer_index(state_beaconState) = validatorIndex_prop_vi
-  -- if $(validatorIndex_prop_vi < |state_beaconState.VALIDATORS|)
-  -- if state_beaconState.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
-  -- if $get_domain(state_beaconState, $DOMAIN_RANDAO, eps) = domain_randao
+  state body ~> state_updated
+  -- if $get_current_epoch(state) = epoch
+  -- if $get_beacon_proposer_index(state) = validatorIndex_prop_vi
+  -- if $(validatorIndex_prop_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
+  -- if $get_domain(state, $DOMAIN_RANDAO, eps) = domain_randao
   -- if $compute_signing_root_epoch(epoch, domain_randao) = root_signing
-  -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body_beaconBlockBody.RANDAO_REVEAL) = true
-  -- if $get_randao_mix(state_beaconState, epoch) = bytes32_mix_old
-  -- if $hash_<blsSignature>(body_beaconBlockBody.RANDAO_REVEAL) = bytes32_hash_reveal
+  -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body.RANDAO_REVEAL) = true
+  -- if $get_randao_mix(state, epoch) = bytes32_mix_old
+  -- if $hash_<blsSignature>(body.RANDAO_REVEAL) = bytes32_hash_reveal
   -- if $xor(bytes32_mix_old, bytes32_hash_reveal) = bytes32_mix_new
   -- if $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
-  -- if state_beaconState.RANDAO_MIXES[[uint64_n] = bytes32_mix_new] = bytes32_randao_mixes_update*
-  -- if state_updated = state_beaconState[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+  -- if state.RANDAO_MIXES[[uint64_n] = bytes32_mix_new] = bytes32_randao_mixes_update*
+  -- if state_updated = state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
 
 
 
@@ -184,18 +186,18 @@ relation Process_eth1_data:
   hint(input %0 %1)
 
 rule Process_eth1_data/majority:
-  state_beaconState body_beaconBlockBody ~> state_updated
-  -- if state_beaconState.ETH1_DATA_VOTES ++ [ body_beaconBlockBody.ETH1_DATA ] = eth1Data_update*
-  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body_beaconBlockBody.ETH1_DATA) = nat_occ
+  state body ~> state_updated
+  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = nat_occ
   -- if $(nat_occ * 2 > $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
-  -- if state_updated = state_beaconState[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body_beaconBlockBody.ETH1_DATA]
+  -- if state_updated = state[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body.ETH1_DATA]
 
 rule Process_eth1_data/accumulate:
-  state_beaconState body_beaconBlockBody ~> state_updated
-  -- if state_beaconState.ETH1_DATA_VOTES ++ [ body_beaconBlockBody.ETH1_DATA ] = eth1Data_update*
-  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body_beaconBlockBody.ETH1_DATA) = nat_occ
+  state body ~> state_updated
+  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = nat_occ
   -- if $(nat_occ * 2 <= $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
-  -- if state_updated = state_beaconState[.ETH1_DATA_VOTES = eth1Data_update*]
+  -- if state_updated = state[.ETH1_DATA_VOTES = eth1Data_update*]
 
 ;;
 ;; process_operations
@@ -211,7 +213,8 @@ rule Process_operations/main:
   -- if $( state_in.ETH1_DATA.DEPOSIT_COUNT - state_in.ETH1_DEPOSIT_INDEX ) = uint64_remaining
   -- if $( $MAX_DEPOSITS ) = uint64_max_deposits
   -- if $min_uint64(uint64_max_deposits, uint64_remaining) = uint64_min_req
-  -- if $( uint64_len_deposits = uint64_min_req )
+  ;; assert
+  -- if uint64_len_deposits = uint64_min_req
   ;; proposer_slashings → attester_slashings → attestations → deposits → voluntary_exits → bls_to_execution_changes               
   -- Apply_proposer_slashings:        state_in body_in.PROPOSER_SLASHINGS        ~> state_ps
   -- Apply_attester_slashings:        state_ps body_in.ATTESTER_SLASHINGS        ~> state_as
@@ -232,7 +235,6 @@ relation Process_sync_aggregate:
 ;; -------- Case A: state.SLOT = 0  → previous_slot = 0 --------
 rule Process_sync_aggregate/slot0:
   state_in syncAggregate_sa ~> state_updated
-  -- if $(state_in.SLOT = 0)
   ;; (1) 서명 참가자(pubkey) 집합 추출 (committee ∩ bits==1)
   -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
   -- if $enumerate_<blsPubkey>(blsPubkey_committee*) = (n_pk, blsPubkey_pk)*
@@ -244,6 +246,7 @@ rule Process_sync_aggregate/slot0:
   ;; change map_list_2_
   -- if ($pick_second_en_blsPubkey((n_pk_sel, blsPubkey_sel), syncAggregate_sa.SYNC_COMMITTEE_BITS) = blsPubkey_participants)*
   ;; (2) 도메인/서명루트 (previous_slot = 0)
+  -- if $(state_in.SLOT = 0)
   -- if slot_prev = 0
   -- if $compute_epoch_at_slot(slot_prev) = epoch_prev
   -- if $get_domain(state_in, $DOMAIN_SYNC_COMMITTEE, epoch_prev) = domain_sc
