@@ -6,8 +6,8 @@
 ;; compute_fork_data_root(version, genesis_root) : root
 ;; ------------------------------------------------------------
 dec $compute_fork_data_root(version, root) : root
-def $compute_fork_data_root(curVer, genRoot) =
-  $hash_tree_root_forkdata({ CURRENT_VERSION curVer, GENESIS_VALIDATORS_ROOT genRoot })
+def $compute_fork_data_root(version, root) =
+  $hash_tree_root_forkdata({ CURRENT_VERSION version, GENESIS_VALIDATORS_ROOT root })
 
 ;; ------------------------------------------------------------
 ;; compute_domain(domainType, [version], [genesis_root]) : domain

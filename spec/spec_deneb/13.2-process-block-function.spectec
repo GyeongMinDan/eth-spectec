@@ -5,155 +5,154 @@ relation Process_block_header:
   beaconState beaconBlock ~> beaconState
   hint(input %0 %1)
 
-rule Process_block_header/main:
-  state_beaconState block_beaconBlock ~> state_updated
-  -- if $(block_beaconBlock.SLOT = state_beaconState.SLOT)
-  -- if $(state_beaconState.LATEST_BLOCK_HEADER.SLOT < block_beaconBlock.SLOT)
-  -- if $get_beacon_proposer_index(state_beaconState) = validatorIndex_prop_vi
-  -- if $(block_beaconBlock.PROPOSER_INDEX = validatorIndex_prop_vi)
-  -- if root_parent_expected_root = $hash_tree_root_beaconBlockHeader(state_beaconState.LATEST_BLOCK_HEADER)
-  -- if $(block_beaconBlock.PARENT_ROOT = root_parent_expected_root)
-  -- if $hash_tree_root_beaconBlockBody(block_beaconBlock.BODY) = root_body_root_new
+rule Process_block_header:
+  state block ~> state[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
+  ;; assert 1
+  -- if block.SLOT = state.SLOT
+  ;; assert 2
+  -- if $(state.LATEST_BLOCK_HEADER.SLOT < block.SLOT)
+  -- if $get_beacon_proposer_index(state) = vid_prop_vi
+  ;; assert 3
+  -- if block.PROPOSER_INDEX = vid_prop_vi
+  -- if root_parent_expected_root = $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER)
+  ;; assert 4
+  -- if block.PARENT_ROOT = root_parent_expected_root
+  -- if $hash_tree_root_beaconBlockBody(block.BODY) = root_body_root_new
   -- if beaconBlockHeader_new =
-       { SLOT block_beaconBlock.SLOT,
-         PROPOSER_INDEX block_beaconBlock.PROPOSER_INDEX,
-         PARENT_ROOT block_beaconBlock.PARENT_ROOT,
+       { SLOT block.SLOT,
+         PROPOSER_INDEX block.PROPOSER_INDEX,
+         PARENT_ROOT block.PARENT_ROOT,
          STATE_ROOT $ZERO_ROOT,
          BODY_ROOT root_body_root_new }
-  -- if $(validatorIndex_prop_vi < |state_beaconState.VALIDATORS|)
-  -- if state_beaconState.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
-  -- if $(validator_proposer.SLASHED = false)
-  -- if state_updated = state_beaconState[.LATEST_BLOCK_HEADER = beaconBlockHeader_new]
+  -- if $(vid_prop_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[vid_prop_vi] = validator_proposer
+  ;; assert 5
+  -- if ~validator_proposer.SLASHED
 
 
 ;;
 ;; process_withdrawals
 ;;   
-;;
-relation Process_withdrawals:
+relation ProcessWithdrawals:
   beaconState executionPayload ~> beaconState
   hint(input %0 %1)
 
 ;; ========== len(expected) = 0 ==========
-rule Process_withdrawals/len0:
-  state_in executionPayload_payload ~> state_out
-  -- if $get_expected_withdrawals(state_in) = withdrawal_exp*
-  -- if executionPayload_payload.WITHDRAWALS = withdrawal_exp*
-  -- if $fold_<beaconState, withdrawal>(
-         def $apply_withdrawal_one,
-         state_in,
-         withdrawal_exp*
-       ) = state_after_debits
-  -- if $( |withdrawal_exp*| ) = uint64_len
-  -- if $( uint64_len = 0 )
-  -- if $( |state_after_debits.VALIDATORS| ) = uint64_N
+rule ProcessWithdrawals/len0:
+  state executionPayload_payload ~> state_out
+  -- if $get_expected_withdrawals(state) = withdrawal_expect*
+  ;; assert
+  -- if executionPayload_payload.WITHDRAWALS = withdrawal_expect*
+  -- ApplyWithdrawals: state withdrawal_expect* ~>* state_after_debits
+  -- if |withdrawal_expect*| = uint64_len
+  ----
+  ;; branch-if
+  -- if uint64_len = 0
+  -- if |state_after_debits.VALIDATORS| = uint64_N
   -- if $( state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX
          + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP ) = uint64_next
-  -- if $( uint64_next \ uint64_N ) = validatorIndex_next
+  -- if $( uint64_next \ uint64_N ) = vid_next
   -- if state_out =
        state_after_debits
-         [.NEXT_WITHDRAWAL_VALIDATOR_INDEX = validatorIndex_next]
+         [.NEXT_WITHDRAWAL_VALIDATOR_INDEX = vid_next]
 
 ;; ========== len(expected) = MAX_WITHDRAWALS_PER_PAYLOAD ==========
-rule Process_withdrawals/lenMax:
-  state_in executionPayload_payload ~> state_out
-  -- if $get_expected_withdrawals(state_in) = withdrawal_exp*
-  -- if executionPayload_payload.WITHDRAWALS = withdrawal_exp*
-  -- if $fold_<beaconState, withdrawal>(
-         def $apply_withdrawal_one,
-         state_in,
-         withdrawal_exp*
-       ) = state_after_debits
-  -- if $( |withdrawal_exp*| ) = uint64_len
-  -- if $( uint64_len = $MAX_WITHDRAWALS_PER_PAYLOAD )
+rule ProcessWithdrawals/lenMax:
+  state executionPayload ~> state_out
+  -- if $get_expected_withdrawals(state) = withdrawal_expect*
+  ;; assert
+  -- if executionPayload.WITHDRAWALS = withdrawal_expect*
+  -- ApplyWithdrawals: state withdrawal_expect* ~>* state_after_debits
+  -- if |withdrawal_expect*| = uint64_len
+  ----
+  ;; branch-elseif
+  -- if uint64_len = $MAX_WITHDRAWALS_PER_PAYLOAD
   -- if $( uint64_len - 1 ) = uint64_last
-  -- if withdrawal_exp*[uint64_last] = withdrawal_latest
+  -- if withdrawal_expect*[uint64_last] = withdrawal_latest
   ;; next_withdrawal_index = latest.index + 1
-  -- if withdrawal_latest.INDEX = withdrawalIndex_last
-  -- if $( withdrawalIndex_last + 1 ) = withdrawalIndex_next
+  -- if $( withdrawal_latest.INDEX + 1 ) = withdrawalIndex_next
   ;; next_withdrawal_validator_index = (latest.validator_index + 1) % N
-  -- if $( |state_after_debits.VALIDATORS| ) = uint64_N
-  -- if withdrawal_latest.VALIDATOR_INDEX = validatorIndex_last_vi
-  -- if $( validatorIndex_last_vi + 1 ) = uint64_next_vi_raw
-  -- if $( uint64_next_vi_raw \ uint64_N ) = validatorIndex_next_vi
+  -- if |state_after_debits.VALIDATORS| = uint64_N
+  -- if withdrawal_latest.VALIDATOR_INDEX = vid_last
+  -- if $( vid_last + 1 ) = uint64_next
+  -- if $( uint64_next \ uint64_N ) = vid_next
   -- if state_out =
        state_after_debits
          [.NEXT_WITHDRAWAL_INDEX           = withdrawalIndex_next]
-         [.NEXT_WITHDRAWAL_VALIDATOR_INDEX = validatorIndex_next_vi]
+         [.NEXT_WITHDRAWAL_VALIDATOR_INDEX = vid_next]
 
 ;; ========== 0 < len(expected) < MAX_WITHDRAWALS_PER_PAYLOAD ==========
-rule Process_withdrawals/lenPartial:
-  state_in executionPayload_payload ~> state_out
-  -- if $get_expected_withdrawals(state_in) = withdrawal_exp*
-  -- if executionPayload_payload.WITHDRAWALS = withdrawal_exp*
-  -- if $fold_<beaconState, withdrawal>(
-         def $apply_withdrawal_one,
-         state_in,
-         withdrawal_exp*
-       ) = state_after_debits
-  -- if $( |withdrawal_exp*| ) = uint64_len
-  -- if $( 0 < uint64_len )
-  -- if ~( $( uint64_len = $MAX_WITHDRAWALS_PER_PAYLOAD ) )
+rule ProcessWithdrawals/lenPartial:
+  state executionPayload ~> state_out
+  -- if $get_expected_withdrawals(state) = withdrawal_expect*
+  ;; assert
+  -- if executionPayload.WITHDRAWALS = withdrawal_expect*
+  -- ApplyWithdrawals: state withdrawal_expect* ~>* state_after_debits
+  -- if |withdrawal_expect*| = uint64_len
+  ----
+  ;; branch-else
+  -- if uint64_len =/= 0
+  -- if uint64_len =/= $MAX_WITHDRAWALS_PER_PAYLOAD
   -- if $( uint64_len - 1 ) = uint64_last
-  -- if withdrawal_exp*[uint64_last] = withdrawal_latest
+  -- if withdrawal_expect*[uint64_last] = withdrawal_latest
   ;; next_withdrawal_index = latest.index + 1
   -- if $( withdrawal_latest.INDEX + 1 ) = withdrawalIndex_next
   ;; next_withdrawal_validator_index = (state.next_withdrawal_validator_index + SWEEP) % N
-  -- if $( |state_after_debits.VALIDATORS| ) = uint64_N
+  -- if |state_after_debits.VALIDATORS| = uint64_N
   -- if $( state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX
-         + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP ) = uint64_next_raw
-  -- if $( uint64_next_raw \ uint64_N ) = validatorIndex_next_vi
-  -- if state_mid =
+         + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP ) = uint64_next
+  -- if $( uint64_next \ uint64_N ) = vid_next
+  -- if state_out =
        state_after_debits
          [.NEXT_WITHDRAWAL_INDEX = withdrawalIndex_next]
-  -- if state_out =
-       state_mid
-         [.NEXT_WITHDRAWAL_VALIDATOR_INDEX = validatorIndex_next_vi]
+         [.NEXT_WITHDRAWAL_VALIDATOR_INDEX = vid_next]
 
 
 
 ;;
 ;; process_execution_payload
 ;;
-relation Process_execution_payload:
+relation ProcessExecutionPayload:
   beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
 
-rule Process_execution_payload/main:
-  state_beaconState body_beaconBlockBody ~> state_updated
-  -- if executionPayload_block = body_beaconBlockBody.EXECUTION_PAYLOAD
-  -- if $(executionPayload_block.PARENT_HASH = state_beaconState.LATEST_EXECUTION_PAYLOAD_HEADER.BLOCK_HASH)
-  -- if $get_current_epoch(state_beaconState) = epoch_cur
-  -- if $get_randao_mix(state_beaconState, epoch_cur) = bytes32_randao_expected
-  -- if $(executionPayload_block.PREV_RANDAO = bytes32_randao_expected)
-  -- if $compute_time_at_slot(state_beaconState, state_beaconState.SLOT) = uint64_ts_expected
-  -- if $(executionPayload_block.TIMESTAMP = uint64_ts_expected)
+rule ProcessExecutionPayload/main:
+  state body ~> state[ .LATEST_EXECUTION_PAYLOAD_HEADER = executionPayloadHeader ]
+  -- if executionPayload = body.EXECUTION_PAYLOAD
+  ;; assert 1
+  -- if executionPayload.PARENT_HASH = state.LATEST_EXECUTION_PAYLOAD_HEADER.BLOCK_HASH
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $get_randao_mix(state, epoch_cur) = bytes32_randao_expected
+  ;; assert 2
+  -- if executionPayload.PREV_RANDAO = bytes32_randao_expected
+  -- if $compute_time_at_slot(state, state.SLOT) = uint64_ts_expected
+  ;; assert 3
+  -- if executionPayload.TIMESTAMP = uint64_ts_expected
   ;; New codes in Deneb
-  -- if $(|body_beaconBlockBody.BLOB_KZG_COMMITMENTS| <= $MAX_BLOBS_PER_BLOCK)
-  -- if $ee_verify_and_notify_new_payload(executionPayload_block) = true
-  -- if $hash_tree_root_tx(executionPayload_block.TRANSACTIONS) = root_tx
-  -- if $hash_tree_root_withdrawals(executionPayload_block.WITHDRAWALS) = root_withdrawal
-  -- if executionPayloadHeader_new =
-       { PARENT_HASH        executionPayload_block.PARENT_HASH,
-         FEE_RECIPIENT      executionPayload_block.FEE_RECIPIENT,
-         STATE_ROOT         executionPayload_block.STATE_ROOT,
-         RECEIPTS_ROOT      executionPayload_block.RECEIPTS_ROOT,
-         LOGS_BLOOM         executionPayload_block.LOGS_BLOOM,
-         PREV_RANDAO        executionPayload_block.PREV_RANDAO,
-         BLOCK_NUMBER       executionPayload_block.BLOCK_NUMBER,
-         GAS_LIMIT          executionPayload_block.GAS_LIMIT,
-         GAS_USED           executionPayload_block.GAS_USED,
-         TIMESTAMP          executionPayload_block.TIMESTAMP,
-         EXTRA_DATA         executionPayload_block.EXTRA_DATA,
-         BASE_FEE_PER_GAS   executionPayload_block.BASE_FEE_PER_GAS,
-         BLOCK_HASH         executionPayload_block.BLOCK_HASH,
+  -- if $(|body.BLOB_KZG_COMMITMENTS| <= $MAX_BLOBS_PER_BLOCK)
+  ;; assert 4
+  -- if $ee_verify_and_notify_new_payload(executionPayload)
+  -- if $hash_tree_root_tx(executionPayload.TRANSACTIONS) = root_tx
+  -- if $hash_tree_root_withdrawals(executionPayload.WITHDRAWALS) = root_withdrawal
+  -- if executionPayloadHeader =
+       { PARENT_HASH        executionPayload.PARENT_HASH,
+         FEE_RECIPIENT      executionPayload.FEE_RECIPIENT,
+         STATE_ROOT         executionPayload.STATE_ROOT,
+         RECEIPTS_ROOT      executionPayload.RECEIPTS_ROOT,
+         LOGS_BLOOM         executionPayload.LOGS_BLOOM,
+         PREV_RANDAO        executionPayload.PREV_RANDAO,
+         BLOCK_NUMBER       executionPayload.BLOCK_NUMBER,
+         GAS_LIMIT          executionPayload.GAS_LIMIT,
+         GAS_USED           executionPayload.GAS_USED,
+         TIMESTAMP          executionPayload.TIMESTAMP,
+         EXTRA_DATA         executionPayload.EXTRA_DATA,
+         BASE_FEE_PER_GAS   executionPayload.BASE_FEE_PER_GAS,
+         BLOCK_HASH         executionPayload.BLOCK_HASH,
          TRANSACTIONS_ROOT  root_tx,
          WITHDRAWALS_ROOT   root_withdrawal,
          ;; new codes in Deneb
-         BLOB_GAS_USED      executionPayload_block.BLOB_GAS_USED,
-         EXCESS_BLOB_GAS    executionPayload_block.EXCESS_BLOB_GAS }
-  -- if state_updated = state_beaconState[.LATEST_EXECUTION_PAYLOAD_HEADER = executionPayloadHeader_new]
-
+         BLOB_GAS_USED      executionPayload.BLOB_GAS_USED,
+         EXCESS_BLOB_GAS    executionPayload.EXCESS_BLOB_GAS }
 
 
 ;;
@@ -164,21 +163,20 @@ relation Process_randao:
   hint(input %0 %1)
 
 rule Process_randao/main:
-  state_beaconState body_beaconBlockBody ~> state_updated
-  -- if $get_current_epoch(state_beaconState) = epoch
-  -- if $get_beacon_proposer_index(state_beaconState) = validatorIndex_prop_vi
-  -- if $(validatorIndex_prop_vi < |state_beaconState.VALIDATORS|)
-  -- if state_beaconState.VALIDATORS[validatorIndex_prop_vi] = validator_proposer
-  -- if $get_domain(state_beaconState, $DOMAIN_RANDAO, eps) = domain_randao
+  state body ~> state_updated
+  -- if $get_current_epoch(state) = epoch
+  -- if $get_beacon_proposer_index(state) = vid_prop_vi
+  -- if $(vid_prop_vi < |state.VALIDATORS|)
+  -- if state.VALIDATORS[vid_prop_vi] = validator_proposer
+  -- if $get_domain(state, $DOMAIN_RANDAO, eps) = domain_randao
   -- if $compute_signing_root_epoch(epoch, domain_randao) = root_signing
-  -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body_beaconBlockBody.RANDAO_REVEAL) = true
-  -- if $get_randao_mix(state_beaconState, epoch) = bytes32_mix_old
-  -- if $hash_<blsSignature>(body_beaconBlockBody.RANDAO_REVEAL) = bytes32_hash_reveal
+  ;; assert
+  -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body.RANDAO_REVEAL) = true
+  -- if $get_randao_mix(state, epoch) = bytes32_mix_old
+  -- if $hash_<blsSignature>(body.RANDAO_REVEAL) = bytes32_hash_reveal
   -- if $xor(bytes32_mix_old, bytes32_hash_reveal) = bytes32_mix_new
   -- if $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
-  -- if state_beaconState.RANDAO_MIXES[[uint64_n] = bytes32_mix_new] = bytes32_randao_mixes_update*
-  -- if state_updated = state_beaconState[.RANDAO_MIXES = bytes32_randao_mixes_update*]
-
+  -- if state_updated = state[.RANDAO_MIXES[uint64_n] = bytes32_mix_new]
 
 
 ;;
@@ -189,18 +187,20 @@ relation Process_eth1_data:
   hint(input %0 %1)
 
 rule Process_eth1_data/majority:
-  state_beaconState body_beaconBlockBody ~> state_updated
-  -- if state_beaconState.ETH1_DATA_VOTES ++ [ body_beaconBlockBody.ETH1_DATA ] = eth1Data_update*
-  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body_beaconBlockBody.ETH1_DATA) = nat_occ
+  state body ~> state_updated
+  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = nat_occ
+  ;; branch-complete
   -- if $(nat_occ * 2 > $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
-  -- if state_updated = state_beaconState[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body_beaconBlockBody.ETH1_DATA]
+  -- if state_updated = state[.ETH1_DATA_VOTES = eth1Data_update*][.ETH1_DATA = body.ETH1_DATA]
 
 rule Process_eth1_data/accumulate:
-  state_beaconState body_beaconBlockBody ~> state_updated
-  -- if state_beaconState.ETH1_DATA_VOTES ++ [ body_beaconBlockBody.ETH1_DATA ] = eth1Data_update*
-  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body_beaconBlockBody.ETH1_DATA) = nat_occ
+  state body ~> state_updated
+  -- if state.ETH1_DATA_VOTES ++ [ body.ETH1_DATA ] = eth1Data_update*
+  -- if $count_occurrences_<eth1Data>(eth1Data_update*, body.ETH1_DATA) = nat_occ
+  ;; branch-complete
   -- if $(nat_occ * 2 <= $EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH)
-  -- if state_updated = state_beaconState[.ETH1_DATA_VOTES = eth1Data_update*]
+  -- if state_updated = state[.ETH1_DATA_VOTES = eth1Data_update*]
 
 ;;
 ;; process_operations
@@ -211,19 +211,19 @@ relation Process_operations:
   hint(input %0 %1)
 
 rule Process_operations/main:
-  state_in body_in ~> state_out
-  -- if $( |body_in.DEPOSITS| ) = uint64_len_deposits
-  -- if $( state_in.ETH1_DATA.DEPOSIT_COUNT - state_in.ETH1_DEPOSIT_INDEX ) = uint64_remaining
-  -- if $( $MAX_DEPOSITS ) = uint64_max_deposits
-  -- if $min_uint64(uint64_max_deposits, uint64_remaining) = uint64_min_req
-  -- if $( uint64_len_deposits = uint64_min_req )
+  state body_in ~> state_out
+  -- if |body_in.DEPOSITS| = uint64_len_deposits
+  -- if $( state.ETH1_DATA.DEPOSIT_COUNT - state.ETH1_DEPOSIT_INDEX ) = uint64_remaining
+  ;; assert
+  -- if $min_uint64($MAX_DEPOSITS, uint64_remaining) = uint64_len_deposits
   ;; proposer_slashings → attester_slashings → attestations → deposits → voluntary_exits → bls_to_execution_changes               
-  -- Apply_proposer_slashings:        state_in body_in.PROPOSER_SLASHINGS        ~> state_ps
+  -- Apply_proposer_slashings:        state body_in.PROPOSER_SLASHINGS        ~> state_ps
   -- Apply_attester_slashings:        state_ps body_in.ATTESTER_SLASHINGS        ~> state_as
   -- Apply_attestations:              state_as body_in.ATTESTATIONS              ~> state_att
   -- Apply_deposits:                  state_att body_in.DEPOSITS                 ~> state_dep
   -- Apply_voluntary_exits:           state_dep body_in.VOLUNTARY_EXITS          ~> state_ve
-  -- Apply_bls_to_execution_changes:  state_ve body_in.BLS_TO_EXECUTION_CHANGES  ~> state_out
+  ;; Capella -> Deneb
+  -- ApplyBlsToExecutionChanges:  state_ve body_in.BLS_TO_EXECUTION_CHANGES  ~> state_out
 
 
 ;;
@@ -236,10 +236,9 @@ relation Process_sync_aggregate:
 
 ;; -------- Case A: state.SLOT = 0  → previous_slot = 0 --------
 rule Process_sync_aggregate/slot0:
-  state_in syncAggregate_sa ~> state_updated
-  -- if $(state_in.SLOT = 0)
+  state syncAggregate_sa ~> state_updated
   ;; (1) 서명 참가자(pubkey) 집합 추출 (committee ∩ bits==1)
-  -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
+  -- if blsPubkey_committee* = state.CURRENT_SYNC_COMMITTEE.PUBKEYS
   -- if $enumerate_<blsPubkey>(blsPubkey_committee*) = (n_pk, blsPubkey_pk)*
   -- if $filter_list_2_<(nat, blsPubkey), boolean*>(
         (n_pk, blsPubkey_pk)*,
@@ -249,21 +248,23 @@ rule Process_sync_aggregate/slot0:
   ;; change map_list_2_
   -- if ($pick_second_en_blsPubkey((n_pk_sel, blsPubkey_sel), syncAggregate_sa.SYNC_COMMITTEE_BITS) = blsPubkey_participants)*
   ;; (2) 도메인/서명루트 (previous_slot = 0)
+  -- if $(state.SLOT = 0)
   -- if slot_prev = 0
   -- if $compute_epoch_at_slot(slot_prev) = epoch_prev
-  -- if $get_domain(state_in, $DOMAIN_SYNC_COMMITTEE, epoch_prev) = domain_sc
-  -- if $get_block_root_at_slot(state_in, slot_prev) = root_prev_block
+  -- if $get_domain(state, $DOMAIN_SYNC_COMMITTEE, epoch_prev) = domain_sc
+  -- if $get_block_root_at_slot(state, slot_prev) = root_prev_block
   -- if $compute_signing_root_block_root(root_prev_block, domain_sc) = root_sign
   ;; (3) 빠른 집계 검증 (빈 집합 허용)
+  ;; assert
   -- if $eth_fast_aggregate_verify(
          blsPubkey_participants*,
          root_sign,
          syncAggregate_sa.SYNC_COMMITTEE_SIGNATURE
        ) = true
   ;; (4) 리워드/패널티 상수 계산
-  -- if $get_total_active_balance(state_in) = gwei_total_active
+  -- if $get_total_active_balance(state) = gwei_total_active
   -- if $( gwei_total_active / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_total_incs
-  -- if $get_base_reward_per_increment(state_in) = gwei_base_per_inc
+  -- if $get_base_reward_per_increment(state) = gwei_base_per_inc
   -- if $( gwei_base_per_inc * uint64_total_incs ) = gwei_total_base_rewards
   -- if $( gwei_total_base_rewards * $SYNC_REWARD_WEIGHT ) = uint64_num_0
   -- if $( uint64_num_0 / $WEIGHT_DENOMINATOR ) = gwei_tmp_0
@@ -274,27 +275,27 @@ rule Process_sync_aggregate/slot0:
   -- if $( uint64_num_prop / uint64_den_prop ) = gwei_proposer_reward
   ;; (5) 전체 위원(pubkey)→validatorIndex 매핑, enumerate, capture 부착 후 fold 적용
   ;; change map_list_2_
-  -- if ($index_of_pubkey_captured(blsPubkey_committee, state_in) = validatorIndex_committee)*
-  -- if $enumerate_<validatorIndex>(validatorIndex_committee*) = (n_i, validatorIndex_vi)*
-  -- if $get_beacon_proposer_index(state_in) = validatorIndex_prop
+  -- if ($index_of_pubkey_captured(blsPubkey_committee, state) = vid_committee)*
+  -- if $enumerate_<validatorIndex>(vid_committee*) = (n_i, vid_vi)*
+  -- if $get_beacon_proposer_index(state) = vid_prop
   ;; change map_list_2_
-  -- if ($attach_capture_sync((n_i, validatorIndex_vi), 
-                              (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop)) 
-                              = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c)))*
+  -- if ($attach_capture_sync((n_i, vid_vi), 
+                              (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, vid_prop)) 
+                              = ((n_c, vid_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, vid_prop_c)))*
   -- if state_updated =
        $fold_<beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
          def $apply_sync_one,
-         state_in,
-         ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
+         state,
+         ((n_c, vid_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, vid_prop_c))*
        )
 
 
 ;; -------- Case B: state.SLOT > 0  → previous_slot = state.SLOT - 1 --------
 rule Process_sync_aggregate/slot_pos:
-  state_in syncAggregate_sa ~> state_updated
-  -- if $(state_in.SLOT > 0)
+  state syncAggregate_sa ~> state_updated
+  -- if $(state.SLOT > 0)
   ;; (1) 서명 참가자(pubkey) 집합 추출
-  -- if blsPubkey_committee* = state_in.CURRENT_SYNC_COMMITTEE.PUBKEYS
+  -- if blsPubkey_committee* = state.CURRENT_SYNC_COMMITTEE.PUBKEYS
   -- if $enumerate_<blsPubkey>(blsPubkey_committee*) = (n_pk, blsPubkey_pk)*
   -- if $filter_list_2_<(nat, blsPubkey), boolean*>(
          (n_pk, blsPubkey_pk)*,
@@ -304,21 +305,22 @@ rule Process_sync_aggregate/slot_pos:
   ;; change map_list_2_
   -- if ($pick_second_en_blsPubkey((n_pk_sel, blsPubkey_sel), syncAggregate_sa.SYNC_COMMITTEE_BITS) = blsPubkey_participants)*
   ;; (2) 도메인/서명루트 (previous_slot = state.SLOT - 1)
-  -- if $( state_in.SLOT - 1 ) = slot_prev
+  -- if $( state.SLOT - 1 ) = slot_prev
   -- if $compute_epoch_at_slot(slot_prev) = epoch_prev
-  -- if $get_domain(state_in, $DOMAIN_SYNC_COMMITTEE, epoch_prev) = domain_sc
-  -- if $get_block_root_at_slot(state_in, slot_prev) = root_prev_block
+  -- if $get_domain(state, $DOMAIN_SYNC_COMMITTEE, epoch_prev) = domain_sc
+  -- if $get_block_root_at_slot(state, slot_prev) = root_prev_block
   -- if $compute_signing_root_block_root(root_prev_block, domain_sc) = root_sign
   ;; (3) 서명 검증
+  ;; assert
   -- if $eth_fast_aggregate_verify(
          blsPubkey_participants*,
          root_sign,
          syncAggregate_sa.SYNC_COMMITTEE_SIGNATURE
        ) = true
   ;; (4) 리워드/패널티 상수 계산
-  -- if $get_total_active_balance(state_in) = gwei_total_active
+  -- if $get_total_active_balance(state) = gwei_total_active
   -- if $( gwei_total_active / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_total_incs
-  -- if $get_base_reward_per_increment(state_in) = gwei_base_per_inc
+  -- if $get_base_reward_per_increment(state) = gwei_base_per_inc
   -- if $( gwei_base_per_inc * uint64_total_incs ) = gwei_total_base_rewards
   -- if $( gwei_total_base_rewards * $SYNC_REWARD_WEIGHT ) = uint64_num_0
   -- if $( uint64_num_0 / $WEIGHT_DENOMINATOR ) = gwei_tmp_0
@@ -329,16 +331,16 @@ rule Process_sync_aggregate/slot_pos:
   -- if $( uint64_num_prop / uint64_den_prop ) = gwei_proposer_reward
   ;; (5) 전체 위원(pubkey)→validatorIndex 매핑, enumerate, capture 부착 후 fold 적용
   ;; change map_list_2_
-  -- if ($index_of_pubkey_captured(blsPubkey_committee, state_in) = validatorIndex_committee)*
-  -- if $enumerate_<validatorIndex>(validatorIndex_committee*) = (n_i, validatorIndex_vi)*
-  -- if $get_beacon_proposer_index(state_in) = validatorIndex_prop
+  -- if ($index_of_pubkey_captured(blsPubkey_committee, state) = vid_committee)*
+  -- if $enumerate_<validatorIndex>(vid_committee*) = (n_i, vid_vi)*
+  -- if $get_beacon_proposer_index(state) = vid_prop
   ;; change map_list_2_
-  -- if ($attach_capture_sync((n_i, validatorIndex_vi), 
-                              (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, validatorIndex_prop)) 
-                              = ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c)))*
+  -- if ($attach_capture_sync((n_i, vid_vi), 
+                              (gwei_participant_reward, gwei_proposer_reward, syncAggregate_sa.SYNC_COMMITTEE_BITS, vid_prop)) 
+                              = ((n_c, vid_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, vid_prop_c)))*
   -- if state_updated =
        $fold_<beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))>(
          def $apply_sync_one,
-         state_in,
-         ((n_c, validatorIndex_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, validatorIndex_prop_c))*
+         state,
+         ((n_c, vid_vc), (gwei_participant_reward_c, gwei_proposer_reward_c, boolean_bits_c*, vid_prop_c))*
        )

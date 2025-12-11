@@ -9,23 +9,29 @@ rule ProcessProposerSlashing/main:
   state proposerSlashing ~> state_slashed
   -- if beaconBlockHeader_1 = proposerSlashing.SIGNED_HEADER_1.MESSAGE
   -- if beaconBlockHeader_2 = proposerSlashing.SIGNED_HEADER_2.MESSAGE
+  ;; assert 1
   -- if $(beaconBlockHeader_1.SLOT = beaconBlockHeader_2.SLOT)
+  ;; assert 2
   -- if $(beaconBlockHeader_1.PROPOSER_INDEX = beaconBlockHeader_2.PROPOSER_INDEX)
+  ;; assert 3
   -- if ~(beaconBlockHeader_1 = beaconBlockHeader_2)
   -- if validatorIndex_prop = beaconBlockHeader_1.PROPOSER_INDEX
   -- if $(validatorIndex_prop < |state.VALIDATORS|)
   -- if state.VALIDATORS[validatorIndex_prop] = validator_prop
   -- if $get_current_epoch(state) = epoch_cur
+  ;; assert 4
   -- if $is_slashable_validator(validator_prop, epoch_cur) = true
   -- if signedBeaconBlockHeader_header_1 = proposerSlashing.SIGNED_HEADER_1
   -- if $compute_epoch_at_slot(signedBeaconBlockHeader_header_1.MESSAGE.SLOT) = epoch_h1
   -- if $get_domain(state, $DOMAIN_BEACON_PROPOSER, epoch_h1) = domain_h1
   -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_1.MESSAGE, domain_h1) = root_sign_h1
+  ;; assert 5
   -- if $bls_verify(validator_prop.PUBKEY, root_sign_h1, signedBeaconBlockHeader_header_1.SIGNATURE) = true
   -- if signedBeaconBlockHeader_header_2 = proposerSlashing.SIGNED_HEADER_2
   -- if $compute_epoch_at_slot(signedBeaconBlockHeader_header_2.MESSAGE.SLOT) = epoch_h2
   -- if $get_domain(state, $DOMAIN_BEACON_PROPOSER, epoch_h2) = domain_h2
   -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_header_2.MESSAGE, domain_h2) = root_sign_h2
+  ;; assert 6
   -- if $bls_verify(validator_prop.PUBKEY, root_sign_h2, signedBeaconBlockHeader_header_2.SIGNATURE) = true
   -- if state_slashed = $slash_validator(state, validatorIndex_prop, eps)
 
@@ -40,8 +46,11 @@ rule ProcessAttesterSlashing/main:
   state attesterSlashing ~> state_after_slash
   -- if indexedAttestation_1 = attesterSlashing.ATTESTATION_1
   -- if indexedAttestation_2 = attesterSlashing.ATTESTATION_2
+  ;; assert 1
   -- if $is_slashable_attestation_data(indexedAttestation_1.DATA, indexedAttestation_2.DATA) = true
+  ;; assert 2
   -- if $is_valid_indexed_attestation(state, indexedAttestation_1) = true
+  ;; assert 3
   -- if $is_valid_indexed_attestation(state, indexedAttestation_2) = true
   -- if validatorIndex_list_1* = indexedAttestation_1.ATTESTING_INDICES
   -- if validatorIndex_list_2* = indexedAttestation_2.ATTESTING_INDICES
@@ -67,18 +76,24 @@ rule ProcessAttestation/current:
   -- if attestationData = attestation.DATA
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
+  ;; assert 1
   -- if ( attestationData.TARGET.EPOCH = epoch_prev \/ attestationData.TARGET.EPOCH = epoch_cur )
+  ;; assert 2
   -- if $( attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT) )
+  ;; assert 3
   -- if $( attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state.SLOT )
   -- if $( state.SLOT <= attestationData.SLOT + $SLOTS_PER_EPOCH )
+  ;; assert 4
   -- if $( attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH) )
   -- if validatorIndex_committee* = $get_beacon_committee(state, attestationData.SLOT, attestationData.INDEX)
+  ;; assert 5
   -- if $( |attestation.AGGREGATION_BITS| = |validatorIndex_committee*| )
   ;; 현재 epoch 분기
   -- if $( attestationData.TARGET.EPOCH = epoch_cur )
   -- if $( state.SLOT - attestationData.SLOT ) = uint64_inclusion_delay
   ;; Python 코드 순서: get_attestation_participation_flag_indices 호출 → is_valid_indexed_attestation 체크
   -- if $get_attestation_participation_flag_indices(state, attestationData, uint64_inclusion_delay) = nat_flag_indices*
+  ;; assert 6
   -- if $is_valid_indexed_attestation(state, $get_indexed_attestation(state, attestation)) = true  
   ;; 바깥 for: vi 리스트 만들기
   -- if validatorIndex_attesting* = $get_attesting_indices(state, attestation)
@@ -99,18 +114,24 @@ rule ProcessAttestation/previous:
   -- if attestationData = attestation.DATA
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
+  ;; assert 1
   -- if ( attestationData.TARGET.EPOCH = epoch_prev \/ attestationData.TARGET.EPOCH = epoch_cur )
+  ;; assert 2
   -- if $( attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT) )
+  ;; assert 3
   -- if $( attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state.SLOT )
   -- if $( state.SLOT <= attestationData.SLOT + $SLOTS_PER_EPOCH )
+  ;; assert 4
   -- if $( attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH) )
   -- if validatorIndex_committee* = $get_beacon_committee(state, attestationData.SLOT, attestationData.INDEX)
+  ;; assert 5
   -- if $( |attestation.AGGREGATION_BITS| = |validatorIndex_committee*| )
   ;; 이전 epoch 분기
   -- if $( attestationData.TARGET.EPOCH = epoch_prev )
   -- if $( state.SLOT - attestationData.SLOT ) = uint64_inclusion_delay
   ;; Python 코드 순서: get_attestation_participation_flag_indices 호출 → is_valid_indexed_attestation 체크
   -- if $get_attestation_participation_flag_indices(state, attestationData, uint64_inclusion_delay) = nat_flag_indices*
+  ;; assert 6
   -- if $is_valid_indexed_attestation(state, $get_indexed_attestation(state, attestation)) = true
   -- if validatorIndex_attesting* = $get_attesting_indices(state, attestation)
   ;; change map_list_2_
@@ -136,6 +157,7 @@ rule ProcessDeposit/main:
   state deposit ~> state_applied
   -- if $hash_tree_root_depositData(deposit.DATA) = root_leaf
   -- if $( $DEPOSIT_CONTRACT_TREE_DEPTH + 1 ) = uint64_depth_plus_1
+  ;; assert
   -- if $is_valid_merkle_branch(
          root_leaf,
          deposit.PROOF,
@@ -169,12 +191,17 @@ rule ProcessVoluntaryExit/main:
   -- if $(validatorIndex_exit < |state.VALIDATORS|)
   -- if state.VALIDATORS[validatorIndex_exit] = validator
   -- if $get_current_epoch(state) = epoch_cur
+  ;; assert 1
   -- if $is_active_validator(validator, epoch_cur) = true
+  ;; assert 2
   -- if $(validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)
+  ;; assert 3
   -- if $(epoch_cur >= voluntaryExit.EPOCH)
+  ;; assert 4
   -- if $(epoch_cur >= validator.ACTIVATION_EPOCH + $SHARD_COMMITTEE_PERIOD)
   -- if $get_domain(state, $DOMAIN_VOLUNTARY_EXIT, voluntaryExit.EPOCH) = domain_exit
   -- if $compute_signing_root_voluntary_exit(voluntaryExit, domain_exit) = root_vol_exit_signing_root
+  ;; assert 5
   -- if $bls_verify(validator.PUBKEY, root_vol_exit_signing_root, signedVoluntaryExit.SIGNATURE) = true
   -- if state_after_exit = $initiate_validator_exit(state, validatorIndex_exit)
 

@@ -8,6 +8,7 @@
 dec $get_block_root_at_slot(beaconState, slot) : root
 
 def $get_block_root_at_slot(state, slot) = root_ret
+  ;; assert
   -- if $(slot < state.SLOT)
   -- if $(state.SLOT <= slot + $SLOTS_PER_HISTORICAL_ROOT)
   -- if $(slot \ $SLOTS_PER_HISTORICAL_ROOT) = n_idx

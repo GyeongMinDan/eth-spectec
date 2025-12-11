@@ -165,6 +165,7 @@ rule Process_randao/main:
   -- if state.VALIDATORS[vid_prop_vi] = validator_proposer
   -- if $get_domain(state, $DOMAIN_RANDAO, eps) = domain_randao
   -- if $compute_signing_root_epoch(epoch, domain_randao) = root_signing
+  ;; assert
   -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body.RANDAO_REVEAL) = true
   -- if $get_randao_mix(state, epoch) = bytes32_mix_old
   -- if $hash_<blsSignature>(body.RANDAO_REVEAL) = bytes32_hash_reveal
@@ -249,6 +250,7 @@ rule Process_sync_aggregate/slot0:
   -- if $get_block_root_at_slot(state, slot_prev) = root_prev_block
   -- if $compute_signing_root_block_root(root_prev_block, domain_sc) = root_sign
   ;; (3) 빠른 집계 검증 (빈 집합 허용)
+  ;; assert
   -- if $eth_fast_aggregate_verify(
          blsPubkey_participants*,
          root_sign,
@@ -304,6 +306,7 @@ rule Process_sync_aggregate/slot_pos:
   -- if $get_block_root_at_slot(state, slot_prev) = root_prev_block
   -- if $compute_signing_root_block_root(root_prev_block, domain_sc) = root_sign
   ;; (3) 서명 검증
+  ;; assert
   -- if $eth_fast_aggregate_verify(
          blsPubkey_participants*,
          root_sign,

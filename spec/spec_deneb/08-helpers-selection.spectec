@@ -73,6 +73,8 @@ def $apply_shuffle_round(uint64_index_in, (bytes32_seed, uint64_n, uint64_round)
 dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
 
 def $compute_shuffled_index(uint64_index, uint64_index_count, bytes32_seed) = uint64_index_out
+  ;; assert
+  -- if $(uint64_index < uint64_index_count)
   -- if $range($SHUFFLE_ROUND_COUNT) = uint64_rounds*
   -- if $(|uint64_rounds*|) = uint64_rounds_count
   -- if uint64_rounds*[0] = uint64_round_first
@@ -136,6 +138,7 @@ dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIn
 
 def $compute_proposer_index(state_beaconState, validatorIndex_indices*, bytes32_seed) = validatorIndex_ret
   -- if $( |validatorIndex_indices*| ) = uint64_total
+  ;; assert
   -- if $( uint64_total > 0 )
   -- if $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, 0) = validatorIndex_ret
 
