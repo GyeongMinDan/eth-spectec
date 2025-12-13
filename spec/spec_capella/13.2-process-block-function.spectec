@@ -67,7 +67,9 @@ rule ProcessWithdrawals/lenMax:
   ----
   ;; branch-elseif
   -- if |withdrawal_expected*| = $MAX_WITHDRAWALS_PER_PAYLOAD
-  -- if withdrawal_expected*[-1] = withdrawal_latest
+  -- if |withdrawal_expected*| = uint64_len
+  ;; TODO: support negative indexing
+  -- if withdrawal_expected*[uint64_len - 1] = withdrawal_latest
   -- if $(withdrawal_latest.INDEX + 1 ) = withdrawalIndex_next
   -- if $(( withdrawal_latest.VALIDATOR_INDEX + 1 \ |state_after_debits.VALIDATORS|)) = vid_next
 
@@ -85,7 +87,9 @@ rule ProcessWithdrawals/lenPartial:
   ;; branch-else
   -- if |withdrawal_expected*| =/= 0
   -- if |withdrawal_expected*| =/= $MAX_WITHDRAWALS_PER_PAYLOAD
-  -- if withdrawal_expected*[-1] = withdrawal_latest
+  -- if |withdrawal_expected*| = uint64_len
+  ;; TODO: support negative indexing
+  -- if withdrawal_expected*[uint64_len - 1] = withdrawal_latest
   -- if $( withdrawal_latest.INDEX + 1 ) = withdrawalIndex_next
   -- if $( (state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX
          + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP) \ |state_after_debits.VALIDATORS| ) = vid_next
