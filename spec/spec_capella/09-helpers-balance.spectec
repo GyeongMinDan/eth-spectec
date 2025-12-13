@@ -6,11 +6,11 @@
 ;; increase_balance(beaconState, validatorIndex, gwei) : beaconState
 ;; ------------------------------------------------------------
 relation IncreaseBalance:
-  beaconState `[ validatorIndex ] `+ gwei ~> beaconState
+  beaconState `.BALANCES `[ validatorIndex ] `+ gwei ~> beaconState
   hint(input %0 %1 %2)
 
 rule IncreaseBalance:
-  state `[ vid ] `+ delta ~> state[ .BALANCES[vid] = $(balance + delta) ]
+  state `.BALANCES `[ vid ] `+ delta ~> state[ .BALANCES[vid] = $(balance + delta) ]
   -- if $(vid < |state.BALANCES|)
   -- if state.BALANCES[vid] = balance
 
@@ -18,18 +18,18 @@ rule IncreaseBalance:
 ;; decrease_balance(beaconState, validatorIndex, gwei) : beaconState
 ;; ------------------------------------------------------------
 relation DecreaseBalance:
-  beaconState `[ validatorIndex ] `- gwei ~> beaconState
+  beaconState `.BALANCES  `[ validatorIndex ] `- gwei ~> beaconState
   hint(input %0 %1 %2)
 
 rule DecreaseBalance/zero:
-  state `[ vid ] `- delta ~> state[ .BALANCES[vid] = 0]
+  state `.BALANCES `[ vid ] `- delta ~> state[ .BALANCES[vid] = 0]
   -- if $(vid < |state.BALANCES|)
   -- if state.BALANCES[vid] = balance
   ;; branch
   -- if $(delta > balance)
   
 rule DecreaseBalance/remains:
-  state `[ vid ] `- delta ~> state[ .BALANCES[vid] = $(balance - delta) ]
+  state `.BALANCES `[ vid ] `- delta ~> state[ .BALANCES[vid] = $(balance - delta) ]
   -- if $(vid < |state.BALANCES|)
   -- if state.BALANCES[vid] = balance
   ;; branch
@@ -39,19 +39,16 @@ rule DecreaseBalance/remains:
 ;; helpers for exit-epoch lists
 ;; ----------------------------
 dec $exit_epoch_not_far_future(validator) : boolean
-def $exit_epoch_not_far_future(validator_v) = true
-  -- if ~( validator_v.EXIT_EPOCH = $FAR_FUTURE_EPOCH )
-def $exit_epoch_not_far_future(validator_v) = false
+def $exit_epoch_not_far_future(validator) = true
+  -- if validator.EXIT_EPOCH =/= $FAR_FUTURE_EPOCH
+def $exit_epoch_not_far_future(validator) = false
   -- otherwise
 
 dec $exit_epoch_eq(validator, epoch) : boolean
-def $exit_epoch_eq(validator_v, epoch_e) = true
-  -- if $( validator_v.EXIT_EPOCH = epoch_e )
-def $exit_epoch_eq(validator_v, epoch_e) = false
+def $exit_epoch_eq(validator, epoch) = true
+  -- if validator.EXIT_EPOCH = epoch
+def $exit_epoch_eq(validator, epoch) = false
   -- otherwise
-
-dec $exit_epoch_of(validator) : epoch
-def $exit_epoch_of(validator_v) = validator_v.EXIT_EPOCH
 
 ;; fold for max over epochs 
 dec $fold_max_epoch(epoch, epoch) : epoch
@@ -69,71 +66,72 @@ def $select_epoch_exit_queue(epoch_exit_queue_0, uint64_churn, uint64_limit) = e
 ;; --------------------------------------------
 ;; initiate_validator_exit(state, index) : state
 ;; --------------------------------------------
-dec $initiate_validator_exit(beaconState, validatorIndex) : beaconState
+relation InitiateValidatorExit:
+  beaconState `.VALIDATORS `[ validatorIndex ] ~> beaconState
+  hint(input %0 %1)
 
-;; if 조건 만족 시 그대로 반환
-def $initiate_validator_exit(state_in, vid_idx) = state_in
-  -- if $(vid_idx < |state_in.VALIDATORS|)
-  -- if state_in.VALIDATORS[vid_idx] = validator_v
-  -- if ~( validator_v.EXIT_EPOCH = $FAR_FUTURE_EPOCH )
+;; skip condition: already exited
+rule InitiateValidatorExit/skip:
+  state `.VALIDATORS `[ vid ] ~> state
+  ;; inserted guard
+  -- if $(vid < |state.VALIDATORS|)
+  -- if state.VALIDATORS[vid] = validator
+  ;; branch
+  -- if validator.EXIT_EPOCH =/= $FAR_FUTURE_EPOCH
 
-;; 메인 로직 (공통 계산을 한 번만 수행하고 helper 함수로 분기 처리)
-def $initiate_validator_exit(state_in, vid_idx) = state_out
-  -- if $(vid_idx < |state_in.VALIDATORS|)
-  -- if state_in.VALIDATORS[vid_idx] = validator_v
-  -- if $( validator_v.EXIT_EPOCH = $FAR_FUTURE_EPOCH )
+;; main logic: brancing in helper functions
+rule InitiateValidatorExit/main:
+  state `.VALIDATORS `[ vid ] ~> state[.VALIDATORS[vid] = validator[.EXIT_EPOCH = epoch_exit_queue][.WITHDRAWABLE_EPOCH = epoch_withdrawable]]
+  -- if $(vid < |state.VALIDATORS|)
+  -- if state.VALIDATORS[vid] = validator
+  ;; branch
+  -- if validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH
   ;; (1) exit_epochs = [v.exit_epoch for v in state.validators if v.exit_epoch != FAR_FUTURE_EPOCH]
-  -- if validator_list* = state_in.VALIDATORS
-  -- if $filter_list_<validator>(validator_list*, def $exit_epoch_not_far_future) = validator_list_nf*
-  -- if ($exit_epoch_of(validator_list_nf) = epoch_exit_list)*       
+  -- if $filter_list_<validator>(state.VALIDATORS, def $exit_epoch_not_far_future) = validator_exit*
+  -- if (validator_exit.EXIT_EPOCH = epoch_exit)*
   ;; (2) epoch_act_exit = compute_activation_exit_epoch(get_current_epoch(state))
-  -- if $get_current_epoch(state_in) = epoch_cur
-  -- if $compute_activation_exit_epoch(epoch_cur) = epoch_act_exit
+  -- if $compute_activation_exit_epoch($get_current_epoch(state)) = epoch_activation_exit
   ;; (3) exit_queue_epoch_0 = max(exit_epochs + [epoch_act_exit])
-  -- if epoch_exit_list* ++ [ epoch_act_exit ] = epoch_all*
-  -- if $fold_<epoch, epoch>(def $fold_max_epoch, 0, epoch_all*) = epoch_exit_queue_0
+  -- if epoch_exit* ++ [ epoch_activation_exit ] = epoch_exit_all*
+  -- if $fold_<epoch, epoch>(def $fold_max_epoch, 0, epoch_exit_all*) = epoch_exit_queue_0
   ;; (4) exit_queue_churn = len([v for v in state.validators if v.exit_epoch == exit_queue_epoch_0])
-  -- if $filter_list_2_<validator, epoch>(validator_list*, epoch_exit_queue_0, def $exit_epoch_eq) = validator_list_eq*
-  -- if $( |validator_list_eq*| ) = uint64_exit_queue_churn
+  -- if $filter_list_2_<validator, epoch>(validator_exit*, epoch_exit_queue_0, def $exit_epoch_eq) = validator_list_eq*
+  -- if |validator_list_eq*| = uint64_exit_queue_churn
   ;; (5) 한도 체크 및 epoch_exit_queue 결정 (helper 함수로 분기 처리)
-  -- if $get_validator_churn_limit(state_in) = uint64_churn_limit
+  -- if $get_validator_churn_limit(state) = uint64_churn_limit
+  ;; TODO: inline helper
   -- if $select_epoch_exit_queue(epoch_exit_queue_0, uint64_exit_queue_churn, uint64_churn_limit) = epoch_exit_queue
-  ;; (6) validator.exit_epoch / withdrawable_epoch 설정
+  ;; (6) update validator.exit_epoch / withdrawable_epoch
   -- if epoch_withdrawable = $( epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY )
-  -- if validator_updated =
-        validator_v[.EXIT_EPOCH         = epoch_exit_queue]
-                  [.WITHDRAWABLE_EPOCH = epoch_withdrawable]
-  -- if state_in.VALIDATORS[[vid_idx] = validator_updated] = validator_update*
-  -- if state_out = state_in[.VALIDATORS = validator_update*]
+
 
 ;; ========== 공통 내부 단계 (exit, slashed 플래그/withdrawable 갱신, slashings집계, 기본 패널티) ==========
-;; helper: 내부 공통 전처리(state_in, slashed_idx) → (state_after_penalty, validator_snapshot, proposer_index)
+;; helper: 내부 공통 전처리(state, slashed_idx) → (state_after_penalty, validator_snapshot, proposer_index)
 dec $slash_core_prepare(beaconState, validatorIndex) : (beaconState, validator, validatorIndex)
 
-def $slash_core_prepare(state_in, vid_slashed) = (state_after_penalty, validator_v, vid_prop)
-  -- if $(vid_slashed < |state_in.VALIDATORS|)
-  -- if $initiate_validator_exit(state_in, vid_slashed) = state_0
+def $slash_core_prepare(state, vid_slashed) = (state_after_penalty, validator, vid_proposer)
+  -- if $(vid_slashed < |state.VALIDATORS|)
+  -- if $get_current_epoch(state) = epoch_cur
+  -- InitiateValidatorExit: state `.VALIDATORS `[ vid_slashed ] ~> state_0
   -- if state_0.VALIDATORS[vid_slashed] = validator_old
   ;; mark slashed
   -- if validator_marked = validator_old[.SLASHED = true]
   ;; withdrawable_epoch = max(old, epoch + EPOCHS_PER_SLASHINGS_VECTOR)
-  -- if $get_current_epoch(state_0) = epoch_cur
   -- if $( epoch_cur + $EPOCHS_PER_SLASHINGS_VECTOR ) = epoch_lock
   -- if $max_uint64(validator_marked.WITHDRAWABLE_EPOCH, epoch_lock) = epoch_withdrawable_new
   -- if validator_updated = validator_marked[.WITHDRAWABLE_EPOCH = epoch_withdrawable_new]
-  -- if state_1 = state_0[.VALIDATORS = state_0.VALIDATORS[[vid_slashed] = validator_updated]]
+  -- if state_1 = state_0[.VALIDATORS[vid_slashed] = validator_updated]
   ;; accumulate slashings[epoch % EPOCHS_PER_SLASHINGS_VECTOR] += effective_balance
-  -- if $( epoch_cur \ $EPOCHS_PER_SLASHINGS_VECTOR ) = uint64_bucket
-  -- if state_1.SLASHINGS[uint64_bucket] = gwei_bucket_old
+  -- if state_1.SLASHINGS[epoch_cur \ $EPOCHS_PER_SLASHINGS_VECTOR] = gwei_bucket_old
   -- if $( gwei_bucket_old + validator_updated.EFFECTIVE_BALANCE ) = gwei_bucket_new
-  -- if state_2 = state_1[.SLASHINGS = state_1.SLASHINGS[[uint64_bucket] = gwei_bucket_new]]
+  -- if state_2 = state_1[.SLASHINGS = state_1.SLASHINGS[[epoch_cur \ $EPOCHS_PER_SLASHINGS_VECTOR] = gwei_bucket_new]]
   ;; base slashing penalty (Bellatrix)
   -- if $( validator_updated.EFFECTIVE_BALANCE / $MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX ) = penalty
-  -- DecreaseBalance: state_2 `[ vid_slashed ] `- penalty ~> state_3
+  -- DecreaseBalance: state_2 `.BALANCES `[ vid_slashed ] `- penalty ~> state_3
   ;; proposer index (현재 state 기준)
-  -- if vid_prop = $get_beacon_proposer_index(state_3)
+  -- if vid_proposer = $get_beacon_proposer_index(state_3)
   -- if state_after_penalty = state_3
-  -- if validator_v = validator_updated
+  -- if validator = validator_updated
 
 ;; ------------------------------------------------------------
 ;; slash_validator(state, slashed_index, whistleblower_index = None) : beaconState
@@ -141,26 +139,26 @@ def $slash_core_prepare(state_in, vid_slashed) = (state_after_penalty, validator
 dec $slash_validator(beaconState, validatorIndex, validatorIndex?) : beaconState
 
 ;; ========== whistleblower_index가 생략된(eps) 경우: proposer가 whistleblower ==========
-def $slash_validator(state_in, vid_slashed, eps) = state_out
-  -- if (state_mid, validator_v, vid_prop) = $slash_core_prepare(state_in, vid_slashed)
+def $slash_validator(state, vid_slashed, eps) = state_out
+  -- if (state_mid, validator, vid_proposer) = $slash_core_prepare(state, vid_slashed)
   ;; rewards
-  -- if $( validator_v.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT ) = reward_whistleblower
+  -- if $( validator.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT ) = reward_whistleblower
   -- if $( reward_whistleblower * $PROPOSER_WEIGHT ) = gwei_prop_num
   -- if $( gwei_prop_num / $WEIGHT_DENOMINATOR ) = reward_proposer 
-  -- IncreaseBalance: state_mid `[ vid_prop ] `+ reward_proposer ~> state_r1
+  -- IncreaseBalance: state_mid `.BALANCES `[ vid_proposer ] `+ reward_proposer ~> state_r1
   -- if $( reward_whistleblower - reward_proposer ) = reward_whistleblower_rest 
-  -- IncreaseBalance: state_r1 `[ vid_prop ] `+ reward_whistleblower_rest ~> state_out
+  -- IncreaseBalance: state_r1 `.BALANCES `[ vid_proposer ] `+ reward_whistleblower_rest ~> state_out
 
 ;; ========== whistleblower_index가 명시된 경우 ==========
-def $slash_validator(state_in, vid_slashed, vid_wb) = state_out
-  -- if (state_mid, validator_v, vid_prop) = $slash_core_prepare(state_in, vid_slashed)
+def $slash_validator(state, vid_slashed, vid_whistleblower) = state_out
+  -- if (state_mid, validator, vid_proposer) = $slash_core_prepare(state, vid_slashed)
   ;; rewards
-  -- if $( validator_v.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT ) = reward_whistleblower
+  -- if $( validator.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT ) = reward_whistleblower
   -- if $( reward_whistleblower * $PROPOSER_WEIGHT ) = gwei_prop_num
   -- if $( gwei_prop_num / $WEIGHT_DENOMINATOR ) = reward_proposer
-  -- IncreaseBalance: state_mid `[ vid_prop ] `+ reward_proposer ~> state_r1
+  -- IncreaseBalance: state_mid `.BALANCES `[ vid_proposer ] `+ reward_proposer ~> state_r1
   -- if $( reward_whistleblower - reward_proposer ) = reward_whistleblower_rest
-  -- IncreaseBalance: state_r1 `[ vid_wb ] `+ reward_whistleblower_rest ~> state_out
+  -- IncreaseBalance: state_r1 `.BALANCES `[ vid_whistleblower ] `+ reward_whistleblower_rest ~> state_out
 
 
 ;; ------------------------------------------------------------
@@ -170,8 +168,8 @@ dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beacon
 
 
 ;; case 1: 신규 pubkey
-def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
-  -- if state_in.VALIDATORS = validator_list*
+def $apply_deposit(state, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
+  -- if state.VALIDATORS = validator_list*
   ;; validators의 pubkey 리스트 생성 (validator_list* → blsPubkey_list*)
   -- if (validator_list.PUBKEY = blsPubkey_list)*
   ;; membership: pubkey 가 리스트에 없는 경우
@@ -183,12 +181,12 @@ def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature
   -- if $compute_domain($DOMAIN_DEPOSIT, eps, eps) = domain_deposit
   -- if $compute_signing_root_depositMessage(depositMessage_msg, domain_deposit) = root_sign
   -- if $bls_verify(blsPubkey_pk, root_sign, blsSignature_sig) = true
-  -- if state_out = $add_validator_to_registry(state_in, blsPubkey_pk, bytes32_wc, gwei_amount)
+  -- if state_out = $add_validator_to_registry(state, blsPubkey_pk, bytes32_wc, gwei_amount)
 
 ;; case 2: 기존 pubkey
-def $apply_deposit(state_in, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
-  -- if state_in.VALIDATORS = validator_list*
+def $apply_deposit(state, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
+  -- if state.VALIDATORS = validator_list*
   -- if (validator_list.PUBKEY = blsPubkey_list)*
   -- if ( blsPubkey_pk <- blsPubkey_list* )
-  -- if $index_of_pubkey(state_in, blsPubkey_pk) = vid_idx  ;; use index_of_pubkey
-  -- IncreaseBalance: state_in `[ vid_idx ] `+ gwei_amount ~> state_out
+  -- if $index_of_pubkey(state, blsPubkey_pk) = vid  ;; use index_of_pubkey
+  -- IncreaseBalance: state `.BALANCES `[ vid ] `+ gwei_amount ~> state_out

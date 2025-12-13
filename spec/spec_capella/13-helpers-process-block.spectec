@@ -9,23 +9,23 @@ dec $expected_withdrawals_loop(
 ) : withdrawal*
 
 ;; base 1: payload 한도
-def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
   = withdrawal_acc*
   -- if |withdrawal_acc*| = $MAX_WITHDRAWALS_PER_PAYLOAD
 
 ;; base 2: bound 횟수 반복
-def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
   = withdrawal_acc*
   -- if $( uint64_i >= uint64_bound )
 
 ;; step: 현재 vi 점검 → (전액/부분/미해당) 처리 → i+1, vi'로 진행
-def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
   = withdrawal_out*
   -- if $(vid < |state.VALIDATORS|)
   -- if validator = state.VALIDATORS[vid]
   -- if gwei_balance = state.BALANCES[vid]
   ;; case A: fully withdrawable
-  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch_epoch) = true
+  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch) = true
   -- if executionAddress_addr = $extract_execution_address(validator.WITHDRAWAL_CREDENTIALS)
   -- if withdrawal_w =
        { INDEX           withdrawalIndex,
@@ -39,16 +39,16 @@ def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_
   -- if $( (vid + 1) \ uint64_N ) = validatorIndex_next
   -- if withdrawal_out* =
        $expected_withdrawals_loop(
-         state, epoch_epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
+         state, epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
        )
 
 ;; case B: partially withdrawable
-def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
   = withdrawal_out*
   -- if $(vid < |state.VALIDATORS|)
   -- if validator = state.VALIDATORS[vid]
   -- if gwei_balance = state.BALANCES[vid]
-  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch_epoch) = false
+  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch) = false
   -- if $is_partially_withdrawable_validator(validator, gwei_balance) = true
   -- if executionAddress_addr = $extract_execution_address(validator.WITHDRAWAL_CREDENTIALS)
   -- if $( gwei_balance - $MAX_EFFECTIVE_BALANCE ) = gwei_excess
@@ -63,16 +63,16 @@ def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_
   -- if $( (vid + 1) \ uint64_N ) = validatorIndex_next
   -- if withdrawal_out* =
        $expected_withdrawals_loop(
-         state, epoch_epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
+         state, epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
        )
 
 ;; case C: 미해당 → append 없음 / wi 변화 없음
-def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
   = withdrawal_out*
   -- if $(vid < |state.VALIDATORS|)
   -- if validator = state.VALIDATORS[vid]
   -- if gwei_balance = state.BALANCES[vid]
-  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch_epoch) = false
+  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch) = false
   -- if $is_partially_withdrawable_validator(validator, gwei_balance) = false
   -- if withdrawal_sel* = withdrawal_acc*
   -- if withdrawalIndex_next = withdrawalIndex
@@ -80,7 +80,7 @@ def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_
   -- if $( (vid + 1) \ uint64_N ) = validatorIndex_next
   -- if withdrawal_out* =
        $expected_withdrawals_loop(
-         state, epoch_epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
+         state, epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
        )
 
 ;; --------------------------------------------
@@ -104,7 +104,7 @@ relation ApplyWithdrawal:
 
 rule ApplyWithdrawal:
   state withdrawal ~> state_out
-  -- DecreaseBalance: state `[ withdrawal.VALIDATOR_INDEX ] `- withdrawal.AMOUNT ~> state_out
+  -- DecreaseBalance: state `.BALANCES `[ withdrawal.VALIDATOR_INDEX ] `- withdrawal.AMOUNT ~> state_out
 
 relation ApplyWithdrawals:
   beaconState withdrawal* ~>* beaconState
@@ -194,7 +194,7 @@ relation RewardProposer:
 rule RewardProposer:
   state `[ `? ] `+ reward_prop ~> state_out
   -- if $get_beacon_proposer_index(state) = vid_prop
-  -- IncreaseBalance: state `[ vid_prop ] `+ reward_prop ~> state_out
+  -- IncreaseBalance: state `.BALANCES `[ vid_prop ] `+ reward_prop ~> state_out
 
 
 ;; process_sync_aggregate 용
@@ -221,12 +221,12 @@ dec $apply_sync_one(beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, 
 def $apply_sync_one(state, ((n, vid), (reward_part, reward_prop, boolean_bits*, vid_prop))) = state_out
   -- if $(n < |boolean_bits*|)
   -- if boolean_bits*[n] = true
-  -- IncreaseBalance: state `[ vid ] `+ reward_part ~> state_r
-  -- IncreaseBalance: state_r `[ vid_prop ] `+ reward_prop ~> state_out
+  -- IncreaseBalance: state `.BALANCES `[ vid ] `+ reward_part ~> state_r
+  -- IncreaseBalance: state_r `.BALANCES `[ vid_prop ] `+ reward_prop ~> state_out
 
 def $apply_sync_one(state, ((nat_i, vid), (reward_part, reward_prop, boolean_bits*, vid_prop))) = state_out
   -- otherwise
-  -- DecreaseBalance: state `[ vid ] `- reward_part ~> state_out
+  -- DecreaseBalance: state `.BALANCES `[ vid ] `- reward_part ~> state_out
 
 ;; fold 입력을 만들기 위해 동일한 capture 를 각 (i, vi) 에 붙여줌
 dec $attach_capture_sync((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))

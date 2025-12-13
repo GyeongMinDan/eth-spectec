@@ -45,3 +45,7 @@ syntax participationFlags = uint8
 syntax executionAddress = bytes20
 syntax payloadId = bytes8
 syntax withdrawalIndex = uint64
+
+
+;; Semantic Types
+;; syntax delta = `+ gwei* `, `- gwei*

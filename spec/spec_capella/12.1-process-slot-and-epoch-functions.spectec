@@ -62,12 +62,12 @@ rule Process_justification_and_finalization/main:
   state ~> state_weighed
   -- if $get_current_epoch(state) = epoch_cur
   -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_prev_indices*
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_cur)  = vid_curr_indices*
-  -- if $get_total_active_balance(state) = gwei_total_active
-  -- if $get_total_balance(state, vid_prev_indices*) = gwei_prev_target_bal
-  -- if $get_total_balance(state, vid_curr_indices*) = gwei_curr_target_bal
-  -- if $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_target_bal, gwei_curr_target_bal) = state_weighed
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_prev*
+  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_cur)  = vid_curr*
+  -- if $get_total_active_balance(state) = balance_total_active
+  -- if $get_total_balance(state, vid_prev*) = balance_prev_target
+  -- if $get_total_balance(state, vid_curr*) = balance_curr_target
+  -- if $weigh_justification_and_finalization(state, balance_total_active, balance_prev_target, balance_curr_target) = state_weighed
 
 
 ;;
@@ -88,40 +88,35 @@ rule ProcessInactivityUpdates/main:
   ;; branch
   -- if $get_current_epoch(state) =/= $GENESIS_EPOCH
   -- if $get_eligible_validator_indices(state) = vid_eligible*
-  -- ApplyInactivities: state `[ vid_eligible* ] ~>* state_updated
+  -- ApplyInactivities: state `.INACTIVITY_SCORES `[ vid_eligible* ] ~>* state_updated
 
 
 ;;
 ;; process_rewards_and_penalties
 ;;
-relation Process_rewards_and_penalties:
+relation ProcessRewardsAndPenalties:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_rewards_and_penalties/skip:
+rule ProcessRewardsAndPenalties/skip:
   state ~> state
   -- if $get_current_epoch(state) = $GENESIS_EPOCH
 
-rule Process_rewards_and_penalties/main:
+rule ProcessRewardsAndPenalties/main:
   state ~> state_out
   -- if $get_current_epoch(state) =/= $GENESIS_EPOCH
-  ;; 1 flag deltas 수집: 0..|PARTICIPATION_FLAG_WEIGHTS|-1
-  -- if $range(|$PARTICIPATION_FLAG_WEIGHTS|) = nat_flag_idx*
-  -- if ( $get_flag_index_deltas(state, nat_flag_idx) = (gwei_rf*, gwei_pf*) )*
-  ;;    ↑ 반복으로 gwei_rf** / gwei_pf** 생성
-  ;; 2 inactivity deltas 추가 → 총 4세트
-  -- if $get_inactivity_penalty_deltas(state) = (gwei_ri*, gwei_pi*)
-  -- if gwei_rf** ++ [gwei_ri*] = gwei_reward_2d**
-  -- if gwei_pf** ++ [gwei_pi*] = penalty_2d**
-  ;; 3 검증자 인덱스 목록 준비 
-  -- if $range(|state.VALIDATORS|) = nat_idx*
-  -- if vid_idx* = nat_idx*          
-  ;; 4 바깥 세트(reward*, penalty*)들에 대해 차례대로 적용 (fold 1회)
-  -- if $fold_<beaconState, (validatorIndex*, (gwei*, gwei*))>(
-         def $apply_one_round_captured,
-         state,
-         (vid_idx*, (gwei_reward_2d*, penalty_2d*))*
-       ) = state_out
+  ;; 1: create flag indices: 0..|PARTICIPATION_FLAG_WEIGHTS|-1
+  -- if $range(|$PARTICIPATION_FLAG_WEIGHTS|) = i_flag*
+  -- if ( $get_flag_index_deltas(state, i_flag) = (reward_flag*, penalty_flag*) )*
+  ;; 2: get flag rewards and penalties
+  ;; 3: get inactivity rewards and penalties
+  -- if $get_inactivity_penalty_deltas(state) = (reward_inactivity*, penalty_inactivity*)
+  -- if reward_flag** ++ [reward_inactivity*] = reward**
+  -- if penalty_flag** ++ [penalty_inactivity*] = penalty**
+  ;; 4: create validator indices
+  -- if $range(|state.VALIDATORS|) = vid_idx*
+  ;; 5: apply rewards and penalties to each validator
+  -- ApplyRewardsAndPenalties_all: state `.BALANCES `[ vid_idx* ] `+ reward** `- penalty** ~>* state_out
 
 ;;
 ;; process_registry_updates
@@ -303,39 +298,48 @@ rule ProcessHistoricalSummariesUpdate/main:
 
 
 ;;
-;; process_participation_flag_updates
-;;
-relation Process_participation_flag_updates:
+;; [New in Altair]
+;; process_participation_flag_updates:
+;;  initialize current participation flags to zero
+;;  modifies:
+;;  PREVIOUS_EPOCH_PARTICIPATION
+;;  CURRENT_EPOCH_PARTICIPATION
+
+relation ProcessParticipationFlagUpdates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_participation_flag_updates:
+rule ProcessParticipationFlagUpdates:
   state ~> state_updated
-  -- if participationFlags_prev* = state.CURRENT_EPOCH_PARTICIPATION
-  -- if |state.VALIDATORS| = uint64_len_validators
-  -- if $repeat_<participationFlags>(0, uint64_len_validators) = participationFlags_zero*
-  -- if state_mid = state[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_prev*]
-  -- if state_updated = state_mid[.CURRENT_EPOCH_PARTICIPATION = participationFlags_zero*]
+  -- if $repeat_<participationFlags>(0, |state.VALIDATORS|) = participationFlags_zero*
+  -- if state_updated =
+        state[.PREVIOUS_EPOCH_PARTICIPATION = state.CURRENT_EPOCH_PARTICIPATION]
+             [.CURRENT_EPOCH_PARTICIPATION = participationFlags_zero*]
 
 
 ;;
-;; process_sync_committee_updates
-;;
-relation Process_sync_committee_updates:
+;; [New in Altair]
+;; process_sync_committee_updates:
+;;  initialize sync committees for next epoch
+;;  modifies:
+;;  CURRENT_SYNC_COMMITTEE
+;;  NEXT_SYNC_COMMITTEE
+
+relation ProcessSyncCommitteeUpdates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_sync_committee_updates/skip:
+rule ProcessSyncCommitteeUpdates/skip:
   state ~> state
   -- if $($get_current_epoch(state) + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = uint64_r
-  -- if ~(uint64_r = 0)
+  ;; branch-complete
+  -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) =/= 0
 
-rule Process_sync_committee_updates/main:
+rule ProcessSyncCommitteeUpdates/main:
   state ~> state_updated
   -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; branch-complete
   -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = 0
-  -- if syncCommittee_next = $get_next_sync_committee(state)
   -- if state_updated =
        state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
-                        [.NEXT_SYNC_COMMITTEE    = syncCommittee_next]
+            [.NEXT_SYNC_COMMITTEE    = $get_next_sync_committee(state)]
