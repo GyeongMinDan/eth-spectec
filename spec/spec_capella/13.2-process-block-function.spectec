@@ -94,8 +94,6 @@ rule ProcessWithdrawals/lenPartial:
   -- if $( (state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX
          + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP) \ |state_after_debits.VALIDATORS| ) = vid_next
 
-
-
 ;;
 ;; [Bellatrix -> Capella]
 ;; process_execution_payload
@@ -161,7 +159,6 @@ rule ProcessRandao/main:
   -- if $xor(bytes32_mix_old, bytes32_hash_reveal) = bytes32_mix_new
   -- if $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
 
-
 ;;
 ;; [Phase0]
 ;; process_eth1_data
@@ -201,7 +198,7 @@ rule Process_operations/main:
   ;; assert 1: TODO
   -- if $min_uint64($MAX_DEPOSITS, uint64_remaining) = |body.DEPOSITS|
   ;; proposer_slashings → attester_slashings → attestations → deposits → voluntary_exits → bls_to_execution_changes               
-  -- Apply_proposer_slashings:        state     body.PROPOSER_SLASHINGS         ~> state_ps
+  -- ProcessProposerSlashings:        state     body.PROPOSER_SLASHINGS         ~> state_ps
   -- Apply_attester_slashings:        state_ps  body.ATTESTER_SLASHINGS         ~> state_as
   -- Apply_attestations:              state_as  body.ATTESTATIONS               ~> state_att
   -- ApplyDeposits:                   state_att body.DEPOSITS                   ~> state_dep

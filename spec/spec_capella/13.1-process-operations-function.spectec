@@ -1,6 +1,7 @@
 ;;
 ;; [Phase0]
 ;; process_proposer_slashing
+;;  modifies: .VALIDATORS[].EXIT_EPOCH, .VALIDATORS[].WITHDRAWABLE_EPOCH, .SLASHINGS, .BALANCES
 ;;
 relation ProcessProposerSlashing:
   beaconState proposerSlashing ~> beaconState
@@ -38,9 +39,10 @@ rule ProcessProposerSlashing/main:
   -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_2.MESSAGE, domain_h2) = root_sign_h2
   ;; assert 5-2
   -- if $bls_verify(validator_proposer.PUBKEY, root_sign_h2, signedBeaconBlockHeader_2.SIGNATURE)
-  -- SlashValidator: state `.VALIDATORS `[ vid_proposer `; eps ] ~> state_slashed
+  -- SlashValidator: state SLASH `[ vid_proposer ] BY eps ~> state_slashed
 
 ;;
+;; [Phase0]
 ;; process_attester_slashing
 ;;
 relation ProcessAttesterSlashing:
@@ -48,22 +50,25 @@ relation ProcessAttesterSlashing:
   hint(input %0 %1)
 
 rule ProcessAttesterSlashing/main:
-  state attesterSlashing ~> state_after_slash
+  state attesterSlashing ~> state_slashed
   -- if indexedAttestation_1 = attesterSlashing.ATTESTATION_1
   -- if indexedAttestation_2 = attesterSlashing.ATTESTATION_2
+  ;; assert 1
   -- if $is_slashable_attestation_data(indexedAttestation_1.DATA, indexedAttestation_2.DATA) = true
+  ;; assert 2
   -- if $is_valid_indexed_attestation(state, indexedAttestation_1) = true
+  ;; assert 3
   -- if $is_valid_indexed_attestation(state, indexedAttestation_2) = true
-  -- if vid_list_1* = indexedAttestation_1.ATTESTING_INDICES
-  -- if vid_list_2* = indexedAttestation_2.ATTESTING_INDICES
-  -- if $to_set_<validatorIndex>(vid_list_1*) = vid_set_1*
-  -- if $to_set_<validatorIndex>(vid_list_2*) = vid_set_2*
-  -- if $set_intersection_<validatorIndex>(vid_set_1*, vid_set_2*) = vid_intersection*
+  -- if $set_intersection_<validatorIndex>(
+          $to_set_<validatorIndex>(indexedAttestation_1.ATTESTING_INDICES),
+          $to_set_<validatorIndex>(indexedAttestation_2.ATTESTING_INDICES)
+        ) = vid_intersection*
   -- if $sort_<validatorIndex>(vid_intersection*) = vid_sorted*
   ;; 지역변수 slashed_any 의 확인, 여기선 사전에 is_slashable 검사로 보장
   -- if $filter_list_2_<validatorIndex, beaconState>(vid_sorted*, state, def $is_slashable_now) = vid_slashable_now*
-  -- if $( |vid_slashable_now*| > 0 )
-  -- if state_after_slash = $apply_slashes(state, vid_sorted*)
+  ;; assert 4: slashed_any
+  -- if |vid_slashable_now*| =/= 0
+  -- ApplySlashes: state SLASH `[ vid_sorted* ] ~> state_slashed
 
 ;;
 ;; process_attestation
@@ -111,7 +116,7 @@ rule ProcessAttestation/previous:
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
   -- if ( attestationData.TARGET.EPOCH = epoch_prev \/ attestationData.TARGET.EPOCH = epoch_cur )
-  -- if $( attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT) )
+  -- if attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT)
   -- if $( attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state.SLOT )
   -- if $( state.SLOT <= attestationData.SLOT + $SLOTS_PER_EPOCH )
   -- if $( attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH) )
@@ -153,14 +158,13 @@ rule ProcessDeposit/main:
          state.ETH1_DATA.DEPOSIT_ROOT
        ) = true
   -- if state_inc = state[.ETH1_DEPOSIT_INDEX = $(state.ETH1_DEPOSIT_INDEX + 1)]
-  -- if state_applied =
-       $apply_deposit(
-         state_inc,
-         deposit.DATA.PUBKEY,
-         deposit.DATA.WITHDRAWAL_CREDENTIALS,
-         deposit.DATA.AMOUNT,
-         deposit.DATA.SIGNATURE
-       )
+  -- ApplyDeposit: state_inc `.VALIDATORS `++
+      `{
+        deposit.DATA.PUBKEY
+        deposit.DATA.WITHDRAWAL_CREDENTIALS
+        deposit.DATA.AMOUNT
+      }
+      SIGNED deposit.DATA.SIGNATURE ~> state_applied
 
 ;; 
 ;; process_voluntary_exit
@@ -187,7 +191,7 @@ rule ProcessVoluntaryExit/main:
   -- InitiateValidatorExit: state `.VALIDATORS `[ vid_exit ] ~> state_after_exit
 
 ;; 
-;; Capella:
+;; [Capella]
 ;; process_bls_to_execution_change
 ;; 
 relation ProcessBLSToExecutionChange:
@@ -217,18 +221,19 @@ rule ProcessBLSToExecutionChange/main:
   -- if state[.VALIDATORS[vid_change] = validator_updated] = state_updated
 
 
-;; apply proposer_slahsings
-relation Apply_proposer_slashings:
+;; folder for ProcessProposerSlashing
+
+relation ProcessProposerSlashings:
   beaconState proposerSlashing* ~> beaconState
   hint(input %0 %1)
 
-rule Apply_proposer_slashings/nil:
+rule ProcessProposerSlashings/nil:
   state eps ~> state
 
-rule Apply_proposer_slashings/cons:
+rule ProcessProposerSlashings/cons:
   state (proposerSlashing_h :: proposerSlashing_t*) ~> state_out
   -- ProcessProposerSlashing: state proposerSlashing_h ~> state_mid
-  -- Apply_proposer_slashings:  state_mid proposerSlashing_t* ~> state_out
+  -- ProcessProposerSlashings:  state_mid proposerSlashing_t* ~> state_out
 
 
 ;; apply attester_slashings

@@ -2,12 +2,12 @@
 ;; helpers for shuffle/committee/proposer/seed
 ;; =======================================
 
-;; --------------------------------------------
+;; [Custom]
 ;; choose_index : nat_bit==1 이면 flip, 아니면 그대로
-;; --------------------------------------------
+
 dec $choose_index(uint64, uint64, nat) : uint64
 def $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_flip
-  -- if $(nat_bit = 1)
+  -- if nat_bit = 1
 def $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_index_in
   -- otherwise
 
@@ -66,6 +66,7 @@ def $apply_shuffle_round(uint64_index_in, (bytes32_seed, uint64_n, uint64_round)
 
 
 ;; --------------------------------------------
+;; [Phase0]
 ;; compute_shuffled_index : for-loop
 ;;  - rounds = [0 .. SHUFFLE_ROUND_COUNT-1]
 ;;  - 각 round에 (seed, n)을 캡처로 붙여서 fold
@@ -139,10 +140,10 @@ def $compute_proposer_index(state, vid*, bytes32_seed) = validatorIndex_ret
   -- if $( uint64_total > 0 )
   -- if $compute_proposer_index_loop(state, vid*, bytes32_seed, uint64_total, 0) = validatorIndex_ret
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; get_seed
+
 ;; seed = hash( domain_type(4B) ++ uint_to_bytes(epoch)(8B LE) ++ mix(32B) )
-;; ------------------------------------------------------------
 dec $get_seed(beaconState, epoch, domainType) : bytes32
 
 def $get_seed(state, epoch, domainType) = bytes32_seed
@@ -155,9 +156,9 @@ def $get_seed(state, epoch, domainType) = bytes32_seed
   -- if $concat_bytes(bytes_dom_epoch, bytes_mix) = bytes_msg
   -- if $hash_<bytes>(bytes_msg) = bytes32_seed
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; get_beacon_proposer_index
-;; ------------------------------------------------------------
+
 dec $get_beacon_proposer_index(beaconState) : validatorIndex
 
 def $get_beacon_proposer_index(state) = validatorIndex_prop

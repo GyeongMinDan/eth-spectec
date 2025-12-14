@@ -160,19 +160,24 @@ dec $slash_if_eligible(beaconState, validatorIndex) : beaconState
 
 def $slash_if_eligible(state, vid) = state_slashed
   -- if $is_slashable_now(vid, state) = true
-  -- SlashValidator: state `.VALIDATORS `[ vid `; eps ] ~> state_slashed
+  -- SlashValidator: state SLASH `[ vid ] BY eps ~> state_slashed
 
 def $slash_if_eligible(state, vid) = state
   -- otherwise
 
-;; 리스트 전체에 적용: fold_
-dec $apply_slashes(beaconState, validatorIndex*) : beaconState
-def $apply_slashes(state, vid_sorted*) = state_after
-  -- if $fold_<beaconState, validatorIndex>(
-         def $slash_if_eligible,
-         state,
-         vid_sorted*
-       ) = state_after
+;; folder for slash_if_eligible
+;; input vid* is sorted
+relation ApplySlashes:
+  beaconState SLASH `[ validatorIndex* ] ~> beaconState
+  hint(input %0 %1)
+
+rule ApplySlashes/nil:
+  state SLASH `[ eps ] ~> state
+
+rule ApplySlashes/cons:
+  state SLASH `[ vid_h :: vid_t* ] ~> state_t
+  -- if $slash_if_eligible(state, vid_h) = state_h
+  -- ApplySlashes: state_h SLASH `[ vid_t* ] ~> state_t
 
 ;; ============================================
 ;; SOURCE 플래그 판단 (조건 만족 시 [TIMELY_SOURCE_FLAG_INDEX], 아니면 eps)

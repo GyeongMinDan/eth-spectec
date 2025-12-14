@@ -2,15 +2,15 @@
 ;; validator predicates & helpers
 ;; ================================
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; compute_activation_exit_epoch : epoch -> epoch
-;; ------------------------------------------------------------
+
 dec $compute_activation_exit_epoch(epoch) : epoch
 def $compute_activation_exit_epoch(epoch) = $(epoch + 1 + $MAX_SEED_LOOKAHEAD)
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; is_active_validator : (validator, epoch) -> bool
-;; ------------------------------------------------------------
+
 dec $is_active_validator(validator, epoch) : boolean
 
 def $is_active_validator(validator, epoch) = true
@@ -20,33 +20,33 @@ def $is_active_validator(validator, epoch) = true
 def $is_active_validator(validator, epoch) = false
   -- otherwise
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; is_eligible_for_activation_queue : validator -> bool
-;; ------------------------------------------------------------
+
 dec $is_eligible_for_activation_queue(validator) : boolean
 
 def $is_eligible_for_activation_queue(validator) = true
-  -- if $(validator.ACTIVATION_ELIGIBILITY_EPOCH = $FAR_FUTURE_EPOCH)
-  -- if $(validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)
+  -- if validator.ACTIVATION_ELIGIBILITY_EPOCH = $FAR_FUTURE_EPOCH
+  -- if validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE
 
 def $is_eligible_for_activation_queue(validator) = false
   -- otherwise
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; is_eligible_for_activation : (state, validator) -> bool
-;; ------------------------------------------------------------
+
 dec $is_eligible_for_activation(beaconState, validator) : boolean
 
 def $is_eligible_for_activation(state, validator) = true
   -- if $(validator.ACTIVATION_ELIGIBILITY_EPOCH <= state.FINALIZED_CHECKPOINT.EPOCH)
-  -- if $(validator.ACTIVATION_EPOCH = $FAR_FUTURE_EPOCH)
+  -- if validator.ACTIVATION_EPOCH = $FAR_FUTURE_EPOCH
 
 def $is_eligible_for_activation(state, validator) = false
   -- otherwise
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; is_slashable_validator : (validator, epoch) -> bool
-;; ------------------------------------------------------------
+
 dec $is_slashable_validator(validator, epoch) : boolean
 
 def $is_slashable_validator(validator, epoch) = true
@@ -145,10 +145,10 @@ def $get_validator_from_deposit(blsPubkey, bytes32_wc, uint64_amount)
       WITHDRAWABLE_EPOCH           $FAR_FUTURE_EPOCH }
   -- if $min_uint64($(uint64_amount - uint64_amount \ $EFFECTIVE_BALANCE_INCREMENT), $MAX_EFFECTIVE_BALANCE) = balance_effective
 
-;; ------------------------------------------------------------
+;;
 ;; [Phase0 -> Altair]
 ;; add_validator_to_registry(state, pubkey, withdrawal_credentials, amount) : beaconState
-;; ------------------------------------------------------------
+;;  modifies: VALIDATORS, BALANCES, PREVIOUS_EPOCH_PARTICIPATION, CURRENT_EPOCH_PARTICIPATION, INACTIVITY_SCORES
 
 relation AddValidatorToRegistry:
   beaconState `.VALIDATORS `++ `{ blsPubkey bytes32 uint64 } ~> beaconState

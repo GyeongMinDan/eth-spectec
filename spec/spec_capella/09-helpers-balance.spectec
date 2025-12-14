@@ -2,9 +2,10 @@
 ;; helpers for Increase / Decrease / initiate_validator_exit / slash_validator / apply_deposit 
 ;; =========================
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; increase_balance(beaconState, validatorIndex, gwei) : beaconState
-;; ------------------------------------------------------------
+;;  mutates: .BALANCES
+
 relation IncreaseBalance:
   beaconState `.BALANCES `[ validatorIndex ] `+ gwei ~> beaconState
   hint(input %0 %1 %2)
@@ -14,9 +15,10 @@ rule IncreaseBalance:
   -- if $(vid < |state.BALANCES|)
   -- if state.BALANCES[vid] = balance
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; decrease_balance(beaconState, validatorIndex, gwei) : beaconState
-;; ------------------------------------------------------------
+;;  mutates: .BALANCES
+
 relation DecreaseBalance:
   beaconState `.BALANCES  `[ validatorIndex ] `- gwei ~> beaconState
   hint(input %0 %1 %2)
@@ -63,9 +65,10 @@ def $select_epoch_exit_queue(epoch_exit_queue_0, uint64_churn, uint64_limit) = e
   -- if $( uint64_churn < uint64_limit )
   -- if epoch_exit_queue_0 = epoch_result
 
-;; --------------------------------------------
+;; [Phase0]
 ;; initiate_validator_exit(state, index) : state
-;; --------------------------------------------
+;;  mutates: .VALIDATORS[].EXIT_EPOCH, .VALIDATORS[].WITHDRAWABLE_EPOCH
+
 relation InitiateValidatorExit:
   beaconState `.VALIDATORS `[ validatorIndex ] ~> beaconState
   hint(input %0 %1)
@@ -104,17 +107,17 @@ rule InitiateValidatorExit/main:
   ;; (6) update validator.exit_epoch / withdrawable_epoch
   -- if epoch_withdrawable = $( epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY )
 
-;; ------------------------------------------------------------
+;;
 ;; [Phase0 -> Altair -> Bellatrix]
 ;; slash_validator(state, slashed_index, whistleblower_index = None) : beaconState
-;; ------------------------------------------------------------
+;;  modifies: .VALIDATORS, .SLASHINGS, .BALANCES
+
 relation SlashValidator:
-  beaconState `.VALIDATORS `[ validatorIndex `; validatorIndex? ] ~> beaconState
+  beaconState SLASH `[ validatorIndex ] BY validatorIndex? ~> beaconState
   hint(input %0 %1 %2)
 
-;; ========== whistleblower_index omitted==========
 rule SlashValidator/no_whistleblower:
-  state `.VALIDATORS `[ vid_slashed `; eps ] ~> state_out
+  state SLASH `[ vid_slashed ] BY eps ~> state_out
   -- if $(vid_slashed < |state.VALIDATORS|)
   -- if $get_current_epoch(state) = epoch
   -- InitiateValidatorExit: state `.VALIDATORS `[ vid_slashed ] ~> state_init
@@ -137,9 +140,8 @@ rule SlashValidator/no_whistleblower:
   ;; branch: default vid_whistleblower = vid_proposer
   -- IncreaseBalance: state_rewarded_proposer `.BALANCES `[ vid_proposer ] `+ reward_whistleblower_rest ~> state_out
 
-;; ========== whistleblower_index supplid ==========
 rule SlashValidator/whistleblower:
-  state `.VALIDATORS `[ vid_slashed `; vid_whistleblower ] ~> state_out
+  state SLASH `[ vid_slashed ] BY vid_whistleblower ~> state_out
   -- if $(vid_slashed < |state.VALIDATORS|)
   -- if $get_current_epoch(state) = epoch
   -- InitiateValidatorExit: state `.VALIDATORS `[ vid_slashed ] ~> state_init
@@ -163,29 +165,31 @@ rule SlashValidator/whistleblower:
   -- IncreaseBalance: state_rewarded_proposer `.BALANCES `[ vid_whistleblower ] `+ reward_whistleblower_rest ~> state_out
 
 
-;; ------------------------------------------------------------
+;;
+;; [Phase0]
 ;; apply_deposit(state, pubkey, withdrawal_credentials, amount, signature) : beaconState
-;; ------------------------------------------------------------
-dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beaconState
-
+;; 
+relation ApplyDeposit:
+  beaconState `.VALIDATORS `++ `{ blsPubkey bytes32 gwei } SIGNED blsSignature ~> beaconState
+  hint(input %0 %1 %2 %3 %4)
 
 ;; if branch: new pubkey
-def $apply_deposit(state, blsPubkey, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
+rule ApplyDeposit/new_pubkey:
+  state `.VALIDATORS `++ `{ blsPubkey bytes32_wc gwei_amount } SIGNED blsSignature ~> state_out
   -- if state.VALIDATORS = validator*
-  ;; validators의 pubkey 리스트 생성 (validator_list* → blsPubkey_existing*)
   -- if (validator.PUBKEY = blsPubkey_existing)*
-  ;; membership: pubkey 가 리스트에 없는 경우
   -- if ~( blsPubkey <- blsPubkey_existing* )
-  ;; verify PoP
+  ;; verify deposit signature
   -- if depositMessage = { PUBKEY blsPubkey,
                               WITHDRAWAL_CREDENTIALS bytes32_wc,
                               AMOUNT gwei_amount }
-  -- if $compute_domain($DOMAIN_DEPOSIT, eps, eps) = domain_deposit
-  -- if $bls_verify(blsPubkey, $compute_signing_root_depositMessage(depositMessage, domain_deposit), blsSignature_sig) = true
+  -- if $compute_domain($DOMAIN_DEPOSIT, eps, eps) = domain
+  -- if $bls_verify(blsPubkey, $compute_signing_root_depositMessage(depositMessage, domain), blsSignature)
   -- AddValidatorToRegistry: state `.VALIDATORS `++ `{ blsPubkey bytes32_wc gwei_amount } ~> state_out
 
 ;; else: existing pubkey
-def $apply_deposit(state, blsPubkey, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
+rule ApplyDeposit/new_pubkey:
+  state `.VALIDATORS `++ `{ blsPubkey bytes32_wc gwei_amount } SIGNED blsSignature ~> state_out
   -- if state.VALIDATORS = validator*
   -- if (validator.PUBKEY = blsPubkey_existing)*
   -- if ( blsPubkey <- blsPubkey_existing* )

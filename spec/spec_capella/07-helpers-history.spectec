@@ -2,9 +2,9 @@
 ;; roots & randao mixes & inactivity helpers
 ;; =======================================
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; get_block_root_at_slot : (state, slot) -> root
-;; ------------------------------------------------------------
+
 dec $get_block_root_at_slot(beaconState, slot) : root
 
 def $get_block_root_at_slot(state, slot) = root_ret
@@ -14,17 +14,17 @@ def $get_block_root_at_slot(state, slot) = root_ret
   -- if $(slot \ $SLOTS_PER_HISTORICAL_ROOT) = n_idx
   -- if state.BLOCK_ROOTS[n_idx] = root_ret
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; get_block_root : (state, epoch) -> root
-;; ------------------------------------------------------------
+
 dec $get_block_root(beaconState, epoch) : root
 
 def $get_block_root(state, epoch) = $get_block_root_at_slot(state, slot)
   -- if $compute_start_slot_at_epoch(epoch) = slot
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; get_randao_mix : (state, epoch) -> bytes32
-;; ------------------------------------------------------------
+
 dec $get_randao_mix(beaconState, epoch) : bytes32
 
 def $get_randao_mix(state, epoch) = bytes32_mix
@@ -32,16 +32,16 @@ def $get_randao_mix(state, epoch) = bytes32_mix
   -- if state.RANDAO_MIXES[n] = bytes32_mix
 
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; get_finality_delay : state -> uint64
-;; ------------------------------------------------------------
+
 dec $get_finality_delay(beaconState) : uint64
 def $get_finality_delay(state) =
   $( $get_previous_epoch(state) - state.FINALIZED_CHECKPOINT.EPOCH )
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; is_in_inactivity_leak : state -> bool
-;; ------------------------------------------------------------
+
 dec $is_in_inactivity_leak(beaconState) : boolean
 def $is_in_inactivity_leak(state) =
   $( $get_finality_delay(state) > $MIN_EPOCHS_TO_INACTIVITY_PENALTY )

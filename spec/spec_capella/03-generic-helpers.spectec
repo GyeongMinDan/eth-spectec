@@ -92,12 +92,12 @@ def $min_uint64(x, y) = y
 ;; ------------------------------------------------------------
 dec $eth_fast_aggregate_verify(blsPubkey*, bytes32, blsSignature) : boolean
 
-def $eth_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature_sig) = true
+def $eth_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature) = true
   -- if |blsPubkey*| = 0
-  -- if blsSignature_sig = $G2_POINT_AT_INFINITY
+  -- if blsSignature = $G2_POINT_AT_INFINITY
 
-def $eth_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig) =
-  $bls_fast_aggregate_verify(blsPubkey_list*, bytes32_msg, blsSignature_sig)
+def $eth_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature) =
+  $bls_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature)
   -- otherwise
 
 ;; --- 실행 엔진 ---
