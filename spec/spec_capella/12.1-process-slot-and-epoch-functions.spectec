@@ -106,17 +106,17 @@ rule ProcessRewardsAndPenalties/main:
   state ~> state_out
   -- if $get_current_epoch(state) =/= $GENESIS_EPOCH
   ;; 1: create flag indices: 0..|PARTICIPATION_FLAG_WEIGHTS|-1
-  -- if $range(|$PARTICIPATION_FLAG_WEIGHTS|) = i_flag*
-  -- if ( $get_flag_index_deltas(state, i_flag) = (reward_flag*, penalty_flag*) )*
+  -- if $range(|$PARTICIPATION_FLAG_WEIGHTS|) = vid_flag*
+  -- if ( $get_flag_index_deltas(state, vid_flag) = (reward_flag*, penalty_flag*) )*
   ;; 2: get flag rewards and penalties
   ;; 3: get inactivity rewards and penalties
   -- if $get_inactivity_penalty_deltas(state) = (reward_inactivity*, penalty_inactivity*)
   -- if reward_flag** ++ [reward_inactivity*] = reward**
   -- if penalty_flag** ++ [penalty_inactivity*] = penalty**
   ;; 4: create validator indices
-  -- if $range(|state.VALIDATORS|) = vid_idx*
+  -- if $range(|state.VALIDATORS|) = vid*
   ;; 5: apply rewards and penalties to each validator
-  -- ApplyRewardsAndPenalties_all: state `.BALANCES `[ vid_idx* ] `+ reward** `- penalty** ~>* state_out
+  -- ApplyRewardsAndPenalties_all: state `.BALANCES `[ vid* ] `+ reward** `- penalty** ~>* state_out
 
 ;;
 ;; process_registry_updates

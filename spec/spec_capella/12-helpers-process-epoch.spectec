@@ -16,16 +16,16 @@ rule ApplyRewardAndPenalty:
 ;; implicit: should fail on length mismatch
 ;; apply reward -> penalty -> reward -> penalty -> ...
 relation ApplyRewardsAndPenalties:
-  beaconState `.BALANCES `[ validatorIndex ] `+ gwei* `- gwei* ~> beaconState
+  beaconState `.BALANCES `[ validatorIndex* ] `+ gwei* `- gwei* ~> beaconState
   hint(input %0 %1 %2 %3)
 
 rule ApplyRewardsAndPenalties/nil:
-  state `.BALANCES `[ _ ] `+ eps `- eps ~> state
+  state `.BALANCES `[ eps ] `+ eps `- eps ~> state
 
 rule ApplyRewardsAndPenalties/cons:
-  state `.BALANCES `[ vid ] `+ (reward :: reward_t*) `- (penalty :: penalty_t*) ~> state_out
-  -- ApplyRewardAndPenalty: state `.BALANCES `[ vid ] `+ reward `- penalty ~> state_t
-  -- ApplyRewardsAndPenalties: state_t `.BALANCES `[ vid ] `+ reward_t* `- penalty_t* ~> state_out
+  state `.BALANCES `[ vid_h :: vid_t* ] `+ (reward_h :: reward_t*) `- (penalty_h :: penalty_t*) ~> state_out
+  -- ApplyRewardAndPenalty: state `.BALANCES `[ vid_h ] `+ reward_h `- penalty_h ~> state_h
+  -- ApplyRewardsAndPenalties: state_h `.BALANCES `[ vid_t* ] `+ reward_t* `- penalty_t* ~> state_out
 
 ;; implicit: should fail on length mismatch
 ;; apply rewards and penalties for multiple validators
@@ -34,12 +34,12 @@ relation ApplyRewardsAndPenalties_all:
   hint(input %0 %1 %2 %3)
 
 rule ApplyRewardsAndPenalties_all/nil:
-  state `.BALANCES `[ eps ] `+ eps `- eps ~>* state
+  state `.BALANCES `[ _ ] `+ eps `- eps ~>* state
 
-rule ApplyRewardsAndPenalties_all:
-  state `.BALANCES `[ (vid :: vid_t*) ] `+ (reward* :: reward_t**) `- (penalty* :: penalty_t**) ~>* state_out
-  -- ApplyRewardsAndPenalties: state `.BALANCES `[ vid ] `+ reward* `- penalty* ~> state_t
-  -- ApplyRewardsAndPenalties_all: state_t `.BALANCES `[ vid_t* ] `+ reward_t** `- penalty_t** ~>* state_out
+rule ApplyRewardsAndPenalties_all/cons:
+  state `.BALANCES `[ vid* ] `+ (reward* :: reward_t**) `- (penalty* :: penalty_t**) ~>* state_out
+  -- ApplyRewardsAndPenalties: state `.BALANCES `[ vid* ] `+ reward* `- penalty* ~> state_t
+  -- ApplyRewardsAndPenalties_all: state_t `.BALANCES `[ vid* ] `+ reward_t** `- penalty_t** ~>* state_out
 
 
 ;; ------------------------------------------------------------
