@@ -5,9 +5,9 @@ def $add_offset_nat_uint64(nat_x, uint64_start) = $(uint64_start + nat_x)
 ;; 하나의 i에 대해 셔플 인덱스를 통해 validatorIndex 뽑기
 ;; capture: (indices*, seed, len)
 dec $pick_shuffled_vi(uint64, (validatorIndex*, bytes32, uint64)) : validatorIndex
-def $pick_shuffled_vi(uint64_i, (vid*, bytes32_seed, uint64_len)) = vid_vi
+def $pick_shuffled_vi(uint64_i, (vid*, bytes32_seed, uint64_len)) = vid_picked
   -- if $compute_shuffled_index(uint64_i, uint64_len, bytes32_seed) = uint64_shuf
-  -- if vid*[uint64_shuf] = vid_vi
+  -- if vid*[uint64_shuf] = vid_picked
 
 
 ;; --------------------------------------------
@@ -17,7 +17,7 @@ def $pick_shuffled_vi(uint64_i, (vid*, bytes32_seed, uint64_len)) = vid_vi
 dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
 
 def $compute_committee(vid*, bytes32_seed, uint64_index, uint64_count) = vid_committee*
-  -- if $( |vid*| ) = uint64_len
+  -- if |vid*| = uint64_len
   -- if $( (uint64_len * uint64_index) / uint64_count ) = uint64_start
   -- if $(uint64_index + 1) = uint64_plus_index
   -- if $( (uint64_len * uint64_plus_index) / uint64_count ) = uint64_end
@@ -66,12 +66,12 @@ def $get_beacon_committee(state, slot, committeeIndex) = vid_committee*
 ;; --------------------------------------------
 dec $bit_is_one_at_index((nat, validatorIndex), boolean*) : bool
 
-def $bit_is_one_at_index((n_i, vid_vi), boolean_bits*)
+def $bit_is_one_at_index((n_i, vid), boolean_bits*)
   = true
   -- if $(n_i < |boolean_bits*|)
   -- if boolean_bits*[n_i] = true
 
-def $bit_is_one_at_index((n_i, vid_vi), boolean_bits*)
+def $bit_is_one_at_index((n_i, vid), boolean_bits*)
   = false
   -- otherwise
 
@@ -79,7 +79,7 @@ def $bit_is_one_at_index((n_i, vid_vi), boolean_bits*)
 ;; validatorIndex 만 뽑기
 ;; --------------------------------------------
 dec $collect_vi((nat, validatorIndex), boolean*) : validatorIndex
-def $collect_vi((n_i, vid_vi), boolean_bits*) = vid_vi
+def $collect_vi((n_i, vid), boolean_bits*) = vid
 
 ;; --------------------------------------------
 ;; get_attesting_indices(state, attestation) : validatorIndex*
@@ -93,9 +93,9 @@ def $get_attesting_indices(state, attestation) = vid_set*
          attestation.DATA.INDEX
        ) = vid_committee*
   -- if $enumerate_<validatorIndex>(vid_committee*)
-       = (n_i, vid_vi)*
+       = (n_i, vid)*
   -- if $filter_list_2_<(nat, validatorIndex), boolean*>(
-         (n_i, vid_vi)*,
+         (n_i, vid)*,
          attestation.AGGREGATION_BITS,
          def $bit_is_one_at_index
        ) = (n_sel, vid_sel)*
@@ -152,17 +152,17 @@ def $is_slashable_now(vid, state) = true
   -- if $get_current_epoch(state) = epoch_cur
   -- if $is_slashable_validator(validator, epoch_cur) = true
 
-def $is_slashable_now(vid_vi, state) = false
+def $is_slashable_now(vid, state) = false
   -- otherwise
 
 ;; if is_slashable -> slash
 dec $slash_if_eligible(beaconState, validatorIndex) : beaconState
 
-def $slash_if_eligible(state, vid_vi) = state_slashed
-  -- if $is_slashable_now(vid_vi, state) = true
-  -- if state_slashed = $slash_validator(state, vid_vi, eps)
+def $slash_if_eligible(state, vid) = state_slashed
+  -- if $is_slashable_now(vid, state) = true
+  -- SlashValidator: state `.VALIDATORS `[ vid `; eps ] ~> state_slashed
 
-def $slash_if_eligible(state, vid_vi) = state
+def $slash_if_eligible(state, vid) = state
   -- otherwise
 
 ;; 리스트 전체에 적용: fold_

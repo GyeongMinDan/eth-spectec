@@ -13,6 +13,7 @@ rule ApplyRewardAndPenalty:
   -- IncreaseBalance: state   `.BALANCES `[ vid ] `+ reward  ~> state_r
   -- DecreaseBalance: state_r `.BALANCES `[ vid ] `- penalty ~> state_out
 
+;; folder
 ;; implicit: should fail on length mismatch
 ;; apply reward -> penalty -> reward -> penalty -> ...
 relation ApplyRewardsAndPenalties:
@@ -27,6 +28,7 @@ rule ApplyRewardsAndPenalties/cons:
   -- ApplyRewardAndPenalty: state `.BALANCES `[ vid_h ] `+ reward_h `- penalty_h ~> state_h
   -- ApplyRewardsAndPenalties: state_h `.BALANCES `[ vid_t* ] `+ reward_t* `- penalty_t* ~> state_out
 
+;; folder
 ;; implicit: should fail on length mismatch
 ;; apply rewards and penalties for multiple validators
 relation ApplyRewardsAndPenalties_all:

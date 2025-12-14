@@ -7,7 +7,7 @@ relation ProcessProposerSlashing:
   hint(input %0 %1)
 
 rule ProcessProposerSlashing/main:
-  state proposerSlashing ~> $slash_validator(state, vid_proposer, eps)
+  state proposerSlashing ~> state_slashed
   -- if beaconBlockHeader_1 = proposerSlashing.SIGNED_HEADER_1.MESSAGE
   -- if beaconBlockHeader_2 = proposerSlashing.SIGNED_HEADER_2.MESSAGE
   ;; assert 1
@@ -38,6 +38,7 @@ rule ProcessProposerSlashing/main:
   -- if $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_2.MESSAGE, domain_h2) = root_sign_h2
   ;; assert 5-2
   -- if $bls_verify(validator_proposer.PUBKEY, root_sign_h2, signedBeaconBlockHeader_2.SIGNATURE)
+  -- SlashValidator: state `.VALIDATORS `[ vid_proposer `; eps ] ~> state_slashed
 
 ;;
 ;; process_attester_slashing
@@ -144,17 +145,14 @@ relation ProcessDeposit:
 
 rule ProcessDeposit/main:
   state deposit ~> state_applied
-  -- if $hash_tree_root_depositData(deposit.DATA) = root_leaf
-  -- if $( $DEPOSIT_CONTRACT_TREE_DEPTH + 1 ) = uint64_depth_plus_1
   -- if $is_valid_merkle_branch(
-         root_leaf,
+         $hash_tree_root_depositData(deposit.DATA),
          deposit.PROOF,
-         uint64_depth_plus_1,
+         $( $DEPOSIT_CONTRACT_TREE_DEPTH + 1 ),
          state.ETH1_DEPOSIT_INDEX,
          state.ETH1_DATA.DEPOSIT_ROOT
        ) = true
-  -- if $(state.ETH1_DEPOSIT_INDEX + 1) = uint64_deposit_index_next
-  -- if state_inc = state[.ETH1_DEPOSIT_INDEX = uint64_deposit_index_next]
+  -- if state_inc = state[.ETH1_DEPOSIT_INDEX = $(state.ETH1_DEPOSIT_INDEX + 1)]
   -- if state_applied =
        $apply_deposit(
          state_inc,

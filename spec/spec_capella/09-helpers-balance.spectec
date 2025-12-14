@@ -104,61 +104,63 @@ rule InitiateValidatorExit/main:
   ;; (6) update validator.exit_epoch / withdrawable_epoch
   -- if epoch_withdrawable = $( epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY )
 
-
-;; ========== 공통 내부 단계 (exit, slashed 플래그/withdrawable 갱신, slashings집계, 기본 패널티) ==========
-;; helper: 내부 공통 전처리(state, slashed_idx) → (state_after_penalty, validator_snapshot, proposer_index)
-dec $slash_core_prepare(beaconState, validatorIndex) : (beaconState, validator, validatorIndex)
-
-def $slash_core_prepare(state, vid_slashed) = (state_after_penalty, validator, vid_proposer)
-  -- if $(vid_slashed < |state.VALIDATORS|)
-  -- if $get_current_epoch(state) = epoch_cur
-  -- InitiateValidatorExit: state `.VALIDATORS `[ vid_slashed ] ~> state_0
-  -- if state_0.VALIDATORS[vid_slashed] = validator_old
-  ;; mark slashed
-  -- if validator_marked = validator_old[.SLASHED = true]
-  ;; withdrawable_epoch = max(old, epoch + EPOCHS_PER_SLASHINGS_VECTOR)
-  -- if $( epoch_cur + $EPOCHS_PER_SLASHINGS_VECTOR ) = epoch_lock
-  -- if $max_uint64(validator_marked.WITHDRAWABLE_EPOCH, epoch_lock) = epoch_withdrawable_new
-  -- if validator_updated = validator_marked[.WITHDRAWABLE_EPOCH = epoch_withdrawable_new]
-  -- if state_1 = state_0[.VALIDATORS[vid_slashed] = validator_updated]
-  ;; accumulate slashings[epoch % EPOCHS_PER_SLASHINGS_VECTOR] += effective_balance
-  -- if state_1.SLASHINGS[epoch_cur \ $EPOCHS_PER_SLASHINGS_VECTOR] = gwei_bucket_old
-  -- if $( gwei_bucket_old + validator_updated.EFFECTIVE_BALANCE ) = gwei_bucket_new
-  -- if state_2 = state_1[.SLASHINGS = state_1.SLASHINGS[[epoch_cur \ $EPOCHS_PER_SLASHINGS_VECTOR] = gwei_bucket_new]]
-  ;; base slashing penalty (Bellatrix)
-  -- if $( validator_updated.EFFECTIVE_BALANCE / $MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX ) = penalty
-  -- DecreaseBalance: state_2 `.BALANCES `[ vid_slashed ] `- penalty ~> state_3
-  ;; proposer index (현재 state 기준)
-  -- if vid_proposer = $get_beacon_proposer_index(state_3)
-  -- if state_after_penalty = state_3
-  -- if validator = validator_updated
-
 ;; ------------------------------------------------------------
+;; [Phase0 -> Altair -> Bellatrix]
 ;; slash_validator(state, slashed_index, whistleblower_index = None) : beaconState
 ;; ------------------------------------------------------------
-dec $slash_validator(beaconState, validatorIndex, validatorIndex?) : beaconState
+relation SlashValidator:
+  beaconState `.VALIDATORS `[ validatorIndex `; validatorIndex? ] ~> beaconState
+  hint(input %0 %1 %2)
 
-;; ========== whistleblower_index가 생략된(eps) 경우: proposer가 whistleblower ==========
-def $slash_validator(state, vid_slashed, eps) = state_out
-  -- if (state_mid, validator, vid_proposer) = $slash_core_prepare(state, vid_slashed)
+;; ========== whistleblower_index omitted==========
+rule SlashValidator/no_whistleblower:
+  state `.VALIDATORS `[ vid_slashed `; eps ] ~> state_out
+  -- if $(vid_slashed < |state.VALIDATORS|)
+  -- if $get_current_epoch(state) = epoch
+  -- InitiateValidatorExit: state `.VALIDATORS `[ vid_slashed ] ~> state_init
+  -- if state_init.VALIDATORS[vid_slashed] = validator
+  -- if $max_uint64(validator.WITHDRAWABLE_EPOCH, $( epoch + $EPOCHS_PER_SLASHINGS_VECTOR )) = epoch_withdrawable
+  -- if state_1 = state_init[.VALIDATORS[vid_slashed] = validator[.SLASHED = true][.WITHDRAWABLE_EPOCH = epoch_withdrawable]]
+  ;; accumulate slashings[epoch % EPOCHS_PER_SLASHINGS_VECTOR] += effective_balance
+  -- if state_2 = state_1[ .SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR] 
+                = $(state_1.SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR] + validator.EFFECTIVE_BALANCE) ]
+  ;; base slashing penalty (Bellatrix)
+  -- if $( validator.EFFECTIVE_BALANCE / $MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX ) = penalty_slashing
+  -- DecreaseBalance: state_2 `.BALANCES `[ vid_slashed ] `- penalty_slashing ~> state_penalized
   ;; rewards
-  -- if $( validator.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT ) = reward_whistleblower
-  -- if $( reward_whistleblower * $PROPOSER_WEIGHT ) = gwei_prop_num
-  -- if $( gwei_prop_num / $WEIGHT_DENOMINATOR ) = reward_proposer 
-  -- IncreaseBalance: state_mid `.BALANCES `[ vid_proposer ] `+ reward_proposer ~> state_r1
-  -- if $( reward_whistleblower - reward_proposer ) = reward_whistleblower_rest 
-  -- IncreaseBalance: state_r1 `.BALANCES `[ vid_proposer ] `+ reward_whistleblower_rest ~> state_out
-
-;; ========== whistleblower_index가 명시된 경우 ==========
-def $slash_validator(state, vid_slashed, vid_whistleblower) = state_out
-  -- if (state_mid, validator, vid_proposer) = $slash_core_prepare(state, vid_slashed)
-  ;; rewards
+  -- if vid_proposer = $get_beacon_proposer_index(state_penalized)
   -- if $( validator.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT ) = reward_whistleblower
   -- if $( reward_whistleblower * $PROPOSER_WEIGHT ) = gwei_prop_num
   -- if $( gwei_prop_num / $WEIGHT_DENOMINATOR ) = reward_proposer
-  -- IncreaseBalance: state_mid `.BALANCES `[ vid_proposer ] `+ reward_proposer ~> state_r1
+  -- IncreaseBalance: state_penalized `.BALANCES `[ vid_proposer ] `+ reward_proposer ~> state_rewarded_proposer
   -- if $( reward_whistleblower - reward_proposer ) = reward_whistleblower_rest
-  -- IncreaseBalance: state_r1 `.BALANCES `[ vid_whistleblower ] `+ reward_whistleblower_rest ~> state_out
+  ;; branch: default vid_whistleblower = vid_proposer
+  -- IncreaseBalance: state_rewarded_proposer `.BALANCES `[ vid_proposer ] `+ reward_whistleblower_rest ~> state_out
+
+;; ========== whistleblower_index supplid ==========
+rule SlashValidator/whistleblower:
+  state `.VALIDATORS `[ vid_slashed `; vid_whistleblower ] ~> state_out
+  -- if $(vid_slashed < |state.VALIDATORS|)
+  -- if $get_current_epoch(state) = epoch
+  -- InitiateValidatorExit: state `.VALIDATORS `[ vid_slashed ] ~> state_init
+  -- if state_init.VALIDATORS[vid_slashed] = validator
+  -- if $max_uint64(validator.WITHDRAWABLE_EPOCH, $( epoch + $EPOCHS_PER_SLASHINGS_VECTOR )) = epoch_withdrawable
+  -- if state_1 = state_init[.VALIDATORS[vid_slashed] = validator[.SLASHED = true][.WITHDRAWABLE_EPOCH = epoch_withdrawable]]
+  ;; accumulate slashings[epoch % EPOCHS_PER_SLASHINGS_VECTOR] += effective_balance
+  -- if state_2 = state_1[ .SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR] 
+                = $(state_1.SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR] + validator.EFFECTIVE_BALANCE) ]
+  ;; base slashing penalty (Bellatrix)
+  -- if $( validator.EFFECTIVE_BALANCE / $MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX ) = penalty_slashing
+  -- DecreaseBalance: state_2 `.BALANCES `[ vid_slashed ] `- penalty_slashing ~> state_penalized
+  ;; rewards
+  -- if vid_proposer = $get_beacon_proposer_index(state_penalized)
+  -- if $( validator.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT ) = reward_whistleblower
+  -- if $( reward_whistleblower * $PROPOSER_WEIGHT ) = gwei_prop_num
+  -- if $( gwei_prop_num / $WEIGHT_DENOMINATOR ) = reward_proposer
+  -- IncreaseBalance: state_penalized `.BALANCES `[ vid_proposer ] `+ reward_proposer ~> state_rewarded_proposer
+  -- if $( reward_whistleblower - reward_proposer ) = reward_whistleblower_rest
+  ;; branch
+  -- IncreaseBalance: state_rewarded_proposer `.BALANCES `[ vid_whistleblower ] `+ reward_whistleblower_rest ~> state_out
 
 
 ;; ------------------------------------------------------------
@@ -167,26 +169,25 @@ def $slash_validator(state, vid_slashed, vid_whistleblower) = state_out
 dec $apply_deposit(beaconState, blsPubkey, bytes32, gwei, blsSignature) : beaconState
 
 
-;; case 1: 신규 pubkey
-def $apply_deposit(state, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
-  -- if state.VALIDATORS = validator_list*
-  ;; validators의 pubkey 리스트 생성 (validator_list* → blsPubkey_list*)
-  -- if (validator_list.PUBKEY = blsPubkey_list)*
+;; if branch: new pubkey
+def $apply_deposit(state, blsPubkey, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
+  -- if state.VALIDATORS = validator*
+  ;; validators의 pubkey 리스트 생성 (validator_list* → blsPubkey_existing*)
+  -- if (validator.PUBKEY = blsPubkey_existing)*
   ;; membership: pubkey 가 리스트에 없는 경우
-  -- if ~( blsPubkey_pk <- blsPubkey_list* )
-  ;; PoP 검증
-  -- if depositMessage_msg = { PUBKEY blsPubkey_pk,
+  -- if ~( blsPubkey <- blsPubkey_existing* )
+  ;; verify PoP
+  -- if depositMessage = { PUBKEY blsPubkey,
                               WITHDRAWAL_CREDENTIALS bytes32_wc,
                               AMOUNT gwei_amount }
   -- if $compute_domain($DOMAIN_DEPOSIT, eps, eps) = domain_deposit
-  -- if $compute_signing_root_depositMessage(depositMessage_msg, domain_deposit) = root_sign
-  -- if $bls_verify(blsPubkey_pk, root_sign, blsSignature_sig) = true
-  -- if state_out = $add_validator_to_registry(state, blsPubkey_pk, bytes32_wc, gwei_amount)
+  -- if $bls_verify(blsPubkey, $compute_signing_root_depositMessage(depositMessage, domain_deposit), blsSignature_sig) = true
+  -- AddValidatorToRegistry: state `.VALIDATORS `++ `{ blsPubkey bytes32_wc gwei_amount } ~> state_out
 
-;; case 2: 기존 pubkey
-def $apply_deposit(state, blsPubkey_pk, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
-  -- if state.VALIDATORS = validator_list*
-  -- if (validator_list.PUBKEY = blsPubkey_list)*
-  -- if ( blsPubkey_pk <- blsPubkey_list* )
-  -- if $index_of_pubkey(state, blsPubkey_pk) = vid  ;; use index_of_pubkey
+;; else: existing pubkey
+def $apply_deposit(state, blsPubkey, bytes32_wc, gwei_amount, blsSignature_sig) = state_out
+  -- if state.VALIDATORS = validator*
+  -- if (validator.PUBKEY = blsPubkey_existing)*
+  -- if ( blsPubkey <- blsPubkey_existing* )
+  -- if $index_of_pubkey(state, blsPubkey) = vid  ;; use index_of_pubkey
   -- IncreaseBalance: state `.BALANCES `[ vid ] `+ gwei_amount ~> state_out

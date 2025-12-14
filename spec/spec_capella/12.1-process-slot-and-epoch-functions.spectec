@@ -47,6 +47,7 @@ rule ProcessSlot/header_root_present:
 
 
 ;;
+;; [Phase0 -> Altair]
 ;; process_justification_and_finalization
 ;;
 relation Process_justification_and_finalization:
