@@ -124,12 +124,11 @@ rule ProcessAttestation/current_epoch:
   -- if $is_valid_indexed_attestation(state, $get_indexed_attestation(state, attestation))
   ----
   ;; double loop
-  -- if vid_attesting* = $get_attesting_indices(state, attestation)
-  -- if $fold_<(beaconState, gwei), (validatorIndex, validatorIndex*)>(
-         def $process_one_vi_current,
-         (state, 0),
-         (vid_attesting, vid_participation_flag*)*,
-       ) = (state_1, reward_proposer_numerator)
+  -- ProcessFlags_over_attesting:
+      state.CURRENT_EPOCH_PARTICIPATION `[ $get_attesting_indices(state, attestation) ] `++ `{ vid_participation_flag* }
+        `# state `#SUM 0
+      ~> participationFlags_updated* `#SUM reward_proposer_numerator
+  -- if state[.CURRENT_EPOCH_PARTICIPATION = participationFlags_updated*] = state_1
   -- if $( ($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT) * $WEIGHT_DENOMINATOR / $PROPOSER_WEIGHT )
       = reward_proposer_denominator
   -- if $(reward_proposer_numerator / reward_proposer_denominator) = reward_proposer
@@ -157,12 +156,11 @@ rule ProcessAttestation/previous_epoch:
   -- if $is_valid_indexed_attestation(state, $get_indexed_attestation(state, attestation))
   ----
   ;; double loop
-  -- if vid_attesting* = $get_attesting_indices(state, attestation)
-  -- if $fold_<(beaconState, gwei), (validatorIndex, validatorIndex*)>(
-         def $process_one_vi_previous,
-         (state, 0),
-         (vid_attesting, vid_participation_flag*)*,
-       ) = (state_1, reward_proposer_numerator)
+  -- ProcessFlags_over_attesting:
+      state.PREVIOUS_EPOCH_PARTICIPATION `[ $get_attesting_indices(state, attestation) ] `++ `{ vid_participation_flag* }
+        `# state `#SUM 0
+      ~> participationFlags_updated* `#SUM reward_proposer_numerator
+  -- if state[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_updated*] = state_1
   -- if $( ($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT) * $WEIGHT_DENOMINATOR / $PROPOSER_WEIGHT )
       = reward_proposer_denominator
   -- if $(reward_proposer_numerator / reward_proposer_denominator) = reward_proposer

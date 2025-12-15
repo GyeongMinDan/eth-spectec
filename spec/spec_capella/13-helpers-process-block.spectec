@@ -118,75 +118,76 @@ rule ApplyWithdrawals/cons:
   -- ApplyWithdrawal: state `.BALANCES `{ withdrawal_h } ~> state_1
   -- ApplyWithdrawals: state_1 `.BALANCES `{ withdrawal_t* } ~>* state_out
 
-;; (acc_flags, acc_num) × (flag_index, (state, vi)) → (acc_flags', acc_num')
-dec $apply_flag_once((participationFlags, gwei), (nat, (beaconState, validatorIndex))) : (participationFlags, gwei)
 
-def $apply_flag_once((participationFlags, gwei_num), (nat_flag_index, (state, vid)))
-  = (participationFlags_new, gwei_num_new)
-  -- if $has_flag(participationFlags, nat_flag_index) = false
-  -- if $PARTICIPATION_FLAG_WEIGHTS[nat_flag_index] = uint64_w
-  -- if $get_base_reward(state, vid) = gwei_base
-  -- if $( gwei_base * uint64_w ) = gwei_add
-  -- if participationFlags_new = $add_flag(participationFlags, nat_flag_index)
-  -- if $( gwei_num + gwei_add ) = gwei_num_new
+;; [Custom]
+;; loop helper for ProcessAttestation
+relation AddFlag:
+  participationFlags `[ validatorIndex ] `++ `{ validatorIndex } `# beaconState `#SUM gwei ~> participationFlags `#SUM gwei
+  hint(input %0 %1 %2 %3 %4)
 
-def $apply_flag_once((participationFlags, gwei_num), (nat_flag_index, (state, vid)))
-  = (participationFlags, gwei_num)
-  -- otherwise
+rule AddFlag/main:
+  participationFlags `[ vid_attesting ] `++ `{ vid_flag } `# state `#SUM reward
+    ~>
+    $add_flag(participationFlags, vid_flag)
+    `#SUM $(reward + $get_base_reward(state, vid_attesting) * $PARTICIPATION_FLAG_WEIGHTS[vid_flag])
+  -- if ~$has_flag(participationFlags, vid_flag)
+
+rule AddFlag/skip:
+  participationFlags `[ _ ] `++ `{ vid_flag } `# _ `#SUM reward ~> participationFlags `#SUM reward
+  -- if $has_flag(participationFlags, vid_flag)
+
+;; [Custom]
+;; fold AddFlag over flag indices
+relation AddFlags:
+  participationFlags `[ validatorIndex ] `++ `{ validatorIndex* } `# beaconState `#SUM gwei
+    ~> participationFlags `#SUM gwei
+  hint(input %0 %1 %2 %3 %4)
+
+rule AddFlags/nil:
+  participationFlags `[ _ ] `++ `{ eps } `# _ `#SUM reward ~> participationFlags `#SUM reward
+rule AddFlags/cons:
+  participationFlags `[ vid_attesting ] `++ `{ vid_flag_h :: vid_flag_t* } `# state `#SUM reward
+    ~> participationFlags_t `#SUM reward_t
+  -- AddFlag: participationFlags `[ vid_attesting ] `++ `{ vid_flag_h } `# state `#SUM reward
+      ~> participationFlags_h `#SUM reward_h
+  -- AddFlags: participationFlags_h `[ vid_attesting ] `++ `{ vid_flag_t* } `# state `#SUM reward_h
+      ~> participationFlags_t `#SUM reward_t
 
 
-dec $attach_flags_to_vi(validatorIndex, nat*) : (validatorIndex, nat*)
-def $attach_flags_to_vi(vid, nat_flags*) = (vid, nat_flags*)
+;; [Custom]
+;; iterate AddFlags over participation flags
+relation ProcessFlags:
+  participationFlags* `[ validatorIndex ] `++ `{ validatorIndex* } `# beaconState `#SUM gwei
+    ~> participationFlags* `#SUM gwei
+  hint(input %0 %1 %2 %3 %4)
+
+rule ProcessFlags/main:
+  participationFlags* `[ vid_attesting ] `++ `{ vid_flag* } `# state `#SUM reward
+    ~>
+    (participationFlags*[ [vid_attesting] = participationFlags_updated ])
+    `#SUM $(reward + reward_increment)
+  -- if $(vid_attesting < |participationFlags*|)
+  -- AddFlags: participationFlags*[vid_attesting] `[vid_attesting] `++ `{ vid_flag* } `# state `#SUM 0
+      ~> participationFlags_updated `#SUM reward_increment
 
 
-dec $attach_capture_flag(nat, (beaconState, validatorIndex)) : (nat, (beaconState, validatorIndex))
-def $attach_capture_flag(nat_flag, (state_c, vid_c)) = (nat_flag, (state_c, vid_c))
+;; [Custom]
+;; fold ProcessFlags over attesting indices
+relation ProcessFlags_over_attesting:
+  participationFlags* `[ validatorIndex* ] `++ `{ validatorIndex* } `# beaconState `#SUM gwei
+    ~> participationFlags* `#SUM gwei
+  hint(input %0 %1 %2 %3 %4)
 
+rule ProcessFlags_over_attesting/nil:
+  participationFlags* `[ eps ] `++ `{ _ } `# _ `#SUM reward ~> participationFlags* `#SUM reward
 
-;; 현재 epoch용: (state, acc_num) × (vi, flags*) → (state', acc_num')
-dec $process_one_vi_current((beaconState, gwei), (validatorIndex, nat*)) : (beaconState, gwei)
-
-def $process_one_vi_current((state_in, gwei_num), (vid, nat_flags*))
-  = (state_out, gwei_num_out)
-  -- if $(vid < |state_in.CURRENT_EPOCH_PARTICIPATION|) 
-  -- if state_in.CURRENT_EPOCH_PARTICIPATION[vid] = participationFlags_old
-  ;; change map_list_2_
-  -- if ($attach_capture_flag(nat_flags, (state_in, vid)) = (nat_flag_i, (state_in_c, vid_c)))*
-  -- if $fold_<(participationFlags, gwei), (nat, (beaconState, validatorIndex))>(
-         def $apply_flag_once,
-         (participationFlags_old, 0),
-         (nat_flag_i, (state_in_c, vid_c))*
-       ) = (participationFlags_new, gwei_add)
-  -- if participationFlags_list_updated* = state_in.CURRENT_EPOCH_PARTICIPATION[[vid] = participationFlags_new]
-  -- if state_mid = state_in[.CURRENT_EPOCH_PARTICIPATION = participationFlags_list_updated*]
-  -- if $( gwei_num + gwei_add ) = gwei_num_out
-  -- if state_out = state_mid
-
-;; 이전 epoch용
-dec $process_one_vi_previous((beaconState, gwei), (validatorIndex, nat*)) : (beaconState, gwei)
-
-def $process_one_vi_previous((state_in, gwei_num), (vid, nat_flags*))
-  = (state_out, gwei_num_out)
-  -- if $(vid < |state_in.PREVIOUS_EPOCH_PARTICIPATION|) 
-  -- if state_in.PREVIOUS_EPOCH_PARTICIPATION[vid] = participationFlags_old
-  ;; change map_list_2_
-  -- if ($attach_capture_flag(nat_flags, (state_in, vid)) = (nat_flag_i, (state_in_c, vid_c)))*
-  -- if $fold_<(participationFlags, gwei), (nat, (beaconState, validatorIndex))>(
-         def $apply_flag_once,
-         (participationFlags_old, 0),
-         (nat_flag_i, (state_in_c, vid_c))*
-       ) = (participationFlags_new, gwei_add)
-  -- if participationFlags_list_updated* = state_in.PREVIOUS_EPOCH_PARTICIPATION[[vid] = participationFlags_new]
-  -- if state_mid = state_in[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_list_updated*]
-  -- if $( gwei_num + gwei_add ) = gwei_num_out
-  -- if state_out = state_mid
-
-dec $compute_proposer_reward(gwei) : gwei
-def $compute_proposer_reward(gwei_num) = reward_prop
-  -- if $( ($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT) * $WEIGHT_DENOMINATOR ) = uint64_num
-  -- if $( uint64_num / $PROPOSER_WEIGHT ) = uint64_den
-  -- if reward_prop = $( gwei_num / uint64_den )    
-
+rule ProcessFlags_over_attesting/cons:
+  participationFlags* `[ vid_attesting_h :: vid_attesting_t* ] `++ `{ vid_flag* } `# state `#SUM reward
+    ~> participationFlags_2* `#SUM reward_2
+  -- ProcessFlags: participationFlags* `[ vid_attesting_h ] `++ `{ vid_flag* } `# state `#SUM reward
+      ~> participationFlags_1* `#SUM reward_1
+  -- ProcessFlags_over_attesting: participationFlags_1* `[ vid_attesting_t* ] `++ `{ vid_flag* } `# state `#SUM reward_1
+      ~> participationFlags_2* `#SUM reward_2
 
 ;; process_sync_aggregate 용
 ;; enumerate (n, X) 에서 bits[n] == 1
