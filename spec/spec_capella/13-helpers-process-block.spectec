@@ -99,24 +99,24 @@ def $get_expected_withdrawals(state) = withdrawal_out*
          state, epoch_cur, withdrawalIndex_start, validatorIndex_start, uint64_bound, 0, eps
        )
 relation ApplyWithdrawal:
-  beaconState withdrawal ~> beaconState
+  beaconState `.BALANCES `{ withdrawal } ~> beaconState
   hint(input %0 %1)
 
-rule ApplyWithdrawal:
-  state withdrawal ~> state_out
+rule ApplyWithdrawal/main:
+  state `.BALANCES `{ withdrawal } ~> state_out
   -- DecreaseBalance: state `.BALANCES `[ withdrawal.VALIDATOR_INDEX ] `- withdrawal.AMOUNT ~> state_out
 
 relation ApplyWithdrawals:
-  beaconState withdrawal* ~>* beaconState
+  beaconState `.BALANCES `{ withdrawal* } ~>* beaconState
   hint(input %0 %1)
 
 rule ApplyWithdrawals/nil:
-  state eps ~>* state
+  state `.BALANCES `{ eps } ~>* state
 
 rule ApplyWithdrawals/cons:
-  state (withdrawal_h :: withdrawal_t*) ~>* state_out
-  -- ApplyWithdrawal: state withdrawal_h ~> state_1
-  -- ApplyWithdrawals: state_1 withdrawal_t* ~>* state_out
+  state `.BALANCES `{ withdrawal_h :: withdrawal_t* } ~>* state_out
+  -- ApplyWithdrawal: state `.BALANCES `{ withdrawal_h } ~> state_1
+  -- ApplyWithdrawals: state_1 `.BALANCES `{ withdrawal_t* } ~>* state_out
 
 ;; (acc_flags, acc_num) × (flag_index, (state, vi)) → (acc_flags', acc_num')
 dec $apply_flag_once((participationFlags, gwei), (nat, (beaconState, validatorIndex))) : (participationFlags, gwei)
@@ -186,15 +186,6 @@ def $compute_proposer_reward(gwei_num) = reward_prop
   -- if $( ($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT) * $WEIGHT_DENOMINATOR ) = uint64_num
   -- if $( uint64_num / $PROPOSER_WEIGHT ) = uint64_den
   -- if reward_prop = $( gwei_num / uint64_den )    
-
-relation RewardProposer:
-  beaconState `[ `? ] `+ gwei ~> beaconState
-  hint(input %0 %1)
-
-rule RewardProposer:
-  state `[ `? ] `+ reward_prop ~> state_out
-  -- if $get_beacon_proposer_index(state) = vid_prop
-  -- IncreaseBalance: state `.BALANCES `[ vid_prop ] `+ reward_prop ~> state_out
 
 
 ;; process_sync_aggregate 용

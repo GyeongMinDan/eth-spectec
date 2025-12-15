@@ -47,7 +47,7 @@ rule ProcessWithdrawals/len0:
   -- if $get_expected_withdrawals(state) = withdrawal_expected*
   ;; assert
   -- if executionPayload.WITHDRAWALS = withdrawal_expected*
-  -- ApplyWithdrawals: state withdrawal_expected* ~>* state_after_debits
+  -- ApplyWithdrawals: state `.BALANCES `{ withdrawal_expected* } ~>* state_after_debits
   ----
   ;; branch-if
   -- if |withdrawal_expected*| = 0
@@ -63,7 +63,7 @@ rule ProcessWithdrawals/lenMax:
   -- if $get_expected_withdrawals(state) = withdrawal_expected*
   ;; assert
   -- if executionPayload.WITHDRAWALS = withdrawal_expected*
-  -- ApplyWithdrawals: state withdrawal_expected* ~>* state_after_debits
+  -- ApplyWithdrawals: state `.BALANCES `{ withdrawal_expected* } ~>* state_after_debits
   ----
   ;; branch-elseif
   -- if |withdrawal_expected*| = $MAX_WITHDRAWALS_PER_PAYLOAD
@@ -82,7 +82,7 @@ rule ProcessWithdrawals/lenPartial:
   -- if $get_expected_withdrawals(state) = withdrawal_expected*
   ;; assert
   -- if executionPayload.WITHDRAWALS = withdrawal_expected*
-  -- ApplyWithdrawals: state withdrawal_expected* ~>* state_after_debits
+  -- ApplyWithdrawals: state `.BALANCES `{ withdrawal_expected* } ~>* state_after_debits
   ----
   ;; branch-else
   -- if |withdrawal_expected*| =/= 0
@@ -194,12 +194,12 @@ rule Process_operations:
   -- if $min_uint64($MAX_DEPOSITS, uint64_remaining) = |body.DEPOSITS|
   ;; proposer_slashings → attester_slashings → attestations → deposits → voluntary_exits → bls_to_execution_changes               
   -- ProcessProposerSlashings:        state     body.PROPOSER_SLASHINGS         ~> state_ps
-  -- Apply_attester_slashings:        state_ps  body.ATTESTER_SLASHINGS         ~> state_as
-  -- Apply_attestations:              state_as  body.ATTESTATIONS               ~> state_att
-  -- ApplyDeposits:                   state_att body.DEPOSITS                   ~> state_dep
-  -- Apply_voluntary_exits:           state_dep body.VOLUNTARY_EXITS            ~> state_ve
+  -- ProcessAttesterSlashings:        state_ps  body.ATTESTER_SLASHINGS         ~> state_as
+  -- ProcessAttestations:              state_as  body.ATTESTATIONS               ~> state_att
+  -- ProcessDeposits:                   state_att body.DEPOSITS                   ~> state_dep
+  -- ProcessVoluntaryExits:           state_dep body.VOLUNTARY_EXITS            ~> state_ve
   ;; Capella
-  -- ApplyBlsToExecutionChanges:  state_ve body.BLS_TO_EXECUTION_CHANGES  ~> state_out
+  -- ProcessBlsToExecutionChanges:  state_ve body.BLS_TO_EXECUTION_CHANGES  ~> state_out
 
 
 ;;
