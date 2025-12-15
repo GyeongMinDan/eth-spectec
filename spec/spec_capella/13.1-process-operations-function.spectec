@@ -1,8 +1,7 @@
-;;
 ;; [Phase0]
 ;; process_proposer_slashing
-;;  modifies: .VALIDATORS[].EXIT_EPOCH, .VALIDATORS[].WITHDRAWABLE_EPOCH, .SLASHINGS, .BALANCES
-;;
+;;  mutates: .VALIDATORS[].EXIT_EPOCH, .VALIDATORS[].WITHDRAWABLE_EPOCH, .SLASHINGS, .BALANCES
+
 relation ProcessProposerSlashing:
   beaconState proposerSlashing ~> beaconState
   hint(input %0 %1)

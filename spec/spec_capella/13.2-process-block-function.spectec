@@ -1,7 +1,7 @@
 ;;
 ;; [Phase0]
 ;; process_block_header
-;;  modifies: LATEST_BLOCK_HEADER
+;;  mutates: LATEST_BLOCK_HEADER
 ;;
 
 relation ProcessBlockHeader:
@@ -33,7 +33,7 @@ rule ProcessBlockHeader:
 ;;
 ;; [Capella]
 ;; process_withdrawals
-;;  modifies: NEXT_WITHDRAWAL_INDEX, NEXT_WITHDRAWAL_VALIDATOR_INDEX
+;;  mutates: NEXT_WITHDRAWAL_INDEX, NEXT_WITHDRAWAL_VALIDATOR_INDEX
 ;;
 
 relation ProcessWithdrawals:
@@ -97,7 +97,7 @@ rule ProcessWithdrawals/lenPartial:
 ;;
 ;; [Bellatrix -> Capella]
 ;; process_execution_payload
-;;  modifies: LATEST_EXECUTION_PAYLOAD_HEADER
+;;  mutates: LATEST_EXECUTION_PAYLOAD_HEADER
 ;;
 
 relation ProcessExecutionPayload:
@@ -132,18 +132,15 @@ rule ProcessExecutionPayload/main:
          TRANSACTIONS_ROOT  $hash_tree_root_tx(executionPayload.TRANSACTIONS),
          WITHDRAWALS_ROOT   $hash_tree_root_withdrawals(executionPayload.WITHDRAWALS) }
 
-
-;;
 ;; [Phase0]
 ;; process_randao
-;;  modifies: RANDAO_MIXES[epoch \ EPOCHS_PER_HISTORICAL_VECTOR]
-;;
+;;  mutates: RANDAO_MIXES[epoch \ EPOCHS_PER_HISTORICAL_VECTOR]
 
 relation ProcessRandao:
   beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
 
-rule ProcessRandao/main:
+rule ProcessRandao:
   state body ~> state[.RANDAO_MIXES[uint64_n] = bytes32_mix_new]
   -- if $get_current_epoch(state) = epoch
   -- if $get_beacon_proposer_index(state) = vid_proposer
@@ -159,11 +156,9 @@ rule ProcessRandao/main:
   -- if $xor(bytes32_mix_old, bytes32_hash_reveal) = bytes32_mix_new
   -- if $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
 
-;;
 ;; [Phase0]
 ;; process_eth1_data
-;;  modifies: ETH1_DATA, ETH1_DATA_VOTES (append)
-;;
+;;  mutates: ETH1_DATA, ETH1_DATA_VOTES (append)
 
 relation ProcessEth1Data:
   beaconState beaconBlockBody ~> beaconState
@@ -192,7 +187,7 @@ relation Process_operations:
   beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
 
-rule Process_operations/main:
+rule Process_operations:
   state body ~> state_out
   -- if $( state.ETH1_DATA.DEPOSIT_COUNT - state.ETH1_DEPOSIT_INDEX ) = uint64_remaining
   ;; assert 1: TODO

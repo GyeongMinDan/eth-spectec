@@ -145,10 +145,9 @@ def $get_validator_from_deposit(blsPubkey, bytes32_wc, uint64_amount)
       WITHDRAWABLE_EPOCH           $FAR_FUTURE_EPOCH }
   -- if $min_uint64($(uint64_amount - uint64_amount \ $EFFECTIVE_BALANCE_INCREMENT), $MAX_EFFECTIVE_BALANCE) = balance_effective
 
-;;
 ;; [Phase0 -> Altair]
 ;; add_validator_to_registry(state, pubkey, withdrawal_credentials, amount) : beaconState
-;;  modifies: VALIDATORS, BALANCES, PREVIOUS_EPOCH_PARTICIPATION, CURRENT_EPOCH_PARTICIPATION, INACTIVITY_SCORES
+;;  mutates: VALIDATORS, BALANCES, PREVIOUS_EPOCH_PARTICIPATION, CURRENT_EPOCH_PARTICIPATION, INACTIVITY_SCORES
 
 relation AddValidatorToRegistry:
   beaconState `.VALIDATORS `++ `{ blsPubkey bytes32 uint64 } ~> beaconState

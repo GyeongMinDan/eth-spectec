@@ -5,7 +5,7 @@ relation ProcessBlock:
   beaconState beaconBlock ~>* beaconState
   hint(input %0 %1)
 
-rule ProcessBlock/main:
+rule ProcessBlock:
   state block ~>* state_6
   ;; Phase0
   -- ProcessBlockHeader:      state     block                         ~>  state_0

@@ -6,7 +6,7 @@ relation ProcessEpoch:
   beaconState ~> beaconState
   hint(input %0)
 
-rule ProcessEpoch/main:
+rule ProcessEpoch:
   state ~> state_11
   ;; Phase0 -> Altair
   -- Process_justification_and_finalization:  state ~> state_0

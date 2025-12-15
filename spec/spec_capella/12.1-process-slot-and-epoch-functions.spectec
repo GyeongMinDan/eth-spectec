@@ -302,9 +302,9 @@ rule ProcessHistoricalSummariesUpdate/main:
 ;; [New in Altair]
 ;; process_participation_flag_updates:
 ;;  initialize current participation flags to zero
-;;  modifies:
-;;  PREVIOUS_EPOCH_PARTICIPATION
-;;  CURRENT_EPOCH_PARTICIPATION
+;;  mutates:
+;;    PREVIOUS_EPOCH_PARTICIPATION
+;;    CURRENT_EPOCH_PARTICIPATION
 
 relation ProcessParticipationFlagUpdates:
   beaconState ~> beaconState
@@ -322,9 +322,9 @@ rule ProcessParticipationFlagUpdates:
 ;; [New in Altair]
 ;; process_sync_committee_updates:
 ;;  initialize sync committees for next epoch
-;;  modifies:
-;;  CURRENT_SYNC_COMMITTEE
-;;  NEXT_SYNC_COMMITTEE
+;;  mutates:
+;;    CURRENT_SYNC_COMMITTEE
+;;    NEXT_SYNC_COMMITTEE
 
 relation ProcessSyncCommitteeUpdates:
   beaconState ~> beaconState

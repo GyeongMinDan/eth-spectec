@@ -67,7 +67,7 @@ def $select_epoch_exit_queue(epoch_exit_queue_0, uint64_churn, uint64_limit) = e
 
 ;; [Phase0]
 ;; initiate_validator_exit(state, index) : state
-;;  mutates: .VALIDATORS[].EXIT_EPOCH, .VALIDATORS[].WITHDRAWABLE_EPOCH
+;;  mutates: .VALIDATORS[](.EXIT_EPOCH, .WITHDRAWABLE_EPOCH)
 
 relation InitiateValidatorExit:
   beaconState `.VALIDATORS `[ validatorIndex ] ~> beaconState
@@ -107,10 +107,9 @@ rule InitiateValidatorExit/main:
   ;; (6) update validator.exit_epoch / withdrawable_epoch
   -- if epoch_withdrawable = $( epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY )
 
-;;
 ;; [Phase0 -> Altair -> Bellatrix]
 ;; slash_validator(state, slashed_index, whistleblower_index = None) : beaconState
-;;  modifies: .VALIDATORS, .SLASHINGS, .BALANCES
+;;  mutates: .VALIDATORS[](.EXIT_EPOCH, .WITHDRAWABLE_EPOCH, .SLASHED) .SLASHINGS, .BALANCES
 
 relation SlashValidator:
   beaconState SLASH `[ validatorIndex ] BY validatorIndex? ~> beaconState
@@ -165,10 +164,10 @@ rule SlashValidator/whistleblower:
   -- IncreaseBalance: state_rewarded_proposer `.BALANCES `[ vid_whistleblower ] `+ reward_whistleblower_rest ~> state_out
 
 
-;;
 ;; [Phase0]
 ;; apply_deposit(state, pubkey, withdrawal_credentials, amount, signature) : beaconState
-;; 
+;;  mutates: VALIDATORS, BALANCES, PREVIOUS_EPOCH_PARTICIPATION, CURRENT_EPOCH_PARTICIPATION, INACTIVITY_SCORES
+
 relation ApplyDeposit:
   beaconState `.VALIDATORS `++ `{ blsPubkey bytes32 gwei } SIGNED blsSignature ~> beaconState
   hint(input %0 %1 %2 %3 %4)

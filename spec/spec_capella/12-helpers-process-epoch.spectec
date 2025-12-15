@@ -853,7 +853,7 @@ relation SetActivations:
 rule SetActivations/nil:
   state eps ~>* state
 
-rule SetActivations:
+rule SetActivations/cons:
   state (vid_h :: vid_t*) ~>* state_out
   -- SetActivation: state vid_h ~> state'
   -- SetActivations: state' vid_t* ~>* state_out
