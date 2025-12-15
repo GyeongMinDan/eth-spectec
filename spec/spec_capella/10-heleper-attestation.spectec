@@ -142,42 +142,36 @@ def $is_valid_indexed_attestation(state, indexedAttestation) = true
   -- if $compute_signing_root_attestationData(indexedAttestation.DATA, domain_att) = root_sign
   -- if $bls_fast_aggregate_verify(blsPubkey_pk*, root_sign, indexedAttestation.SIGNATURE) = true
 
+;; [Custom]
+;;  modifies: .VALIDATORS[](.EXIT_EPOCH, .WITHDRAWABLE_EPOCH, .SLASHED) .SLASHINGS, .BALANCES
 
-;; is_slashable?
-dec $is_slashable_now(validatorIndex, beaconState) : boolean
-
-def $is_slashable_now(vid, state) = true
-  -- if $(vid < |state.VALIDATORS|)
-  -- if state.VALIDATORS[vid] = validator
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $is_slashable_validator(validator, epoch_cur) = true
-
-def $is_slashable_now(vid, state) = false
-  -- otherwise
-
-;; if is_slashable -> slash
-dec $slash_if_eligible(beaconState, validatorIndex) : beaconState
-
-def $slash_if_eligible(state, vid) = state_slashed
-  -- if $is_slashable_now(vid, state) = true
-  -- SlashValidator: state SLASH `[ vid ] BY eps ~> state_slashed
-
-def $slash_if_eligible(state, vid) = state
-  -- otherwise
-
-;; folder for slash_if_eligible
-;; input vid* is sorted
-relation ApplySlashes:
-  beaconState SLASH `[ validatorIndex* ] ~> beaconState
+relation SlashIfEligible:
+  beaconState SLASH`? `[ validatorIndex ] ~> beaconState `#SLASHED bool
   hint(input %0 %1)
 
-rule ApplySlashes/nil:
-  state SLASH `[ eps ] ~> state
+rule SlashIfEligible/true:
+  state SLASH`? `[ vid ] ~> state_slashed `#SLASHED true
+  -- if $(vid < |state.VALIDATORS|)
+  -- if $is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))
+  -- SlashValidator: state SLASH `[ vid ] BY eps ~> state_slashed
 
-rule ApplySlashes/cons:
-  state SLASH `[ vid_h :: vid_t* ] ~> state_t
-  -- if $slash_if_eligible(state, vid_h) = state_h
-  -- ApplySlashes: state_h SLASH `[ vid_t* ] ~> state_t
+rule SlashIfEligible/false:
+  state SLASH`? `[ vid ] ~> state `#SLASHED false
+  -- if $(vid < |state.VALIDATORS|)
+  -- if ~$is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))
+
+;; folder for SlashIfEligible
+relation SlashIfEligible_over_validators:
+  beaconState SLASH`? `[ validatorIndex* ] ~> beaconState `#SLASHED bool
+  hint(input %0 %1)
+
+rule SlashIfEligible_over_validators/nil:
+  state SLASH`? `[ eps ] ~> state `#SLASHED false
+
+rule SlashIfEligible_over_validators/cons:
+  state SLASH`? `[ vid_h :: vid_t* ] ~> state_t `#SLASHED (bool_h \/ bool_t)
+  -- SlashIfEligible: state SLASH`? `[ vid_h ] ~> state_h `#SLASHED bool_h
+  -- SlashIfEligible_over_validators: state_h SLASH`? `[ vid_t* ] ~> state_t `#SLASHED bool_t
 
 ;; ============================================
 ;; SOURCE 플래그 판단 (조건 만족 시 [TIMELY_SOURCE_FLAG_INDEX], 아니면 eps)

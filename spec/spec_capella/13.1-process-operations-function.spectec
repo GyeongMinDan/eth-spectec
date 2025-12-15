@@ -63,11 +63,9 @@ rule ProcessAttesterSlashing/main:
           $to_set_<validatorIndex>(indexedAttestation_2.ATTESTING_INDICES)
         ) = vid_intersection*
   -- if $sort_<validatorIndex>(vid_intersection*) = vid_sorted*
-  ;; 지역변수 slashed_any 의 확인, 여기선 사전에 is_slashable 검사로 보장
-  -- if $filter_list_2_<validatorIndex, beaconState>(vid_sorted*, state, def $is_slashable_now) = vid_slashable_now*
+  -- SlashIfEligible_over_validators: state SLASH`? `[ vid_sorted* ] ~> state_slashed `#SLASHED bool_slashed_any
   ;; assert 4: slashed_any
-  -- if |vid_slashable_now*| =/= 0
-  -- ApplySlashes: state SLASH `[ vid_sorted* ] ~> state_slashed
+  -- if bool_slashed_any
 
 ;;
 ;; process_attestation
