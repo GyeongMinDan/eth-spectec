@@ -235,10 +235,10 @@ rule ProcessSyncAggregate:
   -- if $( reward_participant * $PROPOSER_WEIGHT / ( $WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT )) = reward_proposer
   ;; Apply participant and proposer rewards
   -- if ($index_of_pubkey(state, blsPubkey_committee) = vid_committee)*
-  ;; -- if $enumerate_<validatorIndex>(vid_committee*) = (i_committee, vid_committee)*
+  -- if syncAggregate.SYNC_COMMITTEE_BITS = boolean_participation*
   -- if $get_beacon_proposer_index(state) = vid_proposer
   -- ApplyReward_over_participants:
       state
-        PARTICIPANT syncAggregate.SYNC_COMMITTEE_BITS `[i_committee*]`? `[vid_committee*] `+ reward_participant
+        PARTICIPANT boolean_participation* `[vid_committee*] `+ reward_participant
         PROPOSER `[ vid_proposer ] `+ reward_proposer
           ~> state_updated

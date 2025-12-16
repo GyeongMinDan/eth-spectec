@@ -198,56 +198,54 @@ def $bit_is_one_en_blsPubkey((i, blsPubkey), boolean_bits*) = false
 ;; loop helper for ProcessSyncAggregate
 relation ApplyReward:
   beaconState
-    PARTICIPANT boolean*`[nat]`? `[ validatorIndex ] `+ gwei
+    PARTICIPANT boolean `[ validatorIndex ] `+ gwei
     PROPOSER `[ validatorIndex ] `+ gwei
       ~> beaconState
-  hint(input %0 %1 %2 %3 %4 %5 %6)
+  hint(input %0 %1 %2 %3 %4 %5)
 
 rule ApplyReward/participation:
   state
-    PARTICIPANT boolean*`[i]`? `[ vid_participant ] `+ reward_participant
+    PARTICIPANT true `[ vid_participant ] `+ reward_participant
     PROPOSER `[ vid_proposer ] `+ reward_proposer
       ~> state_out
-  -- if $(i < |boolean*|)
-  -- if boolean*[i]
   -- IncreaseBalance: state `.BALANCES `[ vid_participant ] `+ reward_participant ~> state_participant
   -- IncreaseBalance: state_participant `.BALANCES `[ vid_proposer ] `+ reward_proposer ~> state_out
 
 rule ApplyReward/no_participation:
   state
-    PARTICIPANT boolean*`[i]`? `[ vid_participant ] `+ reward_participant
+    PARTICIPANT false `[ vid_participant ] `+ reward_participant
     PROPOSER `[ _ ] `+ _
       ~> state_out
-  -- if $(i < |boolean*|)
-  -- if ~boolean*[i]
   -- DecreaseBalance: state `.BALANCES `[ vid_participant ] `- reward_participant ~> state_out
 
 ;; [Custom]
-;; folder for ApplyReward
+;; fold ApplyReward over vid_participant and bit_participating
 relation ApplyReward_over_participants:
   beaconState
-    PARTICIPANT boolean*`[nat*]`? `[ validatorIndex* ] `+ gwei
+    PARTICIPANT boolean* `[ validatorIndex* ] `+ gwei
     PROPOSER `[ validatorIndex ] `+ gwei
       ~> beaconState
-    hint(input %0 %1 %2 %3 %4 %5 %6)
+    hint(input %0 %1 %2 %3 %4 %5)
 
 rule ApplyReward_over_participants/nil:
   state
-    PARTICIPANT _`[eps]`? `[ eps ] `+ _
+    PARTICIPANT eps `[ eps ] `+ _
     PROPOSER `[ _ ] `+ _
       ~> state
 
 rule ApplyReward_over_participants/cons:
   state
-    PARTICIPANT boolean*`[i_h :: i_t*]`? `[ vid_participant_h :: vid_participant_t* ] `+ gwei
-    PROPOSER `[ vid_proposer ] `+ gwei
+    PARTICIPANT (boolean_h :: boolean_t*) `[ vid_participant_h :: vid_participant_t* ] `+ reward_participant
+    PROPOSER `[ vid_proposer ] `+ reward_proposer
       ~> state_out
-  -- ApplyReward: state
-        PARTICIPANT boolean*`[i_h]`? `[ vid_participant_h ] `+ gwei
-        PROPOSER `[ vid_proposer ] `+ gwei
+  -- ApplyReward:
+      state
+        PARTICIPANT boolean_h `[ vid_participant_h ] `+ reward_participant
+        PROPOSER `[ vid_proposer ] `+ reward_proposer
           ~> state_1
-  -- ApplyReward_over_participants: state_1
-        PARTICIPANT boolean*`[i_t*]`? `[ vid_participant_t* ] `+ gwei
-        PROPOSER `[ vid_proposer ] `+ gwei
+  -- ApplyReward_over_participants:
+      state_1
+        PARTICIPANT boolean_t* `[ vid_participant_t* ] `+ reward_participant
+        PROPOSER `[ vid_proposer ] `+ reward_proposer
           ~> state_out
   
