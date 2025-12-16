@@ -18,6 +18,6 @@ rule ProcessBlock:
   ;; Phase0
   -- ProcessEth1Data:         state_3               block.BODY                    ~>  state_4
   ;; Phase0 -> Altair -> Capella
-  -- Process_operations:        state_4               block.BODY                    ~>  state_5
+  -- ProcessOperations:        state_4               block.BODY                    ~>  state_5
   ;; Altair
-  -- Process_sync_aggregate:    state_5               block.BODY.SYNC_AGGREGATE     ~>  state_6
+  -- ProcessSyncAggregate:    state_5               block.BODY.SYNC_AGGREGATE     ~>  state_6

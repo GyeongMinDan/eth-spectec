@@ -117,7 +117,7 @@ rule ProcessRewardsAndPenalties/main:
   ;; 4: create validator indices
   -- if $range(|state.VALIDATORS|) = vid*
   ;; 5: apply rewards and penalties to each validator
-  -- ApplyRewardsAndPenalties_all: state `.BALANCES `[ vid* ] `+ reward** `- penalty** ~>* state_out
+  -- ApplyRewardsAndPenalties_over_deltas: state `.BALANCES `[ vid* ] `+ reward** `- penalty** ~>* state_out
 
 ;;
 ;; process_registry_updates

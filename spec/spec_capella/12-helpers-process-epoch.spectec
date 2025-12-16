@@ -31,17 +31,17 @@ rule ApplyRewardsAndPenalties/cons:
 ;; folder
 ;; implicit: should fail on length mismatch
 ;; apply rewards and penalties for multiple validators
-relation ApplyRewardsAndPenalties_all:
+relation ApplyRewardsAndPenalties_over_deltas:
   beaconState `.BALANCES `[ validatorIndex* ] `+ gwei** `- gwei** ~>* beaconState
   hint(input %0 %1 %2 %3)
 
-rule ApplyRewardsAndPenalties_all/nil:
+rule ApplyRewardsAndPenalties_over_deltas/nil:
   state `.BALANCES `[ _ ] `+ eps `- eps ~>* state
 
-rule ApplyRewardsAndPenalties_all/cons:
+rule ApplyRewardsAndPenalties_over_deltas/cons:
   state `.BALANCES `[ vid* ] `+ (reward* :: reward_t**) `- (penalty* :: penalty_t**) ~>* state_out
   -- ApplyRewardsAndPenalties: state `.BALANCES `[ vid* ] `+ reward* `- penalty* ~> state_t
-  -- ApplyRewardsAndPenalties_all: state_t `.BALANCES `[ vid* ] `+ reward_t** `- penalty_t** ~>* state_out
+  -- ApplyRewardsAndPenalties_over_deltas: state_t `.BALANCES `[ vid* ] `+ reward_t** `- penalty_t** ~>* state_out
 
 
 ;; ------------------------------------------------------------

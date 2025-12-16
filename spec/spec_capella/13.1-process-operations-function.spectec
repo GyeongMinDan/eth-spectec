@@ -285,7 +285,7 @@ rule ProcessBLSToExecutionChange/main:
   -- if $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) = root_sign
   ;; assert 4
   -- if $bls_verify(blsToExecutionChange.FROM_BLS_PUBKEY, root_sign, signedBlsToExecutionChange.SIGNATURE) = true
-  ;; TODO: inline helper
+  ;; TODO: inline helper?
   -- if $make_withdrawal_credentials_eth1(blsToExecutionChange.TO_EXECUTION_ADDRESS) = bytes32_new_wc
 
 ;; fold ProcessBlsToExecutionChange over signedBlsToExecutionChange*

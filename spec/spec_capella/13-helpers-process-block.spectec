@@ -131,7 +131,6 @@ rule AddFlag/main:
     $add_flag(participationFlags, vid_flag)
     `#SUM $(reward + $get_base_reward(state, vid_attesting) * $PARTICIPATION_FLAG_WEIGHTS[vid_flag])
   -- if ~$has_flag(participationFlags, vid_flag)
-
 rule AddFlag/skip:
   participationFlags `[ _ ] `++ `{ vid_flag } `# _ `#SUM reward ~> participationFlags `#SUM reward
   -- if $has_flag(participationFlags, vid_flag)
@@ -153,7 +152,6 @@ rule AddFlags/cons:
   -- AddFlags: participationFlags_h `[ vid_attesting ] `++ `{ vid_flag_t* } `# state `#SUM reward_h
       ~> participationFlags_t `#SUM reward_t
 
-
 ;; [Custom]
 ;; iterate AddFlags over participation flags
 relation ProcessFlags:
@@ -170,7 +168,6 @@ rule ProcessFlags/main:
   -- AddFlags: participationFlags*[vid_attesting] `[vid_attesting] `++ `{ vid_flag* } `# state `#SUM 0
       ~> participationFlags_updated `#SUM reward_increment
 
-
 ;; [Custom]
 ;; fold ProcessFlags over attesting indices
 relation ProcessFlags_over_attesting:
@@ -180,7 +177,6 @@ relation ProcessFlags_over_attesting:
 
 rule ProcessFlags_over_attesting/nil:
   participationFlags* `[ eps ] `++ `{ _ } `# _ `#SUM reward ~> participationFlags* `#SUM reward
-
 rule ProcessFlags_over_attesting/cons:
   participationFlags* `[ vid_attesting_h :: vid_attesting_t* ] `++ `{ vid_flag* } `# state `#SUM reward
     ~> participationFlags_2* `#SUM reward_2
@@ -192,36 +188,66 @@ rule ProcessFlags_over_attesting/cons:
 ;; process_sync_aggregate 용
 ;; enumerate (n, X) 에서 bits[n] == 1
 dec $bit_is_one_en_blsPubkey(enumerated_<blsPubkey>, boolean*) : bool
-def $bit_is_one_en_blsPubkey((n_i, blsPubkey_pk), boolean_bits*) = true
-  -- if $(n_i < |boolean_bits*|)
-  -- if boolean_bits*[n_i] = true
-def $bit_is_one_en_blsPubkey((n_i, blsPubkey_pk), boolean_bits*) = false
+def $bit_is_one_en_blsPubkey((i, blsPubkey), boolean_bits*) = true
+  -- if $(i < |boolean_bits*|)
+  -- if boolean_bits*[i] = true
+def $bit_is_one_en_blsPubkey((i, blsPubkey), boolean_bits*) = false
   -- otherwise
 
-;; enumerate (n, X) → X  (두 번째만)
-dec $pick_second_en_blsPubkey(enumerated_<blsPubkey>, boolean*) : blsPubkey
-def $pick_second_en_blsPubkey((n_i, blsPubkey_pk), boolean_bits*) = blsPubkey_pk
+;; [Custom]
+;; loop helper for ProcessSyncAggregate
+relation ApplyReward:
+  beaconState
+    PARTICIPANT boolean*`[nat]`? `[ validatorIndex ] `+ gwei
+    PROPOSER `[ validatorIndex ] `+ gwei
+      ~> beaconState
+  hint(input %0 %1 %2 %3 %4 %5 %6)
 
-;; map_list_2 에서 state 를 캡처로 써서 pubkey → validatorIndex
-dec $index_of_pubkey_captured(blsPubkey, beaconState) : validatorIndex
-def $index_of_pubkey_captured(blsPubkey_pk, state) = $index_of_pubkey(state, blsPubkey_pk)
+rule ApplyReward/participation:
+  state
+    PARTICIPANT boolean*`[i]`? `[ vid_participant ] `+ reward_participant
+    PROPOSER `[ vid_proposer ] `+ reward_proposer
+      ~> state_out
+  -- if $(i < |boolean*|)
+  -- if boolean*[i]
+  -- IncreaseBalance: state `.BALANCES `[ vid_participant ] `+ reward_participant ~> state_participant
+  -- IncreaseBalance: state_participant `.BALANCES `[ vid_proposer ] `+ reward_proposer ~> state_out
 
-;; fold 에서 한 항목 처리:
-;; ((i, vi), (participant_reward, proposer_reward, bits*, proposer_index)) → state 업데이트
-dec $apply_sync_one(beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))) : beaconState
+rule ApplyReward/no_participation:
+  state
+    PARTICIPANT boolean*`[i]`? `[ vid_participant ] `+ reward_participant
+    PROPOSER `[ _ ] `+ _
+      ~> state_out
+  -- if $(i < |boolean*|)
+  -- if ~boolean*[i]
+  -- DecreaseBalance: state `.BALANCES `[ vid_participant ] `- reward_participant ~> state_out
 
-def $apply_sync_one(state, ((n, vid), (reward_part, reward_prop, boolean_bits*, vid_prop))) = state_out
-  -- if $(n < |boolean_bits*|)
-  -- if boolean_bits*[n] = true
-  -- IncreaseBalance: state `.BALANCES `[ vid ] `+ reward_part ~> state_r
-  -- IncreaseBalance: state_r `.BALANCES `[ vid_prop ] `+ reward_prop ~> state_out
+;; [Custom]
+;; folder for ApplyReward
+relation ApplyReward_over_participants:
+  beaconState
+    PARTICIPANT boolean*`[nat*]`? `[ validatorIndex* ] `+ gwei
+    PROPOSER `[ validatorIndex ] `+ gwei
+      ~> beaconState
+    hint(input %0 %1 %2 %3 %4 %5 %6)
 
-def $apply_sync_one(state, ((nat_i, vid), (reward_part, reward_prop, boolean_bits*, vid_prop))) = state_out
-  -- otherwise
-  -- DecreaseBalance: state `.BALANCES `[ vid ] `- reward_part ~> state_out
+rule ApplyReward_over_participants/nil:
+  state
+    PARTICIPANT _`[eps]`? `[ eps ] `+ _
+    PROPOSER `[ _ ] `+ _
+      ~> state
 
-;; fold 입력을 만들기 위해 동일한 capture 를 각 (i, vi) 에 붙여줌
-dec $attach_capture_sync((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))
-  : ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))
-def $attach_capture_sync((nat_i, vid), (reward_part, reward_prop, boolean_bits*, vid_prop))
-  = ((nat_i, vid), (reward_part, reward_prop, boolean_bits*, vid_prop))
+rule ApplyReward_over_participants/cons:
+  state
+    PARTICIPANT boolean*`[i_h :: i_t*]`? `[ vid_participant_h :: vid_participant_t* ] `+ gwei
+    PROPOSER `[ vid_proposer ] `+ gwei
+      ~> state_out
+  -- ApplyReward: state
+        PARTICIPANT boolean*`[i_h]`? `[ vid_participant_h ] `+ gwei
+        PROPOSER `[ vid_proposer ] `+ gwei
+          ~> state_1
+  -- ApplyReward_over_participants: state_1
+        PARTICIPANT boolean*`[i_t*]`? `[ vid_participant_t* ] `+ gwei
+        PROPOSER `[ vid_proposer ] `+ gwei
+          ~> state_out
+  

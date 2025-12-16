@@ -37,3 +37,11 @@ def $get_previous_epoch(state) = $( $get_current_epoch(state) - 1 )
 dec $compute_time_at_slot(beaconState, slot) : uint64
 def $compute_time_at_slot(state, slot) =
   $(state.GENESIS_TIME + (slot - $GENESIS_SLOT) * $SECONDS_PER_SLOT)
+
+;; [Custom]
+
+dec $get_prev_slot(slot) : slot
+def $get_prev_slot(slot) = 0
+  -- if slot = 0
+def $get_prev_slot(slot) = $(slot - 1)
+  -- if $(slot > 0)
