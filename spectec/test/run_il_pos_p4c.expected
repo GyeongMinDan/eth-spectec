@@ -301,7 +301,6 @@ Typecheck success: ../../../../tests/interp/p4-tests/tests/p4_16_samples/copypro
 Typecheck success: ../../../../tests/interp/p4-tests/tests/p4_16_samples/copyprop2.p4
 
 >>> Running typing test on ../../../../tests/interp/p4-tests/tests/p4_16_samples/count_add_ebpf.p4
-negative inner acc: -0.037971
 Typecheck success: ../../../../tests/interp/p4-tests/tests/p4_16_samples/count_add_ebpf.p4
 
 >>> Running typing test on ../../../../tests/interp/p4-tests/tests/p4_16_samples/count_ebpf.p4
@@ -794,6 +793,7 @@ Typecheck success: ../../../../tests/interp/p4-tests/tests/p4_16_samples/gauntle
 Typecheck success: ../../../../tests/interp/p4-tests/tests/p4_16_samples/gauntlet_set_invalid-bmv2.p4
 
 >>> Running typing test on ../../../../tests/interp/p4-tests/tests/p4_16_samples/gauntlet_set_valid_in_function-bmv2.p4
+negative inner acc: -0.002202
 Typecheck success: ../../../../tests/interp/p4-tests/tests/p4_16_samples/gauntlet_set_valid_in_function-bmv2.p4
 
 >>> Running typing test on ../../../../tests/interp/p4-tests/tests/p4_16_samples/gauntlet_short_circuit-bmv2.p4
@@ -3842,10 +3842,10 @@ Il typing summary
   Skipped:    215 (16.82% of total)
 
   Duration (s):
-    Total:     326.959
-    Mean:     0.307581
-    Median:   0.291517
-    Min:      0.022879
-    Max:      1.336807
-    P95:      1.223867
+    Total:     363.745
+    Mean:     0.342187
+    Median:   0.320290
+    Min:      0.024441
+    Max:      1.554406
+    P95:      1.369666
 
