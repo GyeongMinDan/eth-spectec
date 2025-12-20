@@ -84,7 +84,7 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
   | IterE (exp, (List, vars)), ListV values ->
       (* Map over the value list elements,
          and assign each value to the iterated expression *)
-      let ctxs =
+      let ctxs_rev =
         List.fold_left
           (fun ctxs_rev value ->
             let ctx =
@@ -93,8 +93,8 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
             let ctx = assign_exp ctx exp value in
             ctx :: ctxs_rev)
           [] values
-        |> List.rev
       in
+      let ctxs = List.rev ctxs_rev in
       (* Per iterated variable, collect its elementwise value,
          then make a sequence out of them *)
       List.fold_left
@@ -206,14 +206,11 @@ let rec eval_exp (ctx : Ctx.t) (exp : exp) : Ctx.t * value =
   | IterE (exp, iterexp) -> eval_iter_exp note ctx exp iterexp
 
 and eval_exps (ctx : Ctx.t) (exps : exp list) : Ctx.t * value list =
-  let ctx, values_rev =
-    List.fold_left
-      (fun (ctx, values_rev) exp ->
-        let ctx, value = eval_exp ctx exp in
-        (ctx, value :: values_rev))
-      (ctx, []) exps
-  in
-  (ctx, List.rev values_rev)
+  List.fold_left
+    (fun (ctx, values) exp ->
+      let ctx, value = eval_exp ctx exp in
+      (ctx, values @ [ value ]))
+    (ctx, []) exps
 
 (* Boolean expression evaluation *)
 
@@ -329,11 +326,10 @@ and upcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
       | TupleV values ->
           let values =
             List.fold_left2
-              (fun values_rev typ value ->
+              (fun values typ value ->
                 let value = upcast ctx typ value in
-                value :: values_rev)
+                values @ [ value ])
               [] typs values
-            |> List.rev
           in
           Value.Make.tuple typ.it values
       | _ -> assert false)
@@ -367,11 +363,10 @@ and downcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
       | TupleV values ->
           let values =
             List.fold_left2
-              (fun values_rev typ value ->
+              (fun values typ value ->
                 let value = downcast ctx typ value in
-                value :: values_rev)
+                values @ [ value ])
               [] typs values
-            |> List.rev
           in
           Value.Make.tuple typ.it values
       | _ -> assert false)
@@ -719,8 +714,7 @@ and eval_iter_exp_list (note : typ') (ctx : Ctx.t) (exp : exp) (vars : var list)
         (ctx, value :: values_rev))
       (ctx, []) ctxs_sub
   in
-  let values = List.rev values_rev in
-  let value_res = values |> Value.Make.list note in
+  let value_res = values_rev |> List.rev |> Value.Make.list note in
   (ctx, value_res)
 
 and eval_iter_exp (note : typ') (ctx : Ctx.t) (exp : exp) (iterexp : iterexp) :
@@ -740,14 +734,11 @@ and eval_arg (ctx : Ctx.t) (arg : arg) : Ctx.t * value =
       (ctx, value_res)
 
 and eval_args (ctx : Ctx.t) (args : arg list) : Ctx.t * value list =
-  let ctx, values_rev =
-    List.fold_left
-      (fun (ctx, values_rev) arg ->
-        let ctx, value = eval_arg ctx arg in
-        (ctx, value :: values_rev))
-      (ctx, []) args
-  in
-  (ctx, List.rev values_rev)
+  List.fold_left
+    (fun (ctx, values) arg ->
+      let ctx, value = eval_arg ctx arg in
+      (ctx, values @ [ value ]))
+    (ctx, []) args
 
 (* Premise evaluation *)
 
@@ -843,7 +834,10 @@ and eval_iter_prem_list (ctx : Ctx.t) (prem : prem) (vars : var list) :
                     Ctx.find_value Local ctx_sub (id_binding, iters_binding))
                   vars_binding
               in
-              Ok (ctx, value_binding_batch :: values_binding_batch_rev))
+              let values_binding_batch_rev =
+                value_binding_batch :: values_binding_batch_rev
+              in
+              Ok (ctx, values_binding_batch_rev))
             (Ok (ctx, []))
             ctxs_sub
         in

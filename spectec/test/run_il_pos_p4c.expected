@@ -793,7 +793,6 @@ Typecheck success: ../../../../tests/interp/p4-tests/tests/p4_16_samples/gauntle
 Typecheck success: ../../../../tests/interp/p4-tests/tests/p4_16_samples/gauntlet_set_invalid-bmv2.p4
 
 >>> Running typing test on ../../../../tests/interp/p4-tests/tests/p4_16_samples/gauntlet_set_valid_in_function-bmv2.p4
-negative inner acc: -0.002202
 Typecheck success: ../../../../tests/interp/p4-tests/tests/p4_16_samples/gauntlet_set_valid_in_function-bmv2.p4
 
 >>> Running typing test on ../../../../tests/interp/p4-tests/tests/p4_16_samples/gauntlet_short_circuit-bmv2.p4
@@ -3842,10 +3841,10 @@ Il typing summary
   Skipped:    215 (16.82% of total)
 
   Duration (s):
-    Total:     363.745
-    Mean:     0.342187
-    Median:   0.320290
-    Min:      0.024441
-    Max:      1.554406
-    P95:      1.369666
+    Total:     351.440
+    Mean:     0.330612
+    Median:   0.315325
+    Min:      0.023164
+    Max:      1.499651
+    P95:      1.301296
 

@@ -224,21 +224,21 @@ let sub_opt (ctx : t) (vars : var list) : t option =
 let transpose (value_matrix : value list list) : value list list =
   match value_matrix with
   | [] -> []
-  | row_h :: rows_t ->
-      let width = List.length (List.hd value_matrix) in
+  | row :: rows ->
+      let width = List.length row in
       check
         (List.for_all
            (fun value_row -> List.length value_row = width)
            value_matrix)
         no_region "cannot transpose a matrix of value batches";
-      let columns_init = List.map (fun elem -> [ elem ]) row_h in
+      let columns_init = List.map (fun elem -> [ elem ]) row in
       let columns_rev =
         List.fold_left
           (fun columns_rev row ->
             List.map2
               (fun column_rev elem -> elem :: column_rev)
               columns_rev row)
-          columns_init rows_t
+          columns_init rows
       in
       List.map List.rev columns_rev
 
