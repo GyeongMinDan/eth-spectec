@@ -23,6 +23,7 @@ import argparse
 import glob
 import tempfile
 import shutil
+import time
 from pathlib import Path
 from typing import List, Tuple, Optional
 
@@ -962,12 +963,16 @@ def main():
         fork=args.fork,
     )
     
+    start_time = time.perf_counter()
     results = runner.run_tests(
         test_suite_dir=args.test_suite,
         output_dir=args.output_dir,
         verbose=args.verbose,
         test_filter=args.filter
     )
+    end_time = time.perf_counter()
+    elapsed = end_time - start_time
+    print(f"\nTotal elapsed time: {elapsed:.2f} seconds")
     
     # 실패한 테스트가 있으면 종료 코드 1
     sys.exit(1 if results["failed"] > 0 else 0)
