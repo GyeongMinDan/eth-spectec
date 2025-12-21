@@ -6,14 +6,14 @@ relation ProcessEpoch:
   beaconState ~> beaconState
   hint(input %0)
 
-rule ProcessEpoch/main:
+rule ProcessEpoch:
   state ~> state_11
   ;; Phase0 -> Altair
   -- Process_justification_and_finalization:  state ~> state_0
   ;; Altair
   -- ProcessInactivityUpdates:              state_0           ~> state_1
   ;; Phase0 -> Altair
-  -- Process_rewards_and_penalties:           state_1           ~> state_2
+  -- ProcessRewardsAndPenalties:            state_1           ~> state_2
   ;; Phase0
   -- Process_Registry_Updates:                state_2           ~> state_3
   ;; Phase0 -> Altair
@@ -29,9 +29,9 @@ rule ProcessEpoch/main:
   ;; Capella
   -- ProcessHistoricalSummariesUpdate:     state_8           ~> state_9
   ;; Altair
-  -- Process_participation_flag_updates:      state_9           ~> state_10
+  -- ProcessParticipationFlagUpdates:      state_9           ~> state_10
   ;; Altair
-  -- Process_sync_committee_updates:          state_10          ~> state_11
+  -- ProcessSyncCommitteeUpdates:          state_10          ~> state_11
 
 ;;
 ;; process_slots

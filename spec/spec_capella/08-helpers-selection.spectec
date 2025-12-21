@@ -2,12 +2,12 @@
 ;; helpers for shuffle/committee/proposer/seed
 ;; =======================================
 
-;; --------------------------------------------
+;; [Custom]
 ;; choose_index : nat_bit==1 이면 flip, 아니면 그대로
-;; --------------------------------------------
+
 dec $choose_index(uint64, uint64, nat) : uint64
 def $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_flip
-  -- if $(nat_bit = 1)
+  -- if nat_bit = 1
 def $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_index_in
   -- otherwise
 
@@ -66,6 +66,7 @@ def $apply_shuffle_round(uint64_index_in, (bytes32_seed, uint64_n, uint64_round)
 
 
 ;; --------------------------------------------
+;; [Phase0]
 ;; compute_shuffled_index : for-loop
 ;;  - rounds = [0 .. SHUFFLE_ROUND_COUNT-1]
 ;;  - 각 round에 (seed, n)을 캡처로 붙여서 fold
@@ -73,10 +74,8 @@ def $apply_shuffle_round(uint64_index_in, (bytes32_seed, uint64_n, uint64_round)
 dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
 
 def $compute_shuffled_index(uint64_index, uint64_index_count, bytes32_seed) = uint64_index_out
-  ;; assert
-  -- if $(uint64_index < uint64_index_count)
   -- if $range($SHUFFLE_ROUND_COUNT) = uint64_rounds*
-  -- if $(|uint64_rounds*|) = uint64_rounds_count
+  -- if |uint64_rounds*| = uint64_rounds_count
   -- if uint64_rounds*[0] = uint64_round_first
   -- if uint64_rounds*[uint64_rounds_count - 1] = uint64_round_last
   ;; change map_list_2_
@@ -96,12 +95,12 @@ def $compute_shuffled_index(uint64_index, uint64_index_count, bytes32_seed) = ui
 dec $compute_proposer_index_loop(beaconState, validatorIndex*, bytes32, uint64, uint64) : validatorIndex
 
 ;; break case: if effective_balance * 255 >= MAX_EFFECTIVE_BALANCE * random_byte
-def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, uint64_i)
+def $compute_proposer_index_loop(state, vid*, bytes32_seed, uint64_total, uint64_i)
   = validatorIndex_candidate
   ;; 1 후보자 선택: shuffled(i % total)
   -- if $(uint64_i \ uint64_total) = uint64_mod
   -- if $compute_shuffled_index(uint64_mod, uint64_total, bytes32_seed) = uint64_shuffled
-  -- if validatorIndex_indices*[uint64_shuffled] = validatorIndex_candidate
+  -- if vid*[uint64_shuffled] = validatorIndex_candidate
   ;; 2 random_byte = hash(seed || uint64_to_bytes_le(i//32))[i%32]
   -- if $(uint64_i / 32) = uint64_chunk
   -- if $uint64_to_bytes_le(uint64_chunk) = bytes_chunk              ;; 8B, LE
@@ -114,16 +113,16 @@ def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, byt
   -- if bytes1_list_32*[nat_b] = bytes1_rb                    ;; bytes1 값 하나 선택
   -- if $bytes1_to_uint64(bytes1_rb) = uint64_random_byte
   ;; 3 effective_balance 조회
-  -- if state_beaconState.VALIDATORS[validatorIndex_candidate] = validator_v
+  -- if state.VALIDATORS[validatorIndex_candidate] = validator_v
   -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
   ;; 4 break 조건
   -- if $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
 
 ;; continue case: 위 조건 미충족 → i+1 로 재귀
-def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, uint64_i)
+def $compute_proposer_index_loop(state, vid*, bytes32_seed, uint64_total, uint64_i)
   = $compute_proposer_index_loop(
-      state_beaconState,
-      validatorIndex_indices*,
+      state,
+      vid*,
       bytes32_seed,
       uint64_total,
       $(uint64_i + 1)
@@ -136,16 +135,15 @@ def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, byt
 ;; --------------------------------------------
 dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex
 
-def $compute_proposer_index(state_beaconState, validatorIndex_indices*, bytes32_seed) = validatorIndex_ret
-  -- if $( |validatorIndex_indices*| ) = uint64_total
-  ;; assert
+def $compute_proposer_index(state, vid*, bytes32_seed) = validatorIndex_ret
+  -- if |vid*| = uint64_total
   -- if $( uint64_total > 0 )
-  -- if $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, 0) = validatorIndex_ret
+  -- if $compute_proposer_index_loop(state, vid*, bytes32_seed, uint64_total, 0) = validatorIndex_ret
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; get_seed
+
 ;; seed = hash( domain_type(4B) ++ uint_to_bytes(epoch)(8B LE) ++ mix(32B) )
-;; ------------------------------------------------------------
 dec $get_seed(beaconState, epoch, domainType) : bytes32
 
 def $get_seed(state, epoch, domainType) = bytes32_seed
@@ -158,9 +156,9 @@ def $get_seed(state, epoch, domainType) = bytes32_seed
   -- if $concat_bytes(bytes_dom_epoch, bytes_mix) = bytes_msg
   -- if $hash_<bytes>(bytes_msg) = bytes32_seed
 
-;; ------------------------------------------------------------
+;; [Phase0]
 ;; get_beacon_proposer_index
-;; ------------------------------------------------------------
+
 dec $get_beacon_proposer_index(beaconState) : validatorIndex
 
 def $get_beacon_proposer_index(state) = validatorIndex_prop
@@ -171,5 +169,5 @@ def $get_beacon_proposer_index(state) = validatorIndex_prop
   -- if $bytes32_to_bytes(bytes32_seed_base) = bytes_seed_bytes
   -- if $concat_bytes(bytes_seed_bytes, bytes_slot) = bytes_msg
   -- if $hash_<bytes>(bytes_msg) = bytes32_h
-  -- if $get_active_validator_indices(state, epoch_cur) = validatorIndex_indices*
-  -- if $compute_proposer_index(state, validatorIndex_indices*, bytes32_h) = validatorIndex_prop
+  -- if $get_active_validator_indices(state, epoch_cur) = vid*
+  -- if $compute_proposer_index(state, vid*, bytes32_h) = validatorIndex_prop

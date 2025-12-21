@@ -9,23 +9,23 @@ dec $expected_withdrawals_loop(
 ) : withdrawal*
 
 ;; base 1: payload 한도
-def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
   = withdrawal_acc*
   -- if |withdrawal_acc*| = $MAX_WITHDRAWALS_PER_PAYLOAD
 
 ;; base 2: bound 횟수 반복
-def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
   = withdrawal_acc*
   -- if $( uint64_i >= uint64_bound )
 
 ;; step: 현재 vi 점검 → (전액/부분/미해당) 처리 → i+1, vi'로 진행
-def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
   = withdrawal_out*
   -- if $(vid < |state.VALIDATORS|)
   -- if validator = state.VALIDATORS[vid]
   -- if gwei_balance = state.BALANCES[vid]
   ;; case A: fully withdrawable
-  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch_epoch) = true
+  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch) = true
   -- if executionAddress_addr = $extract_execution_address(validator.WITHDRAWAL_CREDENTIALS)
   -- if withdrawal_w =
        { INDEX           withdrawalIndex,
@@ -39,16 +39,16 @@ def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_
   -- if $( (vid + 1) \ uint64_N ) = validatorIndex_next
   -- if withdrawal_out* =
        $expected_withdrawals_loop(
-         state, epoch_epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
+         state, epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
        )
 
 ;; case B: partially withdrawable
-def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
   = withdrawal_out*
   -- if $(vid < |state.VALIDATORS|)
   -- if validator = state.VALIDATORS[vid]
   -- if gwei_balance = state.BALANCES[vid]
-  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch_epoch) = false
+  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch) = false
   -- if $is_partially_withdrawable_validator(validator, gwei_balance) = true
   -- if executionAddress_addr = $extract_execution_address(validator.WITHDRAWAL_CREDENTIALS)
   -- if $( gwei_balance - $MAX_EFFECTIVE_BALANCE ) = gwei_excess
@@ -63,16 +63,16 @@ def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_
   -- if $( (vid + 1) \ uint64_N ) = validatorIndex_next
   -- if withdrawal_out* =
        $expected_withdrawals_loop(
-         state, epoch_epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
+         state, epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
        )
 
 ;; case C: 미해당 → append 없음 / wi 변화 없음
-def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
   = withdrawal_out*
   -- if $(vid < |state.VALIDATORS|)
   -- if validator = state.VALIDATORS[vid]
   -- if gwei_balance = state.BALANCES[vid]
-  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch_epoch) = false
+  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch) = false
   -- if $is_partially_withdrawable_validator(validator, gwei_balance) = false
   -- if withdrawal_sel* = withdrawal_acc*
   -- if withdrawalIndex_next = withdrawalIndex
@@ -80,7 +80,7 @@ def $expected_withdrawals_loop(state, epoch_epoch, withdrawalIndex, vid, uint64_
   -- if $( (vid + 1) \ uint64_N ) = validatorIndex_next
   -- if withdrawal_out* =
        $expected_withdrawals_loop(
-         state, epoch_epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
+         state, epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
        )
 
 ;; --------------------------------------------
@@ -99,137 +99,153 @@ def $get_expected_withdrawals(state) = withdrawal_out*
          state, epoch_cur, withdrawalIndex_start, validatorIndex_start, uint64_bound, 0, eps
        )
 relation ApplyWithdrawal:
-  beaconState withdrawal ~> beaconState
+  beaconState `.BALANCES `{ withdrawal } ~> beaconState
   hint(input %0 %1)
 
-rule ApplyWithdrawal:
-  state withdrawal ~> state_out
-  -- DecreaseBalance: state `[ withdrawal.VALIDATOR_INDEX ] `- withdrawal.AMOUNT ~> state_out
+rule ApplyWithdrawal/main:
+  state `.BALANCES `{ withdrawal } ~> state_out
+  -- DecreaseBalance: state `.BALANCES `[ withdrawal.VALIDATOR_INDEX ] `- withdrawal.AMOUNT ~> state_out
 
 relation ApplyWithdrawals:
-  beaconState withdrawal* ~>* beaconState
+  beaconState `.BALANCES `{ withdrawal* } ~>* beaconState
   hint(input %0 %1)
 
 rule ApplyWithdrawals/nil:
-  state eps ~>* state
+  state `.BALANCES `{ eps } ~>* state
 
 rule ApplyWithdrawals/cons:
-  state (withdrawal_h :: withdrawal_t*) ~>* state_out
-  -- ApplyWithdrawal: state withdrawal_h ~> state_1
-  -- ApplyWithdrawals: state_1 withdrawal_t* ~>* state_out
-
-;; (acc_flags, acc_num) × (flag_index, (state, vi)) → (acc_flags', acc_num')
-dec $apply_flag_once((participationFlags, gwei), (nat, (beaconState, validatorIndex))) : (participationFlags, gwei)
-
-def $apply_flag_once((participationFlags, gwei_num), (nat_flag_index, (state, vid)))
-  = (participationFlags_new, gwei_num_new)
-  -- if $has_flag(participationFlags, nat_flag_index) = false
-  -- if $PARTICIPATION_FLAG_WEIGHTS[nat_flag_index] = uint64_w
-  -- if $get_base_reward(state, vid) = gwei_base
-  -- if $( gwei_base * uint64_w ) = gwei_add
-  -- if participationFlags_new = $add_flag(participationFlags, nat_flag_index)
-  -- if $( gwei_num + gwei_add ) = gwei_num_new
-
-def $apply_flag_once((participationFlags, gwei_num), (nat_flag_index, (state, vid)))
-  = (participationFlags, gwei_num)
-  -- otherwise
+  state `.BALANCES `{ withdrawal_h :: withdrawal_t* } ~>* state_out
+  -- ApplyWithdrawal: state `.BALANCES `{ withdrawal_h } ~> state_1
+  -- ApplyWithdrawals: state_1 `.BALANCES `{ withdrawal_t* } ~>* state_out
 
 
-dec $attach_flags_to_vi(validatorIndex, nat*) : (validatorIndex, nat*)
-def $attach_flags_to_vi(vid, nat_flags*) = (vid, nat_flags*)
+;; [Custom]
+;; loop helper for ProcessAttestation
+relation AddFlag:
+  participationFlags `[ validatorIndex ] `++ `{ validatorIndex } `# beaconState `#SUM gwei ~> participationFlags `#SUM gwei
+  hint(input %0 %1 %2 %3 %4)
 
+rule AddFlag/main:
+  participationFlags `[ vid_attesting ] `++ `{ vid_flag } `# state `#SUM reward
+    ~>
+    $add_flag(participationFlags, vid_flag)
+    `#SUM $(reward + $get_base_reward(state, vid_attesting) * $PARTICIPATION_FLAG_WEIGHTS[vid_flag])
+  -- if ~$has_flag(participationFlags, vid_flag)
+rule AddFlag/skip:
+  participationFlags `[ _ ] `++ `{ vid_flag } `# _ `#SUM reward ~> participationFlags `#SUM reward
+  -- if $has_flag(participationFlags, vid_flag)
 
-dec $attach_capture_flag(nat, (beaconState, validatorIndex)) : (nat, (beaconState, validatorIndex))
-def $attach_capture_flag(nat_flag, (state_c, vid_c)) = (nat_flag, (state_c, vid_c))
+;; [Custom]
+;; fold AddFlag over flag indices
+relation AddFlags:
+  participationFlags `[ validatorIndex ] `++ `{ validatorIndex* } `# beaconState `#SUM gwei
+    ~> participationFlags `#SUM gwei
+  hint(input %0 %1 %2 %3 %4)
 
+rule AddFlags/nil:
+  participationFlags `[ _ ] `++ `{ eps } `# _ `#SUM reward ~> participationFlags `#SUM reward
+rule AddFlags/cons:
+  participationFlags `[ vid_attesting ] `++ `{ vid_flag_h :: vid_flag_t* } `# state `#SUM reward
+    ~> participationFlags_t `#SUM reward_t
+  -- AddFlag: participationFlags `[ vid_attesting ] `++ `{ vid_flag_h } `# state `#SUM reward
+      ~> participationFlags_h `#SUM reward_h
+  -- AddFlags: participationFlags_h `[ vid_attesting ] `++ `{ vid_flag_t* } `# state `#SUM reward_h
+      ~> participationFlags_t `#SUM reward_t
 
-;; 현재 epoch용: (state, acc_num) × (vi, flags*) → (state', acc_num')
-dec $process_one_vi_current((beaconState, gwei), (validatorIndex, nat*)) : (beaconState, gwei)
+;; [Custom]
+;; iterate AddFlags over participation flags
+relation ProcessFlags:
+  participationFlags* `[ validatorIndex ] `++ `{ validatorIndex* } `# beaconState `#SUM gwei
+    ~> participationFlags* `#SUM gwei
+  hint(input %0 %1 %2 %3 %4)
 
-def $process_one_vi_current((state_in, gwei_num), (vid, nat_flags*))
-  = (state_out, gwei_num_out)
-  -- if $(vid < |state_in.CURRENT_EPOCH_PARTICIPATION|) 
-  -- if state_in.CURRENT_EPOCH_PARTICIPATION[vid] = participationFlags_old
-  ;; change map_list_2_
-  -- if ($attach_capture_flag(nat_flags, (state_in, vid)) = (nat_flag_i, (state_in_c, vid_c)))*
-  -- if $fold_<(participationFlags, gwei), (nat, (beaconState, validatorIndex))>(
-         def $apply_flag_once,
-         (participationFlags_old, 0),
-         (nat_flag_i, (state_in_c, vid_c))*
-       ) = (participationFlags_new, gwei_add)
-  -- if participationFlags_list_updated* = state_in.CURRENT_EPOCH_PARTICIPATION[[vid] = participationFlags_new]
-  -- if state_mid = state_in[.CURRENT_EPOCH_PARTICIPATION = participationFlags_list_updated*]
-  -- if $( gwei_num + gwei_add ) = gwei_num_out
-  -- if state_out = state_mid
+rule ProcessFlags/main:
+  participationFlags* `[ vid_attesting ] `++ `{ vid_flag* } `# state `#SUM reward
+    ~>
+    (participationFlags*[ [vid_attesting] = participationFlags_updated ])
+    `#SUM $(reward + reward_increment)
+  -- if $(vid_attesting < |participationFlags*|)
+  -- AddFlags: participationFlags*[vid_attesting] `[vid_attesting] `++ `{ vid_flag* } `# state `#SUM 0
+      ~> participationFlags_updated `#SUM reward_increment
 
-;; 이전 epoch용
-dec $process_one_vi_previous((beaconState, gwei), (validatorIndex, nat*)) : (beaconState, gwei)
+;; [Custom]
+;; fold ProcessFlags over attesting indices
+relation ProcessFlags_over_attesting:
+  participationFlags* `[ validatorIndex* ] `++ `{ validatorIndex* } `# beaconState `#SUM gwei
+    ~> participationFlags* `#SUM gwei
+  hint(input %0 %1 %2 %3 %4)
 
-def $process_one_vi_previous((state_in, gwei_num), (vid, nat_flags*))
-  = (state_out, gwei_num_out)
-  -- if $(vid < |state_in.PREVIOUS_EPOCH_PARTICIPATION|) 
-  -- if state_in.PREVIOUS_EPOCH_PARTICIPATION[vid] = participationFlags_old
-  ;; change map_list_2_
-  -- if ($attach_capture_flag(nat_flags, (state_in, vid)) = (nat_flag_i, (state_in_c, vid_c)))*
-  -- if $fold_<(participationFlags, gwei), (nat, (beaconState, validatorIndex))>(
-         def $apply_flag_once,
-         (participationFlags_old, 0),
-         (nat_flag_i, (state_in_c, vid_c))*
-       ) = (participationFlags_new, gwei_add)
-  -- if participationFlags_list_updated* = state_in.PREVIOUS_EPOCH_PARTICIPATION[[vid] = participationFlags_new]
-  -- if state_mid = state_in[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_list_updated*]
-  -- if $( gwei_num + gwei_add ) = gwei_num_out
-  -- if state_out = state_mid
-
-dec $compute_proposer_reward(gwei) : gwei
-def $compute_proposer_reward(gwei_num) = reward_prop
-  -- if $( ($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT) * $WEIGHT_DENOMINATOR ) = uint64_num
-  -- if $( uint64_num / $PROPOSER_WEIGHT ) = uint64_den
-  -- if reward_prop = $( gwei_num / uint64_den )    
-
-relation RewardProposer:
-  beaconState `[ `? ] `+ gwei ~> beaconState
-  hint(input %0 %1)
-
-rule RewardProposer:
-  state `[ `? ] `+ reward_prop ~> state_out
-  -- if $get_beacon_proposer_index(state) = vid_prop
-  -- IncreaseBalance: state `[ vid_prop ] `+ reward_prop ~> state_out
-
+rule ProcessFlags_over_attesting/nil:
+  participationFlags* `[ eps ] `++ `{ _ } `# _ `#SUM reward ~> participationFlags* `#SUM reward
+rule ProcessFlags_over_attesting/cons:
+  participationFlags* `[ vid_attesting_h :: vid_attesting_t* ] `++ `{ vid_flag* } `# state `#SUM reward
+    ~> participationFlags_2* `#SUM reward_2
+  -- ProcessFlags: participationFlags* `[ vid_attesting_h ] `++ `{ vid_flag* } `# state `#SUM reward
+      ~> participationFlags_1* `#SUM reward_1
+  -- ProcessFlags_over_attesting: participationFlags_1* `[ vid_attesting_t* ] `++ `{ vid_flag* } `# state `#SUM reward_1
+      ~> participationFlags_2* `#SUM reward_2
 
 ;; process_sync_aggregate 용
 ;; enumerate (n, X) 에서 bits[n] == 1
 dec $bit_is_one_en_blsPubkey(enumerated_<blsPubkey>, boolean*) : bool
-def $bit_is_one_en_blsPubkey((n_i, blsPubkey_pk), boolean_bits*) = true
-  -- if $(n_i < |boolean_bits*|)
-  -- if boolean_bits*[n_i] = true
-def $bit_is_one_en_blsPubkey((n_i, blsPubkey_pk), boolean_bits*) = false
+def $bit_is_one_en_blsPubkey((i, blsPubkey), boolean_bits*) = true
+  -- if $(i < |boolean_bits*|)
+  -- if boolean_bits*[i] = true
+def $bit_is_one_en_blsPubkey((i, blsPubkey), boolean_bits*) = false
   -- otherwise
 
-;; enumerate (n, X) → X  (두 번째만)
-dec $pick_second_en_blsPubkey(enumerated_<blsPubkey>, boolean*) : blsPubkey
-def $pick_second_en_blsPubkey((n_i, blsPubkey_pk), boolean_bits*) = blsPubkey_pk
+;; [Custom]
+;; loop helper for ProcessSyncAggregate
+relation ApplyReward:
+  beaconState
+    PARTICIPANT boolean `[ validatorIndex ] `+ gwei
+    PROPOSER `[ validatorIndex ] `+ gwei
+      ~> beaconState
+  hint(input %0 %1 %2 %3 %4 %5)
 
-;; map_list_2 에서 state 를 캡처로 써서 pubkey → validatorIndex
-dec $index_of_pubkey_captured(blsPubkey, beaconState) : validatorIndex
-def $index_of_pubkey_captured(blsPubkey_pk, state) = $index_of_pubkey(state, blsPubkey_pk)
+rule ApplyReward/participation:
+  state
+    PARTICIPANT true `[ vid_participant ] `+ reward_participant
+    PROPOSER `[ vid_proposer ] `+ reward_proposer
+      ~> state_out
+  -- IncreaseBalance: state `.BALANCES `[ vid_participant ] `+ reward_participant ~> state_participant
+  -- IncreaseBalance: state_participant `.BALANCES `[ vid_proposer ] `+ reward_proposer ~> state_out
 
-;; fold 에서 한 항목 처리:
-;; ((i, vi), (participant_reward, proposer_reward, bits*, proposer_index)) → state 업데이트
-dec $apply_sync_one(beaconState, ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))) : beaconState
+rule ApplyReward/no_participation:
+  state
+    PARTICIPANT false `[ vid_participant ] `+ reward_participant
+    PROPOSER `[ _ ] `+ _
+      ~> state_out
+  -- DecreaseBalance: state `.BALANCES `[ vid_participant ] `- reward_participant ~> state_out
 
-def $apply_sync_one(state, ((n, vid), (reward_part, reward_prop, boolean_bits*, vid_prop))) = state_out
-  -- if $(n < |boolean_bits*|)
-  -- if boolean_bits*[n] = true
-  -- IncreaseBalance: state `[ vid ] `+ reward_part ~> state_r
-  -- IncreaseBalance: state_r `[ vid_prop ] `+ reward_prop ~> state_out
+;; [Custom]
+;; fold ApplyReward over vid_participant and bit_participating
+relation ApplyReward_over_participants:
+  beaconState
+    PARTICIPANT boolean* `[ validatorIndex* ] `+ gwei
+    PROPOSER `[ validatorIndex ] `+ gwei
+      ~> beaconState
+    hint(input %0 %1 %2 %3 %4 %5)
 
-def $apply_sync_one(state, ((nat_i, vid), (reward_part, reward_prop, boolean_bits*, vid_prop))) = state_out
-  -- otherwise
-  -- DecreaseBalance: state `[ vid ] `- reward_part ~> state_out
+rule ApplyReward_over_participants/nil:
+  state
+    PARTICIPANT eps `[ eps ] `+ _
+    PROPOSER `[ _ ] `+ _
+      ~> state
 
-;; fold 입력을 만들기 위해 동일한 capture 를 각 (i, vi) 에 붙여줌
-dec $attach_capture_sync((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))
-  : ((nat, validatorIndex), (gwei, gwei, boolean*, validatorIndex))
-def $attach_capture_sync((nat_i, vid), (reward_part, reward_prop, boolean_bits*, vid_prop))
-  = ((nat_i, vid), (reward_part, reward_prop, boolean_bits*, vid_prop))
+rule ApplyReward_over_participants/cons:
+  state
+    PARTICIPANT (boolean_h :: boolean_t*) `[ vid_participant_h :: vid_participant_t* ] `+ reward_participant
+    PROPOSER `[ vid_proposer ] `+ reward_proposer
+      ~> state_out
+  -- ApplyReward:
+      state
+        PARTICIPANT boolean_h `[ vid_participant_h ] `+ reward_participant
+        PROPOSER `[ vid_proposer ] `+ reward_proposer
+          ~> state_1
+  -- ApplyReward_over_participants:
+      state_1
+        PARTICIPANT boolean_t* `[ vid_participant_t* ] `+ reward_participant
+        PROPOSER `[ vid_proposer ] `+ reward_proposer
+          ~> state_out
+  

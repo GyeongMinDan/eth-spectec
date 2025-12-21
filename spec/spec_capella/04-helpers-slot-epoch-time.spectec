@@ -2,21 +2,27 @@
 ;; epoch / slot / time helpers
 ;; =========================
 
+;; [Phase0]
 ;; compute_epoch_at_slot : slot -> epoch
+
 dec $compute_epoch_at_slot(slot) : epoch
-def $compute_epoch_at_slot(slot) =
-  $(slot / $SLOTS_PER_EPOCH)
+def $compute_epoch_at_slot(slot) = $(slot / $SLOTS_PER_EPOCH)
 
+;; [Phase0]
 ;; compute_start_slot_at_epoch : epoch -> slot
-dec $compute_start_slot_at_epoch(epoch) : slot
-def $compute_start_slot_at_epoch(epoch) =
-  $(epoch * $SLOTS_PER_EPOCH)
 
+dec $compute_start_slot_at_epoch(epoch) : slot
+def $compute_start_slot_at_epoch(epoch) = $(epoch * $SLOTS_PER_EPOCH)
+
+;; [Phase0]
 ;; get_current_epoch : state -> epoch
+
 dec $get_current_epoch(beaconState) : epoch
 def $get_current_epoch(state) = $compute_epoch_at_slot(state.SLOT)
 
+;; [Phase0]
 ;; get_previous_epoch : state -> epoch
+
 dec $get_previous_epoch(beaconState) : epoch
 
 def $get_previous_epoch(state) = $GENESIS_EPOCH
@@ -25,7 +31,17 @@ def $get_previous_epoch(state) = $GENESIS_EPOCH
 def $get_previous_epoch(state) = $( $get_current_epoch(state) - 1 )
   -- otherwise
 
+;; [Phase0]
 ;; compute_time_at_slot : (state, slot) -> unix time (uint64)
+
 dec $compute_time_at_slot(beaconState, slot) : uint64
 def $compute_time_at_slot(state, slot) =
   $(state.GENESIS_TIME + (slot - $GENESIS_SLOT) * $SECONDS_PER_SLOT)
+
+;; [Custom]
+
+dec $get_prev_slot(slot) : slot
+def $get_prev_slot(slot) = 0
+  -- if slot = 0
+def $get_prev_slot(slot) = $(slot - 1)
+  -- if $(slot > 0)

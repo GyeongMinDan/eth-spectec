@@ -5,19 +5,19 @@ relation ProcessBlock:
   beaconState beaconBlock ~>* beaconState
   hint(input %0 %1)
 
-rule ProcessBlock/main:
-  state_beaconState block_beaconBlock ~>* state_6
+rule ProcessBlock:
+  state block ~>* state_6
   ;; Phase0
-  -- Process_block_header:      state_beaconState     block_beaconBlock                         ~>  state_0
+  -- ProcessBlockHeader:      state     block                         ~>  state_0
   ;; Capella
-  -- ProcessWithdrawals:       state_0               block_beaconBlock.BODY.EXECUTION_PAYLOAD  ~>  state_1
+  -- ProcessWithdrawals:       state_0               block.BODY.EXECUTION_PAYLOAD  ~>  state_1
   ;; Bellatrix -> Capella
-  -- ProcessExecutionPayload: state_1               block_beaconBlock.BODY                    ~>  state_2
+  -- ProcessExecutionPayload: state_1               block.BODY                    ~>  state_2
   ;; Phase0
-  -- Process_randao:            state_2               block_beaconBlock.BODY                    ~>  state_3
+  -- ProcessRandao:            state_2               block.BODY                    ~>  state_3
   ;; Phase0
-  -- Process_eth1_data:         state_3               block_beaconBlock.BODY                    ~>  state_4
+  -- ProcessEth1Data:         state_3               block.BODY                    ~>  state_4
   ;; Phase0 -> Altair -> Capella
-  -- Process_operations:        state_4               block_beaconBlock.BODY                    ~>  state_5
+  -- ProcessOperations:        state_4               block.BODY                    ~>  state_5
   ;; Altair
-  -- Process_sync_aggregate:    state_5               block_beaconBlock.BODY.SYNC_AGGREGATE     ~>  state_6
+  -- ProcessSyncAggregate:    state_5               block.BODY.SYNC_AGGREGATE     ~>  state_6
