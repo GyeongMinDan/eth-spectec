@@ -201,7 +201,7 @@ class TestRunner:
             has_errors = False
             if result.stderr:
                 # "Error:" 문자열이 있으면 컴파일 에러로 간주
-                if "Error:" in result.stderr:
+                if "Error:" in result.stderr or "error:" in result.stderr:
                     has_errors = True
                     if verbose:
                         print(f"    ⚠ Spectec compilation errors detected:")
