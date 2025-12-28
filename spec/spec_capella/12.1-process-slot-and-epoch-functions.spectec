@@ -72,9 +72,11 @@ rule Process_justification_and_finalization/main:
 
 
 ;;
-;; Altair
+;; [Altair]
 ;; process_inactivity_updates
+;;  mutates: .INACTIVITY_SCORES
 ;;
+
 relation ProcessInactivityUpdates:
   beaconState ~> beaconState
   hint(input %0)
@@ -90,7 +92,6 @@ rule ProcessInactivityUpdates/main:
   -- if $get_current_epoch(state) =/= $GENESIS_EPOCH
   -- if $get_eligible_validator_indices(state) = vid_eligible*
   -- ApplyInactivities: state `.INACTIVITY_SCORES `[ vid_eligible* ] ~>* state_updated
-
 
 ;;
 ;; process_rewards_and_penalties

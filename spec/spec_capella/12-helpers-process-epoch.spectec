@@ -2,7 +2,7 @@
 ;; helper funcs in process_epoch 
 ;; =========================
 
-;; ========== helpers for this rule ==========
+;; [Custom] ProcessRewardsAndPenalties
 ;; apply reward -> penalty for a single index
 relation ApplyRewardAndPenalty: 
   beaconState `.BALANCES `[ validatorIndex ] `+ gwei `- gwei ~> beaconState
@@ -53,73 +53,64 @@ relation ApplyInactivity:
 
 ;; TODO: remove intermediate values
 ;; case A: index ∈ unslashed participating (prev epoch)
-rule ApplyInactivity/unslashed_participating_leak_free:
+rule ApplyInactivity/unslashed_participating_no_leak:
   state `.INACTIVITY_SCORES `[ vid ] ~> state_updated
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
   ----
-  ;; branch
-  -- if ( vid <- vid_participating_prev* )
+  ;; branch 1 : true
+  -- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
+  ;; branch 2 : false
+  -- if ~ $is_in_inactivity_leak(state)
+  ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
-  -- if $min_uint64(1, uint64_s0) = uint64_dec1
-  -- if $(uint64_s0 - uint64_dec1) = uint64_s1
-  -- if state.INACTIVITY_SCORES[[vid] = uint64_s1] = uint64_scores_mid*
-  -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
-  ;; leak-free 추가 회복(감소)
-  -- if $is_in_inactivity_leak(state) = false
-  -- if state_mid.INACTIVITY_SCORES[vid] = uint64_s1_read
-  -- if $min_uint64($INACTIVITY_SCORE_RECOVERY_RATE, uint64_s1_read) = uint64_dec2
-  -- if $(uint64_s1_read - uint64_dec2) = uint64_s2
-  -- if state_updated = state_mid[.INACTIVITY_SCORES[vid] = uint64_s2]
+  -- if state_updated
+      = state[.INACTIVITY_SCORES[vid]
+               = $max_uint64($(state.INACTIVITY_SCORES[vid] - 1 - $INACTIVITY_SCORE_RECOVERY_RATE), 0)
+             ]
 
 rule ApplyInactivity/unslashed_participating_leak:
-  state `.INACTIVITY_SCORES `[ vid ] ~> state_mid
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
-  ----
-  ;; branch
-  -- if ( vid <- vid_participating_prev* )
-  -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
-  -- if $min_uint64(1, uint64_s0) = uint64_dec1
-  -- if $(uint64_s0 - uint64_dec1) = uint64_s1
-  -- if $is_in_inactivity_leak(state) = true
-  -- if state.INACTIVITY_SCORES[[vid] = uint64_s1] = uint64_scores_mid*
-  -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
-
-;; case B: index ∉ unslashed participating (prev epoch)
-rule ApplyInactivity/inactive_leak_free:
   state `.INACTIVITY_SCORES `[ vid ] ~> state_updated
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
   ----
-  ;; branch
-  -- if ~( vid <- vid_participating_prev* )
+  ;; branch 1 : true
+  -- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
+  ;; branch 2 : true
+  -- if $is_in_inactivity_leak(state)
+  ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
-  -- if $(uint64_s0 + $INACTIVITY_SCORE_BIAS) = uint64_s1
-  ;; decrease score by recovery
-  -- if $is_in_inactivity_leak(state) = false
-  -- if state_mid = state[.INACTIVITY_SCORES[vid] = uint64_s1]
-  -- if state_mid.INACTIVITY_SCORES[vid] = uint64_s1_read
-  -- if $min_uint64($INACTIVITY_SCORE_RECOVERY_RATE, uint64_s1_read) = uint64_dec2
-  -- if $(uint64_s1_read - uint64_dec2) = uint64_s2
-  -- if state_updated = state_mid[.INACTIVITY_SCORES[vid] = uint64_s2]
+  -- if state_updated
+      = state[.INACTIVITY_SCORES[vid]
+               = $max_uint64($(state.INACTIVITY_SCORES[vid] - 1), 0)
+             ]
+
+rule ApplyInactivity/inactive_no_leak:
+  state `.INACTIVITY_SCORES `[ vid ] ~> state_updated
+  ----
+  ;; branch 1 : false
+  -- if ~(vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state)))
+  ;; branch 2 : false
+  -- if ~ $is_in_inactivity_leak(state)
+  -- if n_leak_penalty = $($INACTIVITY_SCORE_BIAS - $INACTIVITY_SCORE_RECOVERY_RATE)
+  ;; inserted guard
+  -- if $(vid < |state.INACTIVITY_SCORES|)
+  -- if state_updated
+      = state[.INACTIVITY_SCORES[vid]
+               = $max_uint64($(state.INACTIVITY_SCORES[vid] + n_leak_penalty), 0)
+             ]
 
 rule ApplyInactivity/inactive_leak:
-  state `.INACTIVITY_SCORES `[ vid ] ~> state_mid
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
+  state `.INACTIVITY_SCORES `[ vid ] ~> state_updated
   ----
-  ;; branch
-  -- if ~( vid <- vid_participating_prev* )
+  ;; branch 1 : false
+  -- if ~(vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state)))
+  ;; branch 2 : true
+  -- if $is_in_inactivity_leak(state)
+  ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
-  -- if $(uint64_s0 + $INACTIVITY_SCORE_BIAS) = uint64_s1
-  -- if $is_in_inactivity_leak(state) = true
-  -- if state_mid = state[.INACTIVITY_SCORES[vid] = uint64_s1]
+  -- if state_updated
+      = state[.INACTIVITY_SCORES[vid]
+               = $max_uint64($(state.INACTIVITY_SCORES[vid] + $INACTIVITY_SCORE_BIAS), 0)
+             ]
 
+;; [Custom] folder
 relation ApplyInactivities:
   beaconState `.INACTIVITY_SCORES `[ validatorIndex* ] ~>* beaconState
   hint(input %0 %1)

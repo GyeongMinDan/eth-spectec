@@ -85,6 +85,6 @@ relation ProcessSlots:
 
 rule ProcessSlots:
   state slot_target ~> state_out
-  ;; assert: redundant
+  ;; assert: redundant check
   -- if $( state.SLOT < slot_target )
   -- ProcessSlots_loop: state slot_target ~> state_out
