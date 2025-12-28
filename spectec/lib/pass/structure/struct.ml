@@ -51,7 +51,14 @@ and struct_prems' (prems_internalized : (prem * iterexp list) list)
 
 let struct_rule_path ((prems, exps_output) : prem list * exp list) :
     Ol.Ast.instr list =
-  let at = exps_output |> List.map at |> over_region in
+  let at =
+    (* if exps_output is empty, use last prem's region *)
+    if exps_output = [] then
+      match List.rev prems with
+      | prem_last :: _ -> prem_last.at
+      | [] -> no_region
+    else exps_output |> List.map at |> over_region
+  in
   let instr_ret = Ol.Ast.ResultI exps_output $ at in
   struct_prems prems instr_ret
 

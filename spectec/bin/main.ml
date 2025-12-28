@@ -121,6 +121,34 @@ let p4parse_command =
            Format.printf "Roundtrip failed:\n  %s\n"
              (Runner.Error.string_of_error e))
 
+(* Helper to build instrumentation config from CLI options *)
+let make_config ~trace ~profile ~branch_coverage ~node_coverage =
+  let trace_level =
+    match trace with
+    | Some 1 -> Some Instrumentation.Trace.Summary
+    | Some 2 -> Some Instrumentation.Trace.Full
+    | _ -> None
+  in
+  let branch_level =
+    match branch_coverage with
+    | Some 1 -> Some Instrumentation.Branch_coverage.Summary
+    | Some 2 -> Some Instrumentation.Branch_coverage.Full
+    | _ -> None
+  in
+  let node_level =
+    match node_coverage with
+    | Some 1 -> Some Instrumentation.Node_coverage.Summary
+    | Some 2 -> Some Instrumentation.Node_coverage.Full
+    | _ -> None
+  in
+  Instrumentation.Config.
+    {
+      trace = trace_level;
+      profile;
+      branch_coverage = branch_level;
+      node_coverage = node_level;
+    }
+
 let type_p4_il_command =
   Core.Command.basic
     ~summary:
@@ -131,15 +159,29 @@ let type_p4_il_command =
      and includes_target = flag "-i" (listed string) ~doc:"p4 include paths"
      and filename_target =
        flag "-p" (required string) ~doc:"p4 file to typecheck"
-     and debug = flag "-dbg" no_arg ~doc:"print debug traces"
-     and profile = flag "-profile" no_arg ~doc:"profiling" in
+     and trace =
+       flag "--trace" (optional int)
+         ~doc:
+           "LEVEL trace verbosity: 0=off (default), 1=summary (call stack \
+            only), 2=full (all details)"
+     and profile = flag "--profile" no_arg ~doc:"print profiling info"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
+     in
      fun () ->
+       let config =
+         make_config ~trace ~profile ~branch_coverage ~node_coverage
+       in
        let interp () =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
          let* value_program = parse_p4_file includes_target filename_target in
          let* _, _ =
-           eval_il ~debug ~profile spec_il "Program_ok" [ value_program ]
+           eval_il ~config spec_il "Program_ok" [ value_program ]
              filename_target
          in
          Ok ()
@@ -160,15 +202,31 @@ let type_p4_sl_command =
      and includes_target = flag "-i" (listed string) ~doc:"p4 include paths"
      and filename_target =
        flag "-p" (required string) ~doc:"p4 file to typecheck"
+     and trace =
+       flag "--trace" (optional int)
+         ~doc:
+           "LEVEL trace verbosity: 0=off (default), 1=summary (call stack \
+            only), 2=full (all details)"
+     and profile = flag "--profile" no_arg ~doc:"print profiling info"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
      in
      fun () ->
+       let config =
+         make_config ~trace ~profile ~branch_coverage ~node_coverage
+       in
        let interp () =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
          let spec_sl = structure spec_il in
          let* value_program = parse_p4_file includes_target filename_target in
          let* _, _ =
-           eval_sl spec_sl "Program_ok" [ value_program ] filename_target
+           eval_sl ~config spec_sl "Program_ok" [ value_program ]
+             filename_target
          in
          Ok ()
        in
@@ -176,6 +234,91 @@ let type_p4_sl_command =
        | Ok () -> Format.printf "Interpreter succeeded\n"
        | Error e ->
            Format.printf "Interpreter failed:\n  %s\n"
+             (Runner.Error.string_of_error e))
+
+(* Helper to collect files from directory *)
+let collect_files ~suffix dir =
+  let rec walk acc path =
+    if Sys.is_directory path then
+      Array.fold_left
+        (fun acc name -> walk acc (Filename.concat path name))
+        acc (Sys.readdir path)
+    else if Filename.check_suffix path suffix then path :: acc
+    else acc
+  in
+  walk [] dir |> List.sort String.compare
+
+let coverage_p4_il_command =
+  Core.Command.basic ~summary:"run IL interpreter coverage on a test suite"
+    (let open Core.Command.Let_syntax in
+     let open Core.Command.Param in
+     let%map filenames_spec = anon (sequence ("spec files" %: string))
+     and includes_target = flag "-i" (listed string) ~doc:"DIR include paths"
+     and testdir = flag "-d" (required string) ~doc:"DIR test directory"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
+     in
+     fun () ->
+       let config =
+         make_config ~trace:None ~profile:false ~branch_coverage ~node_coverage
+       in
+       let run () =
+         let* spec = parse_spec_files filenames_spec in
+         let* spec_il = elaborate spec in
+         let filenames = collect_files ~suffix:".p4" testdir in
+         let result =
+           eval_il_suite_p4_typechecker ~config spec_il includes_target
+             filenames
+         in
+         Ok result
+       in
+       match run () with
+       | Ok { passed; failed; total } ->
+           Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
+             total failed
+       | Error e ->
+           Format.printf "Coverage suite failed:\n  %s\n"
+             (Runner.Error.string_of_error e))
+
+let coverage_p4_sl_command =
+  Core.Command.basic ~summary:"run SL interpreter coverage on a test suite"
+    (let open Core.Command.Let_syntax in
+     let open Core.Command.Param in
+     let%map filenames_spec = anon (sequence ("spec files" %: string))
+     and includes_target = flag "-i" (listed string) ~doc:"DIR include paths"
+     and testdir = flag "-d" (required string) ~doc:"DIR test directory"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
+     in
+     fun () ->
+       let config =
+         make_config ~trace:None ~profile:false ~branch_coverage ~node_coverage
+       in
+       let run () =
+         let* spec = parse_spec_files filenames_spec in
+         let* spec_il = elaborate spec in
+         let spec_sl = structure spec_il in
+         let filenames = collect_files ~suffix:".p4" testdir in
+         let result =
+           eval_sl_suite_p4_typechecker ~config spec_sl includes_target
+             filenames
+         in
+         Ok result
+       in
+       match run () with
+       | Ok { passed; failed; total } ->
+           Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
+             total failed
+       | Error e ->
+           Format.printf "Coverage suite failed:\n  %s\n"
              (Runner.Error.string_of_error e))
 
 let run_eth_il_command =
@@ -187,17 +330,30 @@ let run_eth_il_command =
      let%map filenames_spec = anon (sequence ("spec files" %: string))
      and pre_state = flag "--pre" (required string) ~doc:"pre-state JSON"
      and block = flag "--block" (required string) ~doc:"beacon block JSON"
-     and debug = flag "-dbg" no_arg ~doc:"print debug traces"
-     and profile = flag "-profile" no_arg ~doc:"profiling"
      and output_file =
        flag "-o" (optional string) ~doc:"output JSON file (default: stdout)"
+     and trace =
+       flag "--trace" (optional int)
+         ~doc:
+           "LEVEL trace verbosity: 0=off (default), 1=summary (call stack \
+            only), 2=full (all details)"
+     and profile = flag "--profile" no_arg ~doc:"print profiling info"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
      in
      fun () ->
+       let config =
+         make_config ~trace ~profile ~branch_coverage ~node_coverage
+       in
        let interp () =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
          let* _, values =
-           eval_il_eth ~debug ~profile spec_il ~validate:true pre_state block
+           eval_il_eth ~config spec_il ~validate:true pre_state block
          in
          Ok (values, spec_il)
        in
@@ -233,8 +389,23 @@ let run_eth_sl_command =
      and block = flag "--block" (required string) ~doc:"beacon block JSON"
      and output_file =
        flag "-o" (optional string) ~doc:"output JSON file (default: stdout)"
+     and trace =
+       flag "--trace" (optional int)
+         ~doc:
+           "LEVEL trace verbosity: 0=off (default), 1=summary (call stack \
+            only), 2=full (all details)"
+     and profile = flag "--profile" no_arg ~doc:"print profiling info"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
      in
      fun () ->
+       let config =
+         make_config ~trace ~profile ~branch_coverage ~node_coverage
+       in
        let interp () =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
@@ -242,7 +413,7 @@ let run_eth_sl_command =
          let* beaconState_il = parse_json pre_state "beaconState" spec_il in
          let* block_il = parse_json block "signedBeaconBlock" spec_il in
          let* _, values =
-           eval_sl_eth spec_sl ~validate:true beaconState_il block_il
+           eval_sl_eth ~config spec_sl ~validate:true beaconState_il block_il
          in
          Ok (values, spec_sl)
        in
@@ -271,17 +442,18 @@ let run_eth_sl_command =
              (Runner.Error.string_of_error e))
 
 let command =
-  Core.Command.group
-    ~summary:"p4spec: a language design framework for the p4_16 language"
+  Core.Command.group ~summary:"SpecTec command line tools"
     [
       ("elab", elab_command);
       ("struct", structure_command);
       ("type-p4-il", type_p4_il_command);
       ("type-p4-sl", type_p4_sl_command);
+      ("p4parse", p4parse_command);
+      ("coverage-p4-il", coverage_p4_il_command);
+      ("coverage-p4-sl", coverage_p4_sl_command);
+      ("parse-json", parse_json_command);
       ("run-il", run_eth_il_command);
       ("run-sl", run_eth_sl_command);
-      ("p4parse", p4parse_command);
-      ("parse-json", parse_json_command);
     ]
 
 let () = Command_unix.run ~version command

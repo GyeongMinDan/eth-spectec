@@ -860,7 +860,7 @@ and elab_exp_normal (ctx : Ctx.t) (plaintyp_expect : plaintyp) (exp : exp) :
   | Ok (ctx, exp_il, plaintyp_infer) ->
       let* exp_il = cast_exp ctx plaintyp_expect plaintyp_infer exp_il in
       Ok (ctx, exp_il)
-  | Fail _ -> (
+  | Error _ -> (
       match exp.it with
       | VarE id when id.it = "_" -> elab_exp_wildcard ctx exp.at plaintyp_expect
       | _ -> (
@@ -1146,11 +1146,11 @@ and elab_exp_variant (ctx : Ctx.t) (plaintyp_expect : plaintyp)
         | Ok (ctx, notexp_il) ->
             let exp_il =
               let typ_il = elab_plaintyp ctx plaintyp in
-              Il.CaseE notexp_il $$ (no_region, typ_il.it)
+              Il.CaseE notexp_il $$ (exp.at, typ_il.it)
             in
             let+ exp_il = cast_exp ctx plaintyp_expect plaintyp exp_il in
             (ctx, exps_il @ [ exp_il ])
-        | Fail _ -> (ctx, exps_il))
+        | Error _ -> (ctx, exps_il))
       (ctx, []) typcases
   in
   match exps_il with
