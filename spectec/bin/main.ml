@@ -321,6 +321,115 @@ let coverage_p4_sl_command =
            Format.printf "Coverage suite failed:\n  %s\n"
              (Runner.Error.string_of_error e))
 
+let coverage_eth_il_command =
+  Core.Command.basic ~summary:"run IL interpreter coverage on ETH test suite"
+    (let open Core.Command.Let_syntax in
+     let open Core.Command.Param in
+     let%map filenames_spec = anon (sequence ("spec files" %: string))
+     and testdir = flag "-d" (required string) ~doc:"DIR test directory"
+     and output_file =
+       flag "-o"
+         (optional_with_default "coverage_report.txt" string)
+         ~doc:"FILE coverage report output file (default: coverage_report.txt)"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
+     in
+     fun () ->
+       let config =
+         make_config ~trace:None ~profile:false ~branch_coverage ~node_coverage
+       in
+       let run () =
+         let* spec = parse_spec_files filenames_spec in
+         let* spec_il = elaborate spec in
+         let* tests = Runner.discover_eth_tests testdir in
+         Format.printf "Found %d test cases in %s\n\n" (List.length tests)
+           testdir;
+         let result = Runner.eval_il_suite_eth ~config spec_il tests in
+         Ok result
+       in
+       match Runner.Handlers.il run with
+       | Ok result ->
+           (* Write coverage report to file *)
+           let oc = open_out output_file in
+           let fmt = Format.formatter_of_out_channel oc in
+           let old_formatter = Format.get_formatter_out_functions () in
+           Format.set_formatter_out_channel oc;
+           Instrumentation.Hooks.finish ();
+           Format.set_formatter_out_functions old_formatter;
+           Format.pp_print_flush fmt ();
+           close_out oc;
+           (* Print summary to stdout *)
+           Format.printf "\n=== Test Results ===\n";
+           Format.printf "Positive: %d/%d passed\n" result.positive_passed
+             (result.positive_passed + result.positive_failed);
+           Format.printf "Negative: %d/%d passed\n" result.negative_passed
+             (result.negative_passed + result.negative_failed);
+           Format.printf "Total: %d/%d passed, %d failed\n" result.passed
+             result.total result.failed;
+           Format.printf "\nCoverage report written to: %s\n" output_file
+       | Error e ->
+           Format.printf "Coverage suite failed:\n  %s\n"
+             (Runner.Error.string_of_error e))
+
+let coverage_eth_sl_command =
+  Core.Command.basic ~summary:"run SL interpreter coverage on ETH test suite"
+    (let open Core.Command.Let_syntax in
+     let open Core.Command.Param in
+     let%map filenames_spec = anon (sequence ("spec files" %: string))
+     and testdir = flag "-d" (required string) ~doc:"DIR test directory"
+     and output_file =
+       flag "-o"
+         (optional_with_default "coverage_report.txt" string)
+         ~doc:"FILE coverage report output file (default: coverage_report.txt)"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
+     in
+     fun () ->
+       let config =
+         make_config ~trace:None ~profile:false ~branch_coverage ~node_coverage
+       in
+       let run () =
+         let* spec = parse_spec_files filenames_spec in
+         let* spec_il = elaborate spec in
+         let spec_sl = structure spec_il in
+         let* tests = Runner.discover_eth_tests testdir in
+         Format.printf "Found %d test cases in %s\n\n" (List.length tests)
+           testdir;
+         let result = Runner.eval_sl_suite_eth ~config spec_sl spec_il tests in
+         Ok result
+       in
+       match Runner.Handlers.sl run with
+       | Ok result ->
+           (* Write coverage report to file *)
+           let oc = open_out output_file in
+           let fmt = Format.formatter_of_out_channel oc in
+           let old_formatter = Format.get_formatter_out_functions () in
+           Format.set_formatter_out_channel oc;
+           Instrumentation.Hooks.finish ();
+           Format.set_formatter_out_functions old_formatter;
+           Format.pp_print_flush fmt ();
+           close_out oc;
+           (* Print summary to stdout *)
+           Format.printf "\n=== Test Results ===\n";
+           Format.printf "Positive: %d/%d passed\n" result.positive_passed
+             (result.positive_passed + result.positive_failed);
+           Format.printf "Negative: %d/%d passed\n" result.negative_passed
+             (result.negative_passed + result.negative_failed);
+           Format.printf "Total: %d/%d passed, %d failed\n" result.passed
+             result.total result.failed;
+           Format.printf "\nCoverage report written to: %s\n" output_file
+       | Error e ->
+           Format.printf "Coverage suite failed:\n  %s\n"
+             (Runner.Error.string_of_error e))
+
 let run_eth_il_command =
   Core.Command.basic
     ~summary:
@@ -454,6 +563,8 @@ let command =
       ("parse-json", parse_json_command);
       ("run-il", run_eth_il_command);
       ("run-sl", run_eth_sl_command);
+      ("coverage-eth-il", coverage_eth_il_command);
+      ("coverage-eth-sl", coverage_eth_sl_command);
     ]
 
 let () = Command_unix.run ~version command

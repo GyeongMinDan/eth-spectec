@@ -9,6 +9,7 @@ type t =
   | SlInterpError of region * string
   | P4ParseError of region * string
   | JsonParseError of region * string
+  | DirectoryError of string
 
 let string_of_error' at msg =
   if at = no_region then msg else string_of_region at ^ "Error: " ^ msg
@@ -37,3 +38,4 @@ let string_of_error = function
   | SlInterpError (at, msg) -> string_of_error' at msg
   | P4ParseError (at, msg) -> string_of_error' at msg
   | JsonParseError (at, msg) -> string_of_error' at msg
+  | DirectoryError msg -> msg

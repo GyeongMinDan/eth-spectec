@@ -261,3 +261,240 @@ let eval_sl_eth ?(config = Instrumentation.Config.default) spec_sl ~validate
   eval_sl ~config spec_sl "State_transition"
     [ beaconState_il; block_il; Il.Value.bool validate ]
     "runner_sl"
+
+(* --- ETH Test Suite Runner --- *)
+
+type eth_test_case = {
+  name : string;
+  pre_file : string;
+  block_file : string;
+  is_positive : bool;
+}
+
+(* Helper to check if a directory exists *)
+let dir_exists path = Sys.file_exists path && Sys.is_directory path
+
+(* Helper to check if a file exists *)
+let file_exists path = Sys.file_exists path && not (Sys.is_directory path)
+
+(* Discover and validate ETH test directory structure *)
+let discover_eth_tests (dir : string) : (eth_test_case list, Error.t) result =
+  let positive_dir = Filename.concat dir "positive" in
+  let negative_dir = Filename.concat dir "negative" in
+  (* Validate top-level structure *)
+  if not (dir_exists dir) then
+    Error
+      (Error.DirectoryError (Printf.sprintf "Directory does not exist: %s" dir))
+  else if (not (dir_exists positive_dir)) && not (dir_exists negative_dir) then
+    Error
+      (Error.DirectoryError
+         (Printf.sprintf
+            "Directory must contain 'positive' and/or 'negative' \
+             subdirectories: %s"
+            dir))
+  else
+    let collect_tests is_positive test_dir =
+      if not (dir_exists test_dir) then []
+      else
+        let subdirs =
+          Sys.readdir test_dir |> Array.to_list
+          |> List.filter (fun name ->
+                 dir_exists (Filename.concat test_dir name))
+          |> List.sort String.compare
+        in
+        List.filter_map
+          (fun name ->
+            let case_dir = Filename.concat test_dir name in
+            let pre_file = Filename.concat case_dir "pre.json" in
+            let block_file = Filename.concat case_dir "block.json" in
+            if file_exists pre_file && file_exists block_file then
+              Some { name; pre_file; block_file; is_positive }
+            else None)
+          subdirs
+    in
+    let positive_tests = collect_tests true positive_dir in
+    let negative_tests = collect_tests false negative_dir in
+    let all_tests = positive_tests @ negative_tests in
+    if all_tests = [] then
+      Error
+        (Error.DirectoryError
+           (Printf.sprintf "No valid test cases found in: %s" dir))
+    else Ok all_tests
+
+(* ETH test suite result tracking *)
+type eth_suite_result = {
+  passed : int;
+  failed : int;
+  total : int;
+  positive_passed : int;
+  positive_failed : int;
+  negative_passed : int;
+  negative_failed : int;
+}
+
+(* IL suite runner for ETH tests - accumulates coverage *)
+let eval_il_suite_eth ?(config = Instrumentation.Config.default) spec_il
+    (tests : eth_test_case list) : eth_suite_result =
+  let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Hooks.set_handlers handlers;
+  Instrumentation.Hooks.init ~spec:(Instrumentation.Hooks.IlSpec spec_il);
+  let total = List.length tests in
+  let results =
+    List.mapi
+      (fun idx test ->
+        Printf.printf "[%d/%d] Running %s... " (idx + 1) total test.name;
+        flush stdout;
+        let pre_result = parse_json test.pre_file "beaconState" spec_il in
+        let block_result =
+          parse_json test.block_file "signedBeaconBlock" spec_il
+        in
+        match (pre_result, block_result) with
+        | Error e, _ ->
+            Printf.printf "FAIL (pre.json parse error)\n";
+            Printf.printf "    Error: %s\n" (Error.string_of_error e);
+            flush stdout;
+            (test.is_positive, false)
+        | _, Error e ->
+            Printf.printf "FAIL (block.json parse error)\n";
+            Printf.printf "    Error: %s\n" (Error.string_of_error e);
+            flush stdout;
+            (test.is_positive, false)
+        | Ok pre_state, Ok block ->
+            let run_result =
+              eval_il_run spec_il "State_transition"
+                [ pre_state; block; Il.Value.bool true ]
+                test.name
+            in
+            let success =
+              match (test.is_positive, run_result) with
+              | true, Ok _ ->
+                  Printf.printf "PASS (positive)\n";
+                  true
+              | true, Error e ->
+                  Printf.printf "FAIL (positive, unexpected error)\n";
+                  Printf.printf "    Error: %s\n" (Error.string_of_error e);
+                  false
+              | false, Error _ ->
+                  Printf.printf "PASS (negative, expected error)\n";
+                  true
+              | false, Ok _ ->
+                  Printf.printf
+                    "FAIL (negative, expected error but succeeded)\n";
+                  false
+            in
+            flush stdout;
+            (test.is_positive, success))
+      tests
+  in
+  (* Don't call finish here - let the CLI handle it for file output *)
+  let positive_passed =
+    List.length
+      (List.filter (fun (is_pos, success) -> is_pos && success) results)
+  in
+  let positive_failed =
+    List.length
+      (List.filter (fun (is_pos, success) -> is_pos && not success) results)
+  in
+  let negative_passed =
+    List.length
+      (List.filter (fun (is_pos, success) -> (not is_pos) && success) results)
+  in
+  let negative_failed =
+    List.length
+      (List.filter
+         (fun (is_pos, success) -> (not is_pos) && not success)
+         results)
+  in
+  {
+    passed = positive_passed + negative_passed;
+    failed = positive_failed + negative_failed;
+    total = List.length tests;
+    positive_passed;
+    positive_failed;
+    negative_passed;
+    negative_failed;
+  }
+
+(* SL suite runner for ETH tests - accumulates coverage *)
+let eval_sl_suite_eth ?(config = Instrumentation.Config.default) spec_sl spec_il
+    (tests : eth_test_case list) : eth_suite_result =
+  let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Hooks.set_handlers handlers;
+  Instrumentation.Hooks.init ~spec:(Instrumentation.Hooks.SlSpec spec_sl);
+  let total = List.length tests in
+  let results =
+    List.mapi
+      (fun idx test ->
+        Printf.printf "[%d/%d] Running %s... " (idx + 1) total test.name;
+        flush stdout;
+        (* Use spec_il for JSON parsing *)
+        let pre_result = parse_json test.pre_file "beaconState" spec_il in
+        let block_result =
+          parse_json test.block_file "signedBeaconBlock" spec_il
+        in
+        match (pre_result, block_result) with
+        | Error e, _ ->
+            Printf.printf "FAIL (pre.json parse error)\n";
+            Printf.printf "    Error: %s\n" (Error.string_of_error e);
+            flush stdout;
+            (test.is_positive, false)
+        | _, Error e ->
+            Printf.printf "FAIL (block.json parse error)\n";
+            Printf.printf "    Error: %s\n" (Error.string_of_error e);
+            flush stdout;
+            (test.is_positive, false)
+        | Ok pre_state, Ok block ->
+            let run_result =
+              eval_sl_run spec_sl "State_transition"
+                [ pre_state; block; Il.Value.bool true ]
+                test.name
+            in
+            let success =
+              match (test.is_positive, run_result) with
+              | true, Ok _ ->
+                  Printf.printf "PASS (positive)\n";
+                  true
+              | true, Error e ->
+                  Printf.printf "FAIL (positive, unexpected error)\n";
+                  Printf.printf "    Error: %s\n" (Error.string_of_error e);
+                  false
+              | false, Error _ ->
+                  Printf.printf "PASS (negative, expected error)\n";
+                  true
+              | false, Ok _ ->
+                  Printf.printf
+                    "FAIL (negative, expected error but succeeded)\n";
+                  false
+            in
+            flush stdout;
+            (test.is_positive, success))
+      tests
+  in
+  (* Don't call finish here - let the CLI handle it for file output *)
+  let positive_passed =
+    List.length
+      (List.filter (fun (is_pos, success) -> is_pos && success) results)
+  in
+  let positive_failed =
+    List.length
+      (List.filter (fun (is_pos, success) -> is_pos && not success) results)
+  in
+  let negative_passed =
+    List.length
+      (List.filter (fun (is_pos, success) -> (not is_pos) && success) results)
+  in
+  let negative_failed =
+    List.length
+      (List.filter
+         (fun (is_pos, success) -> (not is_pos) && not success)
+         results)
+  in
+  {
+    passed = positive_passed + negative_passed;
+    failed = positive_failed + negative_failed;
+    total = List.length tests;
+    positive_passed;
+    positive_failed;
+    negative_passed;
+    negative_failed;
+  }
