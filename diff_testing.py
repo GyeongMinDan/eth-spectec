@@ -1306,7 +1306,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
                 f"--instr-profile={profdata_file}",
                 "--format=html",
                 f"--output-dir={html_dir}",
-                "--ignore-filename-regex=/.cargo",
+                "--ignore-filename-regex=/.cargo|rustc/",
                 "--show-line-counts-or-regions",
                 "--show-instantiations"
             ],
@@ -1322,7 +1322,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
                 str(llvm_cov), "report",
                 str(lighthouse_binary),
                 f"--instr-profile={profdata_file}",
-                "--ignore-filename-regex=/.cargo",
+                "--ignore-filename-regex=/.cargo|rustc/",
                 "--show-instantiation-summary"
             ],
             capture_output=True,
@@ -1334,6 +1334,16 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
         
         print(f"    ✓ Report: {html_dir / 'index.html'}")
         print(f"    ✓ Summary: {summary_file}")
+        
+        # 리포트 생성 후 testing_clients/lighthouse/ 경로에 남은 .profraw 파일들 삭제
+        lighthouse_root_profraw_files = list(lighthouse_src.glob("*.profraw"))
+        if lighthouse_root_profraw_files:
+            for profraw_file in lighthouse_root_profraw_files:
+                try:
+                    profraw_file.unlink()
+                    print(f"    ✓ Removed original profraw file: {profraw_file.name}")
+                except Exception as e:
+                    print(f"    ⚠ Warning: Failed to remove {profraw_file.name}: {e}")
         
     except FileNotFoundError as e:
         print(f"    ✗ Tool not found: {e}")
@@ -1369,11 +1379,27 @@ def _generate_teku_report(teku_coverage_dir, testing_clients_dir):
         for jar in teku_jars:
             classfiles_args.extend(["--classfiles", str(jar)])
         
+        # Teku 소스 디렉토리 찾기 (멀티 모듈 Gradle 프로젝트)
+        teku_root = testing_clients_dir / "teku"
+        # 각 모듈의 src/main/java 디렉토리 찾기
+        source_dirs = []
+        for src_dir in teku_root.rglob("src/main/java"):
+            if src_dir.is_dir():
+                source_dirs.append(str(src_dir))
+        
+        # --sourcefiles 옵션 추가 (소스 파일 매핑을 위해)
+        sourcefiles_args = []
+        if source_dirs:
+            for src_dir in source_dirs:
+                sourcefiles_args.extend(["--sourcefiles", src_dir])
+        else:
+            print(f"    ⚠ Warning: No source directories found, source code mapping may not work")
+        
         subprocess.run(
             [
                 "java", "-jar", str(jacoco_cli),
                 "report", str(teku_exec),
-            ] + classfiles_args + [
+            ] + classfiles_args + sourcefiles_args + [
                 "--html", str(teku_report_dir)
             ],
             check=True,
