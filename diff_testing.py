@@ -56,16 +56,16 @@ class Clients:
 
 def decompress_snappy(converter_dir, input_file, output_file):
     """
-    snappy 파일을 압축 해제합니다.
+    Decompress snappy file.
     
     Args:
-        converter_dir: Converter 디렉터리 경로
-        input_file: 입력 snappy 파일 경로
-        output_file: 출력 SSZ 파일 경로
+        converter_dir: Converter directory path
+        input_file: Input snappy file path
+        output_file: Output SSZ file path
     """
     snappy_decompressor = Path(converter_dir) / "Converter" / "snappyDecompressor.py"
     if not snappy_decompressor.exists():
-        # 스크립트가 spectec-core 디렉터리에 있는 경우
+        # Fallback: script is in spectec-core directory
         snappy_decompressor = Path(converter_dir) / "snappyDecompressor.py"
     
     try:
@@ -83,16 +83,16 @@ def decompress_snappy(converter_dir, input_file, output_file):
 
 def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=None):
     """
-    state_dir와 block_dir에서 SSZ 파일 쌍을 찾아서 yield합니다.
+    Find SSZ file pairs from state_dir and block_dir and yield them.
     
-    지원하는 파일 형태:
-    1. pre.ssz_snappy + blocks_*.ssz_snappy 형태 (OfficialTestSuite 원본)
-    2. pre.ssz + blocks_*.ssz 형태 (run_test_suite.py에서 사용)
-    3. pre_*.ssz + blocks_0.ssz 형태 (state mutation 도구 출력)
-    4. state_*.ssz + block_*.ssz 형태 (기존 형태)
+    Supported file formats:
+    1. pre.ssz_snappy + blocks_*.ssz_snappy (OfficialTestSuite original)
+    2. pre.ssz + blocks_*.ssz (used by run_test_suite.py)
+    3. pre_*.ssz + blocks_0.ssz (state mutation tool output)
+    4. state_*.ssz + block_*.ssz (legacy format)
     
-    .ssz_snappy 파일이 있으면 자동으로 .ssz로 변환합니다.
-    각 block에 대해 원본 pre/state에서 독립적으로 처리합니다.
+    .ssz_snappy files are automatically converted to .ssz.
+    Each block is processed independently from the original pre/state.
     """
     tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
     paths = {}
@@ -102,26 +102,23 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
         os.makedirs(output_dir, exist_ok=True)
         paths[tool] = {
             "output_dir": output_dir,
-            "cov_output_base": os.path.join(output_parent_dir, f"{tool}")  # cov_output_{index} 생성을 위한 base
+            "cov_output_base": os.path.join(output_parent_dir, f"{tool}")  # Base for cov_output_{index}
         }
 
-    # pre.ssz 또는 pre.ssz_snappy 파일 찾기
+    # Find pre.ssz or pre.ssz_snappy file
     pre_ssz = os.path.join(state_dir, "pre.ssz")
     pre_snappy = os.path.join(state_dir, "pre.ssz_snappy")
     
-    # 변환이 필요한지 확인
     needs_decompression = False
     decompressed_dir = None
     
-    # .ssz_snappy 파일이 있으면 .ssz로 변환
+    # Convert .ssz_snappy to .ssz if needed
     if os.path.exists(pre_snappy) and not os.path.exists(pre_ssz):
         needs_decompression = True
-        # 변환된 파일들을 저장할 임시 디렉터리 (output_parent_dir 내부)
         decompressed_dir = os.path.join(output_parent_dir, "_decompressed")
         os.makedirs(decompressed_dir, exist_ok=True)
         
         if converter_dir is None:
-            # 스크립트 위치에서 spectec-core 디렉터리 찾기
             script_dir = Path(__file__).parent.resolve()
             converter_dir = script_dir
         
@@ -129,7 +126,6 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
         print(f"[+] Decompressing {pre_snappy} -> {decompressed_pre}")
         if not decompress_snappy(converter_dir, pre_snappy, decompressed_pre):
             print(f"[!] Failed to decompress pre.ssz_snappy, skipping...")
-            # 실패 시 빈 디렉터리 정리
             if decompressed_dir and os.path.exists(decompressed_dir) and not os.listdir(decompressed_dir):
                 os.rmdir(decompressed_dir)
             return
@@ -138,7 +134,7 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
         pre_ssz = decompressed_pre
     
     if os.path.exists(pre_ssz):
-        # blocks_*.ssz 또는 blocks_*.ssz_snappy 파일들 찾기 (숫자 순서로 정렬)
+        # Find blocks_*.ssz or blocks_*.ssz_snappy files (sorted numerically)
         block_ssz_files = sorted(
             [f for f in os.listdir(block_dir) if f.startswith("blocks_") and f.endswith(".ssz")],
             key=lambda f: int(f.replace("blocks_", "").replace(".ssz", "")) if f.replace("blocks_", "").replace(".ssz", "").isdigit() else float('inf')
@@ -148,9 +144,8 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
             key=lambda f: int(f.replace("blocks_", "").replace(".ssz_snappy", "")) if f.replace("blocks_", "").replace(".ssz_snappy", "").isdigit() else float('inf')
         )
         
-        # .ssz_snappy 파일이 있으면 .ssz로 변환
+        # Convert .ssz_snappy to .ssz if needed
         if block_snappy_files and not block_ssz_files:
-            # 변환이 필요한데 디렉터리가 없으면 생성
             if not needs_decompression:
                 decompressed_dir = os.path.join(output_parent_dir, "_decompressed")
                 os.makedirs(decompressed_dir, exist_ok=True)
@@ -172,13 +167,11 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
                     print(f"[+] Successfully decompressed {block_snappy_file} to {decompressed_block}")
                 block_ssz_files.append(f"blocks_{block_num}.ssz")
         
-        # 변환된 파일 경로 결정
         use_decompressed = (decompressed_dir is not None and decompressed_dir in pre_ssz) or (block_snappy_files and not os.path.exists(os.path.join(block_dir, "blocks_0.ssz")))
         
         for block_file in block_ssz_files:
             block_index = block_file.replace("blocks_", "").replace(".ssz", "")
             
-            # 변환된 파일이면 decompressed_dir에서, 아니면 원본 디렉터리에서 찾기
             if use_decompressed and decompressed_dir is not None and os.path.exists(os.path.join(decompressed_dir, block_file)):
                 block_path = os.path.join(decompressed_dir, block_file)
             else:
@@ -195,22 +188,22 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
                 for tool in tools
             }
             
-            # 각 block마다 독립적인 cov_output 디렉토리 생성
+            # Create independent cov_output directory for each block
             for tool in tools:
                 os.makedirs(paths_per_pair[tool]["cov_output"], exist_ok=True)
             
             yield pre_ssz, block_path, paths_per_pair
         return
     
-    # 새 형태: pre_*.ssz (여러 mutated states) + blocks_0.ssz (하나의 block)
-    # state mutation으로 생성된 케이스용
+    # New format: pre_*.ssz (multiple mutated states) + blocks_0.ssz (single block)
+    # For state mutation generated cases
     pre_files = sorted(
         [f for f in os.listdir(state_dir) if f.startswith("pre_") and f.endswith(".ssz")],
         key=lambda f: int(f.replace("pre_", "").replace(".ssz", "")) if f.replace("pre_", "").replace(".ssz", "").isdigit() else float('inf')
     )
     
     if pre_files:
-        # blocks_0.ssz 파일 찾기 (하나의 원본 block)
+        # Find blocks_0.ssz file (single original block)
         block_file = None
         for bf in ["blocks_0.ssz", "block_0.ssz"]:
             if os.path.exists(os.path.join(block_dir, bf)):
@@ -232,14 +225,14 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
                     for tool in tools
                 }
                 
-                # 각 state마다 독립적인 cov_output 디렉토리 생성
+                # Create independent cov_output directory for each state
                 for tool in tools:
                     os.makedirs(paths_per_pair[tool]["cov_output"], exist_ok=True)
                 
                 yield state_path, block_path, paths_per_pair
             return
     
-    # 기존 형태: state_*.ssz + block_*.ssz
+    # Legacy format: state_*.ssz + block_*.ssz
     for state_file in os.listdir(state_dir):
         if state_file.endswith(".ssz"):
             state_index = state_file.split("_")[-1].split(".")[0]
@@ -260,7 +253,7 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
                     for tool in tools
                 }
 
-                # 각 state마다 독립적인 cov_output 디렉토리 생성
+                # Create independent cov_output directory for each state
                 for tool in tools:
                     os.makedirs(paths_per_pair[tool]["cov_output"], exist_ok=True)
 
@@ -269,44 +262,40 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
 
 def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=False):
     """
-    spectec-core 디렉터리 경로를 받아서 testing_clients 경로를 올바르게 설정
+    Process clients with proper testing_clients path setup.
     
     Args:
-        state: pre-state SSZ 파일 경로
-        block: block SSZ 파일 경로
-        paths: 출력 경로 딕셔너리 (각 클라이언트의 output, cov_output 경로 포함)
-        spectec_core_dir: spectec-core 디렉터리 경로
-        enable_coverage: 커버리지 측정 활성화 여부
+        state: Pre-state SSZ file path
+        block: Block SSZ file path
+        paths: Output path dictionary (includes output and cov_output paths for each client)
+        spectec_core_dir: spectec-core directory path
+        enable_coverage: Enable coverage measurement
     """
     if spectec_core_dir is None:
-        # 현재 스크립트 위치에서 spectec-core 디렉터리 찾기
         script_dir = Path(__file__).parent.resolve()
         spectec_core_dir = script_dir
     
-    # testing_clients 경로 설정
     testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
     
-    # Lodestar transition.js 파일 경로 확인
+    # Check Lodestar transition.js file path
     lodestar_transition = testing_clients_dir / "lodestar" / "transition.js"
     if not lodestar_transition.exists():
-        # transition.js가 없으면 기본 경로 사용
         lodestar_transition = testing_clients_dir / "lodestar" / "transition"
 
-    # Pure Capella config 경로 설정
+    # Pure Capella config path setup
     pure_capella_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
     lighthouse_testnet_dir = pure_capella_configs_dir / "lighthouse_testnet"
     # Note: teku_config and nimbus_config are not used (Teku uses CLI args, Nimbus uses code override)
 
-    # 커버리지 데이터 디렉토리 설정 (paths에서 가져옴)
+    # Coverage data directory setup (from paths)
     coverage_dirs = {}
     if enable_coverage:
-        # 각 클라이언트별 커버리지 디렉토리는 paths에 이미 포함되어 있음
         for client_name in ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]:
             if client_name in paths and "cov_output" in paths[client_name]:
                 coverage_dirs[client_name] = Path(paths[client_name]["cov_output"])
                 coverage_dirs[client_name].mkdir(parents=True, exist_ok=True)
     
-    # 클라이언트 바이너리 경로: 커버리지 모드일 때는 별도 바이너리 사용
+    # Client binary paths: use separate binaries in coverage mode
     if enable_coverage:
         prysm_binary = testing_clients_dir / "prysm" / "pcli-cov"
         lighthouse_binary = testing_clients_dir / "lighthouse" / "target" / "release" / "lcli-cov"
@@ -389,7 +378,6 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
 
     for client in clients:
         try:
-            # start_time을 try 블록 시작 부분에서 초기화 (예외 발생 시 참조 가능하도록)
             start_time = perf_counter()
             
             print(f"\n[+] Running: {client.name}")
@@ -401,27 +389,27 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             client.block = block
 
             print(f"[+] Command: {client.cmd_path} {' '.join(str(arg) for arg in client.cmd_args)}")
-            # 모든 인자를 문자열로 변환 (Path 객체가 포함될 수 있음)
+            # Convert all arguments to strings (Path objects may be included)
             cmd = [str(client.cmd_path)] + [str(arg) for arg in client.cmd_args]
 
-            # 커버리지 환경변수 설정
+            # Setup coverage environment variables
             env = os.environ.copy()
             if enable_coverage:
                 client_name_lower = client.name.lower()
                 
                 if client.name == "Prysm":
-                    # Go: GOCOVERDIR 환경변수 설정
+                    # Go: Set GOCOVERDIR environment variable
                     env["GOCOVERDIR"] = str(coverage_dirs["prysm"])
                     print(f"[+] Coverage enabled: GOCOVERDIR={env['GOCOVERDIR']}")
                 
                 elif client.name == "Lighthouse":
-                    # Rust: LLVM_PROFILE_FILE 환경변수 설정
+                    # Rust: Set LLVM_PROFILE_FILE environment variable
                     profile_file = coverage_dirs["lighthouse"] / f"lighthouse-cov-%p-%m.profraw"
                     env["LLVM_PROFILE_FILE"] = str(profile_file)
                     print(f"[+] Coverage enabled: LLVM_PROFILE_FILE={env['LLVM_PROFILE_FILE']}")
                 
                 elif client.name == "Teku":
-                    # Java: JaCoCo agent를 JAVA_OPTS로 주입
+                    # Java: Inject JaCoCo agent via JAVA_OPTS
                     jacoco_agent_path = testing_clients_dir / "jacoco" / "jacocoagent.jar"
                     jacoco_exec = coverage_dirs["teku"] / "teku-coverage.exec"
                     
@@ -433,13 +421,13 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                         print(f"[!] Download from: https://www.jacoco.org/jacoco/trunk/doc/agent.html")
                 
                 elif client.name == "Nimbus":
-                    # Nim/C: gcov는 자동으로 .gcda 파일을 생성하므로 특별한 환경변수 불필요
-                    # 각 test case마다 독립적인 커버리지를 측정하기 위해
-                    # 실행 전에 .gcda 파일을 초기화하고, 실행 후에 복사합니다
+                    # Nim/C: gcov automatically generates .gcda files, no special env var needed
+                    # For independent coverage per test case, initialize .gcda files before execution
+                    # and copy them after execution
                     nimbus_src = testing_clients_dir / "nimbus-eth2"
                     nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
                     
-                    # 실행 전에 기존 .gcda 파일 삭제 (독립적인 측정을 위해)
+                    # Delete existing .gcda files before execution (for independent measurement)
                     if nimbus_gcda_dir.exists():
                         for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
                             try:
@@ -449,24 +437,22 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                     print(f"[+] Coverage enabled: gcov will auto-generate .gcda files in build directory")
                 
                 elif client.name == "Lodestar":
-                    # Node.js: c8을 사용하여 커버리지 측정
-                    # c8은 실행 시점에 커버리지를 수집하므로 명령어를 c8로 감싸야 함
+                    # Node.js: Use c8 for coverage measurement
+                    # c8 collects coverage at runtime, so wrap the command with c8
                     lodestar_dir = testing_clients_dir / "lodestar"
                     coverage_report_dir = coverage_dirs["lodestar"] / "report"
-                    coverage_temp_dir = coverage_dirs["lodestar"]  # JSON 파일 저장 위치
+                    coverage_temp_dir = coverage_dirs["lodestar"]  # JSON file storage location
                     coverage_report_dir.mkdir(parents=True, exist_ok=True)
                     coverage_temp_dir.mkdir(parents=True, exist_ok=True)
                     
-                    # 원래 node 명령을 c8으로 감싸기
-                    # npx c8 --all --reporter=text --reporter=html --report-dir=<coverage_dir> --temp-directory=<temp_dir> --exclude-node-modules=false --include="node_modules/@lodestar/**" node <original_args>
+                    # Wrap original node command with c8
                     original_cmd_path = str(client.cmd_path)
-                    # 모든 인자를 문자열로 변환 (Path 객체가 포함될 수 있음)
                     original_cmd_args = [str(arg) for arg in client.cmd_args]
                     
-                    # c8 옵션 추가
-                    # --exclude-node-modules=false: node_modules를 포함하도록 설정 (기본적으로 제외됨)
-                    # --temp-directory: 커버리지 JSON 파일 저장 위치 명시
-                    # --include: Lodestar 코드만 포함 (transition.js는 래퍼이므로 제외)
+                    # c8 options:
+                    # --exclude-node-modules=false: include node_modules (excluded by default)
+                    # --temp-directory: specify coverage JSON file storage location
+                    # --include: only include Lodestar code (exclude transition.js wrapper)
                     c8_args = [
                         "c8",
                         "--all",
@@ -480,10 +466,10 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                         "--include=node_modules/@chainsafe/**/*.js",
                         "--exclude=**/transition.js",
                         "--exclude=**/generateCachedStateCapella.js",
-                        original_cmd_path,  # node 경로
-                    ] + original_cmd_args  # 원래 인자들 (모두 문자열로 변환됨)
+                        original_cmd_path,  # node path
+                    ] + original_cmd_args  # original arguments (all converted to strings)
                     
-                    # npx를 사용하여 c8 실행
+                    # Execute c8 using npx
                     client.cmd_path = "npx"
                     client.cmd_args = c8_args
                     cmd = ["npx"] + c8_args
@@ -492,7 +478,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                     print(f"[+] Coverage temp-directory: {coverage_temp_dir}")
                     print(f"[+] Coverage command: npx {' '.join(c8_args)}")
 
-            # cwd 설정 (Lodestar 커버리지 모드일 때만 lodestar 디렉토리로 설정)
+            # Set cwd (only for Lodestar coverage mode)
             if client.name == "Lodestar" and enable_coverage:
                 cwd = str(testing_clients_dir / "lodestar")
             else:
@@ -517,15 +503,15 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             
             print(f"[+] Execution time: {client.timestamp}")
             
-            # 올바른 분류 기준 적용
+            # Apply correct classification criteria
             if process.returncode == 0:
                 client.status_code = 0  # SUCCESS
             elif process.returncode < 0:
-                client.status_code = 2  # UNHANDLED_EXCEPTION (시그널에 의한 종료)
+                client.status_code = 2  # UNHANDLED_EXCEPTION (terminated by signal)
             else:
-                client.status_code = 1  # FAIL (1, 2, 3, 4... 모든 양수 에러)
+                client.status_code = 1  # FAIL (all positive error codes: 1, 2, 3, 4...)
             
-            # Lodestar 특별 처리: stderr 파싱에 실패하면 2로 설정
+            # Lodestar special handling: set to 2 if stderr parsing fails
             if client.name == "Lodestar":
                 try:
                     # Handled exception
@@ -543,7 +529,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                                     error_obj = json.loads(json_str)
                                     status_code = error_obj.get('statusCode', 1)
                                     output_string = error_obj.get('output', '')
-                                    # stderr에서 파싱한 statusCode를 사용하되, 올바른 분류 적용
+                                    # Use statusCode parsed from stderr, but apply correct classification
                                     if status_code == 0:
                                         client.status_code = 0  # SUCCESS
                                     elif status_code < 0:
@@ -562,7 +548,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                             output_match = re.search(r"output: \s*'(.*?)'", client.output.stderr, re.DOTALL)
                             if output_match:
                                 output_string = output_match.group(1)
-                                # stderr에서 파싱한 statusCode를 사용하되, 올바른 분류 적용
+                                # Use statusCode parsed from stderr, but apply correct classification
                                 if status_code == 0:
                                     client.status_code = 0  # SUCCESS
                                 elif status_code < 0:
@@ -578,19 +564,19 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
 
             client.log()
             
-            # Nimbus: 각 test case마다 독립적인 커버리지를 위해 .gcda 파일을 복사
+            # Nimbus: Copy .gcda files for independent coverage per test case
             if client.name == "Nimbus" and enable_coverage:
                 nimbus_src = testing_clients_dir / "nimbus-eth2"
                 nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
                 nimbus_coverage_dir = coverage_dirs.get("nimbus")
                 
                 if nimbus_coverage_dir and nimbus_gcda_dir.exists():
-                    # cov_output_{index} 디렉토리에 nimcache 구조를 그대로 복사
+                    # Copy nimcache structure to cov_output_{index} directory
                     target_gcda_dir = nimbus_coverage_dir / "nimcache" / "debug" / "ncli"
                     target_gcda_dir.mkdir(parents=True, exist_ok=True)
                     
-                    # .gcda 파일만 복사 (각 테스트 케이스마다 독립적)
-                    # .gcno 파일은 리포트 생성 시 원본 nimcache에서 가져와서 일관된 측정 범위 보장
+                    # Copy only .gcda files (independent per test case)
+                    # .gcno files are taken from original nimcache during report generation for consistent measurement scope
                     import shutil
                     for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
                         relative_path = gcda_file.relative_to(nimbus_gcda_dir)
@@ -766,10 +752,12 @@ def create_csv_time(all_results, output_parent_dir):
 
 def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=None, workflow="independent", enable_coverage=False):
     """
-    spectec_core_dir: spectec-core 디렉터리 경로 (testing_clients 경로를 찾기 위해 사용)
-    workflow: "independent" (기본) 또는 "sequential" 모드
-    enable_coverage: 커버리지 측정 활성화 여부
-    Returns: successful_clients_by_index dict mapping index to list of successful client names
+    Args:
+        spectec_core_dir: spectec-core directory path (used to find testing_clients path)
+        workflow: "independent" (default) or "sequential" mode
+        enable_coverage: Enable coverage measurement
+    Returns:
+        successful_clients_by_index: dict mapping index to list of successful client names
     """
     eth2_clients_results = []
     all_results = [] 
@@ -778,14 +766,14 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
     successful_clients_by_index = {}
 
     if workflow == "sequential":
-        # Sequential 모드: pre -> blocks_0 -> postState_0 -> blocks_1 -> ...
-        # 모든 block을 먼저 수집
+        # Sequential mode: pre -> blocks_0 -> postState_0 -> blocks_1 -> ...
+        # Collect all blocks first
         block_pairs = list(parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=spectec_core_dir))
         
         if not block_pairs:
             return successful_clients_by_index
         
-        # 첫 번째 block의 원본 pre 상태 저장
+        # Store original pre state of first block
         initial_state, first_block, first_paths = block_pairs[0]
         current_state = initial_state
         
@@ -835,11 +823,11 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
             all_times.append(pair_times)
             all_status.append(pair_status)
             
-            # 다음 block의 pre로 사용할 postState 결정 (성공한 클라이언트 중 하나 선택)
-            # 모든 클라이언트가 같은 결과를 생성해야 하므로 첫 번째 성공한 클라이언트의 결과 사용
+            # Determine postState to use as pre for next block (select from successful clients)
+            # All clients should produce the same result, so use the first successful client's output
             next_state = None
             for client in eth2_clients:
-                # client.name은 "Lighthouse", "Prysm" 등 대문자로 시작, paths 키는 소문자
+                # client.name starts with uppercase (e.g., "Lighthouse", "Prysm"), paths keys are lowercase
                 client_key = client.name.lower()
                 if client.status_code == 0 and client_key in paths and os.path.exists(paths[client_key]["output"]):
                     next_state = paths[client_key]["output"]
@@ -851,7 +839,7 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
             
             current_state = next_state
     else:
-        # Independent 모드 (기본): 각 block을 원본 pre 상태에서 독립적으로 처리
+        # Independent mode (default): process each block independently from original pre state
         for state, block, paths in parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=spectec_core_dir):
             print(f"[+] Processing pair: {state} and {block}")
             eth2_clients = process_clients(state, block, paths, spectec_core_dir=spectec_core_dir, enable_coverage=enable_coverage)
@@ -880,7 +868,7 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
             pair_status = {'Pair #': index}
             
             for client in eth2_clients:
-                # parse logs before storing them in arrays, unnecessary portion of logs hinders readability
+                # Parse logs before storing in arrays (unnecessary portions hinder readability)
                 parsed_log = parse_output(client)
                 pair_results[client.name] = parsed_log
                 labelled = f"{client.status_code}({STATUS_LABEL.get(client.status_code, 'UNKNOWN')})"
@@ -1052,13 +1040,13 @@ def compare_ssz_files_in_output(output_parent_dir, successful_clients_by_index=N
 
 def generate_coverage_reports_per_testcase(output_dir, spectec_core_dir, cleanup_after_report=False):
     """
-    테스트 케이스별 커버리지 데이터를 분석하여 HTML 리포트 생성
-    각 block/state index마다 독립적인 cov_output_{index} 디렉토리의 리포트를 생성
+    Generate HTML coverage reports by analyzing coverage data per test case.
+    Creates reports for each independent cov_output_{index} directory per block/state index.
     
     Args:
-        output_dir: 테스트 케이스 출력 디렉토리 (예: node_result_mutated_case_insight_with_log/invalid_all_zeroed_sig)
-        spectec_core_dir: spectec-core 디렉토리 경로
-        cleanup_after_report: 리포트 생성 후 원본 커버리지 데이터 삭제 여부
+        output_dir: Test case output directory (e.g., node_result_mutated_case_insight_with_log/invalid_all_zeroed_sig)
+        spectec_core_dir: spectec-core directory path
+        cleanup_after_report: Delete original coverage data after generating reports
     """
     output_path = Path(output_dir)
     testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
@@ -1067,7 +1055,7 @@ def generate_coverage_reports_per_testcase(output_dir, spectec_core_dir, cleanup
     print(f"Generating Coverage Reports for: {output_path.name}")
     print(f"{'='*60}\n")
     
-    # 각 클라이언트의 cov_output_* 디렉토리들을 찾아서 처리
+    # Find and process cov_output_* directories for each client
     clients = ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]
     
     for client in clients:
@@ -1075,7 +1063,7 @@ def generate_coverage_reports_per_testcase(output_dir, spectec_core_dir, cleanup
         if not client_dir.exists():
             continue
         
-        # cov_output_{index} 형태의 디렉토리 찾기
+        # Find directories matching cov_output_{index} pattern
         cov_dirs = sorted([d for d in client_dir.iterdir() if d.is_dir() and d.name.startswith("cov_output_")])
         
         if not cov_dirs:
@@ -1098,7 +1086,7 @@ def generate_coverage_reports_per_testcase(output_dir, spectec_core_dir, cleanup
             elif client == "lodestar":
                 _generate_lodestar_report(cov_dir, testing_clients_dir)
             
-            # 리포트 생성 후 원본 데이터 삭제 (옵션)
+            # Delete original data after report generation (optional)
             if cleanup_after_report:
                 _cleanup_coverage_data(cov_dir, client)
     
@@ -1108,11 +1096,11 @@ def generate_coverage_reports_per_testcase(output_dir, spectec_core_dir, cleanup
 
 
 def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
-    """Prysm (Go) 커버리지 리포트 생성"""
+    """Generate Prysm (Go) coverage report"""
     if not prysm_coverage_dir.exists():
         return
     
-    # 커버리지 데이터 파일이 있는지 확인
+    # Check if coverage data files exist
     cov_files = list(prysm_coverage_dir.glob("covcounters.*"))
     if not cov_files:
         return
@@ -1122,7 +1110,7 @@ def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
     prysm_dir = testing_clients_dir / "prysm"
     
     try:
-        # go tool covdata textfmt로 텍스트 포맷 변환
+        # Convert to text format using go tool covdata textfmt
         coverage_txt = prysm_report_dir / "coverage.txt"
         subprocess.run(
             ["go", "tool", "covdata", "textfmt", f"-i={prysm_coverage_dir}", f"-o={coverage_txt}"],
@@ -1131,9 +1119,9 @@ def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
             text=True
         )
         
-        # go tool cover로 HTML 리포트 생성 (Prysm 디렉토리에서 실행)
+        # Generate HTML report using go tool cover (run from Prysm directory)
         coverage_html = prysm_report_dir / "coverage.html"
-        # Prysm 디렉토리 기준 상대 경로 계산
+        # Calculate relative paths from Prysm directory
         rel_coverage_txt = Path(os.path.relpath(coverage_txt, prysm_dir))
         rel_coverage_html = Path(os.path.relpath(coverage_html, prysm_dir))
         
@@ -1142,10 +1130,10 @@ def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
             check=True,
             capture_output=True,
             text=True,
-            cwd=str(prysm_dir)  # Prysm 디렉토리에서 실행 (go.mod 필요)
+            cwd=str(prysm_dir)  # Run from Prysm directory (go.mod required)
         )
         
-        # 전체 커버리지 통계 계산 및 HTML에 추가
+        # Calculate overall coverage statistics and add to HTML
         _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_coverage_dir)
         
         print(f"    ✓ Report: {prysm_report_dir / 'coverage.html'}")
@@ -1154,9 +1142,9 @@ def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
 
 
 def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_coverage_dir):
-    """Prysm HTML 리포트에 전체 통계 추가"""
+    """Add overall statistics to Prysm HTML report"""
     try:
-        # go tool covdata percent로 패키지별 통계 수집
+        # Collect package statistics using go tool covdata percent
         result = subprocess.run(
             ["go", "tool", "covdata", "percent", f"-i={prysm_coverage_dir}"],
             cwd=str(prysm_dir),
@@ -1165,17 +1153,17 @@ def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_cove
             check=True
         )
         
-        # 패키지별 통계 파싱
-        # 형식: "package_name    coverage: XX.X% of statements"
+        # Parse package statistics
+        # Format: "package_name    coverage: XX.X% of statements"
         package_stats = []
         for line in result.stdout.strip().split('\n'):
             if 'coverage:' in line:
                 parts = line.split()
                 package = parts[0].strip()
-                coverage = parts[-3]  # "XX.X%" (parts[-2]는 "of", parts[-1]은 "statements")
+                coverage = parts[-3]  # "XX.X%" (parts[-2] is "of", parts[-1] is "statements")
                 package_stats.append((package, coverage))
         
-        # go tool cover -func로 전체 statement coverage 계산
+        # Calculate overall statement coverage using go tool cover -func
         func_result = subprocess.run(
             ["go", "tool", "cover", f"-func={coverage_txt}"],
             cwd=str(prysm_dir),
@@ -1184,21 +1172,21 @@ def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_cove
             check=True
         )
         
-        # 마지막 줄에서 "total: (statements) XX.X%" 추출
+        # Extract "total: (statements) XX.X%" from last line
         total_coverage = 0.0
         lines = func_result.stdout.strip().split('\n')
         if lines:
             last_line = lines[-1]
             if last_line.startswith('total:'):
-                # "total: (statements) 11.3%" 형식
+                # Format: "total: (statements) 11.3%"
                 coverage_str = last_line.split()[-1].rstrip('%')
                 total_coverage = float(coverage_str)
         
-        # HTML에 통계 박스 추가
+        # Add statistics box to HTML
         with open(coverage_html, 'r') as f:
             html_content = f.read()
         
-        # 통계 박스 HTML 생성
+        # Generate statistics box HTML
         stats_html = f'''
         <div style="background:#375eab;color:#fff;padding:20px;margin:20px;border-radius:5px;">
             <h2 style="margin:0 0 10px 0;">Overall Statement Coverage: {total_coverage:.1f}%</h2>
@@ -1228,7 +1216,7 @@ def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_cove
         </div>
         '''
         
-        # <div id="content"> 다음에 통계 박스 삽입
+        # Insert statistics box after <div id="content">
         html_content = html_content.replace(
             '<div id="content">',
             f'<div id="content">{stats_html}'
@@ -1242,21 +1230,21 @@ def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_cove
 
 
 def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
-    """Lighthouse (Rust) 커버리지 리포트 생성 (llvm-cov 사용)
+    """Generate Lighthouse (Rust) coverage report using llvm-cov
     
-    Rust source-based coverage는 다음 메트릭을 제공:
-    - Region Coverage: 조건 분기 커버리지 (if/match 등)
-    - Function Coverage: 함수 호출 여부
-    - Instantiation Coverage: 제네릭/매크로 인스턴스
-    - Line Coverage: 라인 실행 여부
+    Rust source-based coverage provides the following metrics:
+    - Region Coverage: conditional branch coverage (if/match etc.)
+    - Function Coverage: function call status
+    - Instantiation Coverage: generic/macro instances
+    - Line Coverage: line execution status
     
-    주의: "Branches" 컬럼은 항상 0/0으로 표시됨 (LLVM IR branch는 수집 안됨).
-          조건 분기는 "Region Coverage"로 측정됨.
+    Note: "Branches" column always shows 0/0 (LLVM IR branches are not collected).
+          Conditional branches are measured as "Region Coverage".
     """
     if not lighthouse_coverage_dir.exists():
         return
     
-    # .profraw 파일이 있는지 확인
+    # Check if .profraw files exist
     profraw_files = list(lighthouse_coverage_dir.glob("*.profraw"))
     if not profraw_files:
         return
@@ -1267,7 +1255,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
     lighthouse_binary = lighthouse_src / "target" / "release" / "lcli-cov"
     
     try:
-        # Rust toolchain의 llvm-tools 경로 찾기
+        # Find Rust toolchain llvm-tools path
         rustc_result = subprocess.run(
             ["rustc", "--print", "sysroot"],
             capture_output=True,
@@ -1283,7 +1271,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
             print(f"    ✗ llvm-tools not found. Install with: rustup component add llvm-tools-preview")
             return
         
-        # 1. profraw를 profdata로 변환
+        # 1. Convert profraw to profdata
         profdata_file = lighthouse_report_dir / "lighthouse.profdata"
         subprocess.run(
             [
@@ -1296,7 +1284,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
             text=True
         )
         
-        # 2. HTML 리포트 생성
+        # 2. Generate HTML report
         html_dir = lighthouse_report_dir / "html"
         html_dir.mkdir(exist_ok=True)
         subprocess.run(
@@ -1315,7 +1303,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
             text=True
         )
         
-        # 3. 텍스트 요약 생성
+        # 3. Generate text summary
         summary_file = lighthouse_report_dir / "summary.txt"
         result = subprocess.run(
             [
@@ -1335,7 +1323,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
         print(f"    ✓ Report: {html_dir / 'index.html'}")
         print(f"    ✓ Summary: {summary_file}")
         
-        # 리포트 생성 후 testing_clients/lighthouse/ 경로에 남은 .profraw 파일들 삭제
+        # Remove .profraw files remaining in testing_clients/lighthouse/ after report generation
         lighthouse_root_profraw_files = list(lighthouse_src.glob("*.profraw"))
         if lighthouse_root_profraw_files:
             for profraw_file in lighthouse_root_profraw_files:
@@ -1352,7 +1340,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
 
 
 def _generate_teku_report(teku_coverage_dir, testing_clients_dir):
-    """Teku (Java) 커버리지 리포트 생성"""
+    """Generate Teku (Java) coverage report"""
     teku_exec = teku_coverage_dir / "teku-coverage.exec"
     if not teku_exec.exists():
         return
@@ -1366,7 +1354,7 @@ def _generate_teku_report(teku_coverage_dir, testing_clients_dir):
         return
     
     try:
-        # Teku jar 파일들만 찾기 (teku-*.jar)
+        # Find only Teku jar files (teku-*.jar)
         teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
         teku_jars = list(teku_lib_dir.glob("teku-*.jar"))
         
@@ -1374,20 +1362,20 @@ def _generate_teku_report(teku_coverage_dir, testing_clients_dir):
             print(f"    ✗ No Teku jar files found in {teku_lib_dir}")
             return
         
-        # 각 jar 파일에 대해 --classfiles 추가
+        # Add --classfiles for each jar file
         classfiles_args = []
         for jar in teku_jars:
             classfiles_args.extend(["--classfiles", str(jar)])
         
-        # Teku 소스 디렉토리 찾기 (멀티 모듈 Gradle 프로젝트)
+        # Find Teku source directories (multi-module Gradle project)
         teku_root = testing_clients_dir / "teku"
-        # 각 모듈의 src/main/java 디렉토리 찾기
+        # Find src/main/java directory for each module
         source_dirs = []
         for src_dir in teku_root.rglob("src/main/java"):
             if src_dir.is_dir():
                 source_dirs.append(str(src_dir))
         
-        # --sourcefiles 옵션 추가 (소스 파일 매핑을 위해)
+        # Add --sourcefiles option (for source file mapping)
         sourcefiles_args = []
         if source_dirs:
             for src_dir in source_dirs:
@@ -1412,8 +1400,8 @@ def _generate_teku_report(teku_coverage_dir, testing_clients_dir):
 
 
 def _generate_nimbus_report(nimbus_coverage_dir, testing_clients_dir):
-    """Nimbus (Nim/C with gcov) 커버리지 리포트 생성
-    각 test case마다 독립적인 커버리지를 위해 cov_output_{index} 디렉토리의 .gcda 파일을 사용
+    """Generate Nimbus (Nim/C with gcov) coverage report
+    Uses .gcda files from cov_output_{index} directory for independent coverage per test case
     """
     nimbus_src = testing_clients_dir / "nimbus-eth2"
     if not nimbus_src.exists():
@@ -1422,55 +1410,54 @@ def _generate_nimbus_report(nimbus_coverage_dir, testing_clients_dir):
     nimbus_report_dir = nimbus_coverage_dir / "report"
     nimbus_report_dir.mkdir(parents=True, exist_ok=True)
     
-    # cov_output_{index} 디렉토리에 복사된 .gcda 파일이 있는지 확인
+    # Check if copied .gcda files exist in cov_output_{index} directory
     nimbus_gcda_dir = nimbus_coverage_dir / "nimcache" / "debug" / "ncli"
     
     try:
-        # lcov 명령어 확인
+        # Check lcov command
         subprocess.run(["lcov", "--version"], check=True, capture_output=True)
         
-        # lcov로 커버리지 정보 수집
+        # Collect coverage information using lcov
         coverage_info = nimbus_report_dir / "coverage.info"
         
-        # cov_output_{index} 디렉토리에 .gcda 파일이 있으면 해당 디렉토리 사용
-        # 없으면 원본 nimcache 디렉토리 사용 (하위 호환성)
+        # Use cov_output_{index} directory if .gcda files exist, otherwise use original nimcache (backward compatibility)
         nimbus_cov_nimcache_root = nimbus_coverage_dir / "nimcache"
         if nimbus_cov_nimcache_root.exists() and any(nimbus_cov_nimcache_root.rglob("*.gcda")):
-            # 복사된 .gcda 파일이 있는 경우: 해당 디렉토리의 .gcda와 원본 nimcache의 .gcno를 함께 사용
-            # .gcno 파일은 컴파일 시 생성되므로 원본 nimcache에서 참조하여 일관된 측정 범위 보장
-            # .gcda 파일은 각 테스트 케이스마다 다르므로 cov_output_{index}에서 사용
+            # If copied .gcda files exist: use .gcda from this directory and .gcno from original nimcache
+            # .gcno files are generated at compile time, so reference from original nimcache for consistent measurement scope
+            # .gcda files differ per test case, so use from cov_output_{index}
             capture_dir = nimbus_cov_nimcache_root
             original_nimcache = nimbus_src / "nimcache"
             
             import shutil
             
-            # 리포트 생성 전에 capture_dir를 완전히 비워서 잔여 .gcno 파일 제거
-            # 이렇게 하면 각 리포트마다 정확히 동일한 .gcno 집합을 사용하여 LOC 고정
-            # .gcda 파일은 이미 capture_dir에 있으므로 백업 후 복원
+            # Clear capture_dir completely before report generation to remove residual .gcno files
+            # This ensures each report uses exactly the same .gcno set for fixed LOC
+            # .gcda files are already in capture_dir, so backup and restore
             gcda_backup = {}
             if capture_dir.exists():
-                # .gcda 파일 백업 (각 테스트 케이스의 실행 데이터)
+                # Backup .gcda files (execution data for each test case)
                 for gcda_file in capture_dir.rglob("*.gcda"):
                     relative_path = gcda_file.relative_to(nimbus_cov_nimcache_root)
                     gcda_backup[relative_path] = gcda_file.read_bytes()
                 
-                # capture_dir 삭제 (모든 파일 제거하여 깨끗한 상태로 시작)
+                # Delete capture_dir (remove all files to start clean)
                 shutil.rmtree(capture_dir, ignore_errors=True)
             
             capture_dir.mkdir(parents=True, exist_ok=True)
             
-            # 원본 nimcache의 .gcno 파일들을 capture_dir에 전체 복사 (조건 없이 덮어쓰기)
-            # .gcno와 .gcda의 상대 경로가 일치해야 lcov가 매칭 가능
+            # Copy all .gcno files from original nimcache to capture_dir (overwrite unconditionally)
+            # .gcno and .gcda relative paths must match for lcov to match correctly
             if original_nimcache.exists():
-                # .gcno 파일 전체 복사 (상대 경로: debug/ncli/.../*.gcno)
+                # Copy all .gcno files (relative path: debug/ncli/.../*.gcno)
                 for gcno_file in original_nimcache.rglob("*.gcno"):
                     relative_path = gcno_file.relative_to(original_nimcache)
                     target_gcno = capture_dir / relative_path
                     target_gcno.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(gcno_file, target_gcno)
             
-            # 백업한 .gcda 파일 복원 (상대 경로: debug/ncli/.../*.gcda)
-            # 이렇게 하면 .gcno와 .gcda가 같은 상대 경로에 있어서 lcov가 정확히 매칭
+            # Restore backed up .gcda files (relative path: debug/ncli/.../*.gcda)
+            # This ensures .gcno and .gcda are in the same relative path for accurate lcov matching
             for relative_path, gcda_data in gcda_backup.items():
                 target_gcda = capture_dir / relative_path
                 target_gcda.parent.mkdir(parents=True, exist_ok=True)
@@ -1481,37 +1468,41 @@ def _generate_nimbus_report(nimbus_coverage_dir, testing_clients_dir):
                     "lcov", "--capture",
                     "--directory", str(capture_dir),
                     "--base-directory", str(nimbus_src),
-                    "--output-file", str(coverage_info)
+                    "--output-file", str(coverage_info),
+                    "--rc", "lcov_branch_coverage=1"  # Enable branch coverage collection
                 ],
                 check=True,
                 capture_output=True,
                 text=True
             )
         else:
-            # 기존 방식: nimbus_src 전체를 스캔
+            # Legacy method: scan entire nimbus_src
             subprocess.run(
                 [
                     "lcov", "--capture",
                     "--directory", str(nimbus_src),
-                    "--output-file", str(coverage_info)
+                    "--output-file", str(coverage_info),
+                    "--rc", "lcov_branch_coverage=1"  # Enable branch coverage collection
                 ],
                 check=True,
                 capture_output=True,
                 text=True
             )
         
-        # generated_not_to_break_here -> 존재하지 않는 파일 필터링 (lcov 에러 남..)
+        # Filter generated_not_to_break_here -> non-existent files (lcov error remains...)
         coverage_clean = nimbus_report_dir / "coverage_clean.info"
         with open(coverage_info, 'r') as infile, open(coverage_clean, 'w') as outfile:
             for line in infile:
                 if 'generated_not_to_break_here' not in line:
                     outfile.write(line)
         
-        # genhtml로 HTML 리포트 생성 (필터링된 coverage_clean.info 사용)
+        # Generate HTML report using genhtml (using filtered coverage_clean.info)
+        # Enable branch coverage display with --branch-coverage option
         subprocess.run(
             [
                 "genhtml", str(coverage_clean),
-                "--output-directory", str(nimbus_report_dir)
+                "--output-directory", str(nimbus_report_dir),
+                "--branch-coverage"
             ],
             check=True,
             capture_output=True,
@@ -1525,30 +1516,30 @@ def _generate_nimbus_report(nimbus_coverage_dir, testing_clients_dir):
 
 
 def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
-    """Lodestar (Node.js) 커버리지 리포트 생성 (c8 사용)
+    """Generate Lodestar (Node.js) coverage report using c8
     
-    c8이 실행 시점에 리포트를 생성하지만, 리포트가 비어있거나 제대로 생성되지 않았다면
-    temp-directory의 JSON 파일들을 사용하여 리포트를 재생성합니다.
+    c8 generates reports at runtime, but if the report is empty or not properly generated,
+    regenerate the report using JSON files from temp-directory.
     """
     if not lodestar_coverage_dir.exists():
         return
     
     lodestar_dir = testing_clients_dir / "lodestar"
     lodestar_report_dir = lodestar_coverage_dir / "report"
-    lodestar_temp_dir = lodestar_coverage_dir  # JSON 파일이 저장된 위치
+    lodestar_temp_dir = lodestar_coverage_dir  # JSON file storage location
     
-    # temp-directory에 coverage JSON 파일이 있는지 확인
+    # Check if coverage JSON files exist in temp-directory
     coverage_json_files = list(lodestar_temp_dir.glob("coverage-*.json"))
     if not coverage_json_files:
         print(f"    ✗ No coverage JSON files found in {lodestar_temp_dir}")
         return
     
-    # HTML 리포트가 이미 존재하는지 확인
+    # Check if HTML report already exists
     html_index = lodestar_report_dir / "index.html"
     needs_regeneration = False
     
     if html_index.exists():
-        # 리포트가 비어있는지 확인 (Unknown% 또는 0/0인 경우)
+        # Check if report is empty (Unknown% or 0/0 cases)
         try:
             with open(html_index, 'r') as f:
                 content = f.read()
@@ -1561,11 +1552,11 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
         needs_regeneration = True
         lodestar_report_dir.mkdir(parents=True, exist_ok=True)
     
-    # 리포트 재생성이 필요한 경우
+    # Regenerate report if needed
     if needs_regeneration:
         try:
-            # c8 report 명령으로 리포트 재생성
-            # temp-directory의 JSON 파일들을 읽어서 리포트 생성
+            # Regenerate report using c8 report command
+            # Read JSON files from temp-directory to generate report
             subprocess.run(
                 [
                     "npx", "c8", "report",
@@ -1592,18 +1583,18 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
                 print(f"    ℹ Error: {e.stderr}")
             return
     
-    # 최종 리포트 확인 및 통계 출력
+    # Final report check and statistics output
     if html_index.exists():
         print(f"    ✓ Report: {html_index}")
         
-        # coverage-summary.json 확인
+        # Check coverage-summary.json
         summary_json = lodestar_report_dir / "coverage-summary.json"
         if summary_json.exists():
             try:
                 import json
                 with open(summary_json, 'r') as f:
                     summary = json.load(f)
-                    # 전체 통계 출력
+                    # Output overall statistics
                     if 'total' in summary:
                         total = summary['total']
                         lines_pct = total.get('lines', {}).get('pct', 0)
@@ -1622,52 +1613,52 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
         print(f"    ℹ Check if coverage JSON files contain actual file paths (not just node:internal/*)")
 
 def _cleanup_coverage_data(cov_dir, client):
-    """리포트 생성 후 원본 커버리지 측정 데이터 삭제
+    """Delete original coverage measurement data after report generation
     
     Args:
-        cov_dir: cov_output_{index} 디렉토리
-        client: 클라이언트 이름 (prysm, lighthouse, teku, nimbus, lodestar)
+        cov_dir: cov_output_{index} directory
+        client: Client name (prysm, lighthouse, teku, nimbus, lodestar)
     """
     import shutil
     
     try:
         if client == "prysm":
-            # Prysm: covcounters.* 파일 삭제 (원본 커버리지 데이터)
+            # Prysm: Delete covcounters.* files (original coverage data)
             for cov_file in cov_dir.glob("covcounters.*"):
                 cov_file.unlink()
                 print(f"    ✓ Removed: {cov_file.name}")
-            # Prysm: covmeta.* 파일도 삭제 (메타데이터 파일, 리포트 생성 후 불필요)
+            # Prysm: Also delete covmeta.* files (metadata files, unnecessary after report generation)
             for covmeta_file in cov_dir.glob("covmeta.*"):
                 covmeta_file.unlink()
                 print(f"    ✓ Removed: {covmeta_file.name}")
         
         elif client == "lighthouse":
-            # Lighthouse: *.profraw 파일 삭제 (원본 데이터)
+            # Lighthouse: Delete *.profraw files (original data)
             for profraw_file in cov_dir.glob("*.profraw"):
                 profraw_file.unlink()
                 print(f"    ✓ Removed: {profraw_file.name}")
-            # Lighthouse: report/lighthouse.profdata 파일도 삭제 (중간 파일, 리포트 생성 후 불필요)
+            # Lighthouse: Also delete report/lighthouse.profdata file (intermediate file, unnecessary after report generation)
             profdata_file = cov_dir / "report" / "lighthouse.profdata"
             if profdata_file.exists():
                 profdata_file.unlink()
                 print(f"    ✓ Removed: report/{profdata_file.name}")
         
         elif client == "teku":
-            # Teku: teku-coverage.exec 파일 삭제
+            # Teku: Delete teku-coverage.exec file
             exec_file = cov_dir / "teku-coverage.exec"
             if exec_file.exists():
                 exec_file.unlink()
                 print(f"    ✓ Removed: {exec_file.name}")
         
         elif client == "nimbus":
-            # Nimbus: nimcache 디렉토리 전체 삭제
+            # Nimbus: Delete entire nimcache directory
             nimcache_dir = cov_dir / "nimcache"
             if nimcache_dir.exists():
                 shutil.rmtree(nimcache_dir)
                 print(f"    ✓ Removed: {nimcache_dir.name}/")
         
         elif client == "lodestar":
-            # Lodestar: coverage-*.json 파일 삭제 (report 디렉토리는 유지)
+            # Lodestar: Delete coverage-*.json files (keep report directory)
             for json_file in cov_dir.glob("coverage-*.json"):
                 json_file.unlink()
                 print(f"    ✓ Removed: {json_file.name}")
@@ -1680,27 +1671,27 @@ def find_test_case_dirs(test_suite_dir):
     test_suite_path = Path(test_suite_dir).resolve()
     test_case_dirs = []
     
-    # pre.ssz_snappy 파일이 있는 모든 디렉터리 찾기 (OfficialTestSuite 원본 형태)
+    # Find all directories containing pre.ssz_snappy files (OfficialTestSuite original format)
     for pre_file in test_suite_path.rglob("pre.ssz_snappy"):
         parent = pre_file.parent
-        # 출력 디렉터리 제외: 경로의 어느 부분이든 _로 시작하는 디렉터리 이름이 있으면 제외
-        # 예: .../_sanity_independent/... 또는 .../_results/... 등
+        # Exclude output directories: exclude if any part of path starts with _
+        # Examples: .../_sanity_independent/... or .../_results/... etc.
         parent_parts = parent.parts
         if not any(part.startswith('_') for part in parent_parts):
             test_case_dirs.append(parent)
     
-    # pre.ssz 파일이 있는 모든 디렉터리 찾기 (이미 변환된 형태)
+    # Find all directories containing pre.ssz files (already converted format)
     for pre_file in test_suite_path.rglob("pre.ssz"):
         parent = pre_file.parent
-        # 중복 제거 및 출력 디렉터리 제외
+        # Remove duplicates and exclude output directories
         parent_parts = parent.parts
         if parent not in test_case_dirs and not any(part.startswith('_') for part in parent_parts):
             test_case_dirs.append(parent)
     
-    # pre_*.ssz 파일이 있는 모든 디렉터리 찾기 (state mutation 형태)
+    # Find all directories containing pre_*.ssz files (state mutation format)
     for pre_file in test_suite_path.rglob("pre_*.ssz"):
         parent = pre_file.parent
-        # 중복 제거 및 출력 디렉터리 제외
+        # Remove duplicates and exclude output directories
         parent_parts = parent.parts
         if parent not in test_case_dirs and not any(part.startswith('_') for part in parent_parts):
             test_case_dirs.append(parent)
@@ -1710,7 +1701,7 @@ def find_test_case_dirs(test_suite_dir):
 
 def main():
     """
-    CLI 인터페이스: 로컬 SSZ 파일로 state transition 실행
+    CLI interface: execute state transition with local SSZ files
     """
     parser = argparse.ArgumentParser(description="Differential testing tool for eth2-clients")
     
@@ -1739,19 +1730,19 @@ def main():
 
     args = parser.parse_args()
 
-    # spectec-core 디렉터리 찾기
+    # Find spectec-core directory
     script_dir = Path(__file__).parent.resolve()
     
     start_time = perf_counter()
     
-    # 테스트 스위트 모드
+    # Test suite mode
     if args.test_suite:
         test_suite_path = Path(args.test_suite).resolve()
         if not test_suite_path.exists():
             print(f"Error: Test suite directory not found: {test_suite_path}")
             sys.exit(1)
         
-        # 모든 테스트 케이스 찾기
+        # Find all test cases
         test_case_dirs = find_test_case_dirs(args.test_suite)
         
         if not test_case_dirs:
@@ -1761,25 +1752,25 @@ def main():
         
         print(f"Found {len(test_case_dirs)} test case(s)")
         
-        # 출력 디렉터리 설정
+        # Set output directory
         if args.output_base:
             output_base = Path(args.output_base).resolve()
         else:
             output_base = test_suite_path / "client_results"
         
-        # 각 테스트 케이스 처리
+        # Process each test case
         total_passed = 0
         total_failed = 0
         
         for test_case_dir in test_case_dirs:
-            # 테스트 케이스 이름 생성
+            # Generate test case name
             try:
                 relative_path = test_case_dir.relative_to(test_suite_path)
                 test_name = str(relative_path).replace(os.sep, "_").replace("/", "_")
             except ValueError:
                 test_name = test_case_dir.name
             
-            # 출력 디렉터리 설정
+            # Set output directory
             output_dir = output_base / test_name
             
             print(f"\n{'='*60}")
@@ -1788,7 +1779,7 @@ def main():
             print(f"Output: {output_dir}")
             print(f"{'='*60}")
             
-            # state_transition 실행
+            # Execute state_transition
             try:
                 successful_clients_by_index = state_transition(
                     str(test_case_dir),
@@ -1799,10 +1790,10 @@ def main():
                     enable_coverage=args.enable_coverage
                 )
                 
-                # SSZ 파일 비교 실행 (성공한 클라이언트만 비교)
+                # Execute SSZ file comparison (only compare successful clients)
                 compare_ssz_files_in_output(str(output_dir), successful_clients_by_index)
                 
-                # 커버리지 리포트 생성 (각 테스트 케이스별로)
+                # Generate coverage reports (per test case)
                 if args.enable_coverage:
                     generate_coverage_reports_per_testcase(str(output_dir), script_dir, cleanup_after_report=args.cleanup_after_report)
                 
@@ -1812,7 +1803,7 @@ def main():
                 print(f"✗ Failed: {test_name} - {e}")
                 total_failed += 1
         
-        # 요약
+        # Summary
         print(f"\n{'='*60}")
         print("SUMMARY")
         print(f"{'='*60}")
@@ -1821,7 +1812,7 @@ def main():
         print(f"Failed: {total_failed}")
         print(f"Results directory: {output_base}")
         
-    # 단일 디렉터리 모드 (기존 방식)
+    # Single directory mode (legacy method)
     else:
         if not args.beaconstate_dir_path or not args.block_dir_path or not args.output:
             parser.error("beaconstate_dir_path, block_dir_path, and output are required when --test-suite is not used")
@@ -1835,10 +1826,10 @@ def main():
             enable_coverage=args.enable_coverage
         )
         
-        # SSZ 파일 비교 실행 (성공한 클라이언트만 비교)
+        # Execute SSZ file comparison (only compare successful clients)
         compare_ssz_files_in_output(args.output, successful_clients_by_index)
         
-        # 커버리지 리포트 생성 (각 테스트 케이스별로)
+        # Generate coverage reports (per test case)
         if args.enable_coverage:
             generate_coverage_reports_per_testcase(args.output, script_dir, cleanup_after_report=args.cleanup_after_report)
     
