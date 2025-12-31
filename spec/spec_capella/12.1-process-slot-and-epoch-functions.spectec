@@ -49,7 +49,8 @@ rule ProcessSlot/header_root_present:
 ;;
 ;; [Phase0 -> Altair]
 ;; process_justification_and_finalization
-;;
+;;  mutates: .JUSTIFICATION_BITS, .FINALIZED_CHECKPOINT, .PREVIOUS_JUSTIFIED_CHECKPOINT, .CURRENT_JUSTIFIED_CHECKPOINT
+
 relation Process_justification_and_finalization:
   beaconState ~> beaconState
   hint(input %0)
@@ -60,22 +61,26 @@ rule Process_justification_and_finalization/skip:
   -- if $(epoch_cur <= ($GENESIS_EPOCH + 1))
 
 rule Process_justification_and_finalization/main:
-  state ~> state_weighed
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_prev*
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_cur)  = vid_curr*
+  state ~> state_updated
+  -- if $get_unslashed_participating_indices(
+          state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state)
+        ) = vid_prev*
+  -- if $get_unslashed_participating_indices(
+          state, $TIMELY_TARGET_FLAG_INDEX, $get_current_epoch(state)
+        ) = vid_cur*
   -- if $get_total_active_balance(state) = balance_total_active
   -- if $get_total_balance(state, vid_prev*) = balance_prev_target
-  -- if $get_total_balance(state, vid_curr*) = balance_curr_target
-  -- if $weigh_justification_and_finalization(state, balance_total_active, balance_prev_target, balance_curr_target) = state_weighed
+  -- if $get_total_balance(state, vid_cur*) = balance_cur_target
+  -- WeighJustificationAndFinalization:
+      state
+        TOTAL balance_total_active
+        PREV balance_prev_target
+        CUR balance_cur_target
+        ~> state_updated
 
-
-;;
 ;; [Altair]
 ;; process_inactivity_updates
 ;;  mutates: .INACTIVITY_SCORES
-;;
 
 relation ProcessInactivityUpdates:
   beaconState ~> beaconState
@@ -91,11 +96,12 @@ rule ProcessInactivityUpdates/main:
   ;; branch
   -- if $get_current_epoch(state) =/= $GENESIS_EPOCH
   -- if $get_eligible_validator_indices(state) = vid_eligible*
-  -- ApplyInactivities: state `.INACTIVITY_SCORES `[ vid_eligible* ] ~>* state_updated
+  -- ApplyInactivity_over_vids: state `.INACTIVITY_SCORES `[ vid_eligible* ] ~>* state_updated
 
-;;
+;; [Capella]
 ;; process_rewards_and_penalties
-;;
+;;  mutates: .BALANCES
+
 relation ProcessRewardsAndPenalties:
   beaconState ~> beaconState
   hint(input %0)

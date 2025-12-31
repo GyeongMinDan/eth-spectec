@@ -7,6 +7,9 @@ var j : nat
 var n : nat
 var x : nat
 var y : nat
+
+var bit : boolean
+
 var state : beaconState
 var body : beaconBlockBody
 var block : beaconBlock

@@ -115,6 +115,7 @@ relation SlashValidator:
   beaconState SLASH `[ validatorIndex ] BY validatorIndex? ~> beaconState
   hint(input %0 %1 %2)
 
+;; when whistleblower id is not given
 rule SlashValidator/no_whistleblower:
   state SLASH `[ vid_slashed ] BY eps ~> state_out
   -- if $(vid_slashed < |state.VALIDATORS|)
@@ -139,6 +140,7 @@ rule SlashValidator/no_whistleblower:
   ;; branch: default vid_whistleblower = vid_proposer
   -- IncreaseBalance: state_rewarded_proposer `.BALANCES `[ vid_proposer ] `+ reward_whistleblower_rest ~> state_out
 
+;; when whistleblower id is given
 rule SlashValidator/whistleblower:
   state SLASH `[ vid_slashed ] BY vid_whistleblower ~> state_out
   -- if $(vid_slashed < |state.VALIDATORS|)

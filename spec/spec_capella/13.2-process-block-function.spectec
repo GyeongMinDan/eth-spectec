@@ -40,7 +40,7 @@ relation ProcessWithdrawals:
   beaconState executionPayload ~> beaconState
   hint(input %0 %1)
 
-;; ========== len(expected) = 0 ==========
+;; len(expected) = 0
 rule ProcessWithdrawals/len0:
   state executionPayload ~> 
     state_after_debits[.NEXT_WITHDRAWAL_VALIDATOR_INDEX = vid_next]
@@ -54,7 +54,7 @@ rule ProcessWithdrawals/len0:
   -- if $( (state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX
          + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP) \ |state_after_debits.VALIDATORS| ) = vid_next
 
-;; ========== len(expected) = MAX_WITHDRAWALS_PER_PAYLOAD ==========
+;; len(expected) = MAX_WITHDRAWALS_PER_PAYLOAD
 rule ProcessWithdrawals/lenMax:
   state executionPayload ~> 
     state_after_debits
@@ -73,7 +73,7 @@ rule ProcessWithdrawals/lenMax:
   -- if $(withdrawal_latest.INDEX + 1 ) = withdrawalIndex_next
   -- if $(( withdrawal_latest.VALIDATOR_INDEX + 1 \ |state_after_debits.VALIDATORS|)) = vid_next
 
-;; ========== 0 < len(expected) < MAX_WITHDRAWALS_PER_PAYLOAD ==========
+;; 0 < len(expected) < MAX_WITHDRAWALS_PER_PAYLOAD
 rule ProcessWithdrawals/lenPartial:
   state executionPayload ~> 
     state_after_debits
