@@ -35,12 +35,15 @@ module type HANDLER = sig
   val on_func_enter : id:string -> at:region -> values:Il.Value.t list -> unit
   val on_func_exit : id:string -> at:region -> unit
   val on_clause_enter : id:string -> clause_idx:int -> at:region -> unit
-  val on_clause_exit : id:string -> at:region -> unit
+
+  val on_clause_exit :
+    id:string -> clause_idx:int -> at:region -> success:bool -> unit
 
   (* IL-specific events *)
   val on_iter_prem_enter : prem:Il.prem -> at:region -> unit
   val on_iter_prem_exit : at:region -> unit
-  val on_prem : prem:Il.prem -> at:region -> unit
+  val on_prem_enter : prem:Il.prem -> at:region -> unit
+  val on_prem_exit : prem:Il.prem -> at:region -> success:bool -> unit
 
   (* SL-specific events *)
   val on_instr : instr:Sl.instr -> at:region -> unit
@@ -98,9 +101,12 @@ let notify_clause_enter ~id ~clause_idx ~at =
       (fun (module H : HANDLER) -> H.on_clause_enter ~id ~clause_idx ~at)
       !handlers
 
-let notify_clause_exit ~id ~at =
+let notify_clause_exit ~id ~clause_idx ~at ~success =
   if !handlers <> [] then
-    List.iter (fun (module H : HANDLER) -> H.on_clause_exit ~id ~at) !handlers
+    List.iter
+      (fun (module H : HANDLER) ->
+        H.on_clause_exit ~id ~clause_idx ~at ~success)
+      !handlers
 
 let notify_iter_prem_enter ~prem ~at =
   if !handlers <> [] then
@@ -112,9 +118,15 @@ let notify_iter_prem_exit ~at =
   if !handlers <> [] then
     List.iter (fun (module H : HANDLER) -> H.on_iter_prem_exit ~at) !handlers
 
-let notify_prem ~prem ~at =
+let notify_prem_enter ~prem ~at =
   if !handlers <> [] then
-    List.iter (fun (module H : HANDLER) -> H.on_prem ~prem ~at) !handlers
+    List.iter (fun (module H : HANDLER) -> H.on_prem_enter ~prem ~at) !handlers
+
+let notify_prem_exit ~prem ~at ~success =
+  if !handlers <> [] then
+    List.iter
+      (fun (module H : HANDLER) -> H.on_prem_exit ~prem ~at ~success)
+      !handlers
 
 let notify_instr ~instr ~at =
   if !handlers <> [] then
@@ -133,10 +145,11 @@ module Noop : HANDLER = struct
   let on_func_enter ~id:_ ~at:_ ~values:_ = ()
   let on_func_exit ~id:_ ~at:_ = ()
   let on_clause_enter ~id:_ ~clause_idx:_ ~at:_ = ()
-  let on_clause_exit ~id:_ ~at:_ = ()
+  let on_clause_exit ~id:_ ~clause_idx:_ ~at:_ ~success:_ = ()
   let on_iter_prem_enter ~prem:_ ~at:_ = ()
   let on_iter_prem_exit ~at:_ = ()
-  let on_prem ~prem:_ ~at:_ = ()
+  let on_prem_enter ~prem:_ ~at:_ = ()
+  let on_prem_exit ~prem:_ ~at:_ ~success:_ = ()
   let on_instr ~instr:_ ~at:_ = ()
   let finish () = ()
 end

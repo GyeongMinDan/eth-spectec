@@ -758,14 +758,19 @@ and eval_prem (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
     print_endline @@ Print.string_of_value value;
     Ok ctx
   in
-  Instrumentation.Hooks.notify_prem ~prem ~at:prem.at;
-  match prem.it with
-  | RulePr (id, notexp) -> eval_rule_prem ctx id notexp
-  | IfPr exp_cond -> eval_if_prem ctx exp_cond
-  | ElsePr -> Ok ctx
-  | LetPr (exp_l, exp_r) -> eval_let_prem ctx exp_l exp_r
-  | IterPr (prem, iterexp) -> eval_iter_prem ctx prem iterexp
-  | DebugPr exp -> eval_debug_prem ctx exp
+  Instrumentation.Hooks.notify_prem_enter ~prem ~at:prem.at;
+  let result =
+    match prem.it with
+    | RulePr (id, notexp) -> eval_rule_prem ctx id notexp
+    | IfPr exp_cond -> eval_if_prem ctx exp_cond
+    | ElsePr -> Ok ctx
+    | LetPr (exp_l, exp_r) -> eval_let_prem ctx exp_l exp_r
+    | IterPr (prem, iterexp) -> eval_iter_prem ctx prem iterexp
+    | DebugPr exp -> eval_debug_prem ctx exp
+  in
+  Instrumentation.Hooks.notify_prem_exit ~prem ~at:prem.at
+    ~success:(Result.is_ok result);
+  result
 
 and eval_prems (ctx : Ctx.t) (prems : prem list) : Ctx.t attempt =
   List.fold_left
@@ -1017,7 +1022,8 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       let value_output =
         Builtins.invoke id targs values_input |> unwrap_builtin
       in
-      Instrumentation.Hooks.notify_clause_exit ~id:id.it ~at:id.at;
+      Instrumentation.Hooks.notify_clause_exit ~id:id.it ~clause_idx:0 ~at:id.at
+        ~success:true;
       Ok (ctx, value_output)
     in
     invoke_func_builtin' ()
@@ -1083,7 +1089,8 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
                      (F.asprintf "application of clause %s%s failed" id.it
                         (Print.string_of_args args_input))
               in
-              Instrumentation.Hooks.notify_clause_exit ~id:id.it ~at:id.at;
+              Instrumentation.Hooks.notify_clause_exit ~id:id.it
+                ~clause_idx:idx_clause ~at:id.at ~success:(Result.is_ok result);
               result
             in
             attempt_clause)

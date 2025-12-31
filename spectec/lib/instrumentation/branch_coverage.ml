@@ -14,6 +14,7 @@
 open Common.Source
 module Il = Lang.Il
 module Sl = Lang.Sl
+open Util
 
 (* Verbosity levels *)
 type level = Summary | Full
@@ -44,12 +45,6 @@ let group_by items =
       (k, v :: vs) :: List.remove_assoc k acc)
     [] items
   |> List.sort compare
-
-(* Format execution count for margin display *)
-let fmt_count count = if count > 0 then Format.sprintf "%4d" count else "####"
-
-(* Calculate percentage *)
-let pct hit total = if total > 0 then 100.0 *. float hit /. float total else 0.0
 
 module Handler : Hooks.HANDLER = struct
   let init ~spec =
@@ -85,18 +80,22 @@ module Handler : Hooks.HANDLER = struct
 
   let on_rel_enter = Hooks.Noop.on_rel_enter
   let on_rel_exit = Hooks.Noop.on_rel_exit
-  let on_rule_enter ~id ~rule_id ~at:_ = State.incr State.rules_hit (id, rule_id)
-  let on_rule_exit = Hooks.Noop.on_rule_exit
+  let on_rule_enter = Hooks.Noop.on_rule_enter
+
+  let on_rule_exit ~id ~rule_id ~at:_ ~success =
+    if success then State.incr State.rules_hit (id, rule_id)
+
   let on_func_enter = Hooks.Noop.on_func_enter
   let on_func_exit = Hooks.Noop.on_func_exit
+  let on_clause_enter = Hooks.Noop.on_clause_enter
 
-  let on_clause_enter ~id ~clause_idx ~at:_ =
-    State.incr State.clauses_hit (id, clause_idx)
+  let on_clause_exit ~id ~clause_idx ~at:_ ~success =
+    if success then State.incr State.clauses_hit (id, clause_idx)
 
-  let on_clause_exit = Hooks.Noop.on_clause_exit
   let on_iter_prem_enter = Hooks.Noop.on_iter_prem_enter
   let on_iter_prem_exit = Hooks.Noop.on_iter_prem_exit
-  let on_prem = Hooks.Noop.on_prem
+  let on_prem_enter = Hooks.Noop.on_prem_enter
+  let on_prem_exit = Hooks.Noop.on_prem_exit
   let on_instr = Hooks.Noop.on_instr
 
   (* --- Output: Summary mode (stats + uncovered only) --- *)
@@ -114,8 +113,8 @@ module Handler : Hooks.HANDLER = struct
           !State.all_rules
         |> List.length
       in
-      Format.printf "Rules: %d/%d (%.0f%%)\n" hit total_rules
-        (pct hit total_rules);
+      Format.printf "Rules: %d/%d (%.2f%%)\n" hit total_rules
+        (percentage hit total_rules);
       (* Uncovered rules *)
       let uncovered =
         List.filter_map
@@ -144,8 +143,8 @@ module Handler : Hooks.HANDLER = struct
           !State.all_clauses
         |> List.length
       in
-      Format.printf "\nClauses: %d/%d (%.0f%%)\n" hit total_clauses
-        (pct hit total_clauses);
+      Format.printf "\nClauses: %d/%d (%.2f%%)\n" hit total_clauses
+        (percentage hit total_clauses);
       (* Uncovered clauses *)
       let uncovered =
         List.filter_map
@@ -182,15 +181,15 @@ module Handler : Hooks.HANDLER = struct
             |> List.length
           in
           let total = List.length rules in
-          Format.printf "relation %s: (%d/%d = %.0f%%)\n" rel hit total
-            (pct hit total);
+          Format.printf "relation %s: (%d/%d = %.2f%%)\n" rel hit total
+            (percentage hit total);
           List.iter
             (fun r ->
               let count =
                 Hashtbl.find_opt State.rules_hit (rel, r)
                 |> Option.value ~default:0
               in
-              Format.printf "  %s  rule %s\n" (fmt_count count) r)
+              Format.printf "  %s  rule %s\n" (format_count count) r)
             rules;
           Format.printf "\n")
         rules_by_rel);
@@ -206,15 +205,15 @@ module Handler : Hooks.HANDLER = struct
             |> List.length
           in
           let total = List.length idxs in
-          Format.printf "def $%s: (%d/%d = %.0f%%)\n" func hit total
-            (pct hit total);
+          Format.printf "def $%s: (%d/%d = %.2f%%)\n" func hit total
+            (percentage hit total);
           List.iter
             (fun i ->
               let count =
                 Hashtbl.find_opt State.clauses_hit (func, i)
                 |> Option.value ~default:0
               in
-              Format.printf "  %s  clause %d\n" (fmt_count count) i)
+              Format.printf "  %s  clause %d\n" (format_count count) i)
             idxs;
           Format.printf "\n")
         clauses_by_func)

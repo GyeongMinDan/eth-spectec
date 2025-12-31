@@ -11,30 +11,13 @@
 *)
 
 module Il = Lang.Il
+open Util
 
 (* Verbosity levels *)
 type level = Summary | Full
 
-(* Normalize whitespace *)
-let normalize_ws s =
-  let buf = Buffer.create (String.length s) in
-  let last_ws = ref false in
-  String.iter
-    (fun c ->
-      if c = ' ' || c = '\n' || c = '\t' || c = '\r' then (
-        if not !last_ws then Buffer.add_char buf ' ';
-        last_ws := true)
-      else (
-        Buffer.add_char buf c;
-        last_ws := false))
-    s;
-  Buffer.contents buf
-
-(* Summarize a value - normalize whitespace and truncate *)
 let summarize_value ?(max_len = 100) (value : Il.Value.t) : string =
-  let full = Il.Print.string_of_value value |> normalize_ws in
-  if String.length full <= max_len then full
-  else String.sub full 0 (max_len - 3) ^ "..."
+  Il.Print.string_of_value value |> summarize ~max_len
 
 let format_values (values : Il.Value.t list) : string =
   match values with
@@ -55,6 +38,7 @@ end
 module Handler : Hooks.HANDLER = struct
   let init ~spec:_ = State.reset ()
   let on_instr = Hooks.Noop.on_instr
+  let on_prem_exit = Hooks.Noop.on_prem_exit
   let finish = Hooks.Noop.finish
 
   let on_rel_enter ~id ~at:_ ~values =
@@ -93,7 +77,7 @@ module Handler : Hooks.HANDLER = struct
     if !State.level = Full then
       Format.printf "%s→ $%s/%d\n%!" (State.indent ()) id clause_idx
 
-  let on_clause_exit ~id ~at:_ =
+  let on_clause_exit ~id ~clause_idx:_ ~at:_ ~success:_ =
     if !State.level = Full then Format.printf "%s← $%s\n%!" (State.indent ()) id
 
   (* Function invocation return - decrement depth *)
@@ -107,10 +91,10 @@ module Handler : Hooks.HANDLER = struct
     if !State.level = Full then
       Format.printf "%s  ← [iteration]\n%!" (State.indent ())
 
-  let on_prem ~prem ~at:_ =
+  let on_prem_enter ~prem ~at:_ =
     if !State.level = Full then
       Format.printf "%s  | -- %s\n%!" (State.indent ())
-        (Il.Print.string_of_prem prem |> normalize_ws)
+        (Il.Print.string_of_prem prem |> normalize_whitespace)
 end
 
 let make ?(level = Summary) () : (module Hooks.HANDLER) =

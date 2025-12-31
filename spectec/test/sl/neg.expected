@@ -1190,16 +1190,16 @@ Sl typing summary
   Skipped:     56 (18.06% of total)
 
   Duration (s):
-    Total:       8.066
-    Mean:     0.031756
-    Median:   0.024136
-    Min:      0.021494
-    Max:      0.146877
-    P95:      0.074462
+    Total:       7.970
+    Mean:     0.031376
+    Median:   0.023862
+    Min:      0.021445
+    Max:      0.143368
+    P95:      0.073051
   Pass Stats (s):
-    Mean:     0.031413  Min:  0.021494  Max:  0.146877
+    Mean:     0.031033  Min:  0.021445  Max:  0.143368
   Fail Stats (s):
-    Mean:     0.118601  Min:  0.118601  Max:  0.118601
+    Mean:     0.118266  Min:  0.118266  Max:  0.118266
 
 Failures (1):
   [FAIL] ../../../../../tests/interp/p4-tests/tests/p4_16_errors/init-entries-error3-bmv2.p4

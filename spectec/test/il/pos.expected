@@ -3841,10 +3841,10 @@ Il typing summary
   Skipped:    215 (16.82% of total)
 
   Duration (s):
-    Total:     181.632
-    Mean:     0.170867
-    Median:   0.175116
-    Min:      0.022610
-    Max:      0.637431
-    P95:      0.559218
+    Total:     181.901
+    Mean:     0.171121
+    Median:   0.176602
+    Min:      0.022568
+    Max:      0.634787
+    P95:      0.554551
 

@@ -137,8 +137,8 @@ let make_config ~trace ~profile ~branch_coverage ~node_coverage =
   in
   let node_level =
     match node_coverage with
-    | Some 1 -> Some Instrumentation.Node_coverage.Summary
-    | Some 2 -> Some Instrumentation.Node_coverage.Full
+    | Some 1 -> Some Instrumentation.Config.Summary
+    | Some 2 -> Some Instrumentation.Config.Full
     | _ -> None
   in
   Instrumentation.Config.

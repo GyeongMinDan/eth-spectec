@@ -47198,16 +47198,16 @@ Il typing summary
   Skipped:     56 (18.06% of total)
 
   Duration (s):
-    Total:      10.907
-    Mean:     0.042942
-    Median:   0.026183
-    Min:      0.021861
-    Max:      0.347317
-    P95:      0.138428
+    Total:      10.908
+    Mean:     0.042944
+    Median:   0.025608
+    Min:      0.021353
+    Max:      0.352321
+    P95:      0.139948
   Pass Stats (s):
-    Mean:     0.042391  Min:  0.021861  Max:  0.347317
+    Mean:     0.042401  Min:  0.021353  Max:  0.352321
   Fail Stats (s):
-    Mean:     0.182137  Min:  0.182137  Max:  0.182137
+    Mean:     0.180414  Min:  0.180414  Max:  0.180414
 
 Failures (1):
   [FAIL] ../../../../../tests/interp/p4-tests/tests/p4_16_errors/init-entries-error3-bmv2.p4

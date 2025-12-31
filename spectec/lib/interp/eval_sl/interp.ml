@@ -1187,10 +1187,15 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       let ctx_local = assign_args ctx ctx_local args_input values_input in
       let ctx_local, sign = eval_instrs ctx_local Cont instrs in
       let ctx = Ctx.commit ctx ctx_local in
-      Instrumentation.Hooks.notify_clause_exit ~id:id.it ~at:id.at;
       match sign with
-      | Ret value_output -> (ctx, value_output)
-      | _ -> error id.at "function was not matched"
+      | Ret value_output ->
+          Instrumentation.Hooks.notify_clause_exit ~id:id.it ~clause_idx:0
+            ~at:id.at ~success:true;
+          (ctx, value_output)
+      | _ ->
+          Instrumentation.Hooks.notify_clause_exit ~id:id.it ~clause_idx:0
+            ~at:id.at ~success:false;
+          error id.at "function was not matched"
     in
     attempt_clauses ()
   in

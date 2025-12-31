@@ -3,11 +3,14 @@
    Consolidates all instrumentation options into a single record type.
    Use `to_handlers` to convert a config to the handler list for hooks. *)
 
+(* Shared level type for node coverage *)
+type node_coverage_level = Summary | Full
+
 type t = {
   trace : Trace.level option;
   profile : bool;
   branch_coverage : Branch_coverage.level option;
-  node_coverage : Node_coverage.level option;
+  node_coverage : node_coverage_level option;
 }
 
 let default =
@@ -30,4 +33,13 @@ let to_handlers config =
   @
   match config.node_coverage with
   | None -> []
-  | Some level -> [ Node_coverage.make ~level () ]
+  | Some Summary ->
+      [
+        Node_coverage_il.make ~level:Summary ();
+        Node_coverage_sl.make ~level:Summary ();
+      ]
+  | Some Full ->
+      [
+        Node_coverage_il.make ~level:Full ();
+        Node_coverage_sl.make ~level:Full ();
+      ]
