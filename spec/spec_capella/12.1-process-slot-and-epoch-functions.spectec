@@ -125,9 +125,9 @@ rule ProcessRewardsAndPenalties/main:
   ;; 5: apply rewards and penalties to each validator
   -- ApplyRewardsAndPenalties_over_deltas: state `.BALANCES `[ vid* ] `+ reward** `- penalty** ~>* state_out
 
-;;
+;; [Phase 0]
 ;; process_registry_updates
-;;
+
 relation Process_Registry_Updates:
   beaconState ~> beaconState
   hint(input %0)
@@ -161,39 +161,34 @@ rule Process_Registry_Updates/main:
       ) = (_, vid_to_activate)*
   -- SetActivations: state_1 vid_to_activate* ~>* state_out
 
-;;
+;; [Phase 0] -> [Altair] -> [Bellatrix]
 ;; process_slashings
-;;
-relation Process_slashings:
+;;  mutates: .BALANCES
+relation ProcessSlashings:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_slashings:
+rule ProcessSlashings:
   state ~> state_out
-  ;; 1 계산에 사용할 값들 
   -- if $get_current_epoch(state) = epoch_cur 
-  -- if $get_total_active_balance(state) = gwei_total_active
-  -- if $sum_<gwei>(state.SLASHINGS) = gwei_slash_sum 
-  -- if $( gwei_slash_sum * $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX ) = gwei_scaled
-  -- if $min_uint64(gwei_scaled, gwei_total_active) = gwei_adj_total_slash
-  ;; 2 validator 인덱스 for 문으로 inices 뽑고, 그 안에서 slashing 할 조건으로 index 추출
-  -- if validator_list* = state.VALIDATORS
-  -- if $enumerate_<validator>(validator_list*) = (nat_i, validator_v)*
-  -- if $filter_list_2_<(nat, validator), epoch>(
-         (nat_i, validator_v)*,
+  -- if $get_total_active_balance(state) = balance_total
+  -- if $min_uint64(
+        $( $sum_<gwei>(state.SLASHINGS) * $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX ),
+        balance_total
+      ) = balance_adjusted_total_slashing
+  -- if $enumerate_<validator>(state.VALIDATORS) = (vid, validator)*
+  -- if $filter_list_2_<(validatorIndex, validator), epoch>(
+         (vid, validator)*,
          epoch_cur,
          def $is_due_slashing_en
-       ) = (nat_due, validator_due)*
-  ;; 3 penalty 계산(map, (adj_total_slash, total_active))
-  ;; change map_list_2_
-  -- if ($compute_slash_penalty_en((nat_due, validator_due), (gwei_adj_total_slash, gwei_total_active)) = (vid, penalty))*
-  ;; 4 fold 로 적용
-  -- if $fold_<beaconState, (validatorIndex, gwei)>(
-         def $apply_one_decrease,
-         state,
-         (vid, penalty)*
-       ) = state_out
-
+       ) = (vid_due, validator_due)*
+  ;; 3. get penalties
+  -- if gwei_increment = $EFFECTIVE_BALANCE_INCREMENT
+  -- if ($( (validator_due.EFFECTIVE_BALANCE / gwei_increment) * balance_adjusted_total_slashing )
+      = penalty_numerator)*
+  -- if ($( (penalty_numerator / balance_total) * gwei_increment ) = penalty)*
+  ;; 4. apply penalties
+  -- DecreaseBalances: state `.BALANCES `[ vid_due* ] `- penalty* ~> state_out
 
 ;;
 ;; process_eth1_data_reset

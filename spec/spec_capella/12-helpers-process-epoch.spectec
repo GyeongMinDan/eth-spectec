@@ -1,8 +1,6 @@
-;; =========================
-;; helper funcs in process_epoch 
-;; =========================
+;; === ProcessRewardsAndPenalties ===
 
-;; [Custom] ProcessRewardsAndPenalties
+;; [Custom] loop helper for ProcessRewardsAndPenalties
 ;; apply reward -> penalty for a single index
 relation ApplyRewardAndPenalty: 
   beaconState `.BALANCES `[ validatorIndex ] `+ gwei `- gwei ~> beaconState
@@ -43,13 +41,14 @@ rule ApplyRewardsAndPenalties_over_deltas/cons:
   -- ApplyRewardsAndPenalties: state `.BALANCES `[ vid* ] `+ reward* `- penalty* ~> state_t
   -- ApplyRewardsAndPenalties_over_deltas: state_t `.BALANCES `[ vid* ] `+ reward_t** `- penalty_t** ~>* state_out
 
-;; [Custom] ProcessInactivityUpdates
+;; === ProcessInactivityUpdates ===
+
+;; [Custom]
 ;; apply inactivity score update for a single index
 relation ApplyInactivity:
   beaconState `.INACTIVITY_SCORES `[ validatorIndex ] ~> beaconState
   hint(input %0 %1)
 
-;; case A: index in unslashed participating (prev epoch)
 rule ApplyInactivity/unslashed_participating_no_leak:
   state `.INACTIVITY_SCORES `[ vid ] ~> state_updated
   ----
@@ -120,44 +119,31 @@ rule ApplyInactivity_over_vids/cons:
   -- ApplyInactivity: state `.INACTIVITY_SCORES `[ vid_h ] ~> state_1
   -- ApplyInactivity_over_vids: state_1 `.INACTIVITY_SCORES `[ vid_t* ] ~>* state_updated
 
-;; --------------------------------------------
-;; predicate: (i, v)가 이번 epoch에 슬래시 벌점 집행 대상인가?
-;;  v.SLASHED = true  ∧  epoch + (EPOCHS_PER_SLASHINGS_VECTOR / 2) = v.WITHDRAWABLE_EPOCH
-;; --------------------------------------------
+;; === ProcessSlashings ===
+
+;; [Custom] filter predicate
+
 dec $is_due_slashing_en(enumerated_<validator>, epoch) : boolean
 
-def $is_due_slashing_en((i, validator), epoch_cur) = true
-  -- if $(validator.SLASHED = true)
-  -- if $( epoch_cur + ($EPOCHS_PER_SLASHINGS_VECTOR / 2) = validator.WITHDRAWABLE_EPOCH )
+def $is_due_slashing_en((_, validator), epoch) = true
+  -- if validator.SLASHED = true
+  -- if $( epoch + ($EPOCHS_PER_SLASHINGS_VECTOR / 2) = validator.WITHDRAWABLE_EPOCH )
 
-def $is_due_slashing_en((i, validator), epoch_cur) = false
+def $is_due_slashing_en((_, _), _) = false
   -- otherwise
 
+;; [Custom] folder for DecreaseBalance
+relation DecreaseBalances:
+  beaconState `.BALANCES `[ validatorIndex* ] `- gwei* ~> beaconState
+  hint(input %0 %1 %2)
 
-;; --------------------------------------------
-;; map: (i, v) ↦ (ValidatorIndex(i), penalty)
-;; capture: (gwei_adj_total_slash, gwei_total_active)
-;; penalty = ((v.EFFECTIVE_BALANCE / INC) * gwei_adj_total_slash / gwei_total_active) * INC
-;; --------------------------------------------
-dec $compute_slash_penalty_en((nat, validator), (gwei, gwei)) : (validatorIndex, gwei)
+rule DecreaseBalances/nil:
+  state `.BALANCES `[ eps ] `- eps ~> state
 
-def $compute_slash_penalty_en((i, validator), (gwei_adj_total_slash, gwei_total_active))
-  = (vid, penalty)
-  -- if vid = i                 ;; nat → validatorIndex
-  -- if $EFFECTIVE_BALANCE_INCREMENT = gwei_inc 
-  -- if $( validator.EFFECTIVE_BALANCE / gwei_inc ) = uint64_incs 
-  -- if $( uint64_incs * gwei_adj_total_slash ) = gwei_pen_num 
-  -- if $( gwei_pen_num / gwei_total_active ) = gwei_pen_div 
-  -- if $( gwei_pen_div * gwei_inc ) = penalty 
-
-
-;; --------------------------------------------
-;; fold 함수: 한 건의 (vi, penalty)를 state에 적용
-;; --------------------------------------------
-dec $apply_one_decrease(beaconState, (validatorIndex, gwei)) : beaconState
-
-def $apply_one_decrease(state, (vid, penalty)) = state_out
-  -- DecreaseBalance: state `.BALANCES `[ vid ] `- penalty ~> state_out
+rule DecreaseBalances/cons:
+  state `.BALANCES `[ (vid_h :: vid_t*) ] `- (penalty_h :: penalty_t*) ~> state_t
+  -- DecreaseBalance: state `.BALANCES `[ vid_h ] `- penalty_h ~> state_h
+  -- DecreaseBalances: state_h `.BALANCES `[ vid_t* ] `- penalty_t* ~> state_t
 
 ;; === ProcessJustificationAndFinalization ===
 
