@@ -46,21 +46,20 @@ rule ProcessSlot/header_root_present:
   -- if state_out = state_1[.BLOCK_ROOTS = root_block_list_updated*]
 
 
-;;
 ;; [Phase0 -> Altair]
 ;; process_justification_and_finalization
 ;;  mutates: .JUSTIFICATION_BITS, .FINALIZED_CHECKPOINT, .PREVIOUS_JUSTIFIED_CHECKPOINT, .CURRENT_JUSTIFIED_CHECKPOINT
 
-relation Process_justification_and_finalization:
+relation ProcessJustificationAndFinalization:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_justification_and_finalization/skip:
+rule ProcessJustificationAndFinalization/skip:
   state ~> state
   -- if $get_current_epoch(state) = epoch_cur
   -- if $(epoch_cur <= ($GENESIS_EPOCH + 1))
 
-rule Process_justification_and_finalization/main:
+rule ProcessJustificationAndFinalization/main:
   state ~> state_updated
   -- if $get_unslashed_participating_indices(
           state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state)

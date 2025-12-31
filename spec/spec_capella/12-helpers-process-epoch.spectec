@@ -159,34 +159,7 @@ dec $apply_one_decrease(beaconState, (validatorIndex, gwei)) : beaconState
 def $apply_one_decrease(state, (vid, penalty)) = state_out
   -- DecreaseBalance: state `.BALANCES `[ vid ] `- penalty ~> state_out
 
-
-relation FinalizeCheckpoint:
-  beaconState `{ PREV checkpoint CUR checkpoint } ~> beaconState
-  hint(input %0 %1 %2)
-
-;; if current justified checkpoint is finalized, it overrides previous one.
-;; this gives three semantic branches:
-;; - current is finalized
-;; - previous is finalized (assuming current is not)
-;; - neither is finalized
-rule FinalizeCheckpoint/current:
-  state `{ PREV checkpoint_prev CUR checkpoint_cur }
-    ~> state[.FINALIZED_CHECKPOINT = checkpoint_cur]
-  -- if state.JUSTIFICATION_BITS = bit*
-  -- if (bit*[0] /\ bit*[1] /\ bit*[2] /\ $(checkpoint_cur.EPOCH + 2) = $get_current_epoch(state))
-     \/ (bit*[0] /\ bit*[1] /\ $(checkpoint_cur.EPOCH + 1) = $get_current_epoch(state))
-
-rule FinalizeCheckpoint/previous:
-  state `{ PREV checkpoint_prev CUR checkpoint_cur }
-    ~> state[.FINALIZED_CHECKPOINT = checkpoint_prev]
-  -- if state.JUSTIFICATION_BITS = bit*
-  -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
-     \/ (bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
-
-rule FinalizeCheckpoint/neither:
-  state `{ PREV _ CUR _ }
-    ~> state
-  -- otherwise
+;; === ProcessJustificationAndFinalization ===
 
 ;; [Phase0]
 ;; weigh_justification_and_finalization
@@ -203,83 +176,139 @@ relation WeighJustificationAndFinalization:
     ~> beaconState
   hint(input %0 %1 %2 %3)
 
-rule WeighJustificationAndFinalization/neither:
+;; === justify neither: two branches ===
+
+rule WeighJustificationAndFinalization/justify_neither_finalize_prev:
   state
     TOTAL balance_total_active
     PREV balance_prev_epoch_target
     CUR balance_current_epoch_target
-    ~> state_updated
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.FINALIZED_CHECKPOINT = checkpoint_prev]
+            [.JUSTIFICATION_BITS = bit*]
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
-  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_prev
-  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_old_cur
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
-  ;; branch 1: false
+  ;; branch 1: (false, false)
   -- if ~ $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
-  ----
-  ;; branch 2: false
   -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
-  -- if bit_next* = [
+  -- if bit* = [
           false,
           state.JUSTIFICATION_BITS[0],
           state.JUSTIFICATION_BITS[1],
           state.JUSTIFICATION_BITS[2]
         ]
   ----
-  -- FinalizeCheckpoint:
-       state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-            [.JUSTIFICATION_BITS = bit_next*]
-       `{ PREV checkpoint_old_prev
-          CUR checkpoint_old_cur }
-       ~> state_updated
+  ;; branch 2: true
+  -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     \/ (bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
 
-rule WeighJustificationAndFinalization/justify_prev:
+rule WeighJustificationAndFinalization/justify_neither_finalize_neither:
   state
     TOTAL balance_total_active
     PREV balance_prev_epoch_target
     CUR balance_current_epoch_target
-    ~> state_updated
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.JUSTIFICATION_BITS = bit*]
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
-  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_prev
-  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_old_cur
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
-  ;; branch 1: true
-  -- if $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
+  ;; branch 1: (false, false)
+  -- if ~ $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
+  -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          false,
+          state.JUSTIFICATION_BITS[0],
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
   ----
   ;; branch 2: false
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     /\ ~(bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
+
+rule WeighJustificationAndFinalization/justify_prev_finalize_prev:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.CURRENT_JUSTIFIED_CHECKPOINT
+              = { EPOCH epoch_prev,
+                  ROOT $get_block_root(state, epoch_prev) }]
+            [.FINALIZED_CHECKPOINT = checkpoint_prev]
+            [.JUSTIFICATION_BITS = bit*]
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_current_epoch(state)  = epoch_cur
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; branch 1: (true, false)
+  -- if $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
   -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
-  -- if bit_next* = [
+  -- if bit* = [
           false,
           true,
           state.JUSTIFICATION_BITS[1],
           state.JUSTIFICATION_BITS[2]
         ]
   ----
-  -- FinalizeCheckpoint:
-       state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-            [.CURRENT_JUSTIFIED_CHECKPOINT
-              = { EPOCH epoch_prev,
-                  ROOT $get_block_root(state, epoch_prev) }]
-            [.JUSTIFICATION_BITS = bit_next*]
-       `{ PREV checkpoint_old_prev
-          CUR checkpoint_old_cur }
-       ~> state_updated
+  ;; branch 2: true
+  -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     \/ (bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
 
-rule WeighJustificationAndFinalization/justify_cur:
+rule WeighJustificationAndFinalization/justify_prev_finalize_neither:
   state
     TOTAL balance_total_active
     PREV balance_prev_epoch_target
     CUR balance_current_epoch_target
-    ~> state_updated
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.CURRENT_JUSTIFIED_CHECKPOINT
+              = { EPOCH epoch_prev,
+                  ROOT $get_block_root(state, epoch_prev) }]
+            [.JUSTIFICATION_BITS = bit*]
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
-  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_prev
-  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_old_cur
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
-  ;; branch 2: true
+  ;; branch 1: (true, false)
+  -- if $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
+  -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          false,
+          true,
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
+  ----
+  ;; branch 2: false
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     /\ ~(bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
+
+rule WeighJustificationAndFinalization/justify_cur_finalize_cur:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.CURRENT_JUSTIFIED_CHECKPOINT
+              = { EPOCH epoch_cur,
+                  ROOT $get_block_root(state, epoch_cur) }]
+            [.FINALIZED_CHECKPOINT = checkpoint_cur]
+            [.JUSTIFICATION_BITS = bit*]
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_current_epoch(state)  = epoch_cur
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; branch 1: (_, true)
   -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
-  -- if bit_next* = [
+  -- if bit* = [
           true,
           state.JUSTIFICATION_BITS[0]
           \/ $(balance_prev_epoch_target * 3 >= balance_total_active * 2),
@@ -287,15 +316,72 @@ rule WeighJustificationAndFinalization/justify_cur:
           state.JUSTIFICATION_BITS[2]
         ]
   ----
-  -- FinalizeCheckpoint:
-       state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
+  ;; branch 2: (true, _)
+  -- if (bit*[0] /\ bit*[1] /\ bit*[2] /\ $(checkpoint_cur.EPOCH + 2) = $get_current_epoch(state))
+     \/ (bit*[0] /\ bit*[1] /\ $(checkpoint_cur.EPOCH + 1) = $get_current_epoch(state))
+
+rule WeighJustificationAndFinalization/justify_cur_finalize_prev:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
             [.CURRENT_JUSTIFIED_CHECKPOINT
               = { EPOCH epoch_cur,
                   ROOT $get_block_root(state, epoch_cur) }]
-            [.JUSTIFICATION_BITS = bit_next*]
-       `{ PREV checkpoint_old_prev
-          CUR checkpoint_old_cur }
-       ~> state_updated
+            [.FINALIZED_CHECKPOINT = checkpoint_prev]
+            [.JUSTIFICATION_BITS = bit*]
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_current_epoch(state)  = epoch_cur
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; branch 1: (_, true)
+  -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          true,
+          state.JUSTIFICATION_BITS[0]
+          \/ $(balance_prev_epoch_target * 3 >= balance_total_active * 2),
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
+  ----
+  ;; branch 2: (false, true)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2] /\ $(checkpoint_cur.EPOCH + 2) = $get_current_epoch(state))
+     /\ ~(bit*[0] /\ bit*[1] /\ $(checkpoint_cur.EPOCH + 1) = $get_current_epoch(state))
+     /\ ((bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     \/  (bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state)))
+
+rule WeighJustificationAndFinalization/justify_cur_finalize_neither:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.CURRENT_JUSTIFIED_CHECKPOINT
+              = { EPOCH epoch_cur,
+                  ROOT $get_block_root(state, epoch_cur) }]
+            [.JUSTIFICATION_BITS = bit*]
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_current_epoch(state)  = epoch_cur
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; branch 1: (_, true)
+  -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          true,
+          state.JUSTIFICATION_BITS[0]
+          \/ $(balance_prev_epoch_target * 3 >= balance_total_active * 2),
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
+  ----
+  ;; branch 2: (false, false)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2] /\ $(checkpoint_cur.EPOCH + 2) = $get_current_epoch(state))
+     /\ ~(bit*[0] /\ bit*[1] /\ $(checkpoint_cur.EPOCH + 1) = $get_current_epoch(state))
+     /\ ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     /\ ~(bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
 
 ;; ============================================
 ;; helpers for process_registry_updates (fixed)

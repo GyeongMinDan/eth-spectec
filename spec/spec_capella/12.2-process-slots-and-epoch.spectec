@@ -9,7 +9,7 @@ relation ProcessEpoch:
 rule ProcessEpoch:
   state ~> state_11
   ;; Phase0 -> Altair
-  -- Process_justification_and_finalization:  state ~> state_0
+  -- ProcessJustificationAndFinalization:  state ~> state_0
   ;; Altair
   -- ProcessInactivityUpdates:              state_0           ~> state_1
   ;; Phase0 -> Altair
