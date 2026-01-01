@@ -202,11 +202,13 @@ relation ProcessEth1DataReset:
 rule ProcessEth1DataReset/skip:
   state ~> state
   -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; branch-complete
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) =/= 0
 
 rule ProcessEth1DataReset/main:
   state ~> state[.ETH1_DATA_VOTES = eps]
   -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; branch-complete
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
 
 ;; [Phase 0]
@@ -236,7 +238,7 @@ rule ProcessSlashingsReset/skip:
   state ~> state
   -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = i
-  ;; inserted skip condition
+  ;; inserted guard
   -- if $(i >= |state.SLASHINGS|)
 
 rule ProcessSlashingsReset/main:
@@ -247,86 +249,73 @@ rule ProcessSlashingsReset/main:
   -- if $(i < |state.SLASHINGS|)
 
 
-;;
+;; [Phase 0]
 ;; process_randao_mixes_reset
-;;
-relation Process_randao_mixes_reset:
+;;  mutates: .RANDAO_MIXES
+
+relation ProcessRandaoMixesReset:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_randao_mixes_reset/skip:
+rule ProcessRandaoMixesReset/skip:
   state ~> state
-  -- if $get_current_epoch(state) = epoch_current
-  -- if $(epoch_current + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
-  -- if $(uint64_n >= |state.RANDAO_MIXES|)
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $(epoch_cur + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = i
+  ;; inserted guard
+  -- if $(i >= |state.RANDAO_MIXES|)
 
-rule Process_randao_mixes_reset/main:
-  state ~> state_updated
-  -- if $get_current_epoch(state) = epoch_current
-  -- if $(epoch_current + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
-  -- if $get_randao_mix(state, epoch_current) = bytes32_mix
-  -- if $(uint64_n < |state.RANDAO_MIXES|)
-  -- if state.RANDAO_MIXES[[uint64_n] = bytes32_mix] = bytes32_randao_mixes_update*
-  -- if state_updated = state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+rule ProcessRandaoMixesReset/main:
+  state ~> state[.RANDAO_MIXES[i] = $get_randao_mix(state, epoch_cur)]
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $(epoch_cur + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = i
+  ;; inserted guard
+  -- if $(i < |state.RANDAO_MIXES|)
 
-
-
-;;
+;; [Phase 0 -> Capella]
 ;; process_historical_summaries_update
-;;
+;;  mutates: .HISTORICAL_SUMMARIES
+
 relation ProcessHistoricalSummariesUpdate:
   beaconState ~> beaconState
   hint(input %0)
 
 rule ProcessHistoricalSummariesUpdate/skip:
   state ~> state
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $(epoch_cur + 1) = epoch_next
-  ;; loop exit
+  -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; branch-complete
   -- if $(epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH)) =/= 0
 
 rule ProcessHistoricalSummariesUpdate/main:
-  state ~> state_updated
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $(epoch_cur + 1) = epoch_next
-  ;; loop guard
+  state ~>
+    state[.HISTORICAL_SUMMARIES = state.HISTORICAL_SUMMARIES ++ [ historicalSummary ]]
+  -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; branch-complete
   -- if $( epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH) ) = 0
   -- if $hash_tree_root_roots(state.BLOCK_ROOTS) = root_block_summary
   -- if $hash_tree_root_roots(state.STATE_ROOTS) = root_state_summary
   -- if { BLOCK_SUMMARY_ROOT root_block_summary, STATE_SUMMARY_ROOT root_state_summary } = historicalSummary
-  -- if state.HISTORICAL_SUMMARIES ++ [ historicalSummary ] = historicalSummary_updated*
-  -- if state_updated = state[.HISTORICAL_SUMMARIES = historicalSummary_updated*]
 
-
-;;
-;; [New in Altair]
+;; [Altair]
 ;; process_participation_flag_updates:
 ;;  initialize current participation flags to zero
-;;  mutates:
-;;    PREVIOUS_EPOCH_PARTICIPATION
-;;    CURRENT_EPOCH_PARTICIPATION
+;;  mutates: .PREVIOUS_EPOCH_PARTICIPATION, .CURRENT_EPOCH_PARTICIPATION
 
 relation ProcessParticipationFlagUpdates:
   beaconState ~> beaconState
   hint(input %0)
 
 rule ProcessParticipationFlagUpdates:
-  state ~> state_updated
+  state ~> 
+    state[.PREVIOUS_EPOCH_PARTICIPATION = state.CURRENT_EPOCH_PARTICIPATION]
+         [.CURRENT_EPOCH_PARTICIPATION = participationFlags_zero*]
   -- if $repeat_<participationFlags>(0, |state.VALIDATORS|) = participationFlags_zero*
-  -- if state_updated =
-        state[.PREVIOUS_EPOCH_PARTICIPATION = state.CURRENT_EPOCH_PARTICIPATION]
-             [.CURRENT_EPOCH_PARTICIPATION = participationFlags_zero*]
 
-
-;;
-;; [New in Altair]
+;; [Altair]
 ;; process_sync_committee_updates:
 ;;  initialize sync committees for next epoch
-;;  mutates:
-;;    CURRENT_SYNC_COMMITTEE
-;;    NEXT_SYNC_COMMITTEE
+;;  mutates: .CURRENT_SYNC_COMMITTEE, NEXT_SYNC_COMMITTEE
 
 relation ProcessSyncCommitteeUpdates:
   beaconState ~> beaconState
@@ -339,10 +328,9 @@ rule ProcessSyncCommitteeUpdates/skip:
   -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) =/= 0
 
 rule ProcessSyncCommitteeUpdates/main:
-  state ~> state_updated
+  state ~> 
+    state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
+         [.NEXT_SYNC_COMMITTEE    = $get_next_sync_committee(state)]
   -- if $($get_current_epoch(state) + 1) = epoch_next
   ;; branch-complete
   -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = 0
-  -- if state_updated =
-       state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
-            [.NEXT_SYNC_COMMITTEE    = $get_next_sync_committee(state)]

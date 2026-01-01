@@ -25,7 +25,7 @@ rule ProcessEpoch:
   ;; Phase0
   -- ProcessSlashingsReset:                 state_6           ~> state_7
   ;; Phase0
-  -- Process_randao_mixes_reset:              state_7           ~> state_8
+  -- ProcessRandaoMixesReset:              state_7           ~> state_8
   ;; Capella
   -- ProcessHistoricalSummariesUpdate:     state_8           ~> state_9
   ;; Altair
