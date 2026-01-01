@@ -50,7 +50,10 @@ relation ApplyInactivity:
   hint(input %0 %1)
 
 rule ApplyInactivity/unslashed_participating_no_leak:
-  state `.INACTIVITY_SCORES `[ vid ] ~> state_updated
+  state `.INACTIVITY_SCORES `[ vid ]
+    ~> state[.INACTIVITY_SCORES[vid]
+              = $max_uint64($(state.INACTIVITY_SCORES[vid] - 1 - $INACTIVITY_SCORE_RECOVERY_RATE), 0)
+            ]
   ----
   ;; branch 1 : true
   -- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
@@ -58,13 +61,12 @@ rule ApplyInactivity/unslashed_participating_no_leak:
   -- if ~ $is_in_inactivity_leak(state)
   ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state_updated
-      = state[.INACTIVITY_SCORES[vid]
-               = $max_uint64($(state.INACTIVITY_SCORES[vid] - 1 - $INACTIVITY_SCORE_RECOVERY_RATE), 0)
-             ]
 
 rule ApplyInactivity/unslashed_participating_leak:
-  state `.INACTIVITY_SCORES `[ vid ] ~> state_updated
+  state `.INACTIVITY_SCORES `[ vid ]
+    ~> state[.INACTIVITY_SCORES[vid]
+              = $max_uint64($(state.INACTIVITY_SCORES[vid] - 1), 0)
+            ]
   ----
   ;; branch 1 : true
   -- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
@@ -72,13 +74,12 @@ rule ApplyInactivity/unslashed_participating_leak:
   -- if $is_in_inactivity_leak(state)
   ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state_updated
-      = state[.INACTIVITY_SCORES[vid]
-               = $max_uint64($(state.INACTIVITY_SCORES[vid] - 1), 0)
-             ]
 
 rule ApplyInactivity/inactive_no_leak:
-  state `.INACTIVITY_SCORES `[ vid ] ~> state_updated
+  state `.INACTIVITY_SCORES `[ vid ]
+    ~> state[.INACTIVITY_SCORES[vid]
+              = $max_uint64($(state.INACTIVITY_SCORES[vid] + n_leak_penalty), 0)
+            ]
   ----
   ;; branch 1 : false
   -- if ~(vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state)))
@@ -87,13 +88,12 @@ rule ApplyInactivity/inactive_no_leak:
   -- if n_leak_penalty = $($INACTIVITY_SCORE_BIAS - $INACTIVITY_SCORE_RECOVERY_RATE)
   ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state_updated
-      = state[.INACTIVITY_SCORES[vid]
-               = $max_uint64($(state.INACTIVITY_SCORES[vid] + n_leak_penalty), 0)
-             ]
 
 rule ApplyInactivity/inactive_leak:
-  state `.INACTIVITY_SCORES `[ vid ] ~> state_updated
+  state `.INACTIVITY_SCORES `[ vid ]
+    ~> state[.INACTIVITY_SCORES[vid]
+              = $max_uint64($(state.INACTIVITY_SCORES[vid] + $INACTIVITY_SCORE_BIAS), 0)
+            ]
   ----
   ;; branch 1 : false
   -- if ~(vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state)))
@@ -101,10 +101,6 @@ rule ApplyInactivity/inactive_leak:
   -- if $is_in_inactivity_leak(state)
   ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state_updated
-      = state[.INACTIVITY_SCORES[vid]
-               = $max_uint64($(state.INACTIVITY_SCORES[vid] + $INACTIVITY_SCORE_BIAS), 0)
-             ]
 
 ;; [Custom] folder
 relation ApplyInactivity_over_vids:
@@ -369,54 +365,8 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_neither:
      /\ ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
      /\ ~(bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
 
-;; ============================================
-;; helpers for process_registry_updates (fixed)
-;; ============================================
+;; === ProcessRegistryUpdates ===
 
-;; (i, v)가 activation 자격인가?  (state 캡처)
-dec $is_eligible_activation_en((nat, validator), beaconState) : boolean
-def $is_eligible_activation_en((i, validator), state) =
-  $is_eligible_for_activation(state, validator)
-
-;; (i, v) ↦ (v.ACTIVATION_ELIGIBILITY_EPOCH, ValidatorIndex(i))  (state 캡처 안 씀)
-dec $activation_key_en((nat, validator), beaconState) : (epoch, validatorIndex)
-def $activation_key_en((i, validator), state) = (epoch_key, vid)
-  -- if epoch_key = validator.ACTIVATION_ELIGIBILITY_EPOCH
-  -- if vid = i
-
-;; enumerate 결과 (n, vi)에서 n < limit ?
-dec $idx_lt_limit((nat, validatorIndex), uint64) : boolean
-def $idx_lt_limit((i, vid), uint64_lim) = true
-  -- if $(i < uint64_lim)
-def $idx_lt_limit((i, vid), uint64_lim) = false
-  -- otherwise
-
-;; set the activation epoch for a given validator
-relation SetActivation:
-  beaconState validatorIndex ~> beaconState
-  hint(input %0 %1)
-
-rule SetActivation:
-  state validatorIndex ~> state_out
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $compute_activation_exit_epoch(epoch_cur) = epoch_act
-  -- if $(validatorIndex < |state.VALIDATORS|)
-  -- if validator_new = state.VALIDATORS[validatorIndex][.ACTIVATION_EPOCH = epoch_act]
-  -- if state_out = state[.VALIDATORS[validatorIndex] = validator_new]
-
-relation SetActivations:
-  beaconState validatorIndex* ~>* beaconState
-  hint(input %0 %1)
-
-rule SetActivations/nil:
-  state eps ~>* state
-
-rule SetActivations/cons:
-  state (vid_h :: vid_t*) ~>* state_out
-  -- SetActivation: state vid_h ~> state'
-  -- SetActivations: state' vid_t* ~>* state_out
-
-;; (i, v) 한 쌍 처리: eligibility_epoch 설정 및 eject
 relation ProcessEligibilityAndEjection:
   beaconState `.VALIDATORS `[ validatorIndex ] ~> beaconState
   hint(input %0 %1)
@@ -472,3 +422,34 @@ rule ProcessEligibilityAndEjection_over_vids/cons:
   state `.VALIDATORS `[ (vid_h :: vid_t*) ] ~> state_out
   -- ProcessEligibilityAndEjection: state `.VALIDATORS `[ vid_h ] ~> state_h
   -- ProcessEligibilityAndEjection_over_vids: state_h `.VALIDATORS `[ vid_t* ] ~> state_out
+
+;; filter predicate
+dec $is_eligible_activation_en((nat, validator), beaconState) : boolean
+def $is_eligible_activation_en((_, validator), state)
+  = $is_eligible_for_activation(state, validator)
+
+;; [Custom]
+;; mutates: .VALIDATORS[].ACTIVATION_EPOCH
+relation ApplyActivation:
+  beaconState `.VALIDATORS `[ validatorIndex ] `.ACTIVATION_EPOCH ~> beaconState
+  hint(input %0 %1)
+
+rule ApplyActivation:
+  state `.VALIDATORS `[ vid ] `.ACTIVATION_EPOCH ~>
+    state[.VALIDATORS[vid].ACTIVATION_EPOCH
+          = $compute_activation_exit_epoch($get_current_epoch(state))]
+
+relation ApplyActivations:
+  beaconState 
+    `.VALIDATORS `[ validatorIndex* ] `.ACTIVATION_EPOCH
+    ~>* beaconState
+  hint(input %0 %1)
+
+rule ApplyActivations/nil:
+  state `.VALIDATORS `[ eps ] `.ACTIVATION_EPOCH ~>* state
+
+rule ApplyActivations/cons:
+  state `.VALIDATORS `[(vid_h :: vid_t*)] `.ACTIVATION_EPOCH ~>* state_out
+  -- ApplyActivation:  state   `.VALIDATORS `[ vid_h ]  `.ACTIVATION_EPOCH ~>  state_h
+  -- ApplyActivations: state_h `.VALIDATORS `[ vid_t* ] `.ACTIVATION_EPOCH ~>* state_out
+

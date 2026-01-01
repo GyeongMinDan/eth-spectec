@@ -194,7 +194,7 @@ def $flag_penalty_one_eligible(vid, (state, vid_unslashed*, vid_eligible_set*, u
 ;; --------------------------------------------
 dec $get_flag_index_deltas(beaconState, nat) : (gwei*, gwei*)
 
-def $get_flag_index_deltas(state, nat_flag_index) = (gwei_rewards*, gwei_penalties*)
+def $get_flag_index_deltas(state, nat_flag_index) = (reward*, penalty*)
   -- if $( |state.VALIDATORS| ) = uint64_N
   ;; get_eligible_validator_indices 사용
   -- if $get_eligible_validator_indices(state) = vid_eligible*
@@ -213,8 +213,8 @@ def $get_flag_index_deltas(state, nat_flag_index) = (gwei_rewards*, gwei_penalti
   -- if $range(uint64_N) = nat_idx*
   ;; rewards: 참여 & (¬leak) 에만 분배
   ;; change map_list_2_ - 모든 validator에 대해 반복하되 eligible validator만 처리
-  -- if ($flag_reward_one_eligible(nat_idx, (state, vid_unslashed*, vid_eligible_set*, uint64_weight, uint64_up_incs, uint64_active_incs)) = gwei_rewards)*
+  -- if ($flag_reward_one_eligible(nat_idx, (state, vid_unslashed*, vid_eligible_set*, uint64_weight, uint64_up_incs, uint64_active_incs)) = reward)*
   ;; penalties: 미참여 & (flag != HEAD) 에만 부과
   ;; change map_list_2_ - 모든 validator에 대해 반복하되 eligible validator만 처리
-  -- if ($flag_penalty_one_eligible(nat_idx, (state, vid_unslashed*, vid_eligible_set*, uint64_weight, nat_flag_index)) = gwei_penalties)*
+  -- if ($flag_penalty_one_eligible(nat_idx, (state, vid_unslashed*, vid_eligible_set*, uint64_weight, nat_flag_index)) = penalty)*
 

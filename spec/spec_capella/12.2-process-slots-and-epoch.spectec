@@ -15,7 +15,7 @@ rule ProcessEpoch:
   ;; Phase0 -> Altair
   -- ProcessRewardsAndPenalties:            state_1           ~> state_2
   ;; Phase0
-  -- Process_Registry_Updates:                state_2           ~> state_3
+  -- ProcessRegistryUpdates:                state_2           ~> state_3
   ;; Phase0 -> Altair -> Bellatrix
   -- ProcessSlashings:                       state_3           ~> state_4
   ;; Phase0

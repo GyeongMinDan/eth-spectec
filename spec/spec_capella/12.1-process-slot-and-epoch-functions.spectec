@@ -116,36 +116,32 @@ rule ProcessRewardsAndPenalties/main:
 
 ;; [Phase 0]
 ;; process_registry_updates
+;;  mutates: .VALIDATORS[](.ACTIVATION_ELIGIBILITY_EPOCH, .EXIT_EPOCH, .WITHDRAWABLE_EPOCH, .ACTIVATION_EPOCH)
 
-relation Process_Registry_Updates:
+relation ProcessRegistryUpdates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_Registry_Updates/main:
+rule ProcessRegistryUpdates/main:
   state ~> state_out
-  ;; (1) pass 1: process eligibility and ejections for each validator
+  ;; 1. process eligibility and ejections for each validator
   -- if $range(|state.VALIDATORS|) = vid*
   -- ProcessEligibilityAndEjection_over_vids:
       state `.VALIDATORS `[ vid* ] ~> state_1
-  ;; (2) activation 후보 인덱스 수집 + (elig_epoch, index) 키로 정렬
-  -- if $enumerate_<validator>(state_1.VALIDATORS) = (j, validator_w)*
+  ;; queue validators eligible for activation and not yet dequeued for activattion
+  -- if $enumerate_<validator>(state_1.VALIDATORS) = (vid_1, validator)*
   -- if $filter_list_2_<(nat, validator), beaconState>(
-         (j, validator_w)*,
+         (vid_1, validator)*,
          state_1,
          def $is_eligible_activation_en
-       ) = (nat_elg, validator_elg)*
-  -- if ($activation_key_en((nat_elg, validator_elg), state_1) = (epoch_key, vid))*
-  -- if $sort_<(epoch, validatorIndex)>((epoch_key, vid)*) =
-         (_, vid_sorted)*
-  ;; (3) churn limit 만큼만 dequeue → ACTIVATION_EPOCH 세팅
-  -- if $get_validator_churn_limit(state_1) = uint64_churn_limit
-  -- if $enumerate_<validatorIndex>(vid_sorted*) = (nat_idx, vid_q)*
-  -- if $filter_list_2_<(nat, validatorIndex), uint64>(
-        (nat_idx, vid_q)*,
-        uint64_churn_limit,
-        def $idx_lt_limit
-      ) = (_, vid_to_activate)*
-  -- SetActivations: state_1 vid_to_activate* ~>* state_out
+       ) = (vid_elg, validator_elg)*
+  -- if (validator_elg.ACTIVATION_ELIGIBILITY_EPOCH = epoch_elg)*
+  -- if $sort_<(epoch, validatorIndex)>((epoch_elg, vid_elg)*) =
+         (_, vid_activation_queue)*
+  ;; 3. dequeue validators up to the churn limit for activation
+  -- if vid_activation_queue*[0:$get_validator_churn_limit(state_1)] = vid_dequeued*
+  -- ApplyActivations:
+      state_1 `.VALIDATORS `[ vid_dequeued* ] `.ACTIVATION_EPOCH ~>* state_out
 
 ;; [Phase 0] -> [Altair] -> [Bellatrix]
 ;; process_slashings
