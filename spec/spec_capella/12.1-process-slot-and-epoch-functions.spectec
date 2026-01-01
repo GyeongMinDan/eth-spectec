@@ -197,16 +197,16 @@ rule ProcessEth1DataReset/main:
 ;; process_effective_balance_updates
 ;;  mutates: .VALIDATORS[].EFFECTIVE_BALANCE
 
-relation Process_effective_balance_updates:
+relation ProcessEffectiveBalanceUpdates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_effective_balance_updates:
-  state ~> state_updated
+rule ProcessEffectiveBalanceUpdates:
+  state ~> state[.VALIDATORS = validator_updated*]
   -- if $enumerate_<validator>(state.VALIDATORS) = (vid, validator)*
-  ;; TODO: rewrite as state transition
-  -- if ($rebalance_validator_enumerated((vid, validator), state) = validator_updated)*
-  -- if state_updated = state[.VALIDATORS = validator_updated*]
+  -- if (state.BALANCES[vid] = balance)*
+  -- (ApplyEffectiveBalance:
+      validator `.EFFECTIVE_BALANCE balance ~> validator_updated)*
 
 ;; [Phase 0]
 ;; process_slashings_reset

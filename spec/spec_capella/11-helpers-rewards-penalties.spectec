@@ -48,25 +48,27 @@ def $get_base_reward(state, vid) = gwei_reward
 ;; rebalance rule for a single (index, validator) pair
 ;; (computes hysteresis thresholds and updates EFFECTIVE_BALANCE if needed)
 ;; ------------------------------------------------------------
-dec $rebalance_validator_enumerated((nat, validator), beaconState) : validator
+relation ApplyEffectiveBalance:
+  validator `.EFFECTIVE_BALANCE gwei ~> validator
+  hint(input %0 %1)
 
-def $rebalance_validator_enumerated((vid, validator), state)
-  = validator
+rule ApplyEffectiveBalance/main:
+  validator `.EFFECTIVE_BALANCE balance ~> 
+    validator
       [.EFFECTIVE_BALANCE =
         $min_uint64(
           $( balance - balance \ $EFFECTIVE_BALANCE_INCREMENT ), 
           $MAX_EFFECTIVE_BALANCE
         )
       ]
-  -- if $(vid < |state.BALANCES|)
-  -- if state.BALANCES[vid] = balance
   -- if $( $EFFECTIVE_BALANCE_INCREMENT / $HYSTERESIS_QUOTIENT ) = uint64_hyst_inc
   -- if $( uint64_hyst_inc * $HYSTERESIS_DOWNWARD_MULTIPLIER ) = uint64_down_th
   -- if $( uint64_hyst_inc * $HYSTERESIS_UPWARD_MULTIPLIER )  = uint64_up_th
   -- if $( balance + uint64_down_th < validator.EFFECTIVE_BALANCE )
      \/ $( validator.EFFECTIVE_BALANCE + uint64_up_th < balance )
 
-def $rebalance_validator_enumerated((_, validator), state) = validator
+rule ApplyEffectiveBalance/skip:
+  validator `.EFFECTIVE_BALANCE _ ~> validator
   -- otherwise
 
 ;; --------------------------------------------

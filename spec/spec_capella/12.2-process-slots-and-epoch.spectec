@@ -21,7 +21,7 @@ rule ProcessEpoch:
   ;; Phase0
   -- ProcessEth1DataReset:                 state_4           ~> state_5
   ;; Phase0
-  -- Process_effective_balance_updates:       state_5           ~> state_6
+  -- ProcessEffectiveBalanceUpdates:       state_5           ~> state_6
   ;; Phase0
   -- ProcessSlashingsReset:                 state_6           ~> state_7
   ;; Phase0
