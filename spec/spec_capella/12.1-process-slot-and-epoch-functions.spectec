@@ -124,12 +124,9 @@ relation Process_Registry_Updates:
 rule Process_Registry_Updates/main:
   state ~> state_out
   ;; (1) pass 1: process eligibility and ejections for each validator
-  -- if $enumerate_<validator>(state.VALIDATORS) = (i, validator)*
-  -- if state_1 = $fold_<beaconState, (nat, validator)>(
-         def $process_registry_one,
-         state,
-         (i, validator)*
-       )
+  -- if $range(|state.VALIDATORS|) = vid*
+  -- ProcessEligibilityAndEjection_over_vids:
+      state `.VALIDATORS `[ vid* ] ~> state_1
   ;; (2) activation 후보 인덱스 수집 + (elig_epoch, index) 키로 정렬
   -- if $enumerate_<validator>(state_1.VALIDATORS) = (j, validator_w)*
   -- if $filter_list_2_<(nat, validator), beaconState>(

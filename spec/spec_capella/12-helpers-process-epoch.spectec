@@ -417,43 +417,58 @@ rule SetActivations/cons:
   -- SetActivations: state' vid_t* ~>* state_out
 
 ;; (i, v) 한 쌍 처리: eligibility_epoch 설정 및 eject
-relation ProcessEligibilityAndEjections:
-  beaconState validatorIndex validator ~> beaconState
-dec $process_registry_one(beaconState, (nat, validator)) : beaconState
+relation ProcessEligibilityAndEjection:
+  beaconState `.VALIDATORS `[ validatorIndex ] ~> beaconState
+  hint(input %0 %1)
 
-;; case 1: activation queue 자격 O + ejection 조건 O → eligibility_epoch 갱신 + eject
-;; rule ProcessEligibilityAndEjections/eligible_and_eject:
-def $process_registry_one(state, (i, validator)) = state_updated
+rule ProcessEligibilityAndEjection/eligible_and_eject:
+  state `.VALIDATORS `[ vid ] ~> state_updated
+  -- if state.VALIDATORS[vid] = validator
   -- if $get_current_epoch(state) = epoch_cur
   -- if $is_eligible_for_activation_queue(validator)
   -- if $is_active_validator(validator, epoch_cur)
      /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE)
   -- InitiateValidatorExit: 
-       state [.VALIDATORS[i].ACTIVATION_ELIGIBILITY_EPOCH 
+       state [.VALIDATORS[vid].ACTIVATION_ELIGIBILITY_EPOCH 
               = $(epoch_cur + 1)]
-         `.VALIDATORS `[ i ] ~> state_updated
+         `.VALIDATORS `[ vid ] ~> state_updated
 
-;; case 2: activation queue 자격 O + ejection 조건 X → eligibility_epoch 갱신만
-def $process_registry_one(state, (i, validator))
-  = state [.VALIDATORS[i].ACTIVATION_ELIGIBILITY_EPOCH 
-           = $(epoch_cur + 1)]
+rule ProcessEligibilityAndEjection/eligible:
+  state `.VALIDATORS `[ vid ] ~>
+    state [.VALIDATORS[vid].ACTIVATION_ELIGIBILITY_EPOCH 
+          = $(epoch_cur + 1)]
+  -- if state.VALIDATORS[vid] = validator
   -- if $get_current_epoch(state) = epoch_cur
   -- if $is_eligible_for_activation_queue(validator)
   -- if ~( $is_active_validator(validator, epoch_cur)
         /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))
 
-;; case 3: 자격 X + eject 조건 O → eject만
-def $process_registry_one(state, (i, validator)) = state_updated
+rule ProcessEligibilityAndEjection/eject:
+  state `.VALIDATORS `[ vid ] ~> state_updated
+  -- if state.VALIDATORS[vid] = validator
   -- if $get_current_epoch(state) = epoch_cur
   -- if ~$is_eligible_for_activation_queue(validator)
   -- if $is_active_validator(validator, epoch_cur)
      /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE)
   -- InitiateValidatorExit: 
-       state `.VALIDATORS `[ i ] ~> state_updated
+       state `.VALIDATORS `[ vid ] ~> state_updated
 
-;; case 4: 그 외 → 변화 없음
-def $process_registry_one(state, (i, validator)) = state
+rule ProcessEligibilityAndEjection/skip:
+  state `.VALIDATORS `[ vid ] ~> state
+  -- if state.VALIDATORS[vid] = validator
   -- if $get_current_epoch(state) = epoch_cur
   -- if ~$is_eligible_for_activation_queue(validator)
   -- if ~( $is_active_validator(validator, epoch_cur)
         /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))
+
+relation ProcessEligibilityAndEjection_over_vids:
+  beaconState `.VALIDATORS `[ validatorIndex* ] ~> beaconState
+  hint(input %0 %1)
+
+rule ProcessEligibilityAndEjection_over_vids/nil:
+  state `.VALIDATORS `[ eps ] ~> state
+
+rule ProcessEligibilityAndEjection_over_vids/cons:
+  state `.VALIDATORS `[ (vid_h :: vid_t*) ] ~> state_out
+  -- ProcessEligibilityAndEjection: state `.VALIDATORS `[ vid_h ] ~> state_h
+  -- ProcessEligibilityAndEjection_over_vids: state_h `.VALIDATORS `[ vid_t* ] ~> state_out
