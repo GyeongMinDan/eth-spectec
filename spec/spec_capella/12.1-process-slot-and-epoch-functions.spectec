@@ -76,12 +76,12 @@ relation ProcessInactivityUpdates:
 
 rule ProcessInactivityUpdates/skip:
   state ~> state
-  ;; branch: skip if first epoch
+  ;; branch-complete
   -- if $get_current_epoch(state) = $GENESIS_EPOCH
 
 rule ProcessInactivityUpdates/main:
   state ~> state_updated
-  ;; branch
+  ;; branch-complete
   -- if $get_current_epoch(state) =/= $GENESIS_EPOCH
   -- if $get_eligible_validator_indices(state) = vid_eligible*
   -- ApplyInactivity_over_vids: state `.INACTIVITY_SCORES `[ vid_eligible* ] ~>* state_updated
@@ -124,11 +124,11 @@ relation Process_Registry_Updates:
 rule Process_Registry_Updates/main:
   state ~> state_out
   ;; (1) pass 1: process eligibility and ejections for each validator
-  -- if $enumerate_<validator>(state.VALIDATORS) = (i, validator_v)*
+  -- if $enumerate_<validator>(state.VALIDATORS) = (i, validator)*
   -- if state_1 = $fold_<beaconState, (nat, validator)>(
          def $process_registry_one,
          state,
-         (i, validator_v)*
+         (i, validator)*
        )
   ;; (2) activation 후보 인덱스 수집 + (elig_epoch, index) 키로 정렬
   -- if $enumerate_<validator>(state_1.VALIDATORS) = (j, validator_w)*

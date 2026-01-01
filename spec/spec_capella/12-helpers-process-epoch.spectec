@@ -417,42 +417,43 @@ rule SetActivations/cons:
   -- SetActivations: state' vid_t* ~>* state_out
 
 ;; (i, v) 한 쌍 처리: eligibility_epoch 설정 및 eject
+relation ProcessEligibilityAndEjections:
+  beaconState validatorIndex validator ~> beaconState
 dec $process_registry_one(beaconState, (nat, validator)) : beaconState
 
 ;; case 1: activation queue 자격 O + ejection 조건 O → eligibility_epoch 갱신 + eject
-def $process_registry_one(state, (i, validator)) = state_after
+;; rule ProcessEligibilityAndEjections/eligible_and_eject:
+def $process_registry_one(state, (i, validator)) = state_updated
   -- if $get_current_epoch(state) = epoch_cur
-  -- if $is_eligible_for_activation_queue(validator) = true
-  -- if epoch_elig = $(epoch_cur + 1)
-  -- if validator_set_elig = validator[.ACTIVATION_ELIGIBILITY_EPOCH = epoch_elig]
-  -- if state_elig = state[.VALIDATORS = state.VALIDATORS[[i] = validator_set_elig]]
-  -- if state_elig.VALIDATORS[i] = validator_read
-  -- if $is_active_validator(validator_read, epoch_cur) = true
-  -- if $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE)
-  -- InitiateValidatorExit: state_elig `.VALIDATORS `[ i ] ~> state_after
+  -- if $is_eligible_for_activation_queue(validator)
+  -- if $is_active_validator(validator, epoch_cur)
+     /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE)
+  -- InitiateValidatorExit: 
+       state [.VALIDATORS[i].ACTIVATION_ELIGIBILITY_EPOCH 
+              = $(epoch_cur + 1)]
+         `.VALIDATORS `[ i ] ~> state_updated
 
 ;; case 2: activation queue 자격 O + ejection 조건 X → eligibility_epoch 갱신만
-def $process_registry_one(state, (i, validator)) = state_after
+def $process_registry_one(state, (i, validator))
+  = state [.VALIDATORS[i].ACTIVATION_ELIGIBILITY_EPOCH 
+           = $(epoch_cur + 1)]
   -- if $get_current_epoch(state) = epoch_cur
-  -- if $is_eligible_for_activation_queue(validator) = true
-  -- if epoch_elig = $(epoch_cur + 1)
-  -- if validator_set_elig = validator[.ACTIVATION_ELIGIBILITY_EPOCH = epoch_elig]
-  -- if state_elig = state[.VALIDATORS = state.VALIDATORS[[i] = validator_set_elig]]
-  -- if state_elig.VALIDATORS[i] = validator_read
-  -- if ~( $is_active_validator(validator_read, epoch_cur) = true
-         /\ $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE) )
-  -- if state_after = state_elig
+  -- if $is_eligible_for_activation_queue(validator)
+  -- if ~( $is_active_validator(validator, epoch_cur)
+        /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))
 
 ;; case 3: 자격 X + eject 조건 O → eject만
-def $process_registry_one(state, (i, validator)) = state_after
+def $process_registry_one(state, (i, validator)) = state_updated
   -- if $get_current_epoch(state) = epoch_cur
-  -- if $is_eligible_for_activation_queue(validator) = false
-  -- if state_mid = state
-  -- if state_mid.VALIDATORS[i] = validator_read
-  -- if $is_active_validator(validator_read, epoch_cur) = true
-  -- if $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE) = true
-  -- InitiateValidatorExit: state_mid `.VALIDATORS `[ i ] ~> state_after
+  -- if ~$is_eligible_for_activation_queue(validator)
+  -- if $is_active_validator(validator, epoch_cur)
+     /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE)
+  -- InitiateValidatorExit: 
+       state `.VALIDATORS `[ i ] ~> state_updated
 
 ;; case 4: 그 외 → 변화 없음
 def $process_registry_one(state, (i, validator)) = state
-  -- otherwise
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if ~$is_eligible_for_activation_queue(validator)
+  -- if ~( $is_active_validator(validator, epoch_cur)
+        /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))
