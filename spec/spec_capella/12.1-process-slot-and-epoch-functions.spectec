@@ -1,50 +1,39 @@
-;;
+;; [Phase 0]
 ;; process_slot
-;;
+
 relation ProcessSlot:
   beaconState ~> beaconState
   hint(input %0)
 
-;; ------------------------------------------------------------
-;; case 1: LATEST_BLOCK_HEADER.STATE_ROOT is empty ($ZERO_ROOT)
-;;   - cache state root
-;;   - cache header state root
-;;   - cache block root
-;; ------------------------------------------------------------
+;; branch1: cache state root, header state root and block root
 rule ProcessSlot/header_root_empty:
-  state ~> state_out
+  state ~>
+    state[.STATE_ROOTS[i] = root_state_prev]
+         [.LATEST_BLOCK_HEADER = beaconBlockHeader]
+         [.BLOCK_ROOTS[i] = root_block_prev]
+  -- if $( state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = i
+  ;; branch-complete
+  -- if state.LATEST_BLOCK_HEADER.STATE_ROOT = $ZERO_ROOT
+  ;; save state root
   -- if $hash_tree_root_beaconState(state) = root_state_prev
-  -- if $( state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
-  -- if state_1 = state[.STATE_ROOTS[uint64_idx] = root_state_prev]
-  ----
-  ;; branch
-  -- if state_1.LATEST_BLOCK_HEADER.STATE_ROOT = $ZERO_ROOT
-  -- if state_1[.LATEST_BLOCK_HEADER.STATE_ROOT = root_state_prev] = state_2
-  ----
-  ;; converge
-  -- if $hash_tree_root_beaconBlockHeader(state_2.LATEST_BLOCK_HEADER) = root_block_prev
-  -- if state_2.BLOCK_ROOTS[[uint64_idx] = root_block_prev] = root_block_list_updated*
-  -- if state_out = state_2[.BLOCK_ROOTS = root_block_list_updated*]
+  ;; save latest block header state root
+  -- if state.LATEST_BLOCK_HEADER[.STATE_ROOT = $hash_tree_root_beaconState(state)]
+      = beaconBlockHeader
+  ;; save block root
+  -- if $hash_tree_root_beaconBlockHeader(beaconBlockHeader) = root_block_prev
 
-;; ------------------------------------------------------------
-;; case 2: LATEST_BLOCK_HEADER.STATE_ROOT is set
-;;   - cache state root
-;;   - cache block root
-;; ------------------------------------------------------------
-rule ProcessSlot/header_root_present:
-  state ~> state_out
+;; branch2: cache state root and block root
+rule ProcessSlot/header_root_empty:
+  state ~>
+    state[.STATE_ROOTS[i] = root_state_prev]
+         [.BLOCK_ROOTS[i] = root_block_prev]
+  -- if $( state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = i
+  ;; branch-complete
+  -- if state.LATEST_BLOCK_HEADER.STATE_ROOT =/= $ZERO_ROOT
+  ;; save state root
   -- if $hash_tree_root_beaconState(state) = root_state_prev
-  -- if $( state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
-  -- if state_1 = state[.STATE_ROOTS[uint64_idx] = root_state_prev]
-  ----
-  ;; branch
-  -- if state_1.LATEST_BLOCK_HEADER.STATE_ROOT =/= $ZERO_ROOT
-  ----
-  ;; converge
-  -- if $hash_tree_root_beaconBlockHeader(state_1.LATEST_BLOCK_HEADER) = root_block_prev
-  -- if state_1.BLOCK_ROOTS[[uint64_idx] = root_block_prev] = root_block_list_updated*
-  -- if state_out = state_1[.BLOCK_ROOTS = root_block_list_updated*]
-
+  ;; save block root
+  -- if $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER) = root_block_prev
 
 ;; [Phase0 -> Altair]
 ;; process_justification_and_finalization
