@@ -209,9 +209,10 @@ rule ProcessEth1DataReset/main:
   -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
 
-;;
+;; [Phase 0]
 ;; process_effective_balance_updates
-;;
+;;  mutates: .VALIDATORS[].EFFECTIVE_BALANCE
+
 relation Process_effective_balance_updates:
   beaconState ~> beaconState
   hint(input %0)
@@ -219,28 +220,31 @@ relation Process_effective_balance_updates:
 rule Process_effective_balance_updates:
   state ~> state_updated
   -- if $enumerate_<validator>(state.VALIDATORS) = (vid, validator)*
+  ;; TODO: rewrite as state transition
   -- if ($rebalance_validator_enumerated((vid, validator), state) = validator_updated)*
   -- if state_updated = state[.VALIDATORS = validator_updated*]
-;;
+
+;; [Phase 0]
 ;; process_slashings_reset
-;;
-relation Process_slashings_reset:
+;;  mutates: .SLASHINGS
+
+relation ProcessSlashingsReset:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_slashings_reset/skip:
+rule ProcessSlashingsReset/skip:
   state ~> state
   -- if $($get_current_epoch(state) + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = uint64_n
-  -- if $(uint64_n >= |state.SLASHINGS|)
+  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = i
+  ;; inserted skip condition
+  -- if $(i >= |state.SLASHINGS|)
 
-rule Process_slashings_reset/main:
-  state ~> state_updated
+rule ProcessSlashingsReset/main:
+  state ~> state[.SLASHINGS[i] = 0]
   -- if $($get_current_epoch(state) + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = uint64_n
-  -- if $(uint64_n < |state.SLASHINGS|)
-  -- if state.SLASHINGS[[uint64_n] = 0] = gwei_update*
-  -- if state_updated = state[.SLASHINGS = gwei_update*]
+  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = i
+  ;; inserted guard
+  -- if $(i < |state.SLASHINGS|)
 
 
 ;;
