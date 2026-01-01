@@ -218,11 +218,9 @@ relation Process_effective_balance_updates:
 
 rule Process_effective_balance_updates:
   state ~> state_updated
-  -- if state.VALIDATORS = validator_list*
-  -- if $enumerate_<validator>(validator_list*) = (n, validator_item)*
-  ;; change_map_list_2_
-  -- if ($rebalance_validator_enumerated((n, validator_item), state) = validator_updated_list)*
-  -- if state_updated = state[.VALIDATORS = validator_updated_list*]
+  -- if $enumerate_<validator>(state.VALIDATORS) = (vid, validator)*
+  -- if ($rebalance_validator_enumerated((vid, validator), state) = validator_updated)*
+  -- if state_updated = state[.VALIDATORS = validator_updated*]
 ;;
 ;; process_slashings_reset
 ;;

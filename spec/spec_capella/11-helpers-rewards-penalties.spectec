@@ -44,44 +44,29 @@ def $get_base_reward(state, vid) = gwei_reward
   -- if $get_base_reward_per_increment(state) = gwei_per_inc
   -- if $( uint64_increments * gwei_per_inc ) = gwei_reward
 
-;; predicate: apply update iff
-;;   balance + DOWNWARD_THRESHOLD < effective_balance
-;;   OR
-;;   effective_balance + UPWARD_THRESHOLD < balance
-dec $cond_hysteresis(gwei, gwei, uint64, uint64) : boolean
-
-def $cond_hysteresis(gwei_balance, gwei_eff, uint64_down_th, uint64_up_th) = true
-  -- if $( gwei_balance + uint64_down_th < gwei_eff )
-   \/
-       $( gwei_eff + uint64_up_th   < gwei_balance )
-
-def $cond_hysteresis(gwei_balance, gwei_eff, uint64_down_th, uint64_up_th) = false
-  -- otherwise
-
 ;; ------------------------------------------------------------
 ;; rebalance rule for a single (index, validator) pair
 ;; (computes hysteresis thresholds and updates EFFECTIVE_BALANCE if needed)
 ;; ------------------------------------------------------------
 dec $rebalance_validator_enumerated((nat, validator), beaconState) : validator
 
-def $rebalance_validator_enumerated((n, validator_v), state) = validator_updated
-  -- if $(n < |state.BALANCES|)
-  -- if state.BALANCES[n] = gwei_balance
+def $rebalance_validator_enumerated((vid, validator), state)
+  = validator
+      [.EFFECTIVE_BALANCE =
+        $min_uint64(
+          $( balance - balance \ $EFFECTIVE_BALANCE_INCREMENT ), 
+          $MAX_EFFECTIVE_BALANCE
+        )
+      ]
+  -- if $(vid < |state.BALANCES|)
+  -- if state.BALANCES[vid] = balance
   -- if $( $EFFECTIVE_BALANCE_INCREMENT / $HYSTERESIS_QUOTIENT ) = uint64_hyst_inc
   -- if $( uint64_hyst_inc * $HYSTERESIS_DOWNWARD_MULTIPLIER ) = uint64_down_th
   -- if $( uint64_hyst_inc * $HYSTERESIS_UPWARD_MULTIPLIER )  = uint64_up_th
-  -- if $cond_hysteresis(
-         gwei_balance,
-         validator_v.EFFECTIVE_BALANCE,
-         uint64_down_th,
-         uint64_up_th
-       ) = true
-  -- if $( gwei_balance \ $EFFECTIVE_BALANCE_INCREMENT ) = gwei_mod
-  -- if $( gwei_balance - gwei_mod ) = gwei_floor_inc
-  -- if $min_uint64(gwei_floor_inc, $MAX_EFFECTIVE_BALANCE) = gwei_new_eff
-  -- if validator_updated = validator_v[.EFFECTIVE_BALANCE = gwei_new_eff]
+  -- if $( balance + uint64_down_th < validator.EFFECTIVE_BALANCE )
+     \/ $( validator.EFFECTIVE_BALANCE + uint64_up_th < balance )
 
-def $rebalance_validator_enumerated((n, validator_v), state) = validator_v
+def $rebalance_validator_enumerated((_, validator), state) = validator
   -- otherwise
 
 ;; --------------------------------------------
