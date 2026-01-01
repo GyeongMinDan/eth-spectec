@@ -23,13 +23,17 @@ module State = struct
   let il_spec : Il.spec ref = ref []
   let prems_attempted : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let prems_succeeded : (region * string, int) Hashtbl.t = Hashtbl.create 256
+  let prems_failed : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let total_prems = ref 0
+  let total_if_prems = ref 0
 
   let reset () =
     il_spec := [];
     Hashtbl.clear prems_attempted;
     Hashtbl.clear prems_succeeded;
-    total_prems := 0
+    Hashtbl.clear prems_failed;
+    total_prems := 0;
+    total_if_prems := 0
 
   let incr tbl key =
     let count = Hashtbl.find_opt tbl key |> Option.value ~default:0 in
@@ -44,7 +48,10 @@ let prem_key prem =
 module Handler : Hooks.HANDLER = struct
   let rec count_prem prem =
     State.total_prems := !State.total_prems + 1;
-    match prem.it with Il.IterPr (inner, _) -> count_prem inner | _ -> ()
+    match prem.it with
+    | Il.LetPr _ -> ()
+    | Il.IterPr (inner, _) -> count_prem inner
+    | _ -> State.total_if_prems := !State.total_if_prems + 1
 
   let init ~spec =
     State.reset ();
@@ -84,8 +91,13 @@ module Handler : Hooks.HANDLER = struct
   let on_prem_enter ~prem ~at:_ =
     State.incr State.prems_attempted (prem_key prem)
 
+  (* Only track failures for non-let premises since let cannot fail *)
   let on_prem_exit ~prem ~at:_ ~success =
     if success then State.incr State.prems_succeeded (prem_key prem)
+    else
+      match prem.it with
+      | Il.LetPr _ -> ()
+      | _ -> State.incr State.prems_failed (prem_key prem)
 
   let on_instr = Hooks.Noop.on_instr
 
@@ -93,15 +105,19 @@ module Handler : Hooks.HANDLER = struct
 
   let print_stats () =
     let succeeded = Hashtbl.length State.prems_succeeded in
+    let failed = Hashtbl.length State.prems_failed in
     let attempted = Hashtbl.length State.prems_attempted in
     let total = !State.total_prems in
-    if total > 0 then
+    let total_if = !State.total_if_prems in
+    if total > 0 then (
       Format.printf
         "IL Premises: %d/%d succeeded (%.2f%%), %d/%d attempted (%.2f%%)\n"
         succeeded total
         (percentage succeeded total)
         attempted total
-        (percentage attempted total)
+        (percentage attempted total);
+      Format.printf "If Premises: %d/%d failed at least once, %d never failed\n"
+        failed total_if (attempted - failed))
 
   let print_uncovered () =
     let total = !State.total_prems in
@@ -151,18 +167,29 @@ module Handler : Hooks.HANDLER = struct
 
   (* --- Output: Full mode (GCOV-style annotated spec) --- *)
 
-  let fmt_count tbl key =
-    match Hashtbl.find_opt tbl key with
-    | Some n -> Format.sprintf "%4d" n
-    | None -> "####"
+  (* Format as succ/fail - omit fail for let premises *)
+  let fmt_succ_fail prem =
+    let key = prem_key prem in
+    let succ =
+      Hashtbl.find_opt State.prems_succeeded key |> Option.value ~default:0
+    in
+    let succ_str = format_count succ in
+    match prem.it with
+    | LetPr _ -> Format.sprintf "%s     " succ_str
+    | _ ->
+        let fail =
+          Hashtbl.find_opt State.prems_failed key |> Option.value ~default:0
+        in
+        let fail_str = format_count fail in
+        Format.sprintf "%s/%s" succ_str fail_str
 
   let get_prem_succeeded key =
     Hashtbl.find_opt State.prems_succeeded key |> Option.value ~default:0
 
   let print_prem indent prem =
-    let count = fmt_count State.prems_attempted (prem_key prem) in
+    let succ_fail = fmt_succ_fail prem in
     let content = Il.Print.string_of_prem prem |> normalize_whitespace in
-    Format.printf "%s  %s-- %s\n" count indent content
+    Format.printf "%s %s-- %s\n" succ_fail indent content
 
   let print_prems indent prems =
     List.iter (print_prem indent) prems;
@@ -170,8 +197,7 @@ module Handler : Hooks.HANDLER = struct
     match List.rev prems with
     | last :: _ ->
         let succ = get_prem_succeeded (prem_key last) in
-        let count = if succ > 0 then Format.sprintf "%4d" succ else "####" in
-        Format.printf "%s  %sSUCCESS\n" count indent
+        Format.printf "%s      %sSUCCESS\n" (format_count succ) indent
     | [] -> ()
 
   let print_full () =
