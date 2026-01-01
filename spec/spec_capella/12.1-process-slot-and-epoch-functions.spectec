@@ -164,6 +164,7 @@ rule Process_Registry_Updates/main:
 ;; [Phase 0] -> [Altair] -> [Bellatrix]
 ;; process_slashings
 ;;  mutates: .BALANCES
+
 relation ProcessSlashings:
   beaconState ~> beaconState
   hint(input %0)
@@ -190,25 +191,23 @@ rule ProcessSlashings:
   ;; 4. apply penalties
   -- DecreaseBalances: state `.BALANCES `[ vid_due* ] `- penalty* ~> state_out
 
-;;
+;; [Phase 0]
 ;; process_eth1_data_reset
-;;
-relation Process_eth1_data_reset:
+;;  mutates: .ETH1_DATA_VOTES
+
+relation ProcessEth1DataReset:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_eth1_data_reset/skip:
+rule ProcessEth1DataReset/skip:
   state ~> state
   -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) =/= 0
 
-rule Process_eth1_data_reset/main:
-  state ~> state_updated
+rule ProcessEth1DataReset/main:
+  state ~> state[.ETH1_DATA_VOTES = eps]
   -- if $($get_current_epoch(state) + 1) = epoch_next
-  ;; loop guard
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
-  -- if state_updated = state[.ETH1_DATA_VOTES = eps]
-
 
 ;;
 ;; process_effective_balance_updates

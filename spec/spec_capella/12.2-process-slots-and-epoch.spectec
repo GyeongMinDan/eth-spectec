@@ -19,7 +19,7 @@ rule ProcessEpoch:
   ;; Phase0 -> Altair -> Bellatrix
   -- ProcessSlashings:                       state_3           ~> state_4
   ;; Phase0
-  -- Process_eth1_data_reset:                 state_4           ~> state_5
+  -- ProcessEth1DataReset:                 state_4           ~> state_5
   ;; Phase0
   -- Process_effective_balance_updates:       state_5           ~> state_6
   ;; Phase0
