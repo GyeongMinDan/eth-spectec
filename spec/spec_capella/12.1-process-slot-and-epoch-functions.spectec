@@ -1,100 +1,95 @@
-;;
+;; [Phase 0]
 ;; process_slot
-;;
+
 relation ProcessSlot:
   beaconState ~> beaconState
   hint(input %0)
 
-;; ------------------------------------------------------------
-;; case 1: LATEST_BLOCK_HEADER.STATE_ROOT is empty ($ZERO_ROOT)
-;;   - cache state root
-;;   - cache header state root
-;;   - cache block root
-;; ------------------------------------------------------------
+;; branch1: cache state root, header state root and block root
 rule ProcessSlot/header_root_empty:
-  state ~> state_out
+  state ~>
+    state[.STATE_ROOTS[i] = root_state_prev]
+         [.LATEST_BLOCK_HEADER = beaconBlockHeader]
+         [.BLOCK_ROOTS[i] = root_block_prev]
+  -- if $( state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = i
+  ;; branch-complete
+  -- if state.LATEST_BLOCK_HEADER.STATE_ROOT = $ZERO_ROOT
+  ;; save state root
   -- if $hash_tree_root_beaconState(state) = root_state_prev
-  -- if $( state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
-  -- if state_1 = state[.STATE_ROOTS[uint64_idx] = root_state_prev]
-  ----
-  ;; branch
-  -- if state_1.LATEST_BLOCK_HEADER.STATE_ROOT = $ZERO_ROOT
-  -- if state_1[.LATEST_BLOCK_HEADER.STATE_ROOT = root_state_prev] = state_2
-  ----
-  ;; converge
-  -- if $hash_tree_root_beaconBlockHeader(state_2.LATEST_BLOCK_HEADER) = root_block_prev
-  -- if state_2.BLOCK_ROOTS[[uint64_idx] = root_block_prev] = root_block_list_updated*
-  -- if state_out = state_2[.BLOCK_ROOTS = root_block_list_updated*]
+  ;; save latest block header state root
+  -- if state.LATEST_BLOCK_HEADER[.STATE_ROOT = $hash_tree_root_beaconState(state)]
+      = beaconBlockHeader
+  ;; save block root
+  -- if $hash_tree_root_beaconBlockHeader(beaconBlockHeader) = root_block_prev
 
-;; ------------------------------------------------------------
-;; case 2: LATEST_BLOCK_HEADER.STATE_ROOT is set
-;;   - cache state root
-;;   - cache block root
-;; ------------------------------------------------------------
-rule ProcessSlot/header_root_present:
-  state ~> state_out
+;; branch2: cache state root and block root
+rule ProcessSlot/header_root_empty:
+  state ~>
+    state[.STATE_ROOTS[i] = root_state_prev]
+         [.BLOCK_ROOTS[i] = root_block_prev]
+  -- if $( state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = i
+  ;; branch-complete
+  -- if state.LATEST_BLOCK_HEADER.STATE_ROOT =/= $ZERO_ROOT
+  ;; save state root
   -- if $hash_tree_root_beaconState(state) = root_state_prev
-  -- if $( state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT ) = uint64_idx
-  -- if state_1 = state[.STATE_ROOTS[uint64_idx] = root_state_prev]
-  ----
-  ;; branch
-  -- if state_1.LATEST_BLOCK_HEADER.STATE_ROOT =/= $ZERO_ROOT
-  ----
-  ;; converge
-  -- if $hash_tree_root_beaconBlockHeader(state_1.LATEST_BLOCK_HEADER) = root_block_prev
-  -- if state_1.BLOCK_ROOTS[[uint64_idx] = root_block_prev] = root_block_list_updated*
-  -- if state_out = state_1[.BLOCK_ROOTS = root_block_list_updated*]
+  ;; save block root
+  -- if $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER) = root_block_prev
 
-
-;;
 ;; [Phase0 -> Altair]
 ;; process_justification_and_finalization
-;;
-relation Process_justification_and_finalization:
+;;  mutates: .JUSTIFICATION_BITS, .FINALIZED_CHECKPOINT, .PREVIOUS_JUSTIFIED_CHECKPOINT, .CURRENT_JUSTIFIED_CHECKPOINT
+
+relation ProcessJustificationAndFinalization:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_justification_and_finalization/skip:
+rule ProcessJustificationAndFinalization/skip:
   state ~> state
   -- if $get_current_epoch(state) = epoch_cur
   -- if $(epoch_cur <= ($GENESIS_EPOCH + 1))
 
-rule Process_justification_and_finalization/main:
-  state ~> state_weighed
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_prev*
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_cur)  = vid_curr*
+rule ProcessJustificationAndFinalization/main:
+  state ~> state_updated
+  -- if $get_unslashed_participating_indices(
+          state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state)
+        ) = vid_prev*
+  -- if $get_unslashed_participating_indices(
+          state, $TIMELY_TARGET_FLAG_INDEX, $get_current_epoch(state)
+        ) = vid_cur*
   -- if $get_total_active_balance(state) = balance_total_active
   -- if $get_total_balance(state, vid_prev*) = balance_prev_target
-  -- if $get_total_balance(state, vid_curr*) = balance_curr_target
-  -- if $weigh_justification_and_finalization(state, balance_total_active, balance_prev_target, balance_curr_target) = state_weighed
+  -- if $get_total_balance(state, vid_cur*) = balance_cur_target
+  -- WeighJustificationAndFinalization:
+      state
+        TOTAL balance_total_active
+        PREV balance_prev_target
+        CUR balance_cur_target
+        ~> state_updated
 
-
-;;
-;; Altair
+;; [Altair]
 ;; process_inactivity_updates
-;;
+;;  mutates: .INACTIVITY_SCORES
+
 relation ProcessInactivityUpdates:
   beaconState ~> beaconState
   hint(input %0)
 
 rule ProcessInactivityUpdates/skip:
   state ~> state
-  ;; branch: skip if first epoch
+  ;; branch-complete
   -- if $get_current_epoch(state) = $GENESIS_EPOCH
 
 rule ProcessInactivityUpdates/main:
   state ~> state_updated
-  ;; branch
+  ;; branch-complete
   -- if $get_current_epoch(state) =/= $GENESIS_EPOCH
   -- if $get_eligible_validator_indices(state) = vid_eligible*
-  -- ApplyInactivities: state `.INACTIVITY_SCORES `[ vid_eligible* ] ~>* state_updated
+  -- ApplyInactivity_over_vids: state `.INACTIVITY_SCORES `[ vid_eligible* ] ~>* state_updated
 
-
-;;
+;; [Capella]
 ;; process_rewards_and_penalties
-;;
+;;  mutates: .BALANCES
+
 relation ProcessRewardsAndPenalties:
   beaconState ~> beaconState
   hint(input %0)
@@ -119,212 +114,190 @@ rule ProcessRewardsAndPenalties/main:
   ;; 5: apply rewards and penalties to each validator
   -- ApplyRewardsAndPenalties_over_deltas: state `.BALANCES `[ vid* ] `+ reward** `- penalty** ~>* state_out
 
-;;
+;; [Phase 0]
 ;; process_registry_updates
-;;
-relation Process_Registry_Updates:
+;;  mutates: .VALIDATORS[](.ACTIVATION_ELIGIBILITY_EPOCH, .EXIT_EPOCH, .WITHDRAWABLE_EPOCH, .ACTIVATION_EPOCH)
+
+relation ProcessRegistryUpdates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_Registry_Updates/main:
+rule ProcessRegistryUpdates/main:
   state ~> state_out
-  ;; (1) pass 1: process eligibility and ejections for each validator
-  -- if $enumerate_<validator>(state.VALIDATORS) = (i, validator_v)*
-  -- if state_1 = $fold_<beaconState, (nat, validator)>(
-         def $process_registry_one,
-         state,
-         (i, validator_v)*
-       )
-  ;; (2) activation 후보 인덱스 수집 + (elig_epoch, index) 키로 정렬
-  -- if $enumerate_<validator>(state_1.VALIDATORS) = (j, validator_w)*
+  ;; 1. process eligibility and ejections for each validator
+  -- if $range(|state.VALIDATORS|) = vid*
+  -- ProcessEligibilityAndEjection_over_vids:
+      state `.VALIDATORS `[ vid* ] ~> state_1
+  ;; queue validators eligible for activation and not yet dequeued for activattion
+  -- if $enumerate_<validator>(state_1.VALIDATORS) = (vid_1, validator)*
   -- if $filter_list_2_<(nat, validator), beaconState>(
-         (j, validator_w)*,
+         (vid_1, validator)*,
          state_1,
          def $is_eligible_activation_en
-       ) = (nat_elg, validator_elg)*
-  -- if ($activation_key_en((nat_elg, validator_elg), state_1) = (epoch_key, vid))*
-  -- if $sort_<(epoch, validatorIndex)>((epoch_key, vid)*) =
-         (_, vid_sorted)*
-  ;; (3) churn limit 만큼만 dequeue → ACTIVATION_EPOCH 세팅
-  -- if $get_validator_churn_limit(state_1) = uint64_churn_limit
-  -- if $enumerate_<validatorIndex>(vid_sorted*) = (nat_idx, vid_q)*
-  -- if $filter_list_2_<(nat, validatorIndex), uint64>(
-        (nat_idx, vid_q)*,
-        uint64_churn_limit,
-        def $idx_lt_limit
-      ) = (_, vid_to_activate)*
-  -- SetActivations: state_1 vid_to_activate* ~>* state_out
+       ) = (vid_elg, validator_elg)*
+  -- if (validator_elg.ACTIVATION_ELIGIBILITY_EPOCH = epoch_elg)*
+  -- if $sort_<(epoch, validatorIndex)>((epoch_elg, vid_elg)*) =
+         (_, vid_activation_queue)*
+  ;; 3. dequeue validators up to the churn limit for activation
+  -- if vid_activation_queue*[0:$get_validator_churn_limit(state_1)] = vid_dequeued*
+  -- ApplyActivations:
+      state_1 `.VALIDATORS `[ vid_dequeued* ] `.ACTIVATION_EPOCH ~>* state_out
 
-;;
+;; [Phase 0] -> [Altair] -> [Bellatrix]
 ;; process_slashings
-;;
-relation Process_slashings:
+;;  mutates: .BALANCES
+
+relation ProcessSlashings:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_slashings:
+rule ProcessSlashings:
   state ~> state_out
-  ;; 1 계산에 사용할 값들 
   -- if $get_current_epoch(state) = epoch_cur 
-  -- if $get_total_active_balance(state) = gwei_total_active
-  -- if $sum_<gwei>(state.SLASHINGS) = gwei_slash_sum 
-  -- if $( gwei_slash_sum * $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX ) = gwei_scaled
-  -- if $min_uint64(gwei_scaled, gwei_total_active) = gwei_adj_total_slash
-  ;; 2 validator 인덱스 for 문으로 inices 뽑고, 그 안에서 slashing 할 조건으로 index 추출
-  -- if validator_list* = state.VALIDATORS
-  -- if $enumerate_<validator>(validator_list*) = (nat_i, validator_v)*
-  -- if $filter_list_2_<(nat, validator), epoch>(
-         (nat_i, validator_v)*,
+  -- if $get_total_active_balance(state) = balance_total
+  -- if $min_uint64(
+        $( $sum_<gwei>(state.SLASHINGS) * $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX ),
+        balance_total
+      ) = balance_adjusted_total_slashing
+  -- if $enumerate_<validator>(state.VALIDATORS) = (vid, validator)*
+  -- if $filter_list_2_<(validatorIndex, validator), epoch>(
+         (vid, validator)*,
          epoch_cur,
          def $is_due_slashing_en
-       ) = (nat_due, validator_due)*
-  ;; 3 penalty 계산(map, (adj_total_slash, total_active))
-  ;; change map_list_2_
-  -- if ($compute_slash_penalty_en((nat_due, validator_due), (gwei_adj_total_slash, gwei_total_active)) = (vid, penalty))*
-  ;; 4 fold 로 적용
-  -- if $fold_<beaconState, (validatorIndex, gwei)>(
-         def $apply_one_decrease,
-         state,
-         (vid, penalty)*
-       ) = state_out
+       ) = (vid_due, validator_due)*
+  ;; 3. get penalties
+  -- if gwei_increment = $EFFECTIVE_BALANCE_INCREMENT
+  -- if ($( (validator_due.EFFECTIVE_BALANCE / gwei_increment) * balance_adjusted_total_slashing )
+      = penalty_numerator)*
+  -- if ($( (penalty_numerator / balance_total) * gwei_increment ) = penalty)*
+  ;; 4. apply penalties
+  -- DecreaseBalances: state `.BALANCES `[ vid_due* ] `- penalty* ~> state_out
 
-
-;;
+;; [Phase 0]
 ;; process_eth1_data_reset
-;;
-relation Process_eth1_data_reset:
+;;  mutates: .ETH1_DATA_VOTES
+
+relation ProcessEth1DataReset:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_eth1_data_reset/skip:
+rule ProcessEth1DataReset/skip:
   state ~> state
   -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; branch-complete
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) =/= 0
 
-rule Process_eth1_data_reset/main:
-  state ~> state_updated
+rule ProcessEth1DataReset/main:
+  state ~> state[.ETH1_DATA_VOTES = eps]
   -- if $($get_current_epoch(state) + 1) = epoch_next
-  ;; loop guard
+  ;; branch-complete
   -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
-  -- if state_updated = state[.ETH1_DATA_VOTES = eps]
 
-
-;;
+;; [Phase 0]
 ;; process_effective_balance_updates
-;;
-relation Process_effective_balance_updates:
+;;  mutates: .VALIDATORS[].EFFECTIVE_BALANCE
+
+relation ProcessEffectiveBalanceUpdates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_effective_balance_updates:
-  state ~> state_updated
-  -- if state.VALIDATORS = validator_list*
-  -- if $enumerate_<validator>(validator_list*) = (n, validator_item)*
-  ;; change_map_list_2_
-  -- if ($rebalance_validator_enumerated((n, validator_item), state) = validator_updated_list)*
-  -- if state_updated = state[.VALIDATORS = validator_updated_list*]
-;;
+rule ProcessEffectiveBalanceUpdates:
+  state ~> state[.VALIDATORS = validator_updated*]
+  -- if $enumerate_<validator>(state.VALIDATORS) = (vid, validator)*
+  -- if (state.BALANCES[vid] = balance)*
+  -- (ApplyEffectiveBalance:
+      validator `.EFFECTIVE_BALANCE balance ~> validator_updated)*
+
+;; [Phase 0]
 ;; process_slashings_reset
-;;
-relation Process_slashings_reset:
+;;  mutates: .SLASHINGS
+
+relation ProcessSlashingsReset:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_slashings_reset/skip:
+rule ProcessSlashingsReset/skip:
   state ~> state
   -- if $($get_current_epoch(state) + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = uint64_n
-  -- if $(uint64_n >= |state.SLASHINGS|)
+  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = i
+  ;; inserted guard
+  -- if $(i >= |state.SLASHINGS|)
 
-rule Process_slashings_reset/main:
-  state ~> state_updated
+rule ProcessSlashingsReset/main:
+  state ~> state[.SLASHINGS[i] = 0]
   -- if $($get_current_epoch(state) + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = uint64_n
-  -- if $(uint64_n < |state.SLASHINGS|)
-  -- if state.SLASHINGS[[uint64_n] = 0] = gwei_update*
-  -- if state_updated = state[.SLASHINGS = gwei_update*]
+  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = i
+  ;; inserted guard
+  -- if $(i < |state.SLASHINGS|)
 
 
-;;
+;; [Phase 0]
 ;; process_randao_mixes_reset
-;;
-relation Process_randao_mixes_reset:
+;;  mutates: .RANDAO_MIXES
+
+relation ProcessRandaoMixesReset:
   beaconState ~> beaconState
   hint(input %0)
 
-rule Process_randao_mixes_reset/skip:
+rule ProcessRandaoMixesReset/skip:
   state ~> state
-  -- if $get_current_epoch(state) = epoch_current
-  -- if $(epoch_current + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
-  -- if $(uint64_n >= |state.RANDAO_MIXES|)
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $(epoch_cur + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = i
+  ;; inserted guard
+  -- if $(i >= |state.RANDAO_MIXES|)
 
-rule Process_randao_mixes_reset/main:
-  state ~> state_updated
-  -- if $get_current_epoch(state) = epoch_current
-  -- if $(epoch_current + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = uint64_n
-  -- if $get_randao_mix(state, epoch_current) = bytes32_mix
-  -- if $(uint64_n < |state.RANDAO_MIXES|)
-  -- if state.RANDAO_MIXES[[uint64_n] = bytes32_mix] = bytes32_randao_mixes_update*
-  -- if state_updated = state[.RANDAO_MIXES = bytes32_randao_mixes_update*]
+rule ProcessRandaoMixesReset/main:
+  state ~> state[.RANDAO_MIXES[i] = $get_randao_mix(state, epoch_cur)]
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $(epoch_cur + 1) = epoch_next
+  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = i
+  ;; inserted guard
+  -- if $(i < |state.RANDAO_MIXES|)
 
-
-
-;;
+;; [Phase 0 -> Capella]
 ;; process_historical_summaries_update
-;;
+;;  mutates: .HISTORICAL_SUMMARIES
+
 relation ProcessHistoricalSummariesUpdate:
   beaconState ~> beaconState
   hint(input %0)
 
 rule ProcessHistoricalSummariesUpdate/skip:
   state ~> state
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $(epoch_cur + 1) = epoch_next
-  ;; loop exit
+  -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; branch-complete
   -- if $(epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH)) =/= 0
 
 rule ProcessHistoricalSummariesUpdate/main:
-  state ~> state_updated
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $(epoch_cur + 1) = epoch_next
-  ;; loop guard
+  state ~>
+    state[.HISTORICAL_SUMMARIES = state.HISTORICAL_SUMMARIES ++ [ historicalSummary ]]
+  -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; branch-complete
   -- if $( epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH) ) = 0
   -- if $hash_tree_root_roots(state.BLOCK_ROOTS) = root_block_summary
   -- if $hash_tree_root_roots(state.STATE_ROOTS) = root_state_summary
   -- if { BLOCK_SUMMARY_ROOT root_block_summary, STATE_SUMMARY_ROOT root_state_summary } = historicalSummary
-  -- if state.HISTORICAL_SUMMARIES ++ [ historicalSummary ] = historicalSummary_updated*
-  -- if state_updated = state[.HISTORICAL_SUMMARIES = historicalSummary_updated*]
 
-
-;;
-;; [New in Altair]
+;; [Altair]
 ;; process_participation_flag_updates:
 ;;  initialize current participation flags to zero
-;;  mutates:
-;;    PREVIOUS_EPOCH_PARTICIPATION
-;;    CURRENT_EPOCH_PARTICIPATION
+;;  mutates: .PREVIOUS_EPOCH_PARTICIPATION, .CURRENT_EPOCH_PARTICIPATION
 
 relation ProcessParticipationFlagUpdates:
   beaconState ~> beaconState
   hint(input %0)
 
 rule ProcessParticipationFlagUpdates:
-  state ~> state_updated
+  state ~> 
+    state[.PREVIOUS_EPOCH_PARTICIPATION = state.CURRENT_EPOCH_PARTICIPATION]
+         [.CURRENT_EPOCH_PARTICIPATION = participationFlags_zero*]
   -- if $repeat_<participationFlags>(0, |state.VALIDATORS|) = participationFlags_zero*
-  -- if state_updated =
-        state[.PREVIOUS_EPOCH_PARTICIPATION = state.CURRENT_EPOCH_PARTICIPATION]
-             [.CURRENT_EPOCH_PARTICIPATION = participationFlags_zero*]
 
-
-;;
-;; [New in Altair]
+;; [Altair]
 ;; process_sync_committee_updates:
 ;;  initialize sync committees for next epoch
-;;  mutates:
-;;    CURRENT_SYNC_COMMITTEE
-;;    NEXT_SYNC_COMMITTEE
+;;  mutates: .CURRENT_SYNC_COMMITTEE, NEXT_SYNC_COMMITTEE
 
 relation ProcessSyncCommitteeUpdates:
   beaconState ~> beaconState
@@ -337,10 +310,9 @@ rule ProcessSyncCommitteeUpdates/skip:
   -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) =/= 0
 
 rule ProcessSyncCommitteeUpdates/main:
-  state ~> state_updated
+  state ~> 
+    state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
+         [.NEXT_SYNC_COMMITTEE    = $get_next_sync_committee(state)]
   -- if $($get_current_epoch(state) + 1) = epoch_next
   ;; branch-complete
   -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = 0
-  -- if state_updated =
-       state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
-            [.NEXT_SYNC_COMMITTEE    = $get_next_sync_committee(state)]

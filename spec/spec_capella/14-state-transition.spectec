@@ -1,14 +1,10 @@
-;;
 ;; state_transition(state, signed_block, validate_result) : beaconState
-;;
 
 relation State_transition:
   beaconState signedBeaconBlock boolean ~>* beaconState
   hint(input %0 %1 %2)
 
-;; -----------------------------
 ;; validate_result = true
-;; -----------------------------
 rule State_transition/validate:
   state signedBeaconBlock true ~>* state_next
   -- if signedBeaconBlock.MESSAGE = beaconBlock
@@ -20,9 +16,7 @@ rule State_transition/validate:
   ;; assert (if validate)
   -- if $(beaconBlock.STATE_ROOT = $hash_tree_root_beaconState(state_next))
 
-;; -----------------------------
 ;; validate_result = false
-;; -----------------------------
 rule State_transition/skip-validate:
   state signedBeaconBlock false ~>* state_next
   -- if signedBeaconBlock.MESSAGE = beaconBlock

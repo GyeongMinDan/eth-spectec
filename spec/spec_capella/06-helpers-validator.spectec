@@ -126,8 +126,7 @@ def $get_validator_churn_limit(state) = uint64_churn_limit
 ;; get_index_for_new_validator
 ;; ------------------------------------------------------------
 dec $get_index_for_new_validator(beaconState) : validatorIndex
-def $get_index_for_new_validator(state) =
-  $( |state.VALIDATORS| )
+def $get_index_for_new_validator(state) = |state.VALIDATORS|
 
 ;; ------------------------------------------------------------
 ;; get_validator_from_deposit(pubkey, withdrawal_credentials, amount) : validator

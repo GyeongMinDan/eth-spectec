@@ -1,6 +1,5 @@
-;;
 ;; process_block
-;;
+
 relation ProcessBlock:
   beaconState beaconBlock ~>* beaconState
   hint(input %0 %1)
