@@ -1,6 +1,6 @@
 (* IL Node coverage handler - Tracks premise execution.
 
-   Implements Hooks.HANDLER interface.
+   Implements Instrumentation_core.Handler.S interface.
    Records all premises at init(), then tracks which are hit during execution.
 
    Output levels:
@@ -8,18 +8,27 @@
    - Full: GCOV-style annotated spec with execution counts
 
    Usage:
-     let handler = Node_coverage_il.make ~level:Full ()
+     let handler = Node_coverage_il.make { level = Full; output = Instrumentation_core.Output.stdout }
 *)
 
 open Common.Source
 module Il = Lang.Il
-open Util
+open Instrumentation_core.Util
 
 (* Verbosity levels *)
 type level = Summary | Full
 
+(* Handler configuration *)
+type config = { level : level; output : Instrumentation_core.Output.t }
+
+let default_config =
+  { level = Summary; output = Instrumentation_core.Output.stdout }
+
+let config = ref default_config
+let fmt = ref Format.std_formatter
+
+(* Runtime state - changes during execution *)
 module State = struct
-  let level = ref Summary
   let il_spec : Il.spec ref = ref []
   let prems_attempted : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let prems_succeeded : (region * string, int) Hashtbl.t = Hashtbl.create 256
@@ -45,7 +54,7 @@ let prem_key prem =
   let content = Il.Print.string_of_prem prem |> normalize_whitespace in
   (prem.at, truncate 30 content)
 
-module Handler : Hooks.HANDLER = struct
+module M : Instrumentation_core.Handler.S = struct
   let rec count_prem prem =
     State.total_prems := !State.total_prems + 1;
     match prem.it with
@@ -56,7 +65,7 @@ module Handler : Hooks.HANDLER = struct
   let init ~spec =
     State.reset ();
     match spec with
-    | Hooks.IlSpec il_spec ->
+    | Instrumentation_core.Handler.IlSpec il_spec ->
         State.il_spec := il_spec;
         List.iter
           (fun def ->
@@ -75,18 +84,18 @@ module Handler : Hooks.HANDLER = struct
                   clauses
             | Il.TypD _ -> ())
           il_spec
-    | Hooks.SlSpec _ -> ()
+    | Instrumentation_core.Handler.SlSpec _ -> ()
 
-  let on_rel_enter = Hooks.Noop.on_rel_enter
-  let on_rel_exit = Hooks.Noop.on_rel_exit
-  let on_rule_enter = Hooks.Noop.on_rule_enter
-  let on_rule_exit = Hooks.Noop.on_rule_exit
-  let on_func_enter = Hooks.Noop.on_func_enter
-  let on_func_exit = Hooks.Noop.on_func_exit
-  let on_clause_enter = Hooks.Noop.on_clause_enter
-  let on_clause_exit = Hooks.Noop.on_clause_exit
-  let on_iter_prem_enter = Hooks.Noop.on_iter_prem_enter
-  let on_iter_prem_exit = Hooks.Noop.on_iter_prem_exit
+  let on_rel_enter = Instrumentation_core.Noop.on_rel_enter
+  let on_rel_exit = Instrumentation_core.Noop.on_rel_exit
+  let on_rule_enter = Instrumentation_core.Noop.on_rule_enter
+  let on_rule_exit = Instrumentation_core.Noop.on_rule_exit
+  let on_func_enter = Instrumentation_core.Noop.on_func_enter
+  let on_func_exit = Instrumentation_core.Noop.on_func_exit
+  let on_clause_enter = Instrumentation_core.Noop.on_clause_enter
+  let on_clause_exit = Instrumentation_core.Noop.on_clause_exit
+  let on_iter_prem_enter = Instrumentation_core.Noop.on_iter_prem_enter
+  let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
 
   let on_prem_enter ~prem ~at:_ =
     State.incr State.prems_attempted (prem_key prem)
@@ -99,7 +108,7 @@ module Handler : Hooks.HANDLER = struct
       | Il.LetPr _ -> ()
       | _ -> State.incr State.prems_failed (prem_key prem)
 
-  let on_instr = Hooks.Noop.on_instr
+  let on_instr = Instrumentation_core.Noop.on_instr
 
   (* --- Output: Summary mode (stats + uncovered only) --- *)
 
@@ -110,14 +119,15 @@ module Handler : Hooks.HANDLER = struct
     let total = !State.total_prems in
     let total_if = !State.total_if_prems in
     if total > 0 then (
-      Format.printf
+      Format.fprintf !fmt
         "IL Premises: %d/%d succeeded (%.2f%%), %d/%d attempted (%.2f%%)\n"
         succeeded total
         (percentage succeeded total)
         attempted total
         (percentage attempted total);
-      Format.printf "If Premises: %d/%d failed at least once, %d never failed\n"
-        failed total_if (attempted - failed))
+      Format.fprintf !fmt
+        "If Premises: %d/%d failed at least once, %d never failed\n" failed
+        total_if (attempted - failed))
 
   let print_uncovered () =
     let total = !State.total_prems in
@@ -158,10 +168,10 @@ module Handler : Hooks.HANDLER = struct
           | Il.TypD _ -> ())
         !State.il_spec;
       if !uncovered <> [] then (
-        Format.printf "\nNever succeeded:\n";
+        Format.fprintf !fmt "\nNever succeeded:\n";
         List.iter
           (fun (rel, rule, content) ->
-            Format.printf "  %s/%s:\n    %s\n" rel rule
+            Format.fprintf !fmt "  %s/%s:\n    %s\n" rel rule
               (normalize_whitespace content))
           (List.rev !uncovered)))
 
@@ -189,7 +199,7 @@ module Handler : Hooks.HANDLER = struct
   let print_prem indent prem =
     let succ_fail = fmt_succ_fail prem in
     let content = Il.Print.string_of_prem prem |> normalize_whitespace in
-    Format.printf "%s %s-- %s\n" succ_fail indent content
+    Format.fprintf !fmt "%s %s-- %s\n" succ_fail indent content
 
   let print_prems indent prems =
     List.iter (print_prem indent) prems;
@@ -197,7 +207,7 @@ module Handler : Hooks.HANDLER = struct
     match List.rev prems with
     | last :: _ ->
         let succ = get_prem_succeeded (prem_key last) in
-        Format.printf "%s      %sSUCCESS\n" (format_count succ) indent
+        Format.fprintf !fmt "%s      %sSUCCESS\n" (format_count succ) indent
     | [] -> ()
 
   let print_full () =
@@ -205,19 +215,19 @@ module Handler : Hooks.HANDLER = struct
       (fun def ->
         match def.it with
         | Il.RelD (id, _, _, rules) ->
-            Format.printf "\nrelation %s:\n" id.it;
+            Format.fprintf !fmt "\nrelation %s:\n" id.it;
             List.iter
               (fun rule ->
                 let rule_id, _, prems = rule.it in
-                Format.printf "      rule %s:\n" rule_id.it;
+                Format.fprintf !fmt "      rule %s:\n" rule_id.it;
                 print_prems "    " prems)
               rules
         | Il.DecD (id, _, _, _, clauses) ->
-            Format.printf "\ndef $%s:\n" id.it;
+            Format.fprintf !fmt "\ndef $%s:\n" id.it;
             List.iteri
               (fun idx clause ->
                 let _, _, prems = clause.it in
-                Format.printf "      clause %d:\n" idx;
+                Format.fprintf !fmt "      clause %d:\n" idx;
                 print_prems "    " prems)
               clauses
         | Il.TypD _ -> ())
@@ -227,8 +237,8 @@ module Handler : Hooks.HANDLER = struct
 
   let finish () =
     if !State.total_prems > 0 then (
-      Format.printf "\n=== IL Node Coverage ===\n\n";
-      match !State.level with
+      Format.fprintf !fmt "\n=== IL Node Coverage ===\n\n";
+      match !config.level with
       | Summary ->
           print_stats ();
           print_uncovered ()
@@ -237,6 +247,58 @@ module Handler : Hooks.HANDLER = struct
           print_full ())
 end
 
-let make ?(level = Summary) () : (module Hooks.HANDLER) =
-  State.level := level;
-  (module Handler)
+(* Result type for programmatic access *)
+type result = {
+  prems_attempted : ((region * string) * int) list; (* key * count *)
+  prems_succeeded : ((region * string) * int) list; (* key * count *)
+  total_prems : int;
+}
+
+let get_result () =
+  {
+    prems_attempted = State.prems_attempted |> Hashtbl.to_seq |> List.of_seq;
+    prems_succeeded = State.prems_succeeded |> Hashtbl.to_seq |> List.of_seq;
+    total_prems = !State.total_prems;
+  }
+
+(* Restore state from a previous result (for checkpoint resume) *)
+let restore result =
+  Hashtbl.clear State.prems_attempted;
+  Hashtbl.clear State.prems_succeeded;
+  List.iter
+    (fun (key, count) -> Hashtbl.replace State.prems_attempted key count)
+    result.prems_attempted;
+  List.iter
+    (fun (key, count) -> Hashtbl.replace State.prems_succeeded key count)
+    result.prems_succeeded;
+  State.total_prems := result.total_prems
+
+(* Handler with data access - implements HANDLER_WITH_DATA signature *)
+module HandlerWithData :
+  Instrumentation_core.Handler.S_with_data with type result = result = struct
+  include M
+
+  type nonrec result = result
+
+  let get_result = get_result
+  let restore = restore
+end
+
+let make cfg =
+  config := cfg;
+  fmt := Instrumentation_core.Output.formatter cfg.output;
+  (module M : Instrumentation_core.Handler.S)
+
+(* Create handler with data getter for programmatic access.
+   Usage:
+     let handler, get_coverage = Node_coverage.make_with_data cfg in
+     Hooks.set_handlers [handler];
+     (* ... run interpreter ... *)
+     let data = get_coverage () in
+*)
+let make_with_data cfg =
+  config := cfg;
+  fmt := Instrumentation_core.Output.formatter cfg.output;
+  ( (module HandlerWithData : Instrumentation_core.Handler.S_with_data
+      with type result = result),
+    get_result )

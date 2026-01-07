@@ -1,11 +1,18 @@
 (* Profile handler - Timing statistics with inclusive/exclusive times.
 
-   Implements Hooks.HANDLER interface.
+   Implements Instrumentation_core.Handler.S interface.
    Collects call counts and timing, prints report on finish().
 
    Usage:
-     let handler = Profile.make ()
+     let handler = Profile.make { output = Instrumentation_core.Output.stdout }
 *)
+
+(* Handler configuration *)
+type config = { output : Instrumentation_core.Output.t }
+
+let default_config = { output = Instrumentation_core.Output.stdout }
+let config = ref default_config
+let fmt = ref Format.std_formatter
 
 (* Stats are mutable for accumulation across calls *)
 type stats = {
@@ -22,6 +29,7 @@ type frame = {
   is_recursive : bool;
 }
 
+(* Runtime state - changes during execution *)
 module State = struct
   let frame_stack : frame Stack.t = Stack.create ()
   let rel_stats : (string, stats) Hashtbl.t = Hashtbl.create 64
@@ -46,19 +54,19 @@ let now () =
   Core.Time_ns.now () |> Core.Time_ns.to_span_since_epoch
   |> Core.Time_ns.Span.to_sec
 
-module Handler : Hooks.HANDLER = struct
+module M : Instrumentation_core.Handler.S = struct
   open State
 
   let init ~spec:_ = State.reset ()
-  let on_rule_enter = Hooks.Noop.on_rule_enter
-  let on_rule_exit = Hooks.Noop.on_rule_exit
-  let on_clause_enter = Hooks.Noop.on_clause_enter
-  let on_clause_exit = Hooks.Noop.on_clause_exit
-  let on_iter_prem_enter = Hooks.Noop.on_iter_prem_enter
-  let on_iter_prem_exit = Hooks.Noop.on_iter_prem_exit
-  let on_prem_enter = Hooks.Noop.on_prem_enter
-  let on_prem_exit = Hooks.Noop.on_prem_exit
-  let on_instr = Hooks.Noop.on_instr
+  let on_rule_enter = Instrumentation_core.Noop.on_rule_enter
+  let on_rule_exit = Instrumentation_core.Noop.on_rule_exit
+  let on_clause_enter = Instrumentation_core.Noop.on_clause_enter
+  let on_clause_exit = Instrumentation_core.Noop.on_clause_exit
+  let on_iter_prem_enter = Instrumentation_core.Noop.on_iter_prem_enter
+  let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
+  let on_prem_enter = Instrumentation_core.Noop.on_prem_enter
+  let on_prem_exit = Instrumentation_core.Noop.on_prem_exit
+  let on_instr = Instrumentation_core.Noop.on_instr
 
   let on_rel_enter ~id ~at:_ ~values:_ =
     let is_recursive =
@@ -131,13 +139,13 @@ module Handler : Hooks.HANDLER = struct
         func_list
     in
 
-    Format.printf "\n=== Profiling Results ===\n\n";
+    Format.fprintf !fmt "\n=== Profiling Results ===\n\n";
 
     if rel_sorted <> [] then (
-      Format.printf "Relations (sorted by inclusive time):\n";
-      Format.printf "  %-40s %8s %12s %12s %12s\n" "Name" "Calls" "Inclusive"
-        "Exclusive" "Avg";
-      Format.printf "  %s\n" (String.make 90 '-');
+      Format.fprintf !fmt "Relations (sorted by inclusive time):\n";
+      Format.fprintf !fmt "  %-40s %8s %12s %12s %12s\n" "Name" "Calls"
+        "Inclusive" "Exclusive" "Avg";
+      Format.fprintf !fmt "  %s\n" (String.make 90 '-');
       List.iter
         (fun (id, stats) ->
           let avg =
@@ -145,16 +153,16 @@ module Handler : Hooks.HANDLER = struct
               stats.inclusive_time /. float_of_int stats.count
             else 0.0
           in
-          Format.printf "  %-40s %8d %11.4fs %11.4fs %11.6fs\n" id stats.count
-            stats.inclusive_time stats.exclusive_time avg)
+          Format.fprintf !fmt "  %-40s %8d %11.4fs %11.4fs %11.6fs\n" id
+            stats.count stats.inclusive_time stats.exclusive_time avg)
         rel_sorted;
-      Format.printf "\n");
+      Format.fprintf !fmt "\n");
 
     if func_sorted <> [] then (
-      Format.printf "Functions (sorted by inclusive time):\n";
-      Format.printf "  %-40s %8s %12s %12s %12s\n" "Name" "Calls" "Inclusive"
-        "Exclusive" "Avg";
-      Format.printf "  %s\n" (String.make 90 '-');
+      Format.fprintf !fmt "Functions (sorted by inclusive time):\n";
+      Format.fprintf !fmt "  %-40s %8s %12s %12s %12s\n" "Name" "Calls"
+        "Inclusive" "Exclusive" "Avg";
+      Format.fprintf !fmt "  %s\n" (String.make 90 '-');
       List.iter
         (fun (id, stats) ->
           let avg =
@@ -162,9 +170,12 @@ module Handler : Hooks.HANDLER = struct
               stats.inclusive_time /. float_of_int stats.count
             else 0.0
           in
-          Format.printf "  $%-39s %8d %11.4fs %11.4fs %11.6fs\n" id stats.count
-            stats.inclusive_time stats.exclusive_time avg)
+          Format.fprintf !fmt "  $%-39s %8d %11.4fs %11.4fs %11.6fs\n" id
+            stats.count stats.inclusive_time stats.exclusive_time avg)
         func_sorted)
 end
 
-let make () : (module Hooks.HANDLER) = (module Handler)
+let make cfg =
+  config := cfg;
+  fmt := Instrumentation_core.Output.formatter cfg.output;
+  (module M : Instrumentation_core.Handler.S)

@@ -1,0 +1,4 @@
+(library
+ (name targets_eth)
+ (public_name spectec.targets.ethereum)
+ (libraries spectec.runner))

@@ -54,22 +54,30 @@ test-struct:
 test-il-pos:
 	@echo "#### Running IL interpreter positive tests"
 	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune build @test/il/pos --profile=release && echo OK
+	@cd spectec && opam exec -- dune build @test/interp/il-pos --profile=release
+	@cat spectec/_build/default/test/interp/il-pos.err >&2
+	@echo OK
 
 test-il-neg:
 	@echo "#### Running IL interpreter negative tests"
 	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune build @test/il/neg --profile=release && echo OK
+	@cd spectec && opam exec -- dune build @test/interp/il-neg --profile=release
+	@cat spectec/_build/default/test/interp/il-neg.err >&2
+	@echo OK
 
 test-sl-pos:
 	@echo "#### Running SL interpreter positive tests"
 	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune build @test/sl/pos --profile=release && echo OK
+	@cd spectec && opam exec -- dune build @test/interp/sl-pos --profile=release
+	@cat spectec/_build/default/test/interp/sl-pos.err >&2
+	@echo OK
 
 test-sl-neg:
 	@echo "#### Running SL interpreter negative tests"
 	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune build @test/sl/neg --profile=release && echo OK
+	@cd spectec && opam exec -- dune build @test/interp/sl-neg --profile=release
+	@cat spectec/_build/default/test/interp/sl-neg.err >&2
+	@echo OK
 
 test-quick: test-elab test-struct
 	@echo "#### Quick tests passed"
