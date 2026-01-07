@@ -195,7 +195,7 @@ rule ProcessDeposit/main:
          $( $DEPOSIT_CONTRACT_TREE_DEPTH + 1 ),
          state.ETH1_DEPOSIT_INDEX,
          state.ETH1_DATA.DEPOSIT_ROOT
-       ) = true
+       )
   -- if state_inc = state[.ETH1_DEPOSIT_INDEX = $(state.ETH1_DEPOSIT_INDEX + 1)]
   -- ApplyDeposit: state_inc `.VALIDATORS `++
       `{

@@ -113,49 +113,6 @@ def $get_inactivity_penalty_deltas(state) = (reward*, penalty*)
   ;; change map_list_2_
   -- if ($inact_penalty_one(nat_idx, (state, vid_matching*, vid_eligible*, uint64_den)) = penalty)*
 
-
-;; 이건 이제 안쓸듯???
-;; --------------------------------------------
-;; flag-delta per-index helpers
-;; --------------------------------------------
-
-;; 보상 항목: 참여했고(leak 아님)일 때만 값, 그 외 0
-;; capture: (state, unslashed_set*, weight, up_incs, active_incs)
-dec $flag_reward_one(nat, (beaconState, validatorIndex*, uint64, uint64, uint64)) : gwei
-
-def $flag_reward_one(nat_i, (state, vid_unslashed*, uint64_weight, uint64_up_incs, uint64_active_incs))
-  = gwei_reward
-  -- if vid = nat_i
-  -- if ( vid <- vid_unslashed* )
-  -- if $is_in_inactivity_leak(state) = false
-  -- if $get_base_reward(state, vid) = gwei_base_reward
-  -- if $( gwei_base_reward * uint64_weight ) = uint64_mul_w
-  -- if $( uint64_mul_w * uint64_up_incs ) = uint64_num
-  -- if $( uint64_active_incs * $WEIGHT_DENOMINATOR ) = uint64_den
-  -- if $( uint64_num / uint64_den ) = gwei_reward
-
-def $flag_reward_one(nat_i, (state, vid_unslashed*, uint64_weight, uint64_up_incs, uint64_active_incs))
-  = 0
-  -- otherwise
-
-
-;; 패널티 항목: 미참여이고 HEAD 플래그가 아닐 때만 값, 그 외 0
-;; capture: (state, unslashed_set*, weight, flag_index)
-dec $flag_penalty_one(nat, (beaconState, validatorIndex*, uint64, nat)) : gwei
-
-def $flag_penalty_one(nat_i, (state, vid_unslashed*, uint64_weight, nat_flag_index))
-  = gwei_penalty
-  -- if vid = nat_i
-  -- if ~( vid <- vid_unslashed* )
-  -- if ~( nat_flag_index = $TIMELY_HEAD_FLAG_INDEX )
-  -- if $get_base_reward(state, vid) = gwei_base_reward
-  -- if $( gwei_base_reward * uint64_weight ) = uint64_num
-  -- if $( uint64_num / $WEIGHT_DENOMINATOR ) = gwei_penalty
-
-def $flag_penalty_one(nat_i, (state, vid_unslashed*, uint64_weight, nat_flag_index))
-  = 0
-  -- otherwise
-
 ;; --------------------------------------------
 ;; eligible validator만 처리하는 버전 (Python 스펙과 동일)
 ;; --------------------------------------------
