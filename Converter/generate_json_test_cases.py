@@ -57,6 +57,7 @@ class JsonTestCaseGenerator:
         self.eth2spec_result = self.converter_dir / "eth2specResult.py"
         self.eth2spec_operation_result = self.converter_dir / "eth2specOperationResult.py"
         self.eth2spec_epoch_processing_result = self.converter_dir / "eth2specEpochProcessingResult.py"
+        self.eth2spec_sanity_slot_result = self.converter_dir / "eth2specSanitySlotResult.py"
         
         # Operation type to SSZ→JSON converter script mapping
         self.operation_to_json_scripts = {
@@ -289,6 +290,11 @@ class JsonTestCaseGenerator:
             parent_name = test_case_dir.parent.parent.name
             if parent_name in self.epoch_processing_functions:
                 return "epoch_processing"
+            
+            # Sanity slots test detection: pre.ssz_snappy and slots.yaml exist
+            slots_yaml = test_case_dir / "slots.yaml"
+            if slots_yaml.exists():
+                return "sanity_slots"
         
         return "unknown"
     
@@ -376,8 +382,10 @@ class JsonTestCaseGenerator:
             return self.process_operation_test_case(test_case_dir, output_dir, test_name, verbose)
         elif test_type == "epoch_processing":
             return self.process_epoch_processing_test_case(test_case_dir, output_dir, test_name, verbose)
+        elif test_type == "sanity_slots":
+            return self.process_sanity_slots_test_case(test_case_dir, output_dir, test_name, verbose)
         else:
-            print(f"  ✗ Unknown test type (no blocks_*.ssz_snappy, operation files, or epoch_processing files found)")
+            print(f"  ✗ Unknown test type (no blocks_*.ssz_snappy, operation files, epoch_processing files, or slots.yaml found)")
             return 0, 1
     
     def process_block_test_case(
@@ -785,6 +793,125 @@ class JsonTestCaseGenerator:
             test_type_dir = output_dir / ("negative" if is_negative else "positive")
             
             case_output_dir = test_type_dir / test_name
+            case_output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy files to output directory
+            shutil.copy(pre_json, case_output_dir / "pre.json")
+            
+            if is_negative:
+                # Write error.txt for negative tests
+                with open(case_output_dir / "error.txt", "w") as f:
+                    f.write(eth2spec_error or "Unknown error")
+                if verbose:
+                    print(f"  ✓ Generated (negative): {case_output_dir.name}")
+            else:
+                # Copy post.json for positive tests
+                if post_json:
+                    shutil.copy(post_json, case_output_dir / "post.json")
+                if verbose:
+                    print(f"  ✓ Generated (positive): {case_output_dir.name}")
+            
+            generated += 1
+        
+        finally:
+            # cleanup temporary work directory
+            if work_dir.exists():
+                shutil.rmtree(work_dir)
+        
+        return generated, errors
+    
+    def process_sanity_slots_test_case(
+        self, 
+        test_case_dir: Path, 
+        output_dir: Path, 
+        test_name: str,
+        verbose: bool = False
+    ) -> Tuple[int, int]:
+        """
+        Process sanity slots test case.
+        
+        Returns:
+            (generated_count, error_count)
+        """
+        generated = 0
+        errors = 0
+        
+        # 1. locate files
+        pre_snappy = test_case_dir / "pre.ssz_snappy"
+        if not pre_snappy.exists():
+            print(f"  ✗ pre.ssz_snappy not found")
+            return 0, 1
+        
+        slots_yaml = test_case_dir / "slots.yaml"
+        if not slots_yaml.exists():
+            print(f"  ✗ slots.yaml not found")
+            return 0, 1
+        
+        post_snappy = test_case_dir / "post.ssz_snappy"
+        has_existing_post = post_snappy.exists()
+        
+        # create temporary work directory
+        work_dir = output_dir / f".work_{test_name}"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            # 2. Decompress snappy files
+            if verbose:
+                print("  Decompressing snappy files...")
+            
+            pre_ssz = work_dir / "pre.ssz"
+            if not self.decompress_snappy(pre_snappy, pre_ssz):
+                return 0, 1
+            
+            # Copy slots.yaml to work_dir
+            slots_yaml_work = work_dir / "slots.yaml"
+            shutil.copy(slots_yaml, slots_yaml_work)
+            
+            # Decompress existing post.ssz if available
+            post_ssz = None
+            if has_existing_post:
+                post_ssz = work_dir / "post.ssz"
+                if not self.decompress_snappy(post_snappy, post_ssz):
+                    post_ssz = None
+            
+            # 3. SSZ -> JSON conversion and test case generation
+            if verbose:
+                print("  Converting to JSON and generating test cases...")
+            
+            # pre state
+            pre_json = work_dir / "pre.json"
+            if not self.ssz_to_json(pre_ssz, pre_json, is_beacon_state=True):
+                return 0, 1
+            
+            # post state generation
+            post_json = None
+            eth2spec_error = None
+            
+            if post_ssz:
+                # use existing post.ssz
+                post_json = work_dir / "post.json"
+                if not self.ssz_to_json(post_ssz, post_json, is_beacon_state=True):
+                    errors += 1
+            else:
+                # otherwise, generate post state using eth2spec sanity slot
+                generated_post_ssz = work_dir / "post.ssz"
+                success, error = self.run_eth2spec_sanity_slot(pre_ssz, slots_yaml_work, generated_post_ssz)
+                
+                if success:
+                    post_json = work_dir / "post.json"
+                    if not self.ssz_to_json(generated_post_ssz, post_json, is_beacon_state=True):
+                        errors += 1
+                else:
+                    # eth2spec failed - this is a negative test
+                    eth2spec_error = error
+            
+            # copy JSON files to output directory
+            is_negative = eth2spec_error is not None
+            test_type_dir = output_dir / ("negative" if is_negative else "positive")
+            
+            # Use test_case_dir.name if test_name is "." or empty
+            output_test_name = test_name if test_name and test_name != "." else test_case_dir.name
+            case_output_dir = test_type_dir / output_test_name
             case_output_dir.mkdir(parents=True, exist_ok=True)
             
             # Copy files to output directory
