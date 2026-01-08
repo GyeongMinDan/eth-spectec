@@ -355,6 +355,51 @@ class JsonTestCaseGenerator:
         
         return sorted(operation_files, key=lambda x: (x[0], x[1].name))
     
+    def _get_short_test_name(self, test_name: str, test_case_dir: Path, prefix_to_remove: str = None) -> str:
+        """
+        Derive short test name by stripping PySpec boilerplates.
+        
+        Args:
+            test_name: Original test name
+            test_case_dir: Test case directory (fallback name)
+            prefix_to_remove: Specific prefix to attempt removing
+            
+        Returns:
+            Shortened test name
+        """
+        short_name = test_name
+        
+        if prefix_to_remove and short_name.startswith(prefix_to_remove):
+            short_name = short_name[len(prefix_to_remove):]
+        elif "_pyspec_tests_" in short_name:
+            parts = short_name.split("_pyspec_tests_")
+            if len(parts) >= 2:
+                short_name = parts[-1]
+        
+        if not short_name or short_name == "." or short_name == "_":
+            short_name = test_case_dir.name
+            
+        return short_name
+
+    def _should_skip_test(self, case_output_dir: Path, verbose: bool = False) -> bool:
+        """
+        Check if test case has already been generated.
+        
+        Args:
+            case_output_dir: Directory to check
+            verbose: Whether to print skip message
+            
+        Returns:
+            True if test should be skipped
+        """
+        if case_output_dir.exists() and \
+           (case_output_dir / "pre.json").exists() and \
+           ((case_output_dir / "post.json").exists() or (case_output_dir / "error.txt").exists()):
+            if verbose:
+                print(f"  ✓ Skipped (exists): {case_output_dir.name}")
+            return True
+        return False
+
     def process_test_case(
         self, 
         test_case_dir: Path, 
@@ -465,6 +510,9 @@ class JsonTestCaseGenerator:
             if not self.ssz_to_json(pre_ssz, initial_pre_json, is_beacon_state=True):
                 return 0, 1
             
+            # Pre-calculate short test name
+            short_test_name = self._get_short_test_name(test_name, test_case_dir)
+
             # current pre state (for multi-block tests)
             current_pre_ssz = initial_pre_ssz
             current_pre_json = initial_pre_json
@@ -472,6 +520,29 @@ class JsonTestCaseGenerator:
             is_single_block = len(block_ssz_files) == 1
             
             for i, (block_num, block_ssz) in enumerate(block_ssz_files):
+                # Calculate output directory early
+                # Determine output subdirectory based on test path keywords
+                path_parts = test_case_dir.parts
+                if "sanity" in path_parts and "blocks" in path_parts:
+                    block_output_base = output_dir / "sanity" / "blocks"
+                elif "random" in path_parts:
+                     block_output_base = output_dir / "random"
+                else:
+                    # Default/Fallback to finality if "finality" is in path or assumed default
+                    block_output_base = output_dir / "finality"
+
+                if is_single_block:
+                    case_output_dir = block_output_base / short_test_name
+                else:
+                    case_output_dir = block_output_base / f"{short_test_name}_{block_num}"
+
+                # Check if test already exists
+                if self._should_skip_test(case_output_dir, verbose):
+                    generated += 1
+                    continue
+
+                case_output_dir.mkdir(parents=True, exist_ok=True)
+
                 # convert block to JSON
                 block_json = work_dir / f"blocks_{block_num}.json"
                 if not self.ssz_to_json(block_ssz, block_json, is_beacon_state=False):
@@ -502,15 +573,9 @@ class JsonTestCaseGenerator:
                         # eth2spec failed - this is a negative test
                         eth2spec_error = error
                 
-                # copy JSON files to output directory
+                # copy JSON files to output directory - flat structure
                 is_negative = eth2spec_error is not None
-                test_type_dir = output_dir / ("negative" if is_negative else "positive")
-                
-                if is_single_block:
-                    case_output_dir = test_type_dir / test_name
-                else:
-                    case_output_dir = test_type_dir / f"{test_name}_{block_num}"
-                case_output_dir.mkdir(parents=True, exist_ok=True)
+
                 
                 # Copy files to output directory
                 shutil.copy(current_pre_json, case_output_dir / "pre.json")
@@ -612,19 +677,37 @@ class JsonTestCaseGenerator:
             if verbose:
                 print("  Converting to JSON and generating test cases...")
             
-            # initial pre state
-            initial_pre_ssz = pre_ssz
-            initial_pre_json = work_dir / "pre.json"
-            if not self.ssz_to_json(pre_ssz, initial_pre_json, is_beacon_state=True):
+            # Pre-calculate short test name 
+            op_type_0 = operation_ssz_files[0][0] if operation_ssz_files else ""
+            prefix_to_remove = f"{op_type_0}_pyspec_tests_"
+            short_test_name = self._get_short_test_name(test_name, test_case_dir, prefix_to_remove)
+
+            current_pre_ssz = pre_ssz
+            current_pre_json = work_dir / "pre.json"
+
+            # Initial pre state conversion
+            if not self.ssz_to_json(pre_ssz, current_pre_json, is_beacon_state=True):
                 return 0, 1
-            
-            # current pre state (for multi-operation tests)
-            current_pre_ssz = initial_pre_ssz
-            current_pre_json = initial_pre_json
             
             is_single_operation = len(operation_ssz_files) == 1
             
             for i, (op_type, op_ssz) in enumerate(operation_ssz_files):
+                # Calculate output directory early to check for existence
+                if is_single_operation:
+                    case_output_dir = output_dir / "operations" / op_type / short_test_name
+                else:
+                    case_output_dir = output_dir / "operations" / op_type / f"{short_test_name}_{i}"
+
+                # Check if test already exists
+                if self._should_skip_test(case_output_dir, verbose):
+                    generated += 1
+                    
+                    # Here, we assume that either all steps of a sequential test exists or none.
+                    # If some exist and some don't, we re-generate since we cannot compute intermediate states.
+                    
+                    continue
+
+                # Normal processing...
                 # convert operation to JSON
                 op_json = work_dir / f"{op_type}.json"
                 if not self.ssz_to_json_operation(op_ssz, op_json, op_type):
@@ -661,14 +744,15 @@ class JsonTestCaseGenerator:
                         # eth2spec failed - this is a negative test
                         eth2spec_error = error
                 
-                # copy JSON files to output directory
+                # copy JSON files to output directory - flat structure
                 is_negative = eth2spec_error is not None
-                test_type_dir = output_dir / ("negative" if is_negative else "positive")
                 
+                # Flat structure: {op_type}/{short_test_name}
+                # Expectation is determined by presence of post.json vs error.txt
                 if is_single_operation:
-                    case_output_dir = test_type_dir / test_name
+                    case_output_dir = output_dir / "operations" / op_type / short_test_name
                 else:
-                    case_output_dir = test_type_dir / f"{test_name}_{i}"
+                    case_output_dir = output_dir / "operations" / op_type / f"{short_test_name}_{i}"
                 case_output_dir.mkdir(parents=True, exist_ok=True)
                 
                 # Copy files to output directory
@@ -742,6 +826,14 @@ class JsonTestCaseGenerator:
         work_dir.mkdir(parents=True, exist_ok=True)
         
         try:
+            # Pre-calculate short test name with prefix stripping
+            short_test_name = self._get_short_test_name(test_name, test_case_dir)
+
+            # Check if test already exists
+            case_output_dir = output_dir / "epoch_processing" / epoch_processing_type / short_test_name
+            if self._should_skip_test(case_output_dir, verbose):
+                return 1, 0
+
             # 2. Decompress snappy files
             if verbose:
                 print("  Decompressing snappy files...")
@@ -788,11 +880,12 @@ class JsonTestCaseGenerator:
                     # eth2spec failed - this is a negative test
                     eth2spec_error = error
             
-            # copy JSON files to output directory
+            # copy JSON files to output directory -  structure
             is_negative = eth2spec_error is not None
-            test_type_dir = output_dir / ("negative" if is_negative else "positive")
             
-            case_output_dir = test_type_dir / test_name
+            # Flat structure: {epoch_processing_type}/{short_test_name}
+            # Expectation is determined by presence of post.json vs error.txt
+            case_output_dir = output_dir / "epoch_processing" / epoch_processing_type / short_test_name
             case_output_dir.mkdir(parents=True, exist_ok=True)
             
             # Copy files to output directory
@@ -855,6 +948,14 @@ class JsonTestCaseGenerator:
         work_dir.mkdir(parents=True, exist_ok=True)
         
         try:
+            # Pre-calculate output name
+            output_test_name = self._get_short_test_name(test_name, test_case_dir)
+            
+            # Check if test already exists
+            case_output_dir = output_dir / "sanity" / "slots" / output_test_name
+            if self._should_skip_test(case_output_dir, verbose):
+                return 1, 0
+
             # 2. Decompress snappy files
             if verbose:
                 print("  Decompressing snappy files...")
@@ -905,17 +1006,18 @@ class JsonTestCaseGenerator:
                     # eth2spec failed - this is a negative test
                     eth2spec_error = error
             
-            # copy JSON files to output directory
+            # copy JSON files to output directory - flat structure
             is_negative = eth2spec_error is not None
-            test_type_dir = output_dir / ("negative" if is_negative else "positive")
             
-            # Use test_case_dir.name if test_name is "." or empty
-            output_test_name = test_name if test_name and test_name != "." else test_case_dir.name
-            case_output_dir = test_type_dir / output_test_name
+            # Flat structure: output to sanity/slots
+            case_output_dir = output_dir / "sanity" / "slots" / output_test_name
             case_output_dir.mkdir(parents=True, exist_ok=True)
             
             # Copy files to output directory
             shutil.copy(pre_json, case_output_dir / "pre.json")
+            
+            # Always copy slots.yaml - it's an input to the relation
+            shutil.copy(slots_yaml, case_output_dir / "slots.yaml")
             
             if is_negative:
                 # Write error.txt for negative tests
