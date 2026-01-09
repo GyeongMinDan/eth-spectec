@@ -266,11 +266,11 @@ rule ProcessVoluntaryExits/cons:
 ;; process_bls_to_execution_change
 ;;  modifies: .VALIDATORS[].WITHDRAWAL_CREDENTIALS
 
-relation ProcessBLSToExecutionChange:
+relation ProcessBlsToExecutionChange:
   beaconState signedBlsToExecutionChange ~> beaconState
   hint(input %0 %1)
 
-rule ProcessBLSToExecutionChange/main:
+rule ProcessBlsToExecutionChange/main:
   state signedBlsToExecutionChange ~> state[ .VALIDATORS[vid_change].WITHDRAWAL_CREDENTIALS = bytes32_new_wc ]
   -- if blsToExecutionChange = signedBlsToExecutionChange.MESSAGE
   -- if vid_change = blsToExecutionChange.VALIDATOR_INDEX
@@ -297,5 +297,5 @@ rule ProcessBlsToExecutionChanges/nil:
   state eps ~> state
 rule ProcessBlsToExecutionChanges/cons:
   state (signedBlsToExecutionChange_h :: signedBlsToExecutionChange_t*) ~> state_t
-  -- ProcessBLSToExecutionChange: state signedBlsToExecutionChange_h ~> state_h
+  -- ProcessBlsToExecutionChange: state signedBlsToExecutionChange_h ~> state_h
   -- ProcessBlsToExecutionChanges:  state_h signedBlsToExecutionChange_t* ~> state_t

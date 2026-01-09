@@ -1,3 +1,5 @@
+;; === SLOT PROCESSING ===
+
 ;; [Phase 0]
 ;; process_slot
 
@@ -34,6 +36,8 @@ rule ProcessSlot/header_root_empty:
   -- if $hash_tree_root_beaconState(state) = root_state_prev
   ;; save block root
   -- if $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER) = root_block_prev
+
+;; === EPOCH PROCESSING ===
 
 ;; [Phase0 -> Altair]
 ;; process_justification_and_finalization

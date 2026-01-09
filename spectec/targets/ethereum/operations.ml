@@ -219,7 +219,7 @@ module BlsToExecutionChange = struct
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* change_il =
-      parse_json ~spec input.address_change_file "signedBLSToExecutionChange"
+      parse_json ~spec input.address_change_file "signedBlsToExecutionChange"
     in
     Ok ("ProcessBlsToExecutionChange", [ beaconState_il; change_il ])
 
