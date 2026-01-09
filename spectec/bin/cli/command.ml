@@ -41,20 +41,32 @@ let run_single (type i) (module T : Runner.Task.S with type input = i) ~config
 
 (* Run interpreter on a suite of inputs and print results *)
 let run_suite (type i) (module T : Runner.Task.S with type input = i) ~config
-    ~sl_mode ~spec_il (inputs : i list) =
+    ~sl_mode ~spec_il ~verbose (inputs : i list) =
   let results =
-    Runner.run_suite_with_outcomes (module T) ~config ~sl_mode ~spec_il inputs
+    Runner.run_suite_with_outcomes
+      (module T)
+      ~config ~sl_mode ~spec_il ~verbose inputs
   in
-  List.iter
-    (fun Runner.{ source; outcome; _ } ->
-      Format.printf ">>> Running %s on %s\n" T.name source;
-      print_outcome (module T) source outcome)
-    results;
-  let summary = Runner.summarize_outcomes results in
-  let passed = Runner.summary_passed summary in
-  let failed = Runner.summary_failed summary in
-  Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed summary.total
-    failed
+  match verbose with
+  | true ->
+      (* Summary only in verbose mode, as progress was printed *)
+      let summary = Runner.summarize_outcomes results in
+      let passed = Runner.summary_passed summary in
+      let failed = Runner.summary_failed summary in
+      Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
+        summary.total failed
+  | false ->
+      (* Full report at end if not verbose *)
+      List.iter
+        (fun Runner.{ source; outcome; _ } ->
+          Format.printf ">>> Running %s on %s\n" T.name source;
+          print_outcome (module T) source outcome)
+        results;
+      let summary = Runner.summarize_outcomes results in
+      let passed = Runner.summary_passed summary in
+      let failed = Runner.summary_failed summary in
+      Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
+        summary.total failed
 
 (* Generate a CLI command for any CLI_TASK *)
 let make (type i) ~summary (module T : CLI_TASK with type input = i) =
@@ -65,8 +77,11 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
        flag "--specs" (listed string)
          ~doc:"FILES spec files (default: use target spec dir)"
      and sl_mode = flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
-     and suite_dir =
-       flag "--suite" (optional string) ~doc:"DIR run on test suite"
+     and verbose = flag "-v" no_arg ~doc:" verbose output"
+     and suite_mode =
+       flag "--suite" no_arg ~doc:" run on test suite (default dir)"
+     and suite_dir_arg =
+       flag "--suite-dir" (optional string) ~doc:"DIR run on test suite in DIR"
      and input = T.cli_flags
      and config = Cli_args.config_flags in
      fun () ->
@@ -79,12 +94,21 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
          in
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
-         match suite_dir with
-         | None ->
+         match (suite_mode, suite_dir_arg) with
+         | false, None ->
              run_single (module T) ~config ~sl_mode ~spec_il input;
              Ok ()
-         | Some dir ->
-             run_suite (module T) ~config ~sl_mode ~spec_il (T.collect ~dir ());
+         | true, None ->
+             (* Use task defaults *)
+             run_suite
+               (module T)
+               ~config ~sl_mode ~spec_il ~verbose (T.collect ());
+             Ok ()
+         | _, Some dir ->
+             (* Use explicit directory *)
+             run_suite
+               (module T)
+               ~config ~sl_mode ~spec_il ~verbose (T.collect ~dir ());
              Ok ()
        in
        match run () with

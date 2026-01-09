@@ -257,13 +257,27 @@ type 'i test_result = {
 (* Run suite of inputs and return individual outcomes *)
 let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il
-    (inputs : i list) =
-  List.map
-    (fun input ->
+    ?(verbose = false) (inputs : i list) =
+  let total = List.length inputs in
+  List.mapi
+    (fun idx input ->
+      let source = T.source input in
+      if verbose then Format.printf "[%d/%d] %s... %!" (idx + 1) total source;
       let outcome =
-        run_with_outcome (module T) ~config ~sl_mode ~spec_il input
+        try run_with_outcome (module T) ~config ~sl_mode ~spec_il input
+        with exn ->
+          let error =
+            Error.IlInterpError (Common.Source.no_region, Printexc.to_string exn)
+          in
+          Task.compute_outcome (T.expectation input) (Error error)
       in
-      { input; source = T.source input; outcome })
+      (if verbose then
+         match outcome with
+         | Task.Pass _ -> Format.printf "PASS\n%!"
+         | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
+         | Task.Fail _ -> Format.printf "FAIL\n%!"
+         | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!");
+      { input; source; outcome })
     inputs
 
 (* Summary stats from suite results - tracks all four outcome types *)
