@@ -1,6 +1,7 @@
 (** Ethereum Operation Tasks - Processing individual operations *)
 
 open Eth_common
+module Engine = Builtin_eth.Engine
 
 let operations_dir = "eth-tests/operations"
 
@@ -239,21 +240,44 @@ module ExecutionPayload = struct
   type input = {
     pre_file : string;
     execution_payload_file : string;
+    execution_data_file : string;
     expect : Runner.Task.expectation;
   }
 
-  let make ?(expect = Runner.Task.Positive) ~pre_file ~execution_payload_file ()
-      =
-    { pre_file; execution_payload_file; expect }
+  let make ?(expect = Runner.Task.Positive) ~pre_file ~execution_payload_file
+      ?execution_data_file () =
+    let execution_data_file =
+      match execution_data_file with
+      | Some f -> f
+      | None -> Filename.concat (Filename.dirname pre_file) "execution.json"
+    in
+    { pre_file; execution_payload_file; execution_data_file; expect }
 
   let collect ?dir () =
     collect_operation_tests ~op_type:"execution_payload"
       ~op_file_name:"execution_payload.json" ?dir ()
     |> List.map (fun ((pre_file, operation_file), expect) ->
-           { pre_file; execution_payload_file = operation_file; expect })
+           let execution_data_file =
+             Filename.concat (Filename.dirname pre_file) "execution.json"
+           in
+           {
+             pre_file;
+             execution_payload_file = operation_file;
+             execution_data_file;
+             expect;
+           })
 
   let parse ~spec (input : input) =
     let ( let* ) = Result.bind in
+    if Sys.file_exists input.execution_data_file then
+      try
+        let json = Yojson.Safe.from_file input.execution_data_file in
+        let valid =
+          Yojson.Safe.Util.(member "execution_valid" json |> to_bool)
+        in
+        Engine.set_validity valid
+      with _ -> Engine.set_validity true
+    else Engine.set_validity true;
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* payload_il =
       parse_json ~spec input.execution_payload_file "beaconBlockBody"

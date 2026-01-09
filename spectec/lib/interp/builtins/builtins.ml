@@ -1,6 +1,7 @@
 open Lang.Il
 module Error = Define.Error
 module P4 = Builtin_p4
+module Eth = Builtin_eth
 
 let ( let* ) = Result.bind
 

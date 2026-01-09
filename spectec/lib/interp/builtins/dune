@@ -6,5 +6,5 @@
   spectec.lang
   spectec.semantics
   define
-  eth
+  builtin_eth
   builtin_p4))

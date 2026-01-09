@@ -730,7 +730,17 @@ class JsonTestCaseGenerator:
                     if op_type == 'execution_payload':
                         execution_yaml = test_case_dir / "execution.yaml"
                         if execution_yaml.exists():
-                            shutil.copy(execution_yaml, work_dir / "execution.yaml")
+                            # Convert execution.yaml to execution.json
+                            # Format is simple: {execution_valid: true/false}
+                            is_valid = True
+                            with open(execution_yaml, 'r') as f:
+                                content = f.read()
+                                if 'execution_valid: false' in content or "execution_valid: False" in content:
+                                    is_valid = False
+                            
+                            execution_json = work_dir / "execution.json"
+                            with open(execution_json, 'w') as f:
+                                json.dump({"execution_valid": is_valid}, f)
                     
                     generated_post_ssz = work_dir / f"post_{i}.ssz"
                     success, error = self.run_eth2spec_operation(current_pre_ssz, op_ssz, generated_post_ssz, op_type)
@@ -758,6 +768,11 @@ class JsonTestCaseGenerator:
                 # Copy files to output directory
                 shutil.copy(current_pre_json, case_output_dir / "pre.json")
                 shutil.copy(op_json, case_output_dir / f"{op_type}.json")
+                
+                if op_type == 'execution_payload':
+                    execution_json = work_dir / "execution.json"
+                    if execution_json.exists():
+                        shutil.copy(execution_json, case_output_dir / "execution.json")
                 
                 if is_negative:
                     # Write error.txt for negative tests

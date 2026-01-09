@@ -149,8 +149,11 @@ struct
       flag "--payload"
         (optional_with_default "" string)
         ~doc:"FILE execution payload JSON"
+    and execution =
+      flag "--execution" (optional string) ~doc:"FILE execution data JSON"
     in
-    make ~pre_file:pre ~execution_payload_file:payload ()
+    make ~pre_file:pre ~execution_payload_file:payload
+      ?execution_data_file:execution ()
 end
 
 (** CLI_TASK for Withdrawals *)
