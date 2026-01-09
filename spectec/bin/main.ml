@@ -123,9 +123,84 @@ let p4_command =
 module Eth_Cmd = Cli.Command.Make (Targets_eth.Eth.Target)
 
 let eth_command =
-  let tasks = [ Eth_Cmd.Pack (module Targets_eth.Eth.StateTransition) ] in
+  let tasks =
+    [
+      (* Operations *)
+      Eth_Cmd.Pack (module Targets_eth.Eth.Operations.ProposerSlashing);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Operations.AttesterSlashing);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Operations.Attestation);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Operations.Deposit);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Operations.VoluntaryExit);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Operations.BlsToExecutionChange);
+      (* Operations - Block processing *)
+      Eth_Cmd.Pack (module Targets_eth.Eth.Operations.ExecutionPayload);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Operations.Withdrawals);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Operations.BlockHeader);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Operations.SyncAggregate);
+      (* Epoch processing *)
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.JustificationAndFinalization);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.InactivityUpdates);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.RewardsAndPenalties);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.RegistryUpdates);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.Slashings);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.Eth1DataReset);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.EffectiveBalanceUpdates);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.SlashingsReset);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.RandaoMixesReset);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.HistoricalSummariesUpdate);
+      Eth_Cmd.Pack (module Targets_eth.Eth.Epoch.ParticipationFlagUpdates);
+      (* Slots and State transition *)
+      Eth_Cmd.Pack (module Targets_eth.Eth.Slots);
+      Eth_Cmd.Pack (module Targets_eth.Eth.StateTransition);
+    ]
+  in
+  (* Nested command groups for better organization *)
+  let epoch_commands =
+    Core.Command.group ~summary:"Epoch processing tasks"
+      [
+        ("justification", Targets.Eth.justification_command);
+        ("inactivity-updates", Targets.Eth.inactivity_updates_command);
+        ("rewards", Targets.Eth.rewards_command);
+        ("registry-updates", Targets.Eth.registry_updates_command);
+        ("slashings", Targets.Eth.slashings_command);
+        ("eth1-data-reset", Targets.Eth.eth1_data_reset_command);
+        ( "effective-balance-updates",
+          Targets.Eth.effective_balance_updates_command );
+        ("slashings-reset", Targets.Eth.slashings_reset_command);
+        ("randao-mixes-reset", Targets.Eth.randao_mixes_reset_command);
+        ( "historical-summaries-update",
+          Targets.Eth.historical_summaries_update_command );
+        ( "participation-flag-updates",
+          Targets.Eth.participation_flag_updates_command );
+      ]
+  in
+  let operations_commands =
+    Core.Command.group ~summary:"Operation/Block processing tasks"
+      [
+        ("proposer-slashing", Targets.Eth.proposer_slashing_command);
+        ("attester-slashing", Targets.Eth.attester_slashing_command);
+        ("attestation", Targets.Eth.attestation_command);
+        ("deposit", Targets.Eth.deposit_command);
+        ("voluntary-exit", Targets.Eth.voluntary_exit_command);
+        ("bls-to-execution-change", Targets.Eth.bls_to_execution_change_command);
+        (* Block processing *)
+        ("execution-payload", Targets.Eth.execution_payload_command);
+        ("withdrawals", Targets.Eth.withdrawals_command);
+        ("block-header", Targets.Eth.block_header_command);
+        ("sync-aggregate", Targets.Eth.sync_aggregate_command);
+      ]
+  in
+  let run_command =
+    Core.Command.group ~summary:"Run ethereum test tasks"
+      [
+        ("epoch", epoch_commands);
+        ("operations", operations_commands);
+        ("slots", Targets.Eth.slots_command);
+        ("state-transition", Targets.Eth.state_transition_command);
+      ]
+  in
   Core.Command.group ~summary:"Ethereum commands"
-    [ ("run", Targets.Eth.command); ("coverage", Eth_Cmd.make_coverage tasks) ]
+    [ ("run", run_command); ("coverage", Eth_Cmd.make_coverage tasks) ]
 
 let command =
   Core.Command.group ~summary:"SpecTec command line tools"

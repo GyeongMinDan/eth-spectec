@@ -1,5 +1,5 @@
 (library
  (name targets)
- (libraries core cli targets_p4 targets_eth)
+ (libraries core cli targets_p4 targets_eth spectec.runner)
  (preprocess
   (pps ppx_let)))
