@@ -174,7 +174,7 @@ relation ApplyDeposit:
   beaconState `.VALIDATORS `++ `{ blsPubkey bytes32 gwei } SIGNED blsSignature ~> beaconState
   hint(input %0 %1 %2 %3 %4)
 
-;; if branch: new pubkey
+;; if branch: new pubkey with valid signature
 rule ApplyDeposit/new_pubkey:
   state `.VALIDATORS `++ `{ blsPubkey bytes32_wc gwei_amount } SIGNED blsSignature ~> state_out
   -- if state.VALIDATORS = validator*
@@ -188,8 +188,22 @@ rule ApplyDeposit/new_pubkey:
   -- if $bls_verify(blsPubkey, $compute_signing_root_depositMessage(depositMessage, domain), blsSignature)
   -- AddValidatorToRegistry: state `.VALIDATORS `++ `{ blsPubkey bytes32_wc gwei_amount } ~> state_out
 
+;; if branch: new pubkey with invalid signature (do nothing, matching eth2spec behavior)
+rule ApplyDeposit/new_pubkey_invalid_sig:
+  state `.VALIDATORS `++ `{ blsPubkey bytes32_wc gwei_amount } SIGNED blsSignature ~> state
+  -- if state.VALIDATORS = validator*
+  -- if (validator.PUBKEY = blsPubkey_existing)*
+  -- if ~( blsPubkey <- blsPubkey_existing* )
+  ;; verify deposit signature (should fail)
+  -- if depositMessage = { PUBKEY blsPubkey,
+                              WITHDRAWAL_CREDENTIALS bytes32_wc,
+                              AMOUNT gwei_amount }
+  -- if $compute_domain($DOMAIN_DEPOSIT, eps, eps) = domain
+  -- if ~$bls_verify(blsPubkey, $compute_signing_root_depositMessage(depositMessage, domain), blsSignature)
+  ;; Do nothing - validator is not added, but operation succeeds
+
 ;; else: existing pubkey
-rule ApplyDeposit/new_pubkey:
+rule ApplyDeposit/existing_pubkey:
   state `.VALIDATORS `++ `{ blsPubkey bytes32_wc gwei_amount } SIGNED blsSignature ~> state_out
   -- if state.VALIDATORS = validator*
   -- if (validator.PUBKEY = blsPubkey_existing)*
