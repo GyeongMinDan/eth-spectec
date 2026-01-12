@@ -33,6 +33,14 @@ module State = struct
   let prems_attempted : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let prems_succeeded : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let prems_failed : (region * string, int) Hashtbl.t = Hashtbl.create 256
+  let prem_to_uid : (region * string, int) Hashtbl.t = Hashtbl.create 256
+  let uid_to_prem : (int, region * string) Hashtbl.t = Hashtbl.create 256
+
+  let prem_to_test : (region * string, string list) Hashtbl.t =
+    Hashtbl.create 256
+
+  let current_test_case_id : string option ref = ref None
+  let next_uid = ref 0
   let total_prems = ref 0
   let total_if_prems = ref 0
 
@@ -41,12 +49,43 @@ module State = struct
     Hashtbl.clear prems_attempted;
     Hashtbl.clear prems_succeeded;
     Hashtbl.clear prems_failed;
+    Hashtbl.clear prem_to_uid;
+    Hashtbl.clear uid_to_prem;
+    Hashtbl.clear prem_to_test;
+    current_test_case_id := None;
+    next_uid := 0;
     total_prems := 0;
     total_if_prems := 0
 
-  let incr tbl key =
+  (* Set current test case ID (called by runner before each test) *)
+  let set_test_case_id id = current_test_case_id := Some id
+  let clear_test_case_id () = current_test_case_id := None
+
+  (* Record that a premise was covered by the current test case *)
+  let record_premise_coverage key =
+    match !current_test_case_id with
+    | Some test_id ->
+        let existing =
+          Hashtbl.find_opt prem_to_test key |> Option.value ~default:[]
+        in
+        if not (List.mem test_id existing) then
+          Hashtbl.replace prem_to_test key (test_id :: existing)
+    | None -> ()
+
+  let incr_count tbl key =
     let count = Hashtbl.find_opt tbl key |> Option.value ~default:0 in
     Hashtbl.replace tbl key (count + 1)
+
+  (* Assign a stable UID to a premise key, or return existing UID *)
+  let assign_uid key =
+    match Hashtbl.find_opt prem_to_uid key with
+    | Some uid -> uid
+    | None ->
+        let uid = !next_uid in
+        next_uid := !next_uid + 1;
+        Hashtbl.replace prem_to_uid key uid;
+        Hashtbl.replace uid_to_prem uid key;
+        uid
 end
 
 (* Create a unique key for a premise using region + content prefix *)
@@ -62,6 +101,15 @@ module M : Instrumentation_core.Handler.S = struct
     | Il.IterPr (inner, _) -> count_prem inner
     | _ -> State.total_if_prems := !State.total_if_prems + 1
 
+  (* Assign UIDs to all premises during init *)
+  let rec assign_premise_uid prem =
+    let key = prem_key prem in
+    let _ = State.assign_uid key in
+    match prem.it with
+    (* | Il.LetPr _ -> () *)
+    | Il.IterPr (inner, _) -> assign_premise_uid inner
+    | _ -> ()
+
   let init ~spec =
     State.reset ();
     match spec with
@@ -74,13 +122,21 @@ module M : Instrumentation_core.Handler.S = struct
                 List.iter
                   (fun rule ->
                     let _, _, prems = rule.it in
-                    List.iter count_prem prems)
+                    List.iter
+                      (fun prem ->
+                        count_prem prem;
+                        assign_premise_uid prem)
+                      prems)
                   rules
             | Il.DecD (_, _, _, _, clauses) ->
                 List.iter
                   (fun clause ->
                     let _, _, prems = clause.it in
-                    List.iter count_prem prems)
+                    List.iter
+                      (fun prem ->
+                        count_prem prem;
+                        assign_premise_uid prem)
+                      prems)
                   clauses
             | Il.TypD _ -> ())
           il_spec
@@ -98,15 +154,20 @@ module M : Instrumentation_core.Handler.S = struct
   let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
 
   let on_prem_enter ~prem ~at:_ =
-    State.incr State.prems_attempted (prem_key prem)
+    let key = prem_key prem in
+    State.incr_count State.prems_attempted key;
+    State.record_premise_coverage key
 
   (* Only track failures for non-let premises since let cannot fail *)
   let on_prem_exit ~prem ~at:_ ~success =
-    if success then State.incr State.prems_succeeded (prem_key prem)
+    let key = prem_key prem in
+    if success then (
+      State.incr_count State.prems_succeeded key;
+      State.record_premise_coverage key)
     else
       match prem.it with
       | Il.LetPr _ -> ()
-      | _ -> State.incr State.prems_failed (prem_key prem)
+      | _ -> State.incr_count State.prems_failed key
 
   let on_instr = Instrumentation_core.Noop.on_instr
   let on_prem_fields = Instrumentation_core.Noop.on_prem_fields
@@ -200,15 +261,19 @@ module M : Instrumentation_core.Handler.S = struct
   let print_prem indent prem =
     let succ_fail = fmt_succ_fail prem in
     let content = Il.Print.string_of_prem prem |> normalize_whitespace in
-    Format.fprintf !fmt "%s %s-- %s\n" succ_fail indent content
+    Format.fprintf !fmt "%d: %s %s-- %s\n"
+      (State.assign_uid (prem_key prem))
+      succ_fail indent content
 
   let print_prems indent prems =
     List.iter (print_prem indent) prems;
     (* Print success count for final premise *)
     match List.rev prems with
     | last :: _ ->
-        let succ = get_prem_succeeded (prem_key last) in
-        Format.fprintf !fmt "%s      %sSUCCESS\n" (format_count succ) indent
+        let key = prem_key last in
+        let succ = get_prem_succeeded key in
+        Format.fprintf !fmt "%d: %s      %sSUCCESS\n" (State.assign_uid key)
+          (format_count succ) indent
     | [] -> ()
 
   let print_full () =
@@ -252,6 +317,10 @@ end
 type result = {
   prems_attempted : ((region * string) * int) list; (* key * count *)
   prems_succeeded : ((region * string) * int) list; (* key * count *)
+  prem_to_uid : ((region * string) * int) list; (* key * uid *)
+  uid_to_prem : (int * (region * string)) list; (* uid * key *)
+  prem_to_test : ((region * string) * string list) list;
+      (* key * test_case_ids *)
   total_prems : int;
 }
 
@@ -259,6 +328,9 @@ let get_result () =
   {
     prems_attempted = State.prems_attempted |> Hashtbl.to_seq |> List.of_seq;
     prems_succeeded = State.prems_succeeded |> Hashtbl.to_seq |> List.of_seq;
+    prem_to_uid = State.prem_to_uid |> Hashtbl.to_seq |> List.of_seq;
+    uid_to_prem = State.uid_to_prem |> Hashtbl.to_seq |> List.of_seq;
+    prem_to_test = State.prem_to_test |> Hashtbl.to_seq |> List.of_seq;
     total_prems = !State.total_prems;
   }
 
@@ -266,13 +338,34 @@ let get_result () =
 let restore result =
   Hashtbl.clear State.prems_attempted;
   Hashtbl.clear State.prems_succeeded;
+  Hashtbl.clear State.prem_to_uid;
+  Hashtbl.clear State.uid_to_prem;
+  Hashtbl.clear State.prem_to_test;
   List.iter
     (fun (key, count) -> Hashtbl.replace State.prems_attempted key count)
     result.prems_attempted;
   List.iter
     (fun (key, count) -> Hashtbl.replace State.prems_succeeded key count)
     result.prems_succeeded;
-  State.total_prems := result.total_prems
+  List.iter
+    (fun (key, uid) ->
+      Hashtbl.replace State.prem_to_uid key uid;
+      Hashtbl.replace State.uid_to_prem uid key)
+    result.prem_to_uid;
+  List.iter
+    (fun (key, test_cases) -> Hashtbl.replace State.prem_to_test key test_cases)
+    result.prem_to_test;
+  State.total_prems := result.total_prems;
+  (* Update next_uid to be higher than any existing UID *)
+  State.next_uid :=
+    List.fold_left
+      (fun max_uid (uid, _) -> max max_uid uid)
+      0 result.uid_to_prem
+    + 1
+
+(* Expose test case ID setter for use by runner *)
+let set_test_case_id = State.set_test_case_id
+let clear_test_case_id = State.clear_test_case_id
 
 (* Handler with data access - implements HANDLER_WITH_DATA signature *)
 module HandlerWithData :

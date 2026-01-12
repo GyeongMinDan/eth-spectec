@@ -223,19 +223,29 @@ let run_with_outcome (type i) (module T : Task.S with type input = i)
    For use in batch/coverage runs where init/finish is managed externally. *)
 let run_with_outcome_no_lifecycle (type i)
     (module T : Task.S with type input = i) ~sl_mode ~spec_il (input : i) =
+  let test_case_id = T.source input in
+  (* Set test case ID for coverage tracking *)
+  Instrumentation.Node_coverage_il.set_test_case_id test_case_id;
   let result =
-    let handler = if sl_mode then Handlers.sl else Handlers.il in
-    handler (fun () ->
-        if sl_mode then
-          let spec_sl = structure spec_il in
-          let* _, values =
-            eval_sl_with_task_run (module T) spec_il spec_sl input
-          in
-          Ok values
-        else
-          let* _, values = eval_il_with_task_run (module T) spec_il input in
-          Ok values)
+    try
+      let handler = if sl_mode then Handlers.sl else Handlers.il in
+      handler (fun () ->
+          if sl_mode then
+            let spec_sl = structure spec_il in
+            let* _, values =
+              eval_sl_with_task_run (module T) spec_il spec_sl input
+            in
+            Ok values
+          else
+            let* _, values = eval_il_with_task_run (module T) spec_il input in
+            Ok values)
+    with e ->
+      (* Clear test case ID on exception *)
+      Instrumentation.Node_coverage_il.clear_test_case_id ();
+      raise e
   in
+  (* Clear test case ID after execution *)
+  Instrumentation.Node_coverage_il.clear_test_case_id ();
   Task.compute_outcome (T.expectation input) result
 
 (* Result for a single test in a suite *)
