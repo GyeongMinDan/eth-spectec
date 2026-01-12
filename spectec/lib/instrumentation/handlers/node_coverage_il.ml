@@ -229,7 +229,7 @@ module M : Instrumentation_core.Handler.S = struct
     let uid =
       match get_uid (prem_key prem) with Some uid -> uid | None -> -1
     in
-    Format.fprintf !fmt "%d: %s %s-- %s\n" uid succ_fail indent content
+    Format.fprintf !fmt "%4d: %s %s-- %s\n" uid succ_fail indent content
 
   let print_prems indent prems =
     List.iter (print_prem indent) prems;
@@ -238,8 +238,7 @@ module M : Instrumentation_core.Handler.S = struct
     | last :: _ ->
         let key = prem_key last in
         let succ = get_prem_succeeded key in
-        let uid = match get_uid key with Some uid -> uid | None -> -1 in
-        Format.fprintf !fmt "%d: %s      %sSUCCESS\n" uid (format_count succ)
+        Format.fprintf !fmt "      %s      %sSUCCESS\n" (format_count succ)
           indent
     | [] -> ()
 
