@@ -14,6 +14,7 @@
 open Common.Source
 module Il = Lang.Il
 open Instrumentation_core.Util
+open Instrumentation_static.Premise_uid
 
 (* Verbosity levels *)
 type level = Summary | Full
@@ -33,14 +34,11 @@ module State = struct
   let prems_attempted : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let prems_succeeded : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let prems_failed : (region * string, int) Hashtbl.t = Hashtbl.create 256
-  let prem_to_uid : (region * string, int) Hashtbl.t = Hashtbl.create 256
-  let uid_to_prem : (int, region * string) Hashtbl.t = Hashtbl.create 256
 
   let prem_to_test : (region * string, string list) Hashtbl.t =
     Hashtbl.create 256
 
   let current_test_case_id : string option ref = ref None
-  let next_uid = ref 0
   let total_prems = ref 0
   let total_if_prems = ref 0
 
@@ -49,11 +47,8 @@ module State = struct
     Hashtbl.clear prems_attempted;
     Hashtbl.clear prems_succeeded;
     Hashtbl.clear prems_failed;
-    Hashtbl.clear prem_to_uid;
-    Hashtbl.clear uid_to_prem;
     Hashtbl.clear prem_to_test;
     current_test_case_id := None;
-    next_uid := 0;
     total_prems := 0;
     total_if_prems := 0
 
@@ -75,23 +70,7 @@ module State = struct
   let incr_count tbl key =
     let count = Hashtbl.find_opt tbl key |> Option.value ~default:0 in
     Hashtbl.replace tbl key (count + 1)
-
-  (* Assign a stable UID to a premise key, or return existing UID *)
-  let assign_uid key =
-    match Hashtbl.find_opt prem_to_uid key with
-    | Some uid -> uid
-    | None ->
-        let uid = !next_uid in
-        next_uid := !next_uid + 1;
-        Hashtbl.replace prem_to_uid key uid;
-        Hashtbl.replace uid_to_prem uid key;
-        uid
 end
-
-(* Create a unique key for a premise using region + content prefix *)
-let prem_key prem =
-  let content = Il.Print.string_of_prem prem |> normalize_whitespace in
-  (prem.at, truncate 30 content)
 
 module M : Instrumentation_core.Handler.S = struct
   let rec count_prem prem =
@@ -100,15 +79,6 @@ module M : Instrumentation_core.Handler.S = struct
     | Il.LetPr _ -> ()
     | Il.IterPr (inner, _) -> count_prem inner
     | _ -> State.total_if_prems := !State.total_if_prems + 1
-
-  (* Assign UIDs to all premises during init *)
-  let rec assign_premise_uid prem =
-    let key = prem_key prem in
-    let _ = State.assign_uid key in
-    match prem.it with
-    (* | Il.LetPr _ -> () *)
-    | Il.IterPr (inner, _) -> assign_premise_uid inner
-    | _ -> ()
 
   let init ~spec =
     State.reset ();
@@ -122,21 +92,13 @@ module M : Instrumentation_core.Handler.S = struct
                 List.iter
                   (fun rule ->
                     let _, _, prems = rule.it in
-                    List.iter
-                      (fun prem ->
-                        count_prem prem;
-                        assign_premise_uid prem)
-                      prems)
+                    List.iter (fun prem -> count_prem prem) prems)
                   rules
             | Il.DecD (_, _, _, _, clauses) ->
                 List.iter
                   (fun clause ->
                     let _, _, prems = clause.it in
-                    List.iter
-                      (fun prem ->
-                        count_prem prem;
-                        assign_premise_uid prem)
-                      prems)
+                    List.iter (fun prem -> count_prem prem) prems)
                   clauses
             | Il.TypD _ -> ())
           il_spec
@@ -261,9 +223,10 @@ module M : Instrumentation_core.Handler.S = struct
   let print_prem indent prem =
     let succ_fail = fmt_succ_fail prem in
     let content = Il.Print.string_of_prem prem |> normalize_whitespace in
-    Format.fprintf !fmt "%d: %s %s-- %s\n"
-      (State.assign_uid (prem_key prem))
-      succ_fail indent content
+    let uid =
+      match get_uid (prem_key prem) with Some uid -> uid | None -> -1
+    in
+    Format.fprintf !fmt "%d: %s %s-- %s\n" uid succ_fail indent content
 
   let print_prems indent prems =
     List.iter (print_prem indent) prems;
@@ -272,8 +235,9 @@ module M : Instrumentation_core.Handler.S = struct
     | last :: _ ->
         let key = prem_key last in
         let succ = get_prem_succeeded key in
-        Format.fprintf !fmt "%d: %s      %sSUCCESS\n" (State.assign_uid key)
-          (format_count succ) indent
+        let uid = match get_uid key with Some uid -> uid | None -> -1 in
+        Format.fprintf !fmt "%d: %s      %sSUCCESS\n" uid (format_count succ)
+          indent
     | [] -> ()
 
   let print_full () =
@@ -325,11 +289,16 @@ type result = {
 }
 
 let get_result () =
+  let prem_to_uid_list, uid_to_prem_list =
+    match Instrumentation_static.Premise_uid.export () with
+    | Some (prem_to_uid, uid_to_prem) -> (prem_to_uid, uid_to_prem)
+    | None -> ([], [])
+  in
   {
     prems_attempted = State.prems_attempted |> Hashtbl.to_seq |> List.of_seq;
     prems_succeeded = State.prems_succeeded |> Hashtbl.to_seq |> List.of_seq;
-    prem_to_uid = State.prem_to_uid |> Hashtbl.to_seq |> List.of_seq;
-    uid_to_prem = State.uid_to_prem |> Hashtbl.to_seq |> List.of_seq;
+    prem_to_uid = prem_to_uid_list;
+    uid_to_prem = uid_to_prem_list;
     prem_to_test = State.prem_to_test |> Hashtbl.to_seq |> List.of_seq;
     total_prems = !State.total_prems;
   }
@@ -338,8 +307,6 @@ let get_result () =
 let restore result =
   Hashtbl.clear State.prems_attempted;
   Hashtbl.clear State.prems_succeeded;
-  Hashtbl.clear State.prem_to_uid;
-  Hashtbl.clear State.uid_to_prem;
   Hashtbl.clear State.prem_to_test;
   List.iter
     (fun (key, count) -> Hashtbl.replace State.prems_attempted key count)
@@ -347,21 +314,13 @@ let restore result =
   List.iter
     (fun (key, count) -> Hashtbl.replace State.prems_succeeded key count)
     result.prems_succeeded;
-  List.iter
-    (fun (key, uid) ->
-      Hashtbl.replace State.prem_to_uid key uid;
-      Hashtbl.replace State.uid_to_prem uid key)
-    result.prem_to_uid;
+  (* Restore UID mapping through static service *)
+  Instrumentation_static.Premise_uid.restore
+    (result.prem_to_uid, result.uid_to_prem);
   List.iter
     (fun (key, test_cases) -> Hashtbl.replace State.prem_to_test key test_cases)
     result.prem_to_test;
-  State.total_prems := result.total_prems;
-  (* Update next_uid to be higher than any existing UID *)
-  State.next_uid :=
-    List.fold_left
-      (fun max_uid (uid, _) -> max max_uid uid)
-      0 result.uid_to_prem
-    + 1
+  State.total_prems := result.total_prems
 
 (* Expose test case ID setter for use by runner *)
 let set_test_case_id = State.set_test_case_id
@@ -379,6 +338,8 @@ module HandlerWithData :
 end
 
 let make cfg =
+  Instrumentation_static.Static.register
+    (module Premise_uid : Instrumentation_static.Static.S);
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   (module M : Instrumentation_core.Handler.S)

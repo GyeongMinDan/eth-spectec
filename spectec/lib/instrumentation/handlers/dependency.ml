@@ -11,6 +11,7 @@
 
 open Common.Source
 module Il = Lang.Il
+open Instrumentation_static.Premise_uid
 
 (* Verbosity levels *)
 type level = Summary | Full
@@ -506,6 +507,7 @@ let whitelist_default =
   ]
 
 let make cfg : (module Instrumentation_core.Handler.S) =
+  (* Premise_uid auto-registers itself, so we don't need to register it here *)
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   State.whitelist := whitelist_default;

@@ -140,6 +140,10 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
       Instrumentation.Dependency.make dep_cfg;
     ]
   in
+  (* Initialize Static analysis *)
+  Instrumentation_static.Static.reset_all ();
+  Instrumentation_static.Static.init_all
+    (Instrumentation_static.Static.IlSpec spec);
   Instrumentation.Dispatcher.set_handlers handlers;
   Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec);
   (* Restore state from checkpoint data *)
