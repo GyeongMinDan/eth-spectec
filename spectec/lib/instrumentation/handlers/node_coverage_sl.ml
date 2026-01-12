@@ -99,6 +99,8 @@ module M : Instrumentation_core.Handler.S = struct
             | Sl.TypD _ -> ())
           sl_spec
 
+  let on_test_start = Instrumentation_core.Noop.on_test_start
+  let on_test_end = Instrumentation_core.Noop.on_test_end
   let on_rel_enter = Instrumentation_core.Noop.on_rel_enter
   let on_rel_exit = Instrumentation_core.Noop.on_rel_exit
   let on_rule_enter = Instrumentation_core.Noop.on_rule_enter

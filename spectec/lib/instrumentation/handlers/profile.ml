@@ -58,6 +58,8 @@ module M : Instrumentation_core.Handler.S = struct
   open State
 
   let init ~spec:_ = State.reset ()
+  let on_test_start = Instrumentation_core.Noop.on_test_start
+  let on_test_end = Instrumentation_core.Noop.on_test_end
   let on_rule_enter = Instrumentation_core.Noop.on_rule_enter
   let on_rule_exit = Instrumentation_core.Noop.on_rule_exit
   let on_clause_enter = Instrumentation_core.Noop.on_clause_enter

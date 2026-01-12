@@ -104,6 +104,9 @@ module M : Instrumentation_core.Handler.S = struct
           il_spec
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
+  (* Test lifecycle hooks - manage test case ID for coverage tracking *)
+  let on_test_start ~test_case_id = State.set_test_case_id test_case_id
+  let on_test_end ~test_case_id:_ = State.clear_test_case_id ()
   let on_rel_enter = Instrumentation_core.Noop.on_rel_enter
   let on_rel_exit = Instrumentation_core.Noop.on_rel_exit
   let on_rule_enter = Instrumentation_core.Noop.on_rule_enter

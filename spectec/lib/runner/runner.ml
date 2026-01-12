@@ -161,8 +161,8 @@ let run_with_outcome (type i) (module T : Task.S with type input = i)
 let run_with_outcome_no_lifecycle (type i)
     (module T : Task.S with type input = i) ~sl_mode ~spec_il (input : i) =
   let test_case_id = T.source input in
-  (* Set test case ID for coverage tracking *)
-  Instrumentation.Node_coverage_il.set_test_case_id test_case_id;
+  (* Notify handlers of test start *)
+  Instrumentation.Dispatcher.notify_test_start ~test_case_id;
   let result =
     try
       let handler = if sl_mode then Handlers.sl else Handlers.il in
@@ -177,12 +177,12 @@ let run_with_outcome_no_lifecycle (type i)
             let* _, values = eval_il_with_task_run (module T) spec_il input in
             Ok values)
     with e ->
-      (* Clear test case ID on exception *)
-      Instrumentation.Node_coverage_il.clear_test_case_id ();
+      (* Notify handlers of test end on exception *)
+      Instrumentation.Dispatcher.notify_test_end ~test_case_id;
       raise e
   in
-  (* Clear test case ID after execution *)
-  Instrumentation.Node_coverage_il.clear_test_case_id ();
+  (* Notify handlers of test end after execution *)
+  Instrumentation.Dispatcher.notify_test_end ~test_case_id;
   Task.compute_outcome (T.expectation input) result
 
 (* Result for a single test in a suite *)
@@ -207,7 +207,6 @@ let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
     List.mapi
       (fun idx input ->
         let source = T.source input in
-        Instrumentation.Node_coverage_il.clear_test_case_id ();
         if verbose then Format.printf "[%d/%d] %s... %!" (idx + 1) total source;
         let outcome =
           try run_with_outcome_no_lifecycle (module T) ~sl_mode ~spec_il input

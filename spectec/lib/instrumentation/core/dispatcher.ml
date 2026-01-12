@@ -23,6 +23,19 @@ let init ~spec =
   if !handlers <> [] then
     List.iter (fun (module H : Handler.S) -> H.init ~spec) !handlers
 
+(* Test lifecycle events - called by runner for each test case *)
+let notify_test_start ~test_case_id =
+  if !handlers <> [] then
+    List.iter
+      (fun (module H : Handler.S) -> H.on_test_start ~test_case_id)
+      !handlers
+
+let notify_test_end ~test_case_id =
+  if !handlers <> [] then
+    List.iter
+      (fun (module H : Handler.S) -> H.on_test_end ~test_case_id)
+      !handlers
+
 let notify_rel_enter ~id ~at ~values =
   if !handlers <> [] then
     List.iter

@@ -18,6 +18,10 @@ type spec = IlSpec of Il.spec | SlSpec of Sl.spec
 module type S = sig
   val init : spec:spec -> unit
 
+  (* Test lifecycle events - called by runner for each test case *)
+  val on_test_start : test_case_id:string -> unit
+  val on_test_end : test_case_id:string -> unit
+
   (* Common events *)
   val on_rel_enter : id:string -> at:region -> values:Il.Value.t list -> unit
   val on_rel_exit : id:string -> at:region -> success:bool -> unit

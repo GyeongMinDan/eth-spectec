@@ -6,6 +6,8 @@
 
 module M : Handler.S = struct
   let init ~spec:_ = ()
+  let on_test_start ~test_case_id:_ = ()
+  let on_test_end ~test_case_id:_ = ()
   let on_rel_enter ~id:_ ~at:_ ~values:_ = ()
   let on_rel_exit ~id:_ ~at:_ ~success:_ = ()
   let on_rule_enter ~id:_ ~rule_id:_ ~at:_ = ()
@@ -25,6 +27,8 @@ end
 
 (* Re-export for convenience *)
 let init = M.init
+let on_test_start = M.on_test_start
+let on_test_end = M.on_test_end
 let on_rel_enter = M.on_rel_enter
 let on_rel_exit = M.on_rel_exit
 let on_rule_enter = M.on_rule_enter
