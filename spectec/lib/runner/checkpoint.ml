@@ -114,7 +114,7 @@ let summary checkpoint =
 
 (* Display full checkpoint report with coverage data.
    Uses provided config for output destinations, or defaults to Full/stdout. *)
-let display_report ~(config : Instrumentation.Config.t) checkpoint =
+let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
   Format.printf "=== Checkpoint Contents ===\n\n";
   Format.printf "%s\n\n" (summary checkpoint);
   Format.printf "Completed tests: %d\n\n"
@@ -143,6 +143,7 @@ let display_report ~(config : Instrumentation.Config.t) checkpoint =
     ]
   in
   Instrumentation.Dispatcher.set_handlers handlers;
+  Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec);
   (* Restore state from checkpoint data *)
   (match checkpoint.coverage.branch with
   | Some branch_result -> Instrumentation.Branch_coverage.restore branch_result
