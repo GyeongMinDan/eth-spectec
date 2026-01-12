@@ -27,8 +27,14 @@ let fmt = ref Format.std_formatter
 
 (* === Types === *)
 
-(* Source path: e.g., ["state", "SLOT"] for state.SLOT *)
-type source_path = string list
+(* Input source: tracks which top-level input a path comes from *)
+type input_source = State | Block | Unknown
+
+(* Source path: tracks both the input source and the field path *)
+type source_path = {
+  source : input_source;
+  path : string list; (* e.g., ["SLOT"] for state.SLOT *)
+}
 
 (* Source environment: maps variable names to their source paths *)
 type source_env = (string, source_path) Hashtbl.t
@@ -94,43 +100,54 @@ let convert_cmpop (op : Il.cmpop) : cmp_op =
   | `GtOp -> Gt
   | `GeOp -> Ge
 
-(* Resolve an expression to a readable string representation *)
+(* Helper to append field to path *)
+let append_field (path : source_path) (field : string) : source_path =
+  { path with path = path.path @ [ field ] }
+
+(* Resolve an expression to a source path.
+ * Returns None if we can't determine the input source.
+ *)
 let rec resolve_to_path (env : source_env) (exp : Il.exp) : source_path option =
   match exp.it with
   (* Variables: look up in environment or use as-is *)
   | Il.VarE id -> (
       match lookup_source env id.it with
       | Some path -> Some path
-      | None -> Some [ id.it ])
+      | None -> Some { source = Unknown; path = [ id.it ] })
   (* Field access: base.field *)
   | Il.DotE (base, atom) -> (
       match resolve_to_path env base with
       | Some base_path ->
-          Some (base_path @ [ Lang.Xl.Atom.string_of_atom atom.it ])
+          Some (append_field base_path (Lang.Xl.Atom.string_of_atom atom.it))
       | None -> None)
   (* Array indexing: base[idx] *)
   | Il.IdxE (base, idx) -> (
       match (resolve_to_path env base, resolve_to_path env idx) with
       | Some base_path, Some idx_path ->
-          Some (base_path @ [ "[" ^ String.concat "." idx_path ^ "]" ])
-      | Some base_path, None -> Some (base_path @ [ "[?]" ])
+          let idx_str = String.concat "." idx_path.path in
+          Some (append_field base_path ("[" ^ idx_str ^ "]"))
+      | Some base_path, None -> Some (append_field base_path "[?]")
       | _ -> None)
   (* Length: |base| *)
   | Il.LenE base -> (
       match resolve_to_path env base with
-      | Some path -> Some [ "|" ^ String.concat "." path ^ "|" ]
+      | Some path -> Some (append_field path "|length|")
       | None -> None)
-  (* Constants *)
-  | Il.NumE n -> Some [ Lang.Xl.Num.string_of_num n ]
-  | Il.BoolE b -> Some [ string_of_bool b ]
-  | Il.TextE s -> Some [ "\"" ^ s ^ "\"" ]
+  (* Constants: these don't have an input source *)
+  | Il.NumE n ->
+      Some { source = Unknown; path = [ Lang.Xl.Num.string_of_num n ] }
+  | Il.BoolE b -> Some { source = Unknown; path = [ string_of_bool b ] }
+  | Il.TextE s -> Some { source = Unknown; path = [ "\"" ^ s ^ "\"" ] }
   (* Unary operations: ~e, -e *)
   | Il.UnE (op, _, inner) -> (
       let op_str =
         match op with `NotOp -> "~" | `PlusOp -> "+" | `MinusOp -> "-"
       in
       match resolve_to_path env inner with
-      | Some path -> Some [ op_str ^ "(" ^ String.concat "." path ^ ")" ]
+      | Some path ->
+          let path_str = String.concat "." path.path in
+          Some
+            { source = path.source; path = [ op_str ^ "(" ^ path_str ^ ")" ] }
       | None -> None)
   (* Binary operations: e1 + e2, e1 - e2, etc *)
   | Il.BinE (op, _, lhs, rhs) -> (
@@ -151,8 +168,11 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : source_path option =
       in
       match (resolve_to_path env lhs, resolve_to_path env rhs) with
       | Some l, Some r ->
-          Some
-            [ String.concat "." l ^ " " ^ op_str ^ " " ^ String.concat "." r ]
+          (* If both have same source, preserve it; otherwise Unknown *)
+          let source = if l.source = r.source then l.source else Unknown in
+          let l_str = String.concat "." l.path in
+          let r_str = String.concat "." r.path in
+          Some { source; path = [ l_str ^ " " ^ op_str ^ " " ^ r_str ] }
       | _ -> None)
   (* Subtype cast: just unwrap *)
   | Il.SubE (inner, _) -> resolve_to_path env inner
@@ -162,32 +182,41 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : source_path option =
   | Il.MemE (elem, container) -> (
       match (resolve_to_path env elem, resolve_to_path env container) with
       | Some e, Some c ->
-          Some [ String.concat "." e ^ " <- " ^ String.concat "." c ]
+          let source = if e.source = c.source then e.source else Unknown in
+          let e_str = String.concat "." e.path in
+          let c_str = String.concat "." c.path in
+          Some { source; path = [ e_str ^ " <- " ^ c_str ] }
       | _ -> None)
   (* Iteration: e* or e+ *)
   | Il.IterE (inner, _) -> resolve_to_path env inner
   (* Optional: e? *)
   | Il.OptE (Some inner) -> resolve_to_path env inner
-  | Il.OptE None -> Some [ "?" ]
+  | Il.OptE None -> Some { source = Unknown; path = [ "?" ] }
   (* Function calls: expand arguments *)
   | Il.CallE (id, _, args) ->
       let resolve_arg arg =
         match arg.it with
         | Il.ExpA exp -> (
             match resolve_to_path env exp with
-            | Some path -> String.concat "." path
+            | Some path -> String.concat "." path.path
             | None -> "?")
         | Il.DefA def_id -> "$" ^ def_id.it
       in
       let arg_strs = List.map resolve_arg args in
-      Some [ "$" ^ id.it ^ "(" ^ String.concat ", " arg_strs ^ ")" ]
+      Some
+        {
+          source = Unknown;
+          path = [ "$" ^ id.it ^ "(" ^ String.concat ", " arg_strs ^ ")" ];
+        }
   (* Match expressions *)
   | Il.MatchE (inner, _) -> (
       match resolve_to_path env inner with
-      | Some path -> Some [ String.concat "." path ^ " matches ..." ]
+      | Some path ->
+          let path_str = String.concat "." path.path in
+          Some { source = path.source; path = [ path_str ^ " matches ..." ] }
       | None -> None)
   (* Fallback: use IL printer *)
-  | _ -> Some [ Il.Print.string_of_exp exp ]
+  | _ -> Some { source = Unknown; path = [ Il.Print.string_of_exp exp ] }
 
 (* Analyze a comparison expression *)
 let analyze_cmp (env : source_env) (op : Il.cmpop) (lhs : Il.exp) (rhs : Il.exp)
@@ -211,7 +240,8 @@ let analyze_expression (env : source_env) (exp : Il.exp) : analyzed_expr =
       let resolve_arg arg =
         match arg.it with
         | Il.ExpA exp -> resolve_to_path env exp
-        | Il.DefA def_id -> Some [ "$" ^ def_id.it ]
+        | Il.DefA def_id ->
+            Some { source = Unknown; path = [ "$" ^ def_id.it ] }
       in
       let arg_paths = List.filter_map resolve_arg args in
       BoolCall (id.it, arg_paths)
@@ -228,7 +258,30 @@ let rec is_if_prem (prem : Il.prem) : bool =
 
 (* === String Formatting === *)
 
-let string_of_path (path : source_path) : string = String.concat "." path
+let string_of_input_source = function
+  | State -> "state"
+  | Block -> "block"
+  | Unknown -> "?"
+
+let string_of_path (path : source_path) : string =
+  (* If path starts with "$", it's a function call - don't add source prefix *)
+  match path.path with
+  | fst :: _ when String.length fst > 0 && fst.[0] = '$' ->
+      String.concat "." path.path
+  | _ -> (
+      (* Only add source prefix if source is not Unknown, or if path is empty *)
+      match (path.source, path.path) with
+      | Unknown, [] -> "?"
+      | Unknown, fields -> (
+          (* For Unknown source with fields, check if first field is "state" or "block" *)
+          (* If so, use that as the source instead of showing "?." *)
+          match fields with
+          | "state" :: rest -> "state" ^ "." ^ String.concat "." rest
+          | "block" :: rest -> "block" ^ "." ^ String.concat "." rest
+          | _ -> "?." ^ String.concat "." fields)
+      | source, [] -> string_of_input_source source
+      | source, fields ->
+          string_of_input_source source ^ "." ^ String.concat "." fields)
 
 let string_of_cmp_op = function
   | Eq -> "=="
@@ -247,7 +300,7 @@ let string_of_analyzed (expr : analyzed_expr) : string =
   match expr with
   | Comparison cmp -> string_of_comparison cmp
   | BoolCall (name, arg_paths) ->
-      let arg_strs = List.map (fun path -> String.concat "." path) arg_paths in
+      let arg_strs = List.map string_of_path arg_paths in
       Printf.sprintf "$%s(%s)" name (String.concat ", " arg_strs)
   | Unknown exp -> Il.Print.string_of_exp exp
 
@@ -336,14 +389,65 @@ end
 (* === Handler Implementation === *)
 
 module M : Instrumentation_core.Handler.S = struct
-  let init ~spec:_ = State.reset ()
+  (* Store relation input variable names from spec *)
+  let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
+
+  let init ~spec =
+    State.reset ();
+    Hashtbl.clear relation_inputs;
+    (* Extract input variable names from State_transition relation *)
+    match spec with
+    | Instrumentation_core.Handler.IlSpec il_spec ->
+        List.iter
+          (fun def ->
+            match def.it with
+            | Il.RelD (id, _, input_hints, rules) ->
+                if id.it = "State_transition" && rules <> [] then
+                  (* Get input expressions from first rule's notexp *)
+                  let rule = List.hd rules in
+                  let _, notexp, _ = rule.it in
+                  let _, exps = notexp in
+                  (* Split expressions based on input_hints (indices) *)
+                  let exps_input =
+                    exps
+                    |> List.mapi (fun idx exp -> (idx, exp))
+                    |> List.filter (fun (idx, _) -> List.mem idx input_hints)
+                    |> List.map snd
+                  in
+                  (* Extract variable names from input expressions *)
+                  let input_vars =
+                    List.filter_map
+                      (fun exp ->
+                        match exp.it with Il.VarE id -> Some id.it | _ -> None)
+                      exps_input
+                  in
+                  Hashtbl.replace relation_inputs id.it input_vars
+            | _ -> ())
+          il_spec
+    | Instrumentation_core.Handler.SlSpec _ -> ()
+
   let on_test_start = Instrumentation_core.Noop.on_test_start
   let on_test_end = Instrumentation_core.Noop.on_test_end
 
   (* Track relation/rule context and manage source env *)
-  let on_rel_enter ~id ~at:_ ~values:_ =
+  let on_rel_enter ~id ~at:_ ~values =
     State.current_relation := id;
-    State.push_frame ()
+    State.push_frame ();
+    (* For State_transition, bind input variables to state and block *)
+    if id = "State_transition" then
+      match Hashtbl.find_opt relation_inputs id with
+      | Some input_vars -> (
+          match (input_vars, values) with
+          | state_var :: block_var :: _, _state_val :: _block_val :: _ ->
+              (* Bind state variable to state input *)
+              bind_source State.env state_var { source = State; path = [] };
+              (* Bind block variable to block input *)
+              bind_source State.env block_var { source = Block; path = [] }
+          | _ -> ())
+      | None -> ()
+    else
+      (* For nested relations, we'll track input mappings when we see rule-premises *)
+      ()
 
   let on_rel_exit ~id:_ ~at:_ ~success:_ =
     State.pop_frame ();
