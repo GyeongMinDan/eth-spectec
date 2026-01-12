@@ -204,6 +204,7 @@ let eth_command =
       ("run", run_command);
       ("coverage", Eth_Cmd.make_coverage tasks);
       ("checkpoint", Eth_Cmd.make_checkpoint ());
+      ("testgen", Eth_Cmd.make_testgen ());
     ]
 
 let command =

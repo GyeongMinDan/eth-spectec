@@ -212,4 +212,92 @@ module Make (Tgt : Runner.Target.S) = struct
          | Ok () -> ()
          | Error error ->
              Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error error))
+
+  (* Generate "testgen" command *)
+  let make_testgen () =
+    Core.Command.basic
+      ~summary:
+        ("Generate test cases targeting uncovered premises for " ^ Tgt.name)
+      (let open Core.Command.Let_syntax in
+       let open Core.Command.Param in
+       let%map checkpoint_file =
+         flag "--checkpoint" (required string)
+           ~doc:"FILE checkpoint file to load coverage and dependency data"
+       and output_dir =
+         flag "--output" (optional string)
+           ~doc:
+             "DIR output directory for generated test cases (default: \
+              ./testgen_output)"
+       and premise_uids =
+         flag "--premises" (listed int)
+           ~doc:
+             "UID list of premise UIDs to generate tests for (if not provided, \
+              shows uncovered)"
+       and list_only =
+         flag "--list" no_arg
+           ~doc:" only list uncovered premises, don't generate tests"
+       in
+       fun () ->
+         let open Runner.Testgen in
+         try
+           (* Load checkpoint *)
+           let _checkpoint, coverage, dependency =
+             load_checkpoint checkpoint_file
+           in
+
+           (* Get uncovered premises *)
+           let uncovered = get_uncovered_premises coverage in
+
+           if list_only then (
+             (* Just list uncovered premises *)
+             Format.printf "Uncovered Premises (%d total):\n\n"
+               (List.length uncovered);
+             List.iter
+               (fun prem ->
+                 Format.printf "  UID %d: %s/%s\n    %s\n\n" prem.uid
+                   prem.relation prem.rule prem.content)
+               uncovered)
+           else
+             (* Generate test cases *)
+             let uids_to_generate =
+               match premise_uids with
+               | [] ->
+                   (* If no UIDs specified, ask user or generate for all *)
+                   Format.printf
+                     "No premise UIDs specified. Use --premises to select.\n";
+                   Format.printf "Uncovered Premises:\n";
+                   List.iter
+                     (fun prem ->
+                       Format.printf "  UID %d: %s/%s\n" prem.uid prem.relation
+                         prem.rule)
+                     uncovered;
+                   []
+               | uids -> uids
+             in
+
+             let output_path =
+               match output_dir with
+               | Some dir -> dir
+               | None -> "./testgen_output"
+             in
+
+             (* Create output directory *)
+             (try Unix.mkdir output_path 0o755 with Unix.Unix_error _ -> ());
+
+             (* Generate test cases for each selected premise *)
+             List.iter
+               (fun uid ->
+                 try
+                   let pre_path, block_path =
+                     generate_test_case uid coverage dependency None
+                   in
+                   Format.printf "Generated test case for premise UID %d:\n" uid;
+                   Format.printf "  Pre: %s\n" pre_path;
+                   Format.printf "  Block: %s\n\n" block_path
+                 with e ->
+                   Format.eprintf
+                     "Error generating test for premise UID %d: %s\n" uid
+                     (Printexc.to_string e))
+               uids_to_generate
+         with e -> Format.eprintf "Error: %s\n" (Printexc.to_string e))
 end
