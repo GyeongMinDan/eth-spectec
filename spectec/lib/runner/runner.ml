@@ -331,8 +331,8 @@ let run_target_coverage ?(config = Instrumentation.Config.default)
               Format.printf "Resuming from checkpoint: %s\n"
                 (Checkpoint.summary checkpoint);
             Some checkpoint
-        | Error error_message ->
-            Format.printf "Checkpoint error: %s\n" error_message;
+        | Error e ->
+            Format.printf "%s\n" (Error.string_of_error e);
             None)
     | None -> None
   in

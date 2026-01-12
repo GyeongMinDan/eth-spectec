@@ -203,6 +203,7 @@ module Make (Tgt : Runner.Target.S) = struct
            let* spec = parse_spec_files spec_files in
            let* spec_il = elaborate spec in
            let checkpoint = Checkpoint.load ~file:report_from in
+           let* _ = Checkpoint.verify_spec checkpoint ~spec_files in
            Checkpoint.display_report ~spec:spec_il
              ~config:instrumentation_config checkpoint;
            Ok ()

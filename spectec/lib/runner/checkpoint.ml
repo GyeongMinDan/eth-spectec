@@ -90,13 +90,7 @@ let load ~file =
 let verify_spec checkpoint ~spec_files =
   let current_hash = compute_spec_hash spec_files in
   if checkpoint.spec_hash = current_hash then Ok ()
-  else
-    Error
-      (Printf.sprintf
-         "Spec files have changed since checkpoint was created.\n\
-          Expected hash: %s\n\
-          Current hash:  %s"
-         checkpoint.spec_hash current_hash)
+  else Error (Error.SpecMismatchError (checkpoint.spec_hash, current_hash))
 
 (* Filter out already-completed inputs *)
 let filter_remaining checkpoint inputs ~get_id =

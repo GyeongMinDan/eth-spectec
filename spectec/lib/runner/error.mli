@@ -8,6 +8,7 @@ type t =
   | SlInterpError of region * string
   | P4ParseError of region * string
   | JsonParseError of region * string
+  | SpecMismatchError of string * string
   | DirectoryError of string
 
 val string_of_error : t -> string
