@@ -430,6 +430,47 @@ module M : Instrumentation_core.Handler.S = struct
       State.results
 end
 
+(* Result type for programmatic access and checkpoint restoration *)
+type result = {
+  results : (string * (string * analyzed_expr list) list) list;
+      (* relation -> (rule * analyzed_expr list) list *)
+}
+
+let get_result () =
+  {
+    results =
+      Hashtbl.fold
+        (fun rel rules acc ->
+          let rule_exprs =
+            Hashtbl.fold (fun rule exprs acc -> (rule, exprs) :: acc) rules []
+          in
+          (rel, rule_exprs) :: acc)
+        State.results [];
+  }
+
+(* Restore state from a previous result (for checkpoint resume) *)
+let restore result =
+  Hashtbl.clear State.results;
+  List.iter
+    (fun (rel, rule_exprs) ->
+      let rules = Hashtbl.create 20 in
+      List.iter
+        (fun (rule, exprs) -> Hashtbl.replace rules rule exprs)
+        rule_exprs;
+      Hashtbl.replace State.results rel rules)
+    result.results
+
+(* Handler with data access - implements S_with_data signature *)
+module HandlerWithData :
+  Instrumentation_core.Handler.S_with_data with type result = result = struct
+  include M
+
+  type nonrec result = result
+
+  let get_result = get_result
+  let restore = restore
+end
+
 let whitelist_default =
   [
     "State_transition";
@@ -469,3 +510,18 @@ let make cfg : (module Instrumentation_core.Handler.S) =
   fmt := Instrumentation_core.Output.formatter cfg.output;
   State.whitelist := whitelist_default;
   (module M)
+
+(* Create handler with data getter for programmatic access.
+   Usage:
+     let handler, get_dependency = Dependency.make_with_data cfg in
+     Hooks.set_handlers [handler];
+     (* ... run interpreter ... *)
+     let data = get_dependency () in
+*)
+let make_with_data cfg =
+  config := cfg;
+  fmt := Instrumentation_core.Output.formatter cfg.output;
+  State.whitelist := whitelist_default;
+  ( (module HandlerWithData : Instrumentation_core.Handler.S_with_data
+      with type result = result),
+    get_result )

@@ -354,6 +354,7 @@ let run_target_coverage ?(config = Instrumentation.Config.default)
                 branch = Some (Instrumentation.Branch_coverage.get_result ());
                 node_il = Some (Instrumentation.Node_coverage_il.get_result ());
                 node_sl = Some (Instrumentation.Node_coverage_sl.get_result ());
+                dependency = Some (Instrumentation.Dependency.get_result ());
               }
         in
         Checkpoint.save ~file checkpoint

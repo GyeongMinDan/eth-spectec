@@ -36,9 +36,11 @@ type coverage_state = {
   branch : Instrumentation.Branch_coverage.result option;
   node_il : Instrumentation.Node_coverage_il.result option;
   node_sl : Instrumentation.Node_coverage_sl.result option;
+  dependency : Instrumentation.Dependency.result option;
 }
 
-let empty_coverage = { branch = None; node_il = None; node_sl = None }
+let empty_coverage =
+  { branch = None; node_il = None; node_sl = None; dependency = None }
 
 (* Main checkpoint type - saved/loaded state *)
 type t = {
@@ -123,16 +125,17 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
   let branch_cfg =
     match config.branch_coverage with
     | Some cfg -> cfg
-    | None ->
-        Instrumentation.Branch_coverage.
-          { level = Full; output = Instrumentation.Output.stdout }
+    | None -> Instrumentation.Branch_coverage.default_config
   in
   let node_il_cfg =
     match config.node_coverage with
     | Some cfg -> cfg
-    | None ->
-        Instrumentation.Node_coverage_il.
-          { level = Full; output = Instrumentation.Output.stdout }
+    | None -> Instrumentation.Node_coverage_il.default_config
+  in
+  let dep_cfg =
+    match config.dependency with
+    | Some cfg -> cfg
+    | None -> Instrumentation.Dependency.default_config
   in
   (* Create handlers with configured outputs *)
   let handlers =
@@ -140,6 +143,7 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
       Instrumentation.Branch_coverage.make branch_cfg;
       Instrumentation.Node_coverage_il.make node_il_cfg;
       Instrumentation.Node_coverage_sl.make node_il_cfg;
+      Instrumentation.Dependency.make dep_cfg;
     ]
   in
   Instrumentation.Dispatcher.set_handlers handlers;
@@ -153,6 +157,9 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
   | None -> ());
   (match checkpoint.coverage.node_sl with
   | Some node_result -> Instrumentation.Node_coverage_sl.restore node_result
+  | None -> ());
+  (match checkpoint.coverage.dependency with
+  | Some dep_result -> Instrumentation.Dependency.restore dep_result
   | None -> ());
   (* Call finish to print the reports *)
   Instrumentation.Dispatcher.finish ();
