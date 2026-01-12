@@ -104,53 +104,6 @@ let eval_sl ?(config = Instrumentation.Config.default) spec_sl rid values_input
   Instrumentation.Config.close_outputs config;
   result
 
-(* Coverage suite runners - init once, run all files, finish once *)
-
-type suite_result = { passed : int; failed : int; total : int }
-type suite_input = (string * Il.Value.t list * string, Error.t) result
-
-(* General IL suite runner - takes a list of result-wrapped inputs *)
-let eval_il_suite ?(config = Instrumentation.Config.default) spec_il
-    (inputs : suite_input list) : suite_result =
-  let handlers = Instrumentation.Config.to_handlers config in
-  Instrumentation.Dispatcher.set_handlers handlers;
-  Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec_il);
-  let passed, failed =
-    List.fold_left
-      (fun (p, f) input ->
-        match input with
-        | Error _ -> (p, f + 1)
-        | Ok (rid, values, filename) -> (
-            let result = eval_il_run spec_il rid values filename in
-            match result with Ok _ -> (p + 1, f) | Error _ -> (p, f + 1)))
-      (0, 0) inputs
-  in
-  Instrumentation.Dispatcher.finish ();
-  Instrumentation.Config.close_outputs config;
-  { passed; failed; total = List.length inputs }
-
-(* General SL suite runner - takes a list of result-wrapped inputs *)
-let eval_sl_suite ?(config = Instrumentation.Config.default) spec_sl
-    (inputs : suite_input list) : suite_result =
-  let handlers = Instrumentation.Config.to_handlers config in
-  Instrumentation.Dispatcher.set_handlers handlers;
-  Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.SlSpec spec_sl);
-  let passed, failed =
-    List.fold_left
-      (fun (p, f) input ->
-        match input with
-        | Error _ -> (p, f + 1)
-        | Ok (rid, values, filename) -> (
-            let result = eval_sl_run spec_sl rid values filename in
-            match result with Ok _ -> (p + 1, f) | Error _ -> (p, f + 1)))
-      (0, 0) inputs
-  in
-  Instrumentation.Dispatcher.finish ();
-  Instrumentation.Config.close_outputs config;
-  { passed; failed; total = List.length inputs }
-
-(* --- T-spec-based runners --- *)
-
 (* Single-run with input spec - includes full init/finish lifecycle *)
 let eval_il_with_task (type input) (module T : Task.S with type input = input)
     ?(config = Instrumentation.Config.default) spec_il (input : input) =
@@ -173,30 +126,6 @@ let eval_sl_with_task_run (type input)
     =
   let* relation, values = T.parse ~spec:spec_il input in
   eval_sl_run spec_sl relation values (T.source input)
-
-(* Suite run with input spec *)
-let eval_il_suite_with_task (type i) (module T : Task.S with type input = i)
-    ?(config = Instrumentation.Config.default) spec_il (inputs : i list) =
-  let suite_inputs =
-    List.map
-      (fun input ->
-        T.parse ~spec:spec_il input
-        |> Result.map (fun (rel, vals) -> (rel, vals, T.source input)))
-      inputs
-  in
-  eval_il_suite ~config spec_il suite_inputs
-
-let eval_sl_suite_with_task (type i) (module T : Task.S with type input = i)
-    ?(config = Instrumentation.Config.default) spec_il spec_sl (inputs : i list)
-    =
-  let suite_inputs =
-    List.map
-      (fun input ->
-        T.parse ~spec:spec_il input
-        |> Result.map (fun (rel, vals) -> (rel, vals, T.source input)))
-      inputs
-  in
-  eval_sl_suite ~config spec_sl suite_inputs
 
 (* --- Higher-level runners using expectation and test_outcome --- *)
 
