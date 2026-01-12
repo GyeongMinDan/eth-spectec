@@ -106,6 +106,7 @@ rule InitiateValidatorExit/main:
   -- if $select_epoch_exit_queue(epoch_exit_queue_0, uint64_exit_queue_churn, uint64_churn_limit) = epoch_exit_queue
   ;; (6) update validator.exit_epoch / withdrawable_epoch
   -- if epoch_withdrawable = $( epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY )
+  -- if $(epoch_withdrawable <= $UINT64_MAX)
 
 ;; [Phase0 -> Altair -> Bellatrix]
 ;; slash_validator(state, slashed_index, whistleblower_index = None) : beaconState
