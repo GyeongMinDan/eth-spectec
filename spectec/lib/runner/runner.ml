@@ -188,27 +188,38 @@ type 'i test_result = {
 let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il
     ?(verbose = false) (inputs : i list) =
+  (* Initialize instrumentation once for the entire suite run *)
+  let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Dispatcher.set_handlers handlers;
+  Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec_il);
   let total = List.length inputs in
-  List.mapi
-    (fun idx input ->
-      let source = T.source input in
-      if verbose then Format.printf "[%d/%d] %s... %!" (idx + 1) total source;
-      let outcome =
-        try run_with_outcome (module T) ~config ~sl_mode ~spec_il input
-        with exn ->
-          let error =
-            Error.IlInterpError (Common.Source.no_region, Printexc.to_string exn)
-          in
-          Task.compute_outcome (T.expectation input) (Error error)
-      in
-      (if verbose then
-         match outcome with
-         | Task.Pass _ -> Format.printf "PASS\n%!"
-         | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
-         | Task.Fail _ -> Format.printf "FAIL\n%!"
-         | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!");
-      { input; source; outcome })
-    inputs
+  let results =
+    List.mapi
+      (fun idx input ->
+        let source = T.source input in
+        Instrumentation.Node_coverage_il.clear_test_case_id ();
+        if verbose then Format.printf "[%d/%d] %s... %!" (idx + 1) total source;
+        let outcome =
+          try run_with_outcome_no_lifecycle (module T) ~sl_mode ~spec_il input
+          with exception_value ->
+            let error =
+              Error.IlInterpError
+                (Common.Source.no_region, Printexc.to_string exception_value)
+            in
+            Task.compute_outcome (T.expectation input) (Error error)
+        in
+        (if verbose then
+           match outcome with
+           | Task.Pass _ -> Format.printf "PASS\n%!"
+           | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
+           | Task.Fail _ -> Format.printf "FAIL\n%!"
+           | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!");
+        { input; source; outcome })
+      inputs
+  in
+  Instrumentation.Dispatcher.finish ();
+  Instrumentation.Config.close_outputs config;
+  results
 
 (* Summary stats from suite results - tracks all four outcome types *)
 type suite_summary = {
