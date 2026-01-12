@@ -85,6 +85,12 @@ let notify_prem_enter ~prem ~at =
       (fun (module H : Handler.S) -> H.on_prem_enter ~prem ~at)
       !handlers
 
+let notify_prem_fields ~prem ~fields ~lookup ~at =
+  if !handlers <> [] then
+    List.iter
+      (fun (module H : Handler.S) -> H.on_prem_fields ~prem ~fields ~lookup ~at)
+      !handlers
+
 let notify_prem_exit ~prem ~at ~success =
   if !handlers <> [] then
     List.iter

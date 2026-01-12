@@ -9,18 +9,28 @@ module Profile = Instrumentation_handlers.Profile
 module Branch_coverage = Instrumentation_handlers.Branch_coverage
 module Node_coverage_il = Instrumentation_handlers.Node_coverage_il
 module Node_coverage_sl = Instrumentation_handlers.Node_coverage_sl
+module Dependency = Instrumentation_handlers.Dependency
 module Output = Instrumentation_core.Output
+
+(* Shared level type for node coverage and field deps *)
+type level = Summary | Full
 
 type t = {
   trace : Trace.config option;
   profile : Profile.config option;
   branch_coverage : Branch_coverage.config option;
   node_coverage : Node_coverage_il.config option;
-      (* shared by IL/SL - they're mutually exclusive at runtime *)
+  dependency : Dependency.config option;
 }
 
 let default =
-  { trace = None; profile = None; branch_coverage = None; node_coverage = None }
+  {
+    trace = None;
+    profile = None;
+    branch_coverage = None;
+    node_coverage = None;
+    dependency = None;
+  }
 
 (* Convert config to handler list *)
 let to_handlers config =
@@ -29,13 +39,16 @@ let to_handlers config =
   @ (match config.branch_coverage with
     | None -> []
     | Some cfg -> [ Branch_coverage.make cfg ])
+  @ (match config.node_coverage with
+    | None -> []
+    | Some cfg ->
+        (* Both IL and SL handlers share the same config;
+          they self-select based on spec type at init() *)
+        [ Node_coverage_il.make cfg; Node_coverage_sl.make cfg ])
   @
-  match config.node_coverage with
+  match config.dependency with
   | None -> []
-  | Some cfg ->
-      (* Both IL and SL handlers share the same config;
-         they self-select based on spec type at init() *)
-      [ Node_coverage_il.make cfg; Node_coverage_sl.make cfg ]
+  | Some cfg -> [ Dependency.make cfg ]
 
 (* Close all output destinations after finish() *)
 let close_outputs config =
@@ -46,4 +59,5 @@ let close_outputs config =
     config.branch_coverage;
   Option.iter
     (fun c -> Output.close c.Node_coverage_il.output)
-    config.node_coverage
+    config.node_coverage;
+  Option.iter (fun c -> Output.close c.Dependency.output) config.dependency

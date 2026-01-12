@@ -37,6 +37,10 @@ let config_flags =
     flag "--node-coverage" (optional int) ~doc:"LEVEL 1=summary, 2=full"
   and node_output =
     flag "--node-output" (optional string) ~doc:"FILE output file for node"
+  and dep_level =
+    flag "--dep-analysis" (optional int) ~doc:"LEVEL 1=summary, 2=full"
+  and dep_output =
+    flag "--dep-output" (optional string) ~doc:"FILE output file for dep"
   in
   Config.
     {
@@ -61,4 +65,10 @@ let config_flags =
             (parse_level ~summary:Node_coverage_il.Summary
                ~full:Node_coverage_il.Full node_level) ~output:node_output
           ~make_cfg:(fun ~level ~output -> Node_coverage_il.{ level; output });
+      dependency =
+        make_config
+          ~level_opt:
+            (parse_level ~summary:Dependency.Summary ~full:Dependency.Full
+               dep_level) ~output:dep_output ~make_cfg:(fun ~level ~output ->
+            Dependency.{ level; output });
     }

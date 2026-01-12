@@ -766,6 +766,10 @@ and eval_prem (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
     Ok ctx
   in
   Instrumentation.Dispatcher.notify_prem_enter ~prem ~at:prem.at;
+  (* Pass lookup function for variable resolution in handlers *)
+  let lookup id = Ctx.find_value_opt Local ctx (id $ no_region, []) in
+  Instrumentation.Dispatcher.notify_prem_fields ~prem ~fields:[] ~lookup
+    ~at:prem.at;
   let result =
     match prem.it with
     | RulePr (id, notexp) -> eval_rule_prem ctx id notexp

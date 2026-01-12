@@ -109,6 +109,7 @@ module M : Instrumentation_core.Handler.S = struct
       | _ -> State.incr State.prems_failed (prem_key prem)
 
   let on_instr = Instrumentation_core.Noop.on_instr
+  let on_prem_fields = Instrumentation_core.Noop.on_prem_fields
 
   (* --- Output: Summary mode (stats + uncovered only) --- *)
 

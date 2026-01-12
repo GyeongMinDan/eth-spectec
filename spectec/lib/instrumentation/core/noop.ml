@@ -18,6 +18,7 @@ module M : Handler.S = struct
   let on_iter_prem_exit ~at:_ = ()
   let on_prem_enter ~prem:_ ~at:_ = ()
   let on_prem_exit ~prem:_ ~at:_ ~success:_ = ()
+  let on_prem_fields ~prem:_ ~fields:_ ~lookup:_ ~at:_ = ()
   let on_instr ~instr:_ ~at:_ = ()
   let finish () = ()
 end
@@ -35,6 +36,7 @@ let on_clause_exit = M.on_clause_exit
 let on_iter_prem_enter = M.on_iter_prem_enter
 let on_iter_prem_exit = M.on_iter_prem_exit
 let on_prem_enter = M.on_prem_enter
+let on_prem_fields = M.on_prem_fields
 let on_prem_exit = M.on_prem_exit
 let on_instr = M.on_instr
 let finish = M.finish
