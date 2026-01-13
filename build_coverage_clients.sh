@@ -2,13 +2,15 @@
 # 
 # Ethereum Consensus Clients - Coverage Build Script
 # 
-# 이 스크립트는 각 클라이언트를 커버리지 측정이 가능한 상태로 빌드합니다.
 # 
 # Usage:
-#   ./build_coverage_clients.sh [client_name]
+#   ./build_coverage_clients.sh [client_name] [--nightly]
 #   
 #   client_name: prysm, lighthouse, teku, nimbus, lodestar, all (default: all)
+#   --nightly:    Use nightly Rust toolchain for Lighthouse (enables branch coverage)
 #
+# Note : This script is used to build the coverage clients with coverage instrumentation.
+# Note : Lighthouse uses nightly Rust toolchain for branch coverage.
 
 set -e
 
@@ -58,6 +60,8 @@ build_prysm() {
 
 # Lighthouse (Rust) - Build with LLVM coverage
 build_lighthouse() {
+    local use_nightly="${1:-true}"
+    
     print_info "Building Lighthouse with LLVM coverage instrumentation..."
     
     cd "${TESTING_CLIENTS_DIR}/lighthouse"
@@ -72,10 +76,36 @@ build_lighthouse() {
         print_warn "grcov not found. Install with: cargo install grcov"
     fi
     
-    # Build with coverage instrumentation
+    if [ "$use_nightly" = "true" ]; then
+        # Check if nightly toolchain is installed
+        if ! rustup toolchain list | grep -q "nightly"; then
+            print_warn "Nightly toolchain not found. Installing nightly..."
+            rustup install nightly
+        fi
+        
+        # Save current override state (if any) to restore later
+        local current_override=$(rustup override list | grep "$(pwd)" | awk '{print $2}' || echo "")
+        
+        # Use nightly toolchain for branch coverage support
+        # Note: We use 'cargo +nightly' instead of 'rustup override' to avoid
+        # permanently changing the directory's toolchain
+        print_info "Using nightly toolchain for branch coverage support"
+        print_info "  (Current override will be preserved: ${current_override:-none})"
+        
+        # Build with coverage instrumentation and branch coverage
+        # Note: -Z coverage-options=branch requires nightly
+        print_info "Running: RUSTFLAGS=\"-Cinstrument-coverage -Z coverage-options=branch\" cargo +nightly build --release --bin lcli"
+        export RUSTFLAGS="-Cinstrument-coverage -Z coverage-options=branch"
+        cargo +nightly build --release --bin lcli
+        
+        # Note: We don't change rustup override, so stable remains the default
+        # If user had an override before, it's still there
+    else
+        # Build with coverage instrumentation (stable)
     print_info "Running: RUSTFLAGS=\"-Cinstrument-coverage\" cargo build --release --bin lcli"
     export RUSTFLAGS="-Cinstrument-coverage"
     cargo build --release --bin lcli
+    fi
     
     if [ -f "target/release/lcli" ]; then
         # Copy to lcli-cov to preserve original binary
@@ -259,11 +289,34 @@ build_lodestar() {
 
 # Main script
 main() {
-    local target="${1:-all}"
+    local target="all"
+    local use_nightly="true"
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --nightly)
+                use_nightly="true"
+                shift
+                ;;
+            prysm|lighthouse|teku|nimbus|lodestar|all)
+                target="$1"
+                shift
+                ;;
+            *)
+                print_error "Unknown option: $1"
+                echo "Usage: $0 [prysm|lighthouse|teku|nimbus|lodestar|all] [--nightly]"
+                exit 1
+                ;;
+        esac
+    done
     
     echo "======================================"
     echo "Building Coverage-Instrumented Clients"
     echo "======================================"
+    if [ "$use_nightly" = "true" ]; then
+        echo "  (Using nightly toolchain for Lighthouse)"
+    fi
     echo ""
     
     case "$target" in
@@ -271,7 +324,7 @@ main() {
             build_prysm
             ;;
         lighthouse)
-            build_lighthouse
+            build_lighthouse "$use_nightly"
             ;;
         teku)
             build_teku
@@ -289,7 +342,7 @@ main() {
             build_prysm || print_error "Prysm build failed"
             echo ""
             
-            build_lighthouse || print_error "Lighthouse build failed"
+            build_lighthouse "$use_nightly" || print_error "Lighthouse build failed"
             echo ""
             
             build_teku || print_error "Teku build failed"
@@ -303,7 +356,7 @@ main() {
             ;;
         *)
             print_error "Unknown target: $target"
-            echo "Usage: $0 [prysm|lighthouse|teku|nimbus|lodestar|all]"
+            echo "Usage: $0 [prysm|lighthouse|teku|nimbus|lodestar|all] [--nightly]"
             exit 1
             ;;
     esac
