@@ -130,11 +130,36 @@ let add_value ?(shadow = false) (cursor : cursor) (ctx : t) (var : Var.t)
   (if cursor = Global then
      let id, _ = var in
      error id.at "cannot add value to global context");
-  (if (not shadow) && bound_value cursor ctx var then
+  (if (not shadow) && VEnv.mem var ctx.local.venv then
      let id, _ = var in
      error_dup id.at "value" (Var.to_string var));
   let venv = VEnv.add var value ctx.local.venv in
-  { ctx with local = { ctx.local with venv } }
+  if venv == ctx.local.venv then ctx
+  else { ctx with local = { ctx.local with venv } }
+
+(* Batch add multiple values efficiently *)
+let add_values ?(shadow = false) (cursor : cursor) (ctx : t)
+    (bindings : (Var.t * Value.t) list) : t =
+  (if cursor = Global && bindings <> [] then
+     let id, _ = fst (List.hd bindings) in
+     error id.at "cannot add value to global context");
+  (* Check for duplicates if not shadowing *)
+  if not shadow then
+    List.iter
+      (fun (var, _) ->
+        if bound_value cursor ctx var then
+          let id, _ = var in
+          error_dup id.at "value" (Var.to_string var))
+      bindings;
+  (* Build venv in one pass *)
+  let venv =
+    List.fold_left
+      (fun venv (var, value) -> VEnv.add var value venv)
+      ctx.local.venv bindings
+  in
+  (* Optimize: avoid creating new context if venv unchanged *)
+  if venv == ctx.local.venv then ctx
+  else { ctx with local = { ctx.local with venv } }
 
 (* Adders for type definitions *)
 
@@ -146,6 +171,30 @@ let add_typdef (cursor : cursor) (ctx : t) (tid : TId.t) (td : Typdef.t) : t =
       { ctx with global = { ctx.global with tdenv } }
   | Local ->
       let tdenv = TDEnv.add tid td ctx.local.tdenv in
+      { ctx with local = { ctx.local with tdenv } }
+
+(* Batch add multiple type definitions efficiently *)
+let add_typdefs (cursor : cursor) (ctx : t) (bindings : (TId.t * Typdef.t) list)
+    : t =
+  (* Check for duplicates *)
+  List.iter
+    (fun (tid, _) ->
+      if bound_typdef cursor ctx tid then error_dup tid.at "type" tid.it)
+    bindings;
+  match cursor with
+  | Global ->
+      let tdenv =
+        List.fold_left
+          (fun tdenv (tid, td) -> TDEnv.add tid td tdenv)
+          ctx.global.tdenv bindings
+      in
+      { ctx with global = { ctx.global with tdenv } }
+  | Local ->
+      let tdenv =
+        List.fold_left
+          (fun tdenv (tid, td) -> TDEnv.add tid td tdenv)
+          ctx.local.tdenv bindings
+      in
       { ctx with local = { ctx.local with tdenv } }
 
 (* Adders for relations *)
@@ -172,11 +221,15 @@ let add_func (cursor : cursor) (ctx : t) (fid : FId.t) (func : Func.t) : t =
 
 (* Constructing an empty context *)
 
-let empty_global () : global =
+(* Cache empty environments to avoid recreating them *)
+let empty_global_cached : global =
   { tdenv = TDEnv.empty; renv = REnv.empty; fenv = FEnv.empty }
 
-let empty_local () : local =
+let empty_local_cached : local =
   { tdenv = TDEnv.empty; fenv = FEnv.empty; venv = VEnv.empty }
+
+let empty_global () : global = empty_global_cached
+let empty_local () : local = empty_local_cached
 
 let empty (filename : string) : t =
   let global = empty_global () in
@@ -184,10 +237,7 @@ let empty (filename : string) : t =
   { filename; global; local }
 
 (* Constructing a local context *)
-
-let localize (ctx : t) : t =
-  let local = empty_local () in
-  { ctx with local }
+let localize (ctx : t) : t = { ctx with local = empty_local () }
 
 (* Constructing sub-contexts *)
 
@@ -202,12 +252,13 @@ let sub_opt (ctx : t) (vars : var list) : t option attempt =
   (* Iteration is valid when all variables agree on their optionality *)
   if List.for_all Option.is_some values then
     let values = List.map Option.get values in
-    let ctx_sub =
+    (* Build venv in one pass to avoid intermediate context creations *)
+    let venv_sub =
       List.fold_left2
-        (fun ctx_sub (id, _typ, iters) value ->
-          add_value ~shadow:true Local ctx_sub (id, iters) value)
-        ctx vars values
+        (fun venv (id, _typ, iters) value -> VEnv.add (id, iters) value venv)
+        ctx.local.venv vars values
     in
+    let ctx_sub = { ctx with local = { ctx.local with venv = venv_sub } } in
     Ok (Some ctx_sub)
   else if List.for_all Option.is_none values then Ok None
   else fail no_region "mismatch in optionality of iterated variables"
@@ -249,15 +300,17 @@ let sub_list (ctx : t) (vars : var list) : t list attempt =
     |> transpose
   in
   (* For each batch of values, create a sub-context *)
+  (* Build venv in one pass per batch to avoid intermediate context creations *)
   let ctxs_sub =
     List.fold_left
       (fun ctxs_sub_rev value_batch ->
-        let ctx_sub =
+        let venv_sub =
           List.fold_left2
-            (fun ctx_sub (id, _typ, iters) value ->
-              add_value ~shadow:true Local ctx_sub (id, iters) value)
-            ctx vars value_batch
+            (fun venv (id, _typ, iters) value ->
+              VEnv.add (id, iters) value venv)
+            ctx.local.venv vars value_batch
         in
+        let ctx_sub = { ctx with local = { ctx.local with venv = venv_sub } } in
         ctx_sub :: ctxs_sub_rev)
       [] values_batch
     |> List.rev
