@@ -20,7 +20,8 @@ let parse_json ~spec filename input_type =
   let ctx_init = Interp.Eval_Il.Ctx.empty filename in
   let ctx = Interp.Eval_Il.Interp.load_spec ctx_init spec in
   let json_data = Yojson.Safe.from_file filename in
-  Interface.JSON.Parse.json_to_value ctx.global.tdenv
+  Interface.JSON.Parse.json_to_value
+    (Interp.Eval_Il.Ctx.tdenv_to_map ctx)
     (Lang.Il.Typ.var input_type [])
     json_data
   |> Result.map_error (fun err ->

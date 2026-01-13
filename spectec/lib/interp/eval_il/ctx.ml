@@ -8,6 +8,30 @@ module Value = Lang.Il.Value
 open Error
 open Attempt
 
+(* Custom hash table modules for global environments *)
+(* These use string-based hashing/equality to match Map.Make behavior *)
+
+module TIdHashtbl = Hashtbl.Make (struct
+  type t = TId.t
+
+  let equal id1 id2 = id1.it = id2.it (* Compare by string, ignore location *)
+  let hash id = Hashtbl.hash id.it (* Hash by string content *)
+end)
+
+module RIdHashtbl = Hashtbl.Make (struct
+  type t = RId.t
+
+  let equal id1 id2 = id1.it = id2.it
+  let hash id = Hashtbl.hash id.it
+end)
+
+module FIdHashtbl = Hashtbl.Make (struct
+  type t = FId.t
+
+  let equal id1 id2 = id1.it = id2.it
+  let hash id = Hashtbl.hash id.it
+end)
+
 (* Error *)
 
 let error_undef (at : region) (kind : string) (id : string) =
@@ -22,15 +46,15 @@ type cursor = Global | Local
 
 (* Context *)
 
-(* Global layer *)
+(* Global layer - now using mutable hashtables *)
 
 type global = {
-  (* Map from syntax ids to type definitions *)
-  tdenv : TDEnv.t;
-  (* Map from relation ids to relations *)
-  renv : REnv.t;
-  (* Map from function ids to functions *)
-  fenv : FEnv.t;
+  (* Hashtable from syntax ids to type definitions *)
+  tdenv : Typdef.t TIdHashtbl.t;
+  (* Hashtable from relation ids to relations *)
+  renv : Rel.t RIdHashtbl.t;
+  (* Hashtable from function ids to functions *)
+  fenv : Func.t FIdHashtbl.t;
 }
 
 (* Local layer *)
@@ -75,7 +99,7 @@ let bound_value (cursor : cursor) (ctx : t) (var : Var.t) : bool =
 let rec find_typdef_opt (cursor : cursor) (ctx : t) (tid : TId.t) :
     Typdef.t option =
   match cursor with
-  | Global -> TDEnv.find_opt tid ctx.global.tdenv
+  | Global -> TIdHashtbl.find_opt ctx.global.tdenv tid
   | Local -> (
       match TDEnv.find_opt tid ctx.local.tdenv with
       | Some td -> Some td
@@ -87,27 +111,32 @@ let find_typdef (cursor : cursor) (ctx : t) (tid : TId.t) : Typdef.t =
   | None -> error_undef tid.at "type" tid.it
 
 let bound_typdef (cursor : cursor) (ctx : t) (tid : TId.t) : bool =
-  find_typdef_opt cursor ctx tid |> Option.is_some
+  match cursor with
+  | Global -> TIdHashtbl.mem ctx.global.tdenv tid
+  | Local -> (
+      match TDEnv.find_opt tid ctx.local.tdenv with
+      | Some _ -> true
+      | None -> TIdHashtbl.mem ctx.global.tdenv tid)
 
 (* Finders for rules *)
 
 let find_rel_opt (_cursor : cursor) (ctx : t) (rid : RId.t) : Rel.t option =
-  REnv.find_opt rid ctx.global.renv
+  RIdHashtbl.find_opt ctx.global.renv rid
 
 let find_rel (cursor : cursor) (ctx : t) (rid : RId.t) : Rel.t =
   match find_rel_opt cursor ctx rid with
   | Some rel -> rel
   | None -> error_undef rid.at "relation" rid.it
 
-let bound_rel (cursor : cursor) (ctx : t) (rid : RId.t) : bool =
-  find_rel_opt cursor ctx rid |> Option.is_some
+let bound_rel (_cursor : cursor) (ctx : t) (rid : RId.t) : bool =
+  RIdHashtbl.mem ctx.global.renv rid
 
 (* Finders for definitions *)
 
 let rec find_func_opt (cursor : cursor) (ctx : t) (fid : FId.t) : Func.t option
     =
   match cursor with
-  | Global -> FEnv.find_opt fid ctx.global.fenv
+  | Global -> FIdHashtbl.find_opt ctx.global.fenv fid
   | Local -> (
       match FEnv.find_opt fid ctx.local.fenv with
       | Some func -> Some func
@@ -119,7 +148,12 @@ let find_func (cursor : cursor) (ctx : t) (fid : FId.t) : Func.t =
   | None -> error_undef fid.at "function" fid.it
 
 let bound_func (cursor : cursor) (ctx : t) (fid : FId.t) : bool =
-  find_func_opt cursor ctx fid |> Option.is_some
+  match cursor with
+  | Global -> FIdHashtbl.mem ctx.global.fenv fid
+  | Local -> (
+      match FEnv.find_opt fid ctx.local.fenv with
+      | Some _ -> true
+      | None -> FIdHashtbl.mem ctx.global.fenv fid)
 
 (* Adders *)
 
@@ -164,32 +198,38 @@ let add_values ?(shadow = false) (cursor : cursor) (ctx : t)
 (* Adders for type definitions *)
 
 let add_typdef (cursor : cursor) (ctx : t) (tid : TId.t) (td : Typdef.t) : t =
-  if bound_typdef cursor ctx tid then error_dup tid.at "type" tid.it;
   match cursor with
   | Global ->
-      let tdenv = TDEnv.add tid td ctx.global.tdenv in
-      { ctx with global = { ctx.global with tdenv } }
+      if TIdHashtbl.mem ctx.global.tdenv tid then error_dup tid.at "type" tid.it;
+      TIdHashtbl.add ctx.global.tdenv tid td;
+      ctx (* No copy needed - mutation in place *)
   | Local ->
+      if bound_typdef cursor ctx tid then error_dup tid.at "type" tid.it;
       let tdenv = TDEnv.add tid td ctx.local.tdenv in
       { ctx with local = { ctx.local with tdenv } }
 
 (* Batch add multiple type definitions efficiently *)
 let add_typdefs (cursor : cursor) (ctx : t) (bindings : (TId.t * Typdef.t) list)
     : t =
-  (* Check for duplicates *)
-  List.iter
-    (fun (tid, _) ->
-      if bound_typdef cursor ctx tid then error_dup tid.at "type" tid.it)
-    bindings;
   match cursor with
   | Global ->
-      let tdenv =
-        List.fold_left
-          (fun tdenv (tid, td) -> TDEnv.add tid td tdenv)
-          ctx.global.tdenv bindings
-      in
-      { ctx with global = { ctx.global with tdenv } }
+      (* Check for duplicates first *)
+      List.iter
+        (fun (tid, _) ->
+          if TIdHashtbl.mem ctx.global.tdenv tid then
+            error_dup tid.at "type" tid.it)
+        bindings;
+      (* Add all at once - mutation in place *)
+      List.iter
+        (fun (tid, td) -> TIdHashtbl.add ctx.global.tdenv tid td)
+        bindings;
+      ctx (* No copy needed *)
   | Local ->
+      (* Check for duplicates *)
+      List.iter
+        (fun (tid, _) ->
+          if bound_typdef cursor ctx tid then error_dup tid.at "type" tid.it)
+        bindings;
       let tdenv =
         List.fold_left
           (fun tdenv (tid, td) -> TDEnv.add tid td tdenv)
@@ -201,19 +241,21 @@ let add_typdefs (cursor : cursor) (ctx : t) (bindings : (TId.t * Typdef.t) list)
 
 let add_rel (cursor : cursor) (ctx : t) (rid : RId.t) (rel : Rel.t) : t =
   if cursor = Local then error rid.at "cannot add relation to local context";
-  if bound_rel cursor ctx rid then error_dup rid.at "relation" rid.it;
-  let renv = REnv.add rid rel ctx.global.renv in
-  { ctx with global = { ctx.global with renv } }
+  if RIdHashtbl.mem ctx.global.renv rid then error_dup rid.at "relation" rid.it;
+  RIdHashtbl.add ctx.global.renv rid rel;
+  ctx (* No copy needed - mutation in place *)
 
 (* Adders for functions *)
 
 let add_func (cursor : cursor) (ctx : t) (fid : FId.t) (func : Func.t) : t =
-  if bound_func cursor ctx fid then error_dup fid.at "function" fid.it;
   match cursor with
   | Global ->
-      let fenv = FEnv.add fid func ctx.global.fenv in
-      { ctx with global = { ctx.global with fenv } }
+      if FIdHashtbl.mem ctx.global.fenv fid then
+        error_dup fid.at "function" fid.it;
+      FIdHashtbl.add ctx.global.fenv fid func;
+      ctx (* No copy needed - mutation in place *)
   | Local ->
+      if bound_func cursor ctx fid then error_dup fid.at "function" fid.it;
       let fenv = FEnv.add fid func ctx.local.fenv in
       { ctx with local = { ctx.local with fenv } }
 
@@ -222,19 +264,28 @@ let add_func (cursor : cursor) (ctx : t) (fid : FId.t) (func : Func.t) : t =
 (* Constructing an empty context *)
 
 (* Cache empty environments to avoid recreating them *)
-let empty_global_cached : global =
-  { tdenv = TDEnv.empty; renv = REnv.empty; fenv = FEnv.empty }
+let empty_global () : global =
+  {
+    tdenv = TIdHashtbl.create 64;
+    renv = RIdHashtbl.create 64;
+    fenv = FIdHashtbl.create 64;
+  }
 
 let empty_local_cached : local =
   { tdenv = TDEnv.empty; fenv = FEnv.empty; venv = VEnv.empty }
 
-let empty_global () : global = empty_global_cached
 let empty_local () : local = empty_local_cached
 
 let empty (filename : string) : t =
   let global = empty_global () in
   let local = empty_local () in
   { filename; global; local }
+
+(* Helper: Convert global tdenv Hashtbl to Map for external interfaces *)
+let tdenv_to_map (ctx : t) : TDEnv.t =
+  TIdHashtbl.fold
+    (fun tid td acc -> TDEnv.add tid td acc)
+    ctx.global.tdenv TDEnv.empty
 
 (* Constructing a local context *)
 let localize (ctx : t) : t = { ctx with local = empty_local () }

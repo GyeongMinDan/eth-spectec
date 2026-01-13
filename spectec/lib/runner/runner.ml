@@ -461,7 +461,8 @@ let parse_json filename_target input_type spec_il : Il.Value.t pipeline_result =
     let ctx = Eval_Il.Interp.load_spec ctx_init spec_il in
     let json_data = Yojson.Safe.from_file filename_target in
     let* value_il =
-      Interface.JSON.Parse.json_to_value ctx.global.tdenv
+      Interface.JSON.Parse.json_to_value
+        (Eval_Il.Ctx.tdenv_to_map ctx)
         (Il.Typ.var input_type []) json_data
       |> Result.map_error (fun err ->
              let msg = Interface.JSON.Parse.string_of_error err in
