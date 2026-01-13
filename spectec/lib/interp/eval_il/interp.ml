@@ -60,36 +60,41 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
       assign_exp ctx exp_t value_t
   | IterE (_, (Opt, vars)), OptV None ->
       (* Per iterated variable, make an option out of the value *)
-      List.fold_left
-        (fun ctx (id, typ, iters) ->
-          let value_sub =
-            let typ = Lang.Il.Typ.iterate typ (iters @ [ Opt ]) in
-            None |> Value.Make.opt typ.it
-          in
-          Ctx.add_value Local ctx (id, iters @ [ Opt ]) value_sub)
-        ctx vars
+      let bindings =
+        List.map
+          (fun (id, typ, iters) ->
+            let value_sub =
+              let typ = Lang.Il.Typ.iterate typ (iters @ [ Opt ]) in
+              None |> Value.Make.opt typ.it
+            in
+            ((id, iters @ [ Opt ]), value_sub))
+          vars
+      in
+      Ctx.add_values Local ctx bindings
   | IterE (exp, (Opt, vars)), OptV (Some value) ->
       (* Assign the value to the iterated expression *)
       let ctx = assign_exp ctx exp value in
       (* Per iterated variable, make an option out of the value *)
-      List.fold_left
-        (fun ctx (id, typ, iters) ->
-          let value_sub =
-            let value = Ctx.find_value Local ctx (id, iters) in
-            let typ = Lang.Il.Typ.iterate typ (iters @ [ Opt ]) in
-            Some value |> Value.Make.opt typ.it
-          in
-          Ctx.add_value Local ctx (id, iters @ [ Opt ]) value_sub)
-        ctx vars
+      let bindings =
+        List.map
+          (fun (id, typ, iters) ->
+            let value_sub =
+              let value = Ctx.find_value Local ctx (id, iters) in
+              let typ = Lang.Il.Typ.iterate typ (iters @ [ Opt ]) in
+              Some value |> Value.Make.opt typ.it
+            in
+            ((id, iters @ [ Opt ]), value_sub))
+          vars
+      in
+      Ctx.add_values Local ctx bindings
   | IterE (exp, (List, vars)), ListV values ->
       (* Map over the value list elements,
          and assign each value to the iterated expression *)
       let ctxs_rev =
         List.fold_left
           (fun ctxs_rev value ->
-            let ctx =
-              { ctx with local = { ctx.local with venv = VEnv.empty } }
-            in
+            (* Use localize to reuse cached empty local *)
+            let ctx = Ctx.localize ctx in
             let ctx = assign_exp ctx exp value in
             ctx :: ctxs_rev)
           [] values
@@ -296,12 +301,14 @@ let rec eval_exp (ctx : Ctx.t) (exp : exp) : Ctx.t * value =
   | IterE (exp, iterexp) -> eval_iter_exp note ctx exp iterexp
 
 and eval_exps (ctx : Ctx.t) (exps : exp list) : Ctx.t * value list =
-  List.fold_left
-    (fun (ctx, values) exp ->
-      let ctx, value = eval_exp ctx exp in
-      (ctx, values @ [ value ]))
-    (ctx, []) exps
-
+  let ctx, values_rev =
+    List.fold_left
+      (fun (ctx, values_rev) exp ->
+        let ctx, value = eval_exp ctx exp in
+        (ctx, value :: values_rev))
+      (ctx, []) exps
+  in
+  (ctx, List.rev values_rev)
 (* Unary expression evaluation *)
 
 and eval_un_exp (note : typ') (ctx : Ctx.t) (unop : unop) (_optyp : optyp)
@@ -831,20 +838,19 @@ and eval_iter_prem_list (ctx : Ctx.t) (prem : prem) (vars : var list) :
         Ok (ctx, values_binding)
   in
   (* Finally, bind the resulting binding batches *)
-  let ctx =
-    List.fold_left2
-      (fun ctx (id_binding, typ_binding, iters_binding) values_binding ->
+  let bindings =
+    List.map2
+      (fun (id_binding, typ_binding, iters_binding) values_binding ->
         let value_binding =
           let typ =
             Lang.Il.Typ.iterate typ_binding (iters_binding @ [ List ])
           in
           values_binding |> Value.Make.list typ.it
         in
-        Ctx.add_value Local ctx
-          (id_binding, iters_binding @ [ List ])
-          value_binding)
-      ctx vars_binding values_binding
+        ((id_binding, iters_binding @ [ List ]), value_binding))
+      vars_binding values_binding
   in
+  let ctx = Ctx.add_values Local ctx bindings in
   Ok ctx
 
 and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
@@ -1020,7 +1026,6 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
     let invoke_func_builtin' () =
       Instrumentation.Dispatcher.notify_clause_enter ~id:id.it ~clause_idx:0
         ~at:id.at;
-      let _ = Ctx.localize ctx in
       let value_output =
         Builtins.invoke id targs values_input |> unwrap_builtin
       in
@@ -1071,13 +1076,12 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
               check
                 (List.length targs = List.length tparams)
                 id.at "arity mismatch in type arguments";
-              let ctx_local =
-                List.fold_left2
-                  (fun ctx_local tparam targ ->
-                    Ctx.add_typdef Local ctx_local tparam
-                      ([], PlainT targ $ targ.at))
-                  ctx_local tparams targs
+              let typdef_bindings =
+                List.map2
+                  (fun tparam targ -> (tparam, ([], PlainT targ $ targ.at)))
+                  tparams targs
               in
+              let ctx_local = Ctx.add_typdefs Local ctx_local typdef_bindings in
               (* Try to match the clause *)
               let ctx_local, args_input, prems, exp_output =
                 match_clause ctx ctx_local clause values_input

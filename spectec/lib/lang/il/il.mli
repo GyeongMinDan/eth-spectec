@@ -2,7 +2,6 @@
     after elaboration. *)
 
 include module type of Types
-module Effects : module type of Effects
 module Eq : module type of Eq
 module Free : module type of Free
 module Utils : module type of Utils

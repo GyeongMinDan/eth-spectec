@@ -1,5 +1,4 @@
 open Lang
-open Lang.Il
 open Pass
 open Interface
 open Interp
@@ -16,30 +15,22 @@ module Handlers = struct
   let il f =
     let vid_counter = ref 0 in
     let tid_counter = ref 0 in
-    Effect.Deep.try_with f ()
-      {
-        effc =
-          (fun (type a) (eff : a Effect.t) ->
-            match eff with
-            | Effects.FreshVid ->
-                Some
-                  (fun (k : (a, _) Effect.Deep.continuation) ->
-                    let id = !vid_counter in
-                    incr vid_counter;
-                    Effect.Deep.continue k (fun () -> id))
-            | Effects.FreshTid ->
-                Some
-                  (fun (k : (a, _) Effect.Deep.continuation) ->
-                    let tid = "FRESH__" ^ string_of_int !tid_counter in
-                    incr tid_counter;
-                    Effect.Deep.continue k (fun () -> tid))
-            | Effects.ValueCreated _ ->
-                Some
-                  (fun (k : (a, _) Effect.Deep.continuation) ->
-                    (* No-op *)
-                    Effect.Deep.continue k ())
-            | _ -> None (* Other effects *));
-      }
+
+    let fresh_vid () =
+      let vid = !vid_counter in
+      incr vid_counter;
+      vid
+    in
+    Lang.Il.Value.GlobalVidProvider.set fresh_vid;
+
+    let fresh_tid () =
+      let tid = "FRESH__" ^ string_of_int !tid_counter in
+      incr tid_counter;
+      tid
+    in
+    Builtin_p4.Fresh.GlobalTidProvider.set fresh_tid;
+
+    f ()
 
   (* SL interpreter uses IL handler for now *)
   let sl = il
@@ -470,7 +461,8 @@ let parse_json filename_target input_type spec_il : Il.Value.t pipeline_result =
     let ctx = Eval_Il.Interp.load_spec ctx_init spec_il in
     let json_data = Yojson.Safe.from_file filename_target in
     let* value_il =
-      Interface.JSON.Parse.json_to_value ctx.global.tdenv
+      Interface.JSON.Parse.json_to_value
+        (Eval_Il.Ctx.tdenv_to_map ctx)
         (Il.Typ.var input_type []) json_data
       |> Result.map_error (fun err ->
              let msg = Interface.JSON.Parse.string_of_error err in

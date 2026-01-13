@@ -1,6 +1,5 @@
 open Types
 open Common.Source
-open Effects
 
 type t = value
 
@@ -75,34 +74,83 @@ let eq (value_l : t) (value_r : t) : bool =
       len_l = len_r && Bigint.compare n_l n_r = 0
   | _ -> compare value_l value_r = 0
 
-(* what is this? -> vid?? -> types.ml -> problem solve?? -> OK*)
-let with_fresh_vid (typ : typ') : vnote =
-  let vid = Effect.perform FreshVid () in
-  { vid; typ }
-
-let make_val (typ : typ') (v : value') : t =
-  let value = v $$$ with_fresh_vid typ in
-  Effect.perform (ValueCreated value);
-  value
-
-module Make = struct
-  let value (t' : typ') (v : value') : t = make_val t' v
-  let bool (t' : typ') (b : bool) : t = make_val t' (BoolV b)
-  let num (t' : typ') (n : num) : t = make_val t' (NumV n)
-  let nat (t' : typ') (n : Bigint.t) : t = make_val t' (NumV (`Nat n))
-  let int (t' : typ') (n : Bigint.t) : t = make_val t' (NumV (`Int n))
-  let text (t' : typ') (s : string) : t = make_val t' (TextV s)
-  let tuple (t' : typ') (vs : t list) : t = make_val t' (TupleV vs)
-
-  let record (t' : typ') (fs : valuefield list) : value =
-    make_val t' (StructV fs)
-
-  let opt (t' : typ') (v : t option) : t = make_val t' (OptV v)
-  let list (t' : typ') (vs : t list) : t = make_val t' (ListV vs)
-
-  let case (t' : typ') (cases : mixop * value list) : t =
-    make_val t' (CaseV cases)
+(* Vid provider signature *)
+module type VidProvider = sig
+  val fresh : unit -> vid
 end
+
+(* Global mutable vid provider for shared use across parsing and interpretation *)
+module GlobalVidProvider = struct
+  let provider : (unit -> vid) ref = ref (fun () -> 0)
+  let set (p : unit -> vid) = provider := p
+  let reset () = provider := fun () -> 0
+  let fresh () = !provider ()
+end
+
+(* Functor for creating value module with custom vid provider *)
+module MakeWithVid (VidProvider : VidProvider) = struct
+  let with_fresh_vid (typ : typ') : vnote =
+    let vid = VidProvider.fresh () in
+    { vid; typ }
+
+  let make_val (typ : typ') (v : value') : t =
+    let value = v $$$ with_fresh_vid typ in
+    value
+
+  module Make = struct
+    let value (t' : typ') (v : value') : t = make_val t' v
+    let bool (t' : typ') (b : bool) : t = make_val t' (BoolV b)
+    let num (t' : typ') (n : num) : t = make_val t' (NumV n)
+    let nat (t' : typ') (n : Bigint.t) : t = make_val t' (NumV (`Nat n))
+    let int (t' : typ') (n : Bigint.t) : t = make_val t' (NumV (`Int n))
+    let text (t' : typ') (s : string) : t = make_val t' (TextV s)
+    let tuple (t' : typ') (vs : t list) : t = make_val t' (TupleV vs)
+
+    let record (t' : typ') (fs : valuefield list) : value =
+      make_val t' (StructV fs)
+
+    let opt (t' : typ') (v : t option) : t = make_val t' (OptV v)
+    let list (t' : typ') (vs : t list) : t = make_val t' (ListV vs)
+
+    let case (t' : typ') (cases : mixop * value list) : t =
+      make_val t' (CaseV cases)
+  end
+
+  (* Re-export other functions that need vid *)
+  let make_bytes ~(num : Bigint.t) ~(len : int) : t =
+    if len < 0 then failwith "bytes len < 0";
+    let value = BytesV { num; len } in
+    let typ = NumT `NatT in
+    value $$$ with_fresh_vid typ
+
+  let bool (b : bool) : t = Make.bool Typ.bool b
+  let nat (i : Bigint.t) : t = Make.nat Typ.nat i
+  let int (i : Bigint.t) : t = Make.int Typ.int i
+  let text (s : string) : t = Make.text Typ.text s
+  let func (id : id) : t = FuncV id |> make_val Typ.func
+
+  let record (tid : string) (fields : valuefield list) : t =
+    Make.record (Typ.var tid []) fields
+
+  let tuple (vs : t list) : t =
+    let typs = List.map (fun v -> v.note.typ $ no_region) vs in
+    TupleV vs |> make_val (Typ.tuple typs)
+
+  let opt (typ : typ) (v : t option) : t = OptV v |> make_val (Typ.opt typ)
+  let list (typ : typ) (vs : t list) : t = ListV vs |> make_val (Typ.list typ)
+  let list' (typ : typ') (vs : t list) : t = list (typ $ no_region) vs
+end
+
+(* Default instance using global provider *)
+module DefaultVidProvider = struct
+  let fresh () = GlobalVidProvider.fresh ()
+end
+
+(* Default module instance *)
+module Default = MakeWithVid (DefaultVidProvider)
+
+(* Export default as main module for backward compatibility *)
+include Default
 
 let get_bool (value : t) =
   match value.it with BoolV b -> b | _ -> failwith "get_bool"
@@ -125,30 +173,7 @@ let get_opt (value : t) =
 let get_struct (value : t) =
   match value.it with StructV fields -> fields | _ -> failwith "get_struct"
 
-let bool (b : bool) : t = Make.bool Typ.bool b
-let nat (i : Bigint.t) : t = Make.nat Typ.nat i
-let int (i : Bigint.t) : t = Make.int Typ.int i
-let text (s : string) : t = Make.text Typ.text s
-let func (id : id) : t = FuncV id |> make_val Typ.func
-
-let record (tid : string) (fields : valuefield list) : t =
-  Make.record (Typ.var tid []) fields
-
-let tuple (vs : t list) : t =
-  let typs = List.map (fun v -> v.note.typ $ no_region) vs in
-  TupleV vs |> make_val (Typ.tuple typs)
-
-let opt (typ : typ) (v : t option) : t = OptV v |> make_val (Typ.opt typ)
-let list (typ : typ) (vs : t list) : t = ListV vs |> make_val (Typ.list typ)
-let list' (typ : typ') (vs : t list) : t = list (typ $ no_region) vs
-
 (* Bytes *)
-
-let make_bytes ~(num : Bigint.t) ~(len : int) : t =
-  if len < 0 then failwith "bytes len < 0";
-  let value = BytesV { num; len } in
-  let typ = NumT `NatT in
-  value $$$ with_fresh_vid typ
 
 let get_bytes (value : t) =
   match value.it with
