@@ -1,3 +1,5 @@
+# Note : This script is used to diff the coverage of 5 different clients.
+
 import os
 import sys
 import io
@@ -5,6 +7,7 @@ import subprocess
 import argparse
 import csv
 import re
+import shutil
 from time import perf_counter
 from pathlib import Path
 from datetime import datetime
@@ -260,7 +263,369 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
                 yield state_path, block_path, paths_per_pair
 
 
-def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=False):
+def parse_operation(test_case_dir, output_parent_dir, converter_dir=None):
+    """
+    Find operation test cases from test_case_dir and yield them.
+    
+    Supported file formats:
+    1. pre.ssz_snappy + <operation_type>.ssz_snappy (OfficialTestSuite original)
+    2. pre.ssz + <operation_type>.ssz (already converted format)
+    
+    Operation type is extracted from:
+    - Directory name (e.g., operations/attestation/pyspec_tests/... -> "attestation")
+    - Or operation file name (e.g., attestation.ssz, block.ssz, etc.)
+    
+    .ssz_snappy files are automatically converted to .ssz.
+    """
+    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    paths = {}
+    
+    for tool in tools:
+        output_dir = os.path.join(output_parent_dir, f"{tool}/output")
+        os.makedirs(output_dir, exist_ok=True)
+        paths[tool] = {
+            "output_dir": output_dir,
+            "cov_output_base": os.path.join(output_parent_dir, f"{tool}")
+        }
+    
+    # Find pre.ssz or pre.ssz_snappy file
+    pre_ssz = os.path.join(test_case_dir, "pre.ssz")
+    pre_snappy = os.path.join(test_case_dir, "pre.ssz_snappy")
+    
+    needs_decompression = False
+    decompressed_dir = None
+    
+    # Convert .ssz_snappy to .ssz if needed
+    if os.path.exists(pre_snappy) and not os.path.exists(pre_ssz):
+        needs_decompression = True
+        decompressed_dir = os.path.join(output_parent_dir, "_decompressed")
+        os.makedirs(decompressed_dir, exist_ok=True)
+        
+        if converter_dir is None:
+            script_dir = Path(__file__).parent.resolve()
+            converter_dir = script_dir
+        
+        decompressed_pre = os.path.join(decompressed_dir, "pre.ssz")
+        print(f"[+] Decompressing {pre_snappy} -> {decompressed_pre}")
+        if not decompress_snappy(converter_dir, pre_snappy, decompressed_pre):
+            print(f"[!] Failed to decompress pre.ssz_snappy, skipping...")
+            if decompressed_dir and os.path.exists(decompressed_dir) and not os.listdir(decompressed_dir):
+                os.rmdir(decompressed_dir)
+            return
+        if os.path.exists(decompressed_pre):
+            print(f"[+] Successfully decompressed pre.ssz to {decompressed_pre}")
+        pre_ssz = decompressed_pre
+    
+    if not os.path.exists(pre_ssz):
+        return
+    
+    # Determine operation type from directory path or file name
+    # Try to extract from path: operations/attestation/pyspec_tests/... -> "attestation"
+    operation_type = None
+    test_case_path_parts = Path(test_case_dir).parts
+    if "operations" in test_case_path_parts:
+        ops_idx = test_case_path_parts.index("operations")
+        if ops_idx + 1 < len(test_case_path_parts):
+            operation_type = test_case_path_parts[ops_idx + 1]
+    
+    # If not found in path, try to find operation file
+    operation_file_map = {
+        "attestation": ["attestation.ssz", "attestation.ssz_snappy"],
+        "attester_slashing": ["attester_slashing.ssz", "attester_slashing.ssz_snappy"],
+        "proposer_slashing": ["proposer_slashing.ssz", "proposer_slashing.ssz_snappy"],
+        "block_header": ["block.ssz", "block.ssz_snappy", "block_header.ssz", "block_header.ssz_snappy"],
+        "deposit": ["deposit.ssz", "deposit.ssz_snappy"],
+        "voluntary_exit": ["voluntary_exit.ssz", "voluntary_exit.ssz_snappy"],
+        "sync_aggregate": ["sync_aggregate.ssz", "sync_aggregate.ssz_snappy"],
+        "execution_payload": ["body.ssz", "body.ssz_snappy", "execution_payload.ssz", "execution_payload.ssz_snappy"],
+        "bls_to_execution_change": ["address_change.ssz", "address_change.ssz_snappy", "bls_to_execution_change.ssz", "bls_to_execution_change.ssz_snappy"],
+        "withdrawal": ["execution_payload.ssz", "execution_payload.ssz_snappy", "withdrawal.ssz", "withdrawal.ssz_snappy"],
+    }
+    
+    # Find operation file
+    operation_file = None
+    found_operation_type = None
+    
+    if operation_type and operation_type in operation_file_map:
+        # Try files for this operation type
+        for op_file in operation_file_map[operation_type]:
+            op_path = os.path.join(test_case_dir, op_file)
+            if os.path.exists(op_path):
+                operation_file = op_file
+                found_operation_type = operation_type
+                break
+    
+    # If not found, search all possible operation files
+    if not operation_file:
+        for op_type, file_names in operation_file_map.items():
+            for op_file in file_names:
+                op_path = os.path.join(test_case_dir, op_file)
+                if os.path.exists(op_path):
+                    operation_file = op_file
+                    found_operation_type = op_type
+                    break
+            if operation_file:
+                break
+    
+    if not operation_file or not found_operation_type:
+        print(f"[!] No operation file found in {test_case_dir}")
+        return
+    
+    # Handle .ssz_snappy operation file
+    operation_path = os.path.join(test_case_dir, operation_file)
+    if operation_file.endswith(".ssz_snappy"):
+        if not needs_decompression:
+            decompressed_dir = os.path.join(output_parent_dir, "_decompressed")
+            os.makedirs(decompressed_dir, exist_ok=True)
+            needs_decompression = True
+        
+        if converter_dir is None:
+            script_dir = Path(__file__).parent.resolve()
+            converter_dir = script_dir
+        
+        # Extract base name without extension
+        op_base = operation_file.replace(".ssz_snappy", "")
+        decompressed_op = os.path.join(decompressed_dir, f"{op_base}.ssz")
+        print(f"[+] Decompressing {operation_file} -> {op_base}.ssz")
+        if not decompress_snappy(converter_dir, operation_path, decompressed_op):
+            print(f"[!] Failed to decompress {operation_file}, skipping...")
+            return
+        if os.path.exists(decompressed_op):
+            print(f"[+] Successfully decompressed {operation_file} to {decompressed_op}")
+        operation_path = decompressed_op
+    
+    # Generate index from test case directory name
+    test_case_name = os.path.basename(test_case_dir)
+    
+    paths_per_test = {
+        tool: {
+            "output": os.path.join(paths[tool]["output_dir"], f"poststate_{test_case_name}.ssz"),
+            "cov_output": os.path.join(paths[tool]["cov_output_base"], f"cov_output_{test_case_name}")
+        }
+        for tool in tools
+    }
+    
+    # Create independent cov_output directory for each test case
+    for tool in tools:
+        os.makedirs(paths_per_test[tool]["cov_output"], exist_ok=True)
+    
+    # For execution_payload operation, parse execution.yaml to get execution_valid value
+    execution_valid = None
+    if found_operation_type == "execution_payload":
+        execution_yaml_path = os.path.join(test_case_dir, "execution.yaml")
+        if os.path.exists(execution_yaml_path):
+            try:
+                with open(execution_yaml_path, 'r') as f:
+                    content = f.read().strip()
+                    # Parse YAML-like format: {execution_valid: true} or {execution_valid: false}
+                    if 'execution_valid: true' in content or 'execution_valid: True' in content:
+                        execution_valid = True
+                    elif 'execution_valid: false' in content or 'execution_valid: False' in content:
+                        execution_valid = False
+                    else:
+                        # Try parsing as actual YAML
+                        import yaml
+                        yaml_data = yaml.safe_load(content)
+                        if isinstance(yaml_data, dict) and 'execution_valid' in yaml_data:
+                            execution_valid = bool(yaml_data['execution_valid'])
+                if execution_valid is not None:
+                    print(f"[+] Parsed execution_valid={execution_valid} from {execution_yaml_path}")
+                else:
+                    print(f"[!] Could not parse execution_valid from {execution_yaml_path}, defaulting to valid")
+                    execution_valid = True  # Default to valid if parsing fails
+            except Exception as e:
+                print(f"[!] Error parsing execution.yaml: {e}, defaulting to valid")
+                execution_valid = True  # Default to valid on error
+        else:
+            print(f"[!] execution.yaml not found in {test_case_dir}, defaulting to valid")
+            execution_valid = True  # Default to valid if file doesn't exist
+    
+    yield pre_ssz, operation_path, found_operation_type, paths_per_test, execution_valid
+
+
+def parse_epoch_processing(test_case_dir, output_parent_dir, converter_dir=None):
+    """
+    Find epoch-processing test cases from test_case_dir and yield them.
+    
+    Supported file formats:
+    1. pre.ssz_snappy (OfficialTestSuite original)
+    2. pre.ssz (already converted format)
+    
+    Epoch processing type is extracted from directory path:
+    - epoch_processing/justification_and_finalization/pyspec_tests/... -> "justification_and_finalization"
+    
+    .ssz_snappy files are automatically converted to .ssz.
+    """
+    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    paths = {}
+    
+    for tool in tools:
+        output_dir = os.path.join(output_parent_dir, f"{tool}/output")
+        os.makedirs(output_dir, exist_ok=True)
+        paths[tool] = {
+            "output_dir": output_dir,
+            "cov_output_base": os.path.join(output_parent_dir, f"{tool}")
+        }
+    
+    # Find pre.ssz or pre.ssz_snappy file
+    pre_ssz = os.path.join(test_case_dir, "pre.ssz")
+    pre_snappy = os.path.join(test_case_dir, "pre.ssz_snappy")
+    
+    needs_decompression = False
+    decompressed_dir = None
+    
+    # Convert .ssz_snappy to .ssz if needed
+    if os.path.exists(pre_snappy) and not os.path.exists(pre_ssz):
+        needs_decompression = True
+        decompressed_dir = os.path.join(output_parent_dir, "_decompressed")
+        os.makedirs(decompressed_dir, exist_ok=True)
+        
+        if converter_dir is None:
+            script_dir = Path(__file__).parent.resolve()
+            converter_dir = script_dir
+        
+        decompressed_pre = os.path.join(decompressed_dir, "pre.ssz")
+        print(f"[+] Decompressing {pre_snappy} -> {decompressed_pre}")
+        if not decompress_snappy(converter_dir, pre_snappy, decompressed_pre):
+            print(f"[!] Failed to decompress pre.ssz_snappy, skipping...")
+            if decompressed_dir and os.path.exists(decompressed_dir) and not os.listdir(decompressed_dir):
+                os.rmdir(decompressed_dir)
+            return
+        if os.path.exists(decompressed_pre):
+            print(f"[+] Successfully decompressed pre.ssz to {decompressed_pre}")
+        pre_ssz = decompressed_pre
+    
+    if not os.path.exists(pre_ssz):
+        return
+    
+    # Determine epoch processing type from directory path
+    # Try to extract from path: epoch_processing/justification_and_finalization/pyspec_tests/... -> "justification_and_finalization"
+    epoch_processing_type = None
+    test_case_path_parts = Path(test_case_dir).parts
+    if "epoch_processing" in test_case_path_parts:
+        epoch_idx = test_case_path_parts.index("epoch_processing")
+        if epoch_idx + 1 < len(test_case_path_parts):
+            epoch_processing_type = test_case_path_parts[epoch_idx + 1]
+    
+    if not epoch_processing_type:
+        print(f"[!] Could not determine epoch processing type from path: {test_case_dir}")
+        return
+    
+    # Generate index from test case directory name
+    test_case_name = os.path.basename(test_case_dir)
+    
+    paths_per_test = {
+        tool: {
+            "output": os.path.join(paths[tool]["output_dir"], f"poststate_{test_case_name}.ssz"),
+            "cov_output": os.path.join(paths[tool]["cov_output_base"], f"cov_output_{test_case_name}")
+        }
+        for tool in tools
+    }
+    
+    # Create independent cov_output directory for each test case
+    for tool in tools:
+        os.makedirs(paths_per_test[tool]["cov_output"], exist_ok=True)
+    
+    yield pre_ssz, epoch_processing_type, paths_per_test
+
+
+def parse_sanity_slots(test_case_dir, output_parent_dir, converter_dir=None):
+    """
+    Find sanity-slots test cases from test_case_dir and yield them.
+    
+    Supported file formats:
+    1. pre.ssz_snappy + slots.yaml (OfficialTestSuite original)
+    2. pre.ssz + slots.yaml (already converted format)
+    
+    Slot value is read from slots.yaml file.
+    
+    .ssz_snappy files are automatically converted to .ssz.
+    """
+    import yaml
+    
+    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    paths = {}
+    
+    for tool in tools:
+        output_dir = os.path.join(output_parent_dir, f"{tool}/output")
+        os.makedirs(output_dir, exist_ok=True)
+        paths[tool] = {
+            "output_dir": output_dir,
+            "cov_output_base": os.path.join(output_parent_dir, f"{tool}")
+        }
+    
+    # Find pre.ssz or pre.ssz_snappy file
+    pre_ssz = os.path.join(test_case_dir, "pre.ssz")
+    pre_snappy = os.path.join(test_case_dir, "pre.ssz_snappy")
+    
+    needs_decompression = False
+    decompressed_dir = None
+    
+    # Convert .ssz_snappy to .ssz if needed
+    if os.path.exists(pre_snappy) and not os.path.exists(pre_ssz):
+        needs_decompression = True
+        decompressed_dir = os.path.join(output_parent_dir, "_decompressed")
+        os.makedirs(decompressed_dir, exist_ok=True)
+        
+        if converter_dir is None:
+            script_dir = Path(__file__).parent.resolve()
+            converter_dir = script_dir
+        
+        decompressed_pre = os.path.join(decompressed_dir, "pre.ssz")
+        print(f"[+] Decompressing {pre_snappy} -> {decompressed_pre}")
+        if not decompress_snappy(converter_dir, pre_snappy, decompressed_pre):
+            print(f"[!] Failed to decompress pre.ssz_snappy, skipping...")
+            if decompressed_dir and os.path.exists(decompressed_dir) and not os.listdir(decompressed_dir):
+                os.rmdir(decompressed_dir)
+            return
+        if os.path.exists(decompressed_pre):
+            print(f"[+] Successfully decompressed pre.ssz to {decompressed_pre}")
+        pre_ssz = decompressed_pre
+    
+    if not os.path.exists(pre_ssz):
+        return
+    
+    # Find slots.yaml file
+    slots_yaml = os.path.join(test_case_dir, "slots.yaml")
+    if not os.path.exists(slots_yaml):
+        print(f"[!] No slots.yaml file found in {test_case_dir}")
+        return
+    
+    # Read slot value from YAML
+    try:
+        with open(slots_yaml, 'r') as f:
+            slot_value = yaml.safe_load(f)
+            # Handle both single integer and list format
+            if isinstance(slot_value, list) and len(slot_value) > 0:
+                slot_value = slot_value[0]
+            elif isinstance(slot_value, (int, str)):
+                slot_value = int(slot_value)
+            else:
+                print(f"[!] Invalid slot value in {slots_yaml}: {slot_value}")
+                return
+    except Exception as e:
+        print(f"[!] Failed to read slots.yaml: {e}")
+        return
+    
+    # Generate index from test case directory name
+    test_case_name = os.path.basename(test_case_dir)
+    
+    paths_per_test = {
+        tool: {
+            "output": os.path.join(paths[tool]["output_dir"], f"poststate_{test_case_name}.ssz"),
+            "cov_output": os.path.join(paths[tool]["cov_output_base"], f"cov_output_{test_case_name}")
+        }
+        for tool in tools
+    }
+    
+    # Create independent cov_output directory for each test case
+    for tool in tools:
+        os.makedirs(paths_per_test[tool]["cov_output"], exist_ok=True)
+    
+    yield pre_ssz, slot_value, paths_per_test
+
+
+def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=False, fork_version="capella"):
     """
     Process clients with proper testing_clients path setup.
     
@@ -282,9 +647,15 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
     if not lodestar_transition.exists():
         lodestar_transition = testing_clients_dir / "lodestar" / "transition"
 
-    # Pure Capella config path setup
-    pure_capella_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
-    lighthouse_testnet_dir = pure_capella_configs_dir / "lighthouse_testnet"
+    # Pure config path setup (version-specific)
+    if fork_version == "deneb":
+        pure_configs_dir = spectec_core_dir / "Converter" / "pure_deneb_configs"
+        if not pure_configs_dir.exists():
+            # Fallback to capella configs if deneb configs don't exist
+            pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
+    else:  # capella
+        pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
+    lighthouse_testnet_dir = pure_configs_dir / "lighthouse_testnet"
     # Note: teku_config and nimbus_config are not used (Teku uses CLI args, Nimbus uses code override)
 
     # Coverage data directory setup (from paths)
@@ -295,7 +666,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 coverage_dirs[client_name] = Path(paths[client_name]["cov_output"])
                 coverage_dirs[client_name].mkdir(parents=True, exist_ok=True)
     
-    # Client binary paths: use separate binaries in coverage mode
+    # Client binary paths: use separate binaries in coverage mode (single binary supports both capella and deneb)
     if enable_coverage:
         prysm_binary = testing_clients_dir / "prysm" / "pcli-cov"
         lighthouse_binary = testing_clients_dir / "lighthouse" / "target" / "release" / "lcli-cov"
@@ -314,11 +685,13 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             [
                 "--max-old-space-size=4096",
                 str(lodestar_transition),
+                "state-transition",  # Command name
                 state,
                 block,
                 paths["lodestar"]["output"],
-                "verifyProposer=false",  # validate_result = false: Skip block signature verification
-                "verifyStateRoot=false",  # validate_result = false: Skip state root verification
+                "--verifyProposer=false",  # validate_result = false: Skip block signature verification
+                "--verifyStateRoot=false",  # validate_result = false: Skip state root verification
+                f"--fork-version={fork_version}",
             ]),
         Clients(
             "Lighthouse",
@@ -328,7 +701,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 "--pre-state-path", state,
                 "--block-path", block,
                 "--post-state-output-path", paths["lighthouse"]["output"],
-                # Pure Capella config: CAPELLA_FORK_EPOCH = 0
+                # Pure config: fork epochs set to 0
                 "--testnet-dir", str(lighthouse_testnet_dir),
                 # validate_result = true: Enable signature verification and state root verification
                 # Signature verification is enabled by default (no --no-signature-verification flag)
@@ -364,11 +737,11 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 "--pre", state,
                 "--post", paths["teku"]["output"],
                 block,
-                # Pure Capella config: fork epochs set to 0
+                # Pure config: fork epochs set to 0
                 "--Xnetwork-altair-fork-epoch=0",
                 "--Xnetwork-bellatrix-fork-epoch=0",
                 "--Xnetwork-capella-fork-epoch=0",
-                "--Xnetwork-deneb-fork-epoch=75520",
+                f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
                 # validate_result = true: Signature verification and state root verification enabled
                 # Note: Teku uses BLSSignatureVerifier.SIMPLE for signature verification
                 # State root verification is enabled in code (CLIENT_CODE_MODIFICATIONS.md)
@@ -394,6 +767,9 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
 
             # Setup coverage environment variables
             env = os.environ.copy()
+            # Set FORK_VERSION environment variable for Nimbus
+            if client.name == "Nimbus":
+                env["FORK_VERSION"] = fork_version
             if enable_coverage:
                 client_name_lower = client.name.lower()
                 
@@ -609,6 +985,898 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             print(f"[+] {client.name} failed: {client.output.stderr}")
     return clients
 
+
+def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None, enable_coverage=False, fork_version="capella"):
+    """
+    Process clients with sanity-slots command.
+    
+    Args:
+        state: Pre-state SSZ file path
+        slot_value: Target slot value (integer)
+        paths: Output path dictionary (includes output and cov_output paths for each client)
+        spectec_core_dir: spectec-core directory path
+        enable_coverage: Enable coverage measurement
+    """
+    if spectec_core_dir is None:
+        script_dir = Path(__file__).parent.resolve()
+        spectec_core_dir = script_dir
+    
+    testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
+    
+    # Check Lodestar transition.js file path
+    lodestar_transition = testing_clients_dir / "lodestar" / "transition.js"
+    if not lodestar_transition.exists():
+        lodestar_transition = testing_clients_dir / "lodestar" / "transition"
+
+    # Pure config path setup (version-specific)
+    if fork_version == "deneb":
+        pure_configs_dir = spectec_core_dir / "Converter" / "pure_deneb_configs"
+        if not pure_configs_dir.exists():
+            # Fallback to capella configs if deneb configs don't exist
+            pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
+    else:  # capella
+        pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
+    lighthouse_testnet_dir = pure_configs_dir / "lighthouse_testnet"
+
+    # Coverage data directory setup (from paths)
+    coverage_dirs = {}
+    if enable_coverage:
+        for client_name in ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]:
+            if client_name in paths and "cov_output" in paths[client_name]:
+                coverage_dirs[client_name] = Path(paths[client_name]["cov_output"])
+                coverage_dirs[client_name].mkdir(parents=True, exist_ok=True)
+    
+    # Client binary paths: use separate binaries in coverage mode (single binary supports both capella and deneb)
+    if enable_coverage:
+        prysm_binary = testing_clients_dir / "prysm" / "pcli-cov"
+        lighthouse_binary = testing_clients_dir / "lighthouse" / "target" / "release" / "lcli-cov"
+        teku_binary = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "bin" / "teku"
+        nimbus_binary = testing_clients_dir / "nimbus-eth2" / "ncli" / "ncli-cov"
+    else:
+        prysm_binary = testing_clients_dir / "prysm" / "bazel-bin" / "tools" / "pcli" / "pcli_" / "pcli"
+        lighthouse_binary = testing_clients_dir / "lighthouse" / "target" / "release" / "lcli"
+        teku_binary = testing_clients_dir / "teku" / "build" / "install" / "teku" / "bin" / "teku"
+        nimbus_binary = testing_clients_dir / "nimbus-eth2" / "ncli" / "ncli"
+
+    clients = [
+        Clients(
+            "Lodestar",
+            "/usr/bin/node",
+            [
+                "--max-old-space-size=4096",
+                str(lodestar_transition),
+                "sanity-slots",
+                f"--pre-state-path={state}",
+                f"--slot={slot_value}",
+                f"--post-state-output-path={paths['lodestar']['output']}",
+                f"--fork-version={fork_version}",
+            ]),
+        Clients(
+            "Lighthouse",
+            str(lighthouse_binary),
+            [
+                "sanity-slots",
+                "--pre-state-path", state,
+                "--slots", str(slot_value),
+                "--post-state-output-path", paths["lighthouse"]["output"],
+                "--testnet-dir", str(lighthouse_testnet_dir),
+            ]),
+        Clients(
+            "Prysm",
+            str(prysm_binary),
+            [
+                "sanity-slots",
+                f"--pre-state-path={state}",
+                f"--slot={slot_value}",
+                f"--post-state-output-path={paths['prysm']['output']}",
+            ]),
+        Clients(
+            "Nimbus",
+            str(nimbus_binary),
+            [
+                "sanity_slots",
+                state,
+                str(slot_value),
+                paths["nimbus"]["output"],
+            ]),
+        Clients(
+            "Teku",
+            str(teku_binary),
+            [
+                "transition",
+                "slots",
+                "--pre", state,
+                "--post", paths["teku"]["output"],
+                str(slot_value),  # Positional parameter: number of slots (delta, default=true)
+                "--Xnetwork-altair-fork-epoch=0",
+                "--Xnetwork-bellatrix-fork-epoch=0",
+                "--Xnetwork-capella-fork-epoch=0",
+                f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+            ]),
+    ]
+
+    # Use the same client processing logic as process_clients
+    for client in clients:
+        try:
+            start_time = perf_counter()
+            
+            print(f"\n[+] Running: {client.name}")
+
+            if not client.available:
+                raise FileNotFoundError(f"[X] Not available: {client.cmd_path}")
+
+            client.state = state
+            client.block = None  # No block for sanity-slots
+
+            print(f"[+] Command: {client.cmd_path} {' '.join(str(arg) for arg in client.cmd_args)}")
+            cmd = [str(client.cmd_path)] + [str(arg) for arg in client.cmd_args]
+
+            # Setup coverage environment variables (same as process_clients)
+            env = os.environ.copy()
+            # Set FORK_VERSION environment variable for Nimbus
+            if client.name == "Nimbus":
+                env["FORK_VERSION"] = fork_version
+            if enable_coverage:
+                client_name_lower = client.name.lower()
+                
+                if client.name == "Prysm":
+                    env["GOCOVERDIR"] = str(coverage_dirs["prysm"])
+                    print(f"[+] Coverage enabled: GOCOVERDIR={env['GOCOVERDIR']}")
+                
+                elif client.name == "Lighthouse":
+                    profile_file = coverage_dirs["lighthouse"] / f"lighthouse-cov-%p-%m.profraw"
+                    env["LLVM_PROFILE_FILE"] = str(profile_file)
+                    print(f"[+] Coverage enabled: LLVM_PROFILE_FILE={env['LLVM_PROFILE_FILE']}")
+                
+                elif client.name == "Teku":
+                    jacoco_agent_path = testing_clients_dir / "jacoco" / "jacocoagent.jar"
+                    jacoco_exec = coverage_dirs["teku"] / "teku-coverage.exec"
+                    
+                    if jacoco_agent_path.exists():
+                        env["JAVA_OPTS"] = f"-javaagent:{jacoco_agent_path}=destfile={jacoco_exec}"
+                        print(f"[+] Coverage enabled: JAVA_OPTS={env['JAVA_OPTS']}")
+                    else:
+                        print(f"[!] Warning: JaCoCo agent not found at {jacoco_agent_path}")
+                
+                elif client.name == "Nimbus":
+                    # Nimbus: gcov automatically generates .gcda files
+                    print(f"[+] Coverage enabled: gcov will generate .gcda files")
+                
+                elif client.name == "Lodestar":
+                    # Lodestar: c8 automatically generates coverage
+                    env["NODE_V8_COVERAGE"] = str(coverage_dirs["lodestar"])
+                    print(f"[+] Coverage enabled: NODE_V8_COVERAGE={env['NODE_V8_COVERAGE']}")
+
+            client.output = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            client.status_code = client.output.returncode
+            end_time = perf_counter()
+            client.timestamp = end_time - start_time
+
+            if client.status_code == 0:
+                print(f"[+] Execution time: {client.timestamp}")
+                print(f"[+] Exited with status code: {client.status_code} (Success)")
+            else:
+                print(f"[+] Execution time: {client.timestamp}")
+                print(f"[+] Exited with status code: {client.status_code} (Failure)")
+            
+            client.log()
+            
+            # Nimbus: Copy .gcda files for independent coverage per test case
+            if client.name == "Nimbus" and enable_coverage:
+                nimbus_src = testing_clients_dir / "nimbus-eth2"
+                nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
+                nimbus_coverage_dir = coverage_dirs.get("nimbus")
+                
+                if nimbus_coverage_dir and nimbus_gcda_dir.exists():
+                    target_gcda_dir = nimbus_coverage_dir / "nimcache" / "debug" / "ncli"
+                    target_gcda_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    import shutil
+                    for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
+                        relative_path = gcda_file.relative_to(nimbus_gcda_dir)
+                        target_file = target_gcda_dir / relative_path
+                        target_file.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            shutil.copy2(gcda_file, target_file)
+                        except Exception as e:
+                            print(f"[!] Failed to copy .gcda file {gcda_file}: {e}")
+                    print(f"[+] Copied .gcda files to {target_gcda_dir}")
+            
+            # Teku: Delete empty output files
+            if client.name == "Teku" and client.status_code != 0:
+                output_path = paths.get("teku", {}).get("output")
+                if output_path and os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path)
+                    if file_size == 0:
+                        os.remove(output_path)
+                        print(f"[+] Removed empty Teku output file: {output_path}")
+
+        except Exception as e:
+            end_time = perf_counter()
+            client.timestamp = end_time - start_time
+            
+            if client.output is None:
+                client.output = subprocess.CompletedProcess(args=cmd, returncode=2, stdout='', stderr=str(e))
+
+            print(f"[+] Execution time: {client.timestamp}")
+            print(f"[+] Exited with status code: {client.status_code} (Failure)")
+            print(f"[+] {client.name} failed: {client.output.stderr}")
+    return clients
+
+
+def process_clients_operation(state, operation, operation_type, paths, spectec_core_dir=None, enable_coverage=False, fork_version="capella", execution_valid=None):
+    """
+    Process clients with operation command.
+    
+    Args:
+        state: Pre-state SSZ file path
+        operation: Operation SSZ file path
+        operation_type: Operation type (attestation, block_header, etc.)
+        paths: Output path dictionary (includes output and cov_output paths for each client)
+        spectec_core_dir: spectec-core directory path
+        enable_coverage: Enable coverage measurement
+        fork_version: Fork version (capella or deneb)
+        execution_valid: For execution_payload operation: whether execution payload is valid (True/False/None)
+    """
+    if spectec_core_dir is None:
+        script_dir = Path(__file__).parent.resolve()
+        spectec_core_dir = script_dir
+    
+    testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
+    
+    # Check Lodestar transition.js file path
+    lodestar_transition = testing_clients_dir / "lodestar" / "transition.js"
+    if not lodestar_transition.exists():
+        lodestar_transition = testing_clients_dir / "lodestar" / "transition"
+
+    # Pure config path setup (version-specific)
+    if fork_version == "deneb":
+        pure_configs_dir = spectec_core_dir / "Converter" / "pure_deneb_configs"
+        if not pure_configs_dir.exists():
+            # Fallback to capella configs if deneb configs don't exist
+            pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
+    else:  # capella
+        pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
+    lighthouse_testnet_dir = pure_configs_dir / "lighthouse_testnet"
+
+    # Coverage data directory setup (from paths)
+    coverage_dirs = {}
+    if enable_coverage:
+        for client_name in ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]:
+            if client_name in paths and "cov_output" in paths[client_name]:
+                coverage_dirs[client_name] = Path(paths[client_name]["cov_output"])
+                coverage_dirs[client_name].mkdir(parents=True, exist_ok=True)
+    
+    # Client binary paths: use separate binaries in coverage mode
+    if enable_coverage:
+        prysm_binary = testing_clients_dir / "prysm" / "pcli-cov"
+        lighthouse_binary = testing_clients_dir / "lighthouse" / "target" / "release" / "lcli-cov"
+        teku_binary = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "bin" / "teku"
+        nimbus_binary = testing_clients_dir / "nimbus-eth2" / "ncli" / "ncli-cov"
+    else:
+        prysm_binary = testing_clients_dir / "prysm" / "bazel-bin" / "tools" / "pcli" / "pcli_" / "pcli"
+        lighthouse_binary = testing_clients_dir / "lighthouse" / "target" / "release" / "lcli"
+        teku_binary = testing_clients_dir / "teku" / "build" / "install" / "teku" / "bin" / "teku"
+        nimbus_binary = testing_clients_dir / "nimbus-eth2" / "ncli" / "ncli"
+
+    # Map operation type names for specific clients
+    # Lighthouse uses "sync_committee" instead of "sync_aggregate", and "withdrawals" instead of "withdrawal"
+    lighthouse_operation_type = operation_type
+    if operation_type == "sync_aggregate":
+        lighthouse_operation_type = "sync_committee"
+    elif operation_type == "withdrawal":
+        lighthouse_operation_type = "withdrawals"
+
+    # Build Lodestar command arguments
+    lodestar_args = [
+        "--max-old-space-size=4096",
+        str(lodestar_transition),
+        "operation",
+        f"--pre-state-path={state}",
+        f"--operation-path={operation}",
+        f"--operation-type={operation_type}",
+        f"--post-state-output-path={paths['lodestar']['output']}",
+        f"--fork-version={fork_version}",
+    ]
+    # Add execution_valid flag for execution_payload operation
+    if operation_type == "execution_payload" and execution_valid is not None:
+        lodestar_args.append(f"--execution-valid={'true' if execution_valid else 'false'}")
+    
+    # Build Lighthouse command arguments
+    lighthouse_args = [
+        "operation",
+        "--operation-type", lighthouse_operation_type,
+        "--pre-state-path", state,
+        "--operation-path", operation,
+        "--post-state-output-path", paths["lighthouse"]["output"],
+        "--testnet-dir", str(lighthouse_testnet_dir),
+    ]
+    # Add execution_valid flag for execution_payload operation
+    if operation_type == "execution_payload" and execution_valid is not None:
+        lighthouse_args.extend(["--execution-valid", "true" if execution_valid else "false"])
+    
+    # Build Prysm command arguments
+    prysm_args = [
+        "operation",
+        f"--operation-type={operation_type}",
+        f"--pre-state-path={state}",
+        f"--operation-path={operation}",
+        f"--post-state-output-path={paths['prysm']['output']}",
+    ]
+    # Add execution_valid flag for execution_payload operation
+    if operation_type == "execution_payload" and execution_valid is not None:
+        prysm_args.append(f"--execution-valid={'true' if execution_valid else 'false'}")
+    
+    # Build Nimbus command arguments
+    # Note: confutils has issues with options in operation command, so we use environment variable
+    nimbus_args = [
+        "operation",
+        state,
+        operation_type,
+        operation,
+        paths["nimbus"]["output"],
+    ]
+    
+    # Build Teku command arguments
+    teku_args = [
+        "transition",
+        "operation",
+        operation_type,
+        "--pre", state,
+        "--operation-data", operation,
+        "--post", paths["teku"]["output"],
+        "--Xnetwork-altair-fork-epoch=0",
+        "--Xnetwork-bellatrix-fork-epoch=0",
+        "--Xnetwork-capella-fork-epoch=0",
+        f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+    ]
+    # Add execution_valid flag for execution_payload operation
+    if operation_type == "execution_payload" and execution_valid is not None:
+        teku_args.extend(["--execution-valid", "true" if execution_valid else "false"])
+    
+    clients = [
+        Clients(
+            "Lodestar",
+            "/usr/bin/node",
+            lodestar_args),
+        Clients(
+            "Lighthouse",
+            str(lighthouse_binary),
+            lighthouse_args),
+        Clients(
+            "Prysm",
+            str(prysm_binary),
+            prysm_args),
+        Clients(
+            "Nimbus",
+            str(nimbus_binary),
+            nimbus_args),
+        Clients(
+            "Teku",
+            str(teku_binary),
+            teku_args),
+    ]
+
+    # Use the same client processing logic as process_clients
+    for client in clients:
+        try:
+            start_time = perf_counter()
+            
+            print(f"\n[+] Running: {client.name}")
+
+            if not client.available:
+                raise FileNotFoundError(f"[X] Not available: {client.cmd_path}")
+
+            client.state = state
+            client.block = operation  # Store operation path in block field for compatibility
+
+            print(f"[+] Command: {client.cmd_path} {' '.join(str(arg) for arg in client.cmd_args)}")
+            cmd = [str(client.cmd_path)] + [str(arg) for arg in client.cmd_args]
+
+            # Setup coverage environment variables (same as process_clients)
+            env = os.environ.copy()
+            
+            # Set EXECUTION_VALID environment variable for Nimbus execution_payload operation
+            if client.name == "Nimbus" and operation_type == "execution_payload" and execution_valid is not None:
+                env["EXECUTION_VALID"] = "true" if execution_valid else "false"
+            elif client.name == "Nimbus" and operation_type == "execution_payload":
+                env["EXECUTION_VALID"] = "true"  # default
+            
+            if enable_coverage:
+                client_name_lower = client.name.lower()
+                
+                if client.name == "Prysm":
+                    env["GOCOVERDIR"] = str(coverage_dirs["prysm"])
+                    print(f"[+] Coverage enabled: GOCOVERDIR={env['GOCOVERDIR']}")
+                
+                elif client.name == "Lighthouse":
+                    profile_file = coverage_dirs["lighthouse"] / f"lighthouse-cov-%p-%m.profraw"
+                    env["LLVM_PROFILE_FILE"] = str(profile_file)
+                    print(f"[+] Coverage enabled: LLVM_PROFILE_FILE={env['LLVM_PROFILE_FILE']}")
+                
+                elif client.name == "Teku":
+                    jacoco_agent_path = testing_clients_dir / "jacoco" / "jacocoagent.jar"
+                    jacoco_exec = coverage_dirs["teku"] / "teku-coverage.exec"
+                    
+                    if jacoco_agent_path.exists():
+                        env["JAVA_OPTS"] = f"-javaagent:{jacoco_agent_path}=destfile={jacoco_exec}"
+                        print(f"[+] Coverage enabled: JAVA_OPTS={env['JAVA_OPTS']}")
+                    else:
+                        print(f"[!] Warning: JaCoCo agent not found at {jacoco_agent_path}")
+                
+                elif client.name == "Nimbus":
+                    nimbus_src = testing_clients_dir / "nimbus-eth2"
+                    nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
+                    
+                    if nimbus_gcda_dir.exists():
+                        for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
+                            try:
+                                gcda_file.unlink()
+                            except:
+                                pass
+                    print(f"[+] Coverage enabled: gcov will auto-generate .gcda files in build directory")
+                
+                elif client.name == "Lodestar":
+                    lodestar_dir = testing_clients_dir / "lodestar"
+                    coverage_report_dir = coverage_dirs["lodestar"] / "report"
+                    coverage_temp_dir = coverage_dirs["lodestar"]
+                    coverage_report_dir.mkdir(parents=True, exist_ok=True)
+                    coverage_temp_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    original_cmd_path = str(client.cmd_path)
+                    original_cmd_args = [str(arg) for arg in client.cmd_args]
+                    
+                    c8_args = [
+                        "c8",
+                        "--all",
+                        "--reporter=text",
+                        "--reporter=html",
+                        f"--report-dir={coverage_report_dir}",
+                        f"--temp-directory={coverage_temp_dir}",
+                        "--exclude-node-modules=false",
+                        "--extension=.js",
+                        "--include=node_modules/@lodestar/**/*.js",
+                        "--include=node_modules/@chainsafe/**/*.js",
+                        "--exclude=**/transition.js",
+                        "--exclude=**/generateCachedStateCapella.js",
+                        original_cmd_path,
+                    ] + original_cmd_args
+                    
+                    client.cmd_path = "npx"
+                    client.cmd_args = c8_args
+                    cmd = ["npx"] + c8_args
+                    
+                    print(f"[+] Coverage enabled: c8 with report-dir={coverage_report_dir}")
+
+            # Set cwd (only for Lodestar coverage mode)
+            if client.name == "Lodestar" and enable_coverage:
+                cwd = str(testing_clients_dir / "lodestar")
+            else:
+                cwd = None
+
+            process = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                cwd=cwd,
+            )
+            end_time = perf_counter()
+
+            client.status_code = process.returncode
+            client.output = process 
+            client.timestamp = end_time - start_time
+            
+            print(f"[+] Execution time: {client.timestamp}")
+            
+            # Apply correct classification criteria
+            if process.returncode == 0:
+                client.status_code = 0  # SUCCESS
+            elif process.returncode < 0:
+                client.status_code = 2  # UNHANDLED_EXCEPTION
+            else:
+                client.status_code = 1  # FAIL
+            
+            # Lodestar special handling
+            if client.name == "Lodestar":
+                try:
+                    if client.output.stderr != '':
+                        try:
+                            import json
+                            json_start = client.output.stderr.find('{')
+                            if json_start != -1:
+                                json_end = client.output.stderr.rfind('}') + 1
+                                if json_end > json_start:
+                                    json_str = client.output.stderr[json_start:json_end]
+                                    error_obj = json.loads(json_str)
+                                    status_code = error_obj.get('statusCode', 1)
+                                    output_string = error_obj.get('output', '')
+                                    if status_code == 0:
+                                        client.status_code = 0
+                                    elif status_code < 0:
+                                        client.status_code = 2
+                                    else:
+                                        client.status_code = 1
+                                    client.output.stderr = output_string
+                                    continue
+                        except:
+                            pass
+                        
+                        status_code_match = re.search(r"statusCode: \s*(\d+)", client.output.stderr)
+                        if status_code_match:
+                            status_code = int(status_code_match.group(1))
+                            output_match = re.search(r"output: \s*'(.*?)'", client.output.stderr, re.DOTALL)
+                            if output_match:
+                                output_string = output_match.group(1)
+                                if status_code == 0:
+                                    client.status_code = 0
+                                elif status_code < 0:
+                                    client.status_code = 2
+                                else:
+                                    client.status_code = 1
+                                client.output.stderr = output_string
+                except Exception as e:
+                    client.status_code = 2
+
+            client.log()
+            
+            # Nimbus: Copy .gcda files for independent coverage per test case
+            if client.name == "Nimbus" and enable_coverage:
+                nimbus_src = testing_clients_dir / "nimbus-eth2"
+                nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
+                nimbus_coverage_dir = coverage_dirs.get("nimbus")
+                
+                if nimbus_coverage_dir and nimbus_gcda_dir.exists():
+                    target_gcda_dir = nimbus_coverage_dir / "nimcache" / "debug" / "ncli"
+                    target_gcda_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    import shutil
+                    for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
+                        relative_path = gcda_file.relative_to(nimbus_gcda_dir)
+                        target_file = target_gcda_dir / relative_path
+                        target_file.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            shutil.copy2(gcda_file, target_file)
+                        except Exception as e:
+                            print(f"[!] Failed to copy .gcda file {gcda_file}: {e}")
+                    print(f"[+] Copied .gcda files to {target_gcda_dir}")
+            
+            # Teku: Delete empty output files
+            if client.name == "Teku" and client.status_code != 0:
+                output_path = paths.get("teku", {}).get("output")
+                if output_path and os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path)
+                    if file_size == 0:
+                        os.remove(output_path)
+                        print(f"[+] Removed empty Teku output file: {output_path}")
+
+        except Exception as e:
+            end_time = perf_counter()
+            client.timestamp = end_time - start_time
+            
+            if client.output is None:
+                client.output = subprocess.CompletedProcess(args=cmd, returncode=2, stdout='', stderr=str(e))
+
+            print(f"[+] Execution time: {client.timestamp}")
+            print(f"[+] Exited with status code: {client.status_code} (Failure)")
+            print(f"[+] {client.name} failed: {client.output.stderr}")
+    return clients
+
+
+def process_clients_epoch_processing(state, epoch_processing_type, paths, spectec_core_dir=None, enable_coverage=False, fork_version="capella"):
+    """
+    Process clients with epoch-processing command.
+    
+    Args:
+        state: Pre-state SSZ file path
+        epoch_processing_type: Epoch processing type (justification_and_finalization, etc.)
+        paths: Output path dictionary (includes output and cov_output paths for each client)
+        spectec_core_dir: spectec-core directory path
+        enable_coverage: Enable coverage measurement
+    """
+    if spectec_core_dir is None:
+        script_dir = Path(__file__).parent.resolve()
+        spectec_core_dir = script_dir
+    
+    testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
+    
+    # Check Lodestar transition.js file path
+    lodestar_transition = testing_clients_dir / "lodestar" / "transition.js"
+    if not lodestar_transition.exists():
+        lodestar_transition = testing_clients_dir / "lodestar" / "transition"
+
+    # Pure config path setup (version-specific)
+    if fork_version == "deneb":
+        pure_configs_dir = spectec_core_dir / "Converter" / "pure_deneb_configs"
+        if not pure_configs_dir.exists():
+            # Fallback to capella configs if deneb configs don't exist
+            pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
+    else:  # capella
+        pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
+    lighthouse_testnet_dir = pure_configs_dir / "lighthouse_testnet"
+
+    # Coverage data directory setup (from paths)
+    coverage_dirs = {}
+    if enable_coverage:
+        for client_name in ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]:
+            if client_name in paths and "cov_output" in paths[client_name]:
+                coverage_dirs[client_name] = Path(paths[client_name]["cov_output"])
+                coverage_dirs[client_name].mkdir(parents=True, exist_ok=True)
+    
+    # Client binary paths: use separate binaries in coverage mode (single binary supports both capella and deneb)
+    if enable_coverage:
+        prysm_binary = testing_clients_dir / "prysm" / "pcli-cov"
+        lighthouse_binary = testing_clients_dir / "lighthouse" / "target" / "release" / "lcli-cov"
+        teku_binary = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "bin" / "teku"
+        nimbus_binary = testing_clients_dir / "nimbus-eth2" / "ncli" / "ncli-cov"
+    else:
+        prysm_binary = testing_clients_dir / "prysm" / "bazel-bin" / "tools" / "pcli" / "pcli_" / "pcli"
+        lighthouse_binary = testing_clients_dir / "lighthouse" / "target" / "release" / "lcli"
+        teku_binary = testing_clients_dir / "teku" / "build" / "install" / "teku" / "bin" / "teku"
+        nimbus_binary = testing_clients_dir / "nimbus-eth2" / "ncli" / "ncli"
+
+    clients = [
+        Clients(
+            "Lodestar",
+            "/usr/bin/node",
+            [
+                "--max-old-space-size=4096",
+                str(lodestar_transition),
+                "epoch-processing",
+                f"--pre-state-path={state}",
+                f"--epoch-processing-type={epoch_processing_type}",
+                f"--post-state-output-path={paths['lodestar']['output']}",
+                f"--fork-version={fork_version}",
+            ]),
+        Clients(
+            "Lighthouse",
+            str(lighthouse_binary),
+            [
+                "epoch-processing",
+                "--epoch-processing-type", epoch_processing_type,
+                "--pre-state-path", state,
+                "--post-state-output-path", paths["lighthouse"]["output"],
+                "--testnet-dir", str(lighthouse_testnet_dir),
+            ]),
+        Clients(
+            "Prysm",
+            str(prysm_binary),
+            [
+                "epoch-processing",
+                f"--epoch-processing-type={epoch_processing_type}",
+                f"--pre-state-path={state}",
+                f"--post-state-output-path={paths['prysm']['output']}",
+            ]),
+        Clients(
+            "Nimbus",
+            str(nimbus_binary),
+            [
+                "epoch_processing",  # Nimbus uses underscore, not hyphen
+                state,
+                epoch_processing_type,
+                paths["nimbus"]["output"],
+            ]),
+        Clients(
+            "Teku",
+            str(teku_binary),
+            [
+                "transition",
+                "epoch-processing",
+                epoch_processing_type,
+                "--pre", state,
+                "--post", paths["teku"]["output"],
+                "--Xnetwork-altair-fork-epoch=0",
+                "--Xnetwork-bellatrix-fork-epoch=0",
+                "--Xnetwork-capella-fork-epoch=0",
+                f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+            ]),
+    ]
+
+    # Use the same client processing logic as process_clients
+    for client in clients:
+        try:
+            start_time = perf_counter()
+            
+            print(f"\n[+] Running: {client.name}")
+
+            if not client.available:
+                raise FileNotFoundError(f"[X] Not available: {client.cmd_path}")
+
+            client.state = state
+            client.block = None  # No block for epoch-processing
+
+            print(f"[+] Command: {client.cmd_path} {' '.join(str(arg) for arg in client.cmd_args)}")
+            cmd = [str(client.cmd_path)] + [str(arg) for arg in client.cmd_args]
+
+            # Setup coverage environment variables (same as process_clients)
+            env = os.environ.copy()
+            if enable_coverage:
+                client_name_lower = client.name.lower()
+                
+                if client.name == "Prysm":
+                    env["GOCOVERDIR"] = str(coverage_dirs["prysm"])
+                    print(f"[+] Coverage enabled: GOCOVERDIR={env['GOCOVERDIR']}")
+                
+                elif client.name == "Lighthouse":
+                    profile_file = coverage_dirs["lighthouse"] / f"lighthouse-cov-%p-%m.profraw"
+                    env["LLVM_PROFILE_FILE"] = str(profile_file)
+                    print(f"[+] Coverage enabled: LLVM_PROFILE_FILE={env['LLVM_PROFILE_FILE']}")
+                
+                elif client.name == "Teku":
+                    jacoco_agent_path = testing_clients_dir / "jacoco" / "jacocoagent.jar"
+                    jacoco_exec = coverage_dirs["teku"] / "teku-coverage.exec"
+                    
+                    if jacoco_agent_path.exists():
+                        env["JAVA_OPTS"] = f"-javaagent:{jacoco_agent_path}=destfile={jacoco_exec}"
+                        print(f"[+] Coverage enabled: JAVA_OPTS={env['JAVA_OPTS']}")
+                    else:
+                        print(f"[!] Warning: JaCoCo agent not found at {jacoco_agent_path}")
+                
+                elif client.name == "Nimbus":
+                    nimbus_src = testing_clients_dir / "nimbus-eth2"
+                    nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
+                    
+                    if nimbus_gcda_dir.exists():
+                        for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
+                            try:
+                                gcda_file.unlink()
+                            except:
+                                pass
+                    print(f"[+] Coverage enabled: gcov will auto-generate .gcda files in build directory")
+                
+                elif client.name == "Lodestar":
+                    lodestar_dir = testing_clients_dir / "lodestar"
+                    coverage_report_dir = coverage_dirs["lodestar"] / "report"
+                    coverage_temp_dir = coverage_dirs["lodestar"]
+                    coverage_report_dir.mkdir(parents=True, exist_ok=True)
+                    coverage_temp_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    original_cmd_path = str(client.cmd_path)
+                    original_cmd_args = [str(arg) for arg in client.cmd_args]
+                    
+                    c8_args = [
+                        "c8",
+                        "--all",
+                        "--reporter=text",
+                        "--reporter=html",
+                        f"--report-dir={coverage_report_dir}",
+                        f"--temp-directory={coverage_temp_dir}",
+                        "--exclude-node-modules=false",
+                        "--extension=.js",
+                        "--include=node_modules/@lodestar/**/*.js",
+                        "--include=node_modules/@chainsafe/**/*.js",
+                        "--exclude=**/transition.js",
+                        "--exclude=**/generateCachedStateCapella.js",
+                        original_cmd_path,
+                    ] + original_cmd_args
+                    
+                    client.cmd_path = "npx"
+                    client.cmd_args = c8_args
+                    cmd = ["npx"] + c8_args
+                    
+                    print(f"[+] Coverage enabled: c8 with report-dir={coverage_report_dir}")
+
+            # Set cwd (only for Lodestar coverage mode)
+            if client.name == "Lodestar" and enable_coverage:
+                cwd = str(testing_clients_dir / "lodestar")
+            else:
+                cwd = None
+
+            process = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                cwd=cwd,
+            )
+            end_time = perf_counter()
+
+            client.status_code = process.returncode
+            client.output = process 
+            client.timestamp = end_time - start_time
+            
+            print(f"[+] Execution time: {client.timestamp}")
+            
+            # Apply correct classification criteria
+            if process.returncode == 0:
+                client.status_code = 0  # SUCCESS
+            elif process.returncode < 0:
+                client.status_code = 2  # UNHANDLED_EXCEPTION
+            else:
+                client.status_code = 1  # FAIL
+            
+            # Lodestar special handling
+            if client.name == "Lodestar":
+                try:
+                    if client.output.stderr != '':
+                        try:
+                            import json
+                            json_start = client.output.stderr.find('{')
+                            if json_start != -1:
+                                json_end = client.output.stderr.rfind('}') + 1
+                                if json_end > json_start:
+                                    json_str = client.output.stderr[json_start:json_end]
+                                    error_obj = json.loads(json_str)
+                                    status_code = error_obj.get('statusCode', 1)
+                                    output_string = error_obj.get('output', '')
+                                    if status_code == 0:
+                                        client.status_code = 0
+                                    elif status_code < 0:
+                                        client.status_code = 2
+                                    else:
+                                        client.status_code = 1
+                                    client.output.stderr = output_string
+                                    continue
+                        except:
+                            pass
+                        
+                        status_code_match = re.search(r"statusCode: \s*(\d+)", client.output.stderr)
+                        if status_code_match:
+                            status_code = int(status_code_match.group(1))
+                            output_match = re.search(r"output: \s*'(.*?)'", client.output.stderr, re.DOTALL)
+                            if output_match:
+                                output_string = output_match.group(1)
+                                if status_code == 0:
+                                    client.status_code = 0
+                                elif status_code < 0:
+                                    client.status_code = 2
+                                else:
+                                    client.status_code = 1
+                                client.output.stderr = output_string
+                except Exception as e:
+                    client.status_code = 2
+
+            client.log()
+            
+            # Nimbus: Copy .gcda files for independent coverage per test case
+            if client.name == "Nimbus" and enable_coverage:
+                nimbus_src = testing_clients_dir / "nimbus-eth2"
+                nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
+                nimbus_coverage_dir = coverage_dirs.get("nimbus")
+                
+                if nimbus_coverage_dir and nimbus_gcda_dir.exists():
+                    target_gcda_dir = nimbus_coverage_dir / "nimcache" / "debug" / "ncli"
+                    target_gcda_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    import shutil
+                    for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
+                        relative_path = gcda_file.relative_to(nimbus_gcda_dir)
+                        target_file = target_gcda_dir / relative_path
+                        target_file.parent.mkdir(parents=True, exist_ok=True)
+                        try:
+                            shutil.copy2(gcda_file, target_file)
+                        except Exception as e:
+                            print(f"[!] Failed to copy .gcda file {gcda_file}: {e}")
+                    print(f"[+] Copied .gcda files to {target_gcda_dir}")
+            
+            # Teku: Delete empty output files
+            if client.name == "Teku" and client.status_code != 0:
+                output_path = paths.get("teku", {}).get("output")
+                if output_path and os.path.exists(output_path):
+                    file_size = os.path.getsize(output_path)
+                    if file_size == 0:
+                        os.remove(output_path)
+                        print(f"[+] Removed empty Teku output file: {output_path}")
+
+        except Exception as e:
+            end_time = perf_counter()
+            client.timestamp = end_time - start_time
+            
+            if client.output is None:
+                client.output = subprocess.CompletedProcess(args=cmd, returncode=2, stdout='', stderr=str(e))
+
+            print(f"[+] Execution time: {client.timestamp}")
+            print(f"[+] Exited with status code: {client.status_code} (Failure)")
+            print(f"[+] {client.name} failed: {client.output.stderr}")
+    return clients
+
 def create_report(clients, output_dir):
     
     report_dir = Path(output_dir) #report_dir = Path(output_dir) / "reports"
@@ -750,7 +2018,7 @@ def create_csv_time(all_results, output_parent_dir):
     print(f"[+] CSV log saved at {csv_file_path}")
 
 
-def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=None, workflow="independent", enable_coverage=False):
+def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=None, workflow="independent", enable_coverage=False, fork_version="capella"):
     """
     Args:
         spectec_core_dir: spectec-core directory path (used to find testing_clients path)
@@ -788,7 +2056,7 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
                 prev_index = prev_block_file.replace("blocks_", "").replace(".ssz", "")
                 print(f"[+] Processing pair (sequential): {current_state} and {block} (using postState from block {prev_index})")
             
-            eth2_clients = process_clients(current_state, block, paths, spectec_core_dir=spectec_core_dir, enable_coverage=enable_coverage)
+            eth2_clients = process_clients(current_state, block, paths, spectec_core_dir=spectec_core_dir, enable_coverage=enable_coverage, fork_version=fork_version)
             eth2_clients_results.extend(eth2_clients)
             print(f"\n\n")
 
@@ -842,7 +2110,7 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
         # Independent mode (default): process each block independently from original pre state
         for state, block, paths in parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=spectec_core_dir):
             print(f"[+] Processing pair: {state} and {block}")
-            eth2_clients = process_clients(state, block, paths, spectec_core_dir=spectec_core_dir, enable_coverage=enable_coverage)
+            eth2_clients = process_clients(state, block, paths, spectec_core_dir=spectec_core_dir, enable_coverage=enable_coverage, fork_version=fork_version)
             eth2_clients_results.extend(eth2_clients)
             print(f"\n\n")
 
@@ -899,6 +2167,207 @@ def state_transition(state_dir, block_dir, output_parent_dir, spectec_core_dir=N
     
     # Note: _decompressed directory is kept for debugging/verification purposes
     # The decompressed .ssz files remain in _decompressed/ directory
+    
+    return successful_clients_by_index
+
+
+def operation(test_case_dir, output_parent_dir, spectec_core_dir=None, enable_coverage=False, fork_version="capella"):
+    """
+    Execute operation tests.
+    
+    Args:
+        test_case_dir: Test case directory containing pre.ssz and operation file
+        output_parent_dir: Output directory
+        spectec_core_dir: spectec-core directory path
+        enable_coverage: Enable coverage measurement
+    Returns:
+        successful_clients_by_index: dict mapping index to list of successful client names
+    """
+    eth2_clients_results = []
+    all_results = []
+    all_times = []
+    all_status = []
+    successful_clients_by_index = {}
+    
+    for state, operation_path, operation_type, paths, execution_valid in parse_operation(test_case_dir, output_parent_dir, converter_dir=spectec_core_dir):
+        print(f"[+] Processing operation: {state} + {operation_path} (type: {operation_type})")
+        eth2_clients = process_clients_operation(state, operation_path, operation_type, paths, spectec_core_dir=spectec_core_dir, enable_coverage=enable_coverage, fork_version=fork_version, execution_valid=execution_valid)
+        eth2_clients_results.extend(eth2_clients)
+        print(f"\n\n")
+        
+        # Extract index from test case directory name
+        test_case_name = os.path.basename(test_case_dir)
+        
+        pair_results = {
+            'Pair #': test_case_name,
+            'Successful Transition': [],
+            'Handled Exception': [],
+            'Unhandled Errors': []
+        }
+        pair_times = {'Pair #': test_case_name}
+        pair_status = {'Pair #': test_case_name}
+        
+        for client in eth2_clients:
+            parsed_log = parse_output(client)
+            pair_results[client.name] = parsed_log
+            labelled = f"{client.status_code}({STATUS_LABEL.get(client.status_code, 'UNKNOWN')})"
+            pair_status[client.name] = labelled
+            
+            if client.status_code == 0:
+                pair_results['Successful Transition'].append(client.name.lower())
+            if client.status_code == 1:
+                pair_results['Handled Exception'].append(client.name)
+            if client.status_code == 2:
+                pair_results['Unhandled Errors'].append(client.name)
+            
+            pair_times[client.name] = client.timestamp
+        
+        # Store successful clients
+        if pair_results['Successful Transition']:
+            successful_clients_by_index[test_case_name] = pair_results['Successful Transition']
+        
+        all_results.append(pair_results)
+        all_times.append(pair_times)
+        all_status.append(pair_status)
+    
+    # Store reports and CSV files
+    create_report(eth2_clients_results, output_parent_dir)
+    create_csv_time(all_times, output_parent_dir)
+    create_csv_status(all_status, output_parent_dir)
+    
+    return successful_clients_by_index
+
+
+def epoch_processing(test_case_dir, output_parent_dir, spectec_core_dir=None, enable_coverage=False, fork_version="capella"):
+    """
+    Execute epoch-processing tests.
+    
+    Args:
+        test_case_dir: Test case directory containing pre.ssz
+        output_parent_dir: Output directory
+        spectec_core_dir: spectec-core directory path
+        enable_coverage: Enable coverage measurement
+    Returns:
+        successful_clients_by_index: dict mapping index to list of successful client names
+    """
+    eth2_clients_results = []
+    all_results = []
+    all_times = []
+    all_status = []
+    successful_clients_by_index = {}
+    
+    for state, epoch_processing_type, paths in parse_epoch_processing(test_case_dir, output_parent_dir, converter_dir=spectec_core_dir):
+        print(f"[+] Processing epoch-processing: {state} (type: {epoch_processing_type})")
+        eth2_clients = process_clients_epoch_processing(state, epoch_processing_type, paths, spectec_core_dir=spectec_core_dir, enable_coverage=enable_coverage, fork_version=fork_version)
+        eth2_clients_results.extend(eth2_clients)
+        print(f"\n\n")
+        
+        # Extract index from test case directory name
+        test_case_name = os.path.basename(test_case_dir)
+        
+        pair_results = {
+            'Pair #': test_case_name,
+            'Successful Transition': [],
+            'Handled Exception': [],
+            'Unhandled Errors': []
+        }
+        pair_times = {'Pair #': test_case_name}
+        pair_status = {'Pair #': test_case_name}
+        
+        for client in eth2_clients:
+            parsed_log = parse_output(client)
+            pair_results[client.name] = parsed_log
+            labelled = f"{client.status_code}({STATUS_LABEL.get(client.status_code, 'UNKNOWN')})"
+            pair_status[client.name] = labelled
+            
+            if client.status_code == 0:
+                pair_results['Successful Transition'].append(client.name.lower())
+            if client.status_code == 1:
+                pair_results['Handled Exception'].append(client.name)
+            if client.status_code == 2:
+                pair_results['Unhandled Errors'].append(client.name)
+            
+            pair_times[client.name] = client.timestamp
+        
+        # Store successful clients
+        if pair_results['Successful Transition']:
+            successful_clients_by_index[test_case_name] = pair_results['Successful Transition']
+        
+        all_results.append(pair_results)
+        all_times.append(pair_times)
+        all_status.append(pair_status)
+    
+    # Store reports and CSV files
+    create_report(eth2_clients_results, output_parent_dir)
+    create_csv_time(all_times, output_parent_dir)
+    create_csv_status(all_status, output_parent_dir)
+    
+    return successful_clients_by_index
+
+
+def sanity_slots(test_case_dir, output_parent_dir, spectec_core_dir=None, enable_coverage=False, fork_version="capella"):
+    """
+    Execute sanity-slots tests.
+    
+    Args:
+        test_case_dir: Test case directory containing pre.ssz and slots.yaml
+        output_parent_dir: Output directory
+        spectec_core_dir: spectec-core directory path
+        enable_coverage: Enable coverage measurement
+    Returns:
+        successful_clients_by_index: dict mapping index to list of successful client names
+    """
+    eth2_clients_results = []
+    all_results = []
+    all_times = []
+    all_status = []
+    successful_clients_by_index = {}
+    
+    for state, slot_value, paths in parse_sanity_slots(test_case_dir, output_parent_dir, converter_dir=spectec_core_dir):
+        print(f"[+] Processing sanity-slots: {state} (slot: {slot_value})")
+        eth2_clients = process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=spectec_core_dir, enable_coverage=enable_coverage, fork_version=fork_version)
+        eth2_clients_results.extend(eth2_clients)
+        print(f"\n\n")
+        
+        # Extract index from test case directory name
+        test_case_name = os.path.basename(test_case_dir)
+        
+        pair_results = {
+            'Pair #': test_case_name,
+            'Successful Transition': [],
+            'Handled Exception': [],
+            'Unhandled Errors': []
+        }
+        pair_times = {'Pair #': test_case_name}
+        pair_status = {'Pair #': test_case_name}
+        
+        for client in eth2_clients:
+            parsed_log = parse_output(client)
+            pair_results[client.name] = parsed_log
+            labelled = f"{client.status_code}({STATUS_LABEL.get(client.status_code, 'UNKNOWN')})"
+            pair_status[client.name] = labelled
+            
+            if client.status_code == 0:
+                pair_results['Successful Transition'].append(client.name.lower())
+            if client.status_code == 1:
+                pair_results['Handled Exception'].append(client.name)
+            if client.status_code == 2:
+                pair_results['Unhandled Errors'].append(client.name)
+            
+            pair_times[client.name] = client.timestamp
+        
+        # Store successful clients
+        if pair_results['Successful Transition']:
+            successful_clients_by_index[test_case_name] = pair_results['Successful Transition']
+        
+        all_results.append(pair_results)
+        all_times.append(pair_times)
+        all_status.append(pair_status)
+    
+    # Store reports and CSV files
+    create_report(eth2_clients_results, output_parent_dir)
+    create_csv_time(all_times, output_parent_dir)
+    create_csv_status(all_status, output_parent_dir)
     
     return successful_clients_by_index
 
@@ -977,7 +2446,9 @@ def compare_ssz_files_in_output(output_parent_dir, successful_clients_by_index=N
         if os.path.exists(output_dir):
             for file in os.listdir(output_dir):
                 if file.startswith("poststate_") and file.endswith(".ssz"):
-                    index = file.split("_")[-1].split(".")[0]
+                    # Extract index: remove "poststate_" prefix and ".ssz" suffix
+                    # e.g., "poststate_effective_balance_hysteresis.ssz" -> "effective_balance_hysteresis"
+                    index = file.replace("poststate_", "").replace(".ssz", "")
                     indices.add(index)
 
     # Prepare the results for CSV
@@ -1133,20 +2604,130 @@ def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
             cwd=str(prysm_dir)  # Run from Prysm directory (go.mod required)
         )
         
-        # Calculate overall coverage statistics and add to HTML
-        _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_coverage_dir)
+        # Generate branch coverage report using go-bcov
+        import shutil
+        # Try to find go-bcov: first in PATH, then in GOPATH/bin
+        go_bcov = shutil.which("go-bcov")
+        if not go_bcov:
+            # Try to find in GOPATH/bin
+            try:
+                go_path_result = subprocess.run(
+                    ["go", "env", "GOPATH"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                gopath = go_path_result.stdout.strip()
+                if gopath:
+                    go_bcov_candidate = Path(gopath) / "bin" / "go-bcov"
+                    if go_bcov_candidate.exists():
+                        go_bcov = str(go_bcov_candidate)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+        
+        # Also try $HOME/go/bin/go-bcov as fallback
+        if not go_bcov:
+            home_go_bin = Path.home() / "go" / "bin" / "go-bcov"
+            if home_go_bin.exists():
+                go_bcov = str(home_go_bin)
+        
+        coverage_xml = None
+        branch_coverage_stats = None
+        
+        if go_bcov:
+            try:
+                coverage_xml = prysm_report_dir / "coverage_bcov.xml"
+                with open(coverage_txt, "rb") as fin, open(coverage_xml, "wb") as fout:
+                    subprocess.run(
+                        [go_bcov, "-format", "sonar-cover-report"],
+                        stdin=fin,
+                        stdout=fout,
+                        stderr=subprocess.PIPE,  # Capture stderr for error messages
+                        check=True,
+                        cwd=str(prysm_dir)  # Source AST parsing/package loading requires repo root
+                    )
+                print(f"    ✓ Branch coverage report: {coverage_xml}")
+                
+                # Parse XML to extract branch coverage statistics
+                branch_coverage_stats = _parse_bcov_xml(coverage_xml)
+            except subprocess.CalledProcessError as e:
+                print(f"    ⚠ go-bcov failed: {e}")
+                if e.stderr:
+                    print(f"    ℹ Error: {e.stderr}")
+            except FileNotFoundError:
+                print(f"    ⚠ go-bcov not found in PATH")
+        else:
+            print(f"    ⚠ go-bcov not found in PATH. Install: go install github.com/alx99/go-bcov@v1")
+        
+        # Calculate overall coverage statistics and add to HTML (including branch coverage)
+        _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_coverage_dir, branch_coverage_stats)
         
         print(f"    ✓ Report: {prysm_report_dir / 'coverage.html'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed: {e}")
 
 
-def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_coverage_dir):
-    """Add overall statistics to Prysm HTML report"""
+def _parse_bcov_xml(xml_path):
+    """Parse go-bcov XML to extract branch coverage statistics
+    
+    Returns:
+        dict with keys: 'total_branches', 'covered_branches', 'branch_coverage_pct'
+        or None if parsing fails
+    """
+    try:
+        import xml.etree.ElementTree as ET
+        
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+        
+        # SonarQube generic coverage report format
+        # <coverage version="...">
+        #   <file path="...">
+        #     <lineToCover lineNumber="..." covered="true/false" branchesToCover="..." coveredBranches="..."/>
+        #   </file>
+        # </coverage>
+        
+        total_branches = 0
+        covered_branches = 0
+        
+        for file_elem in root.findall('.//file'):
+            for line_elem in file_elem.findall('.//lineToCover'):
+                branches_to_cover = line_elem.get('branchesToCover')
+                covered_branches_attr = line_elem.get('coveredBranches')
+                
+                if branches_to_cover:
+                    try:
+                        branches = int(branches_to_cover)
+                        total_branches += branches
+                        
+                        if covered_branches_attr:
+                            covered = int(covered_branches_attr)
+                            covered_branches += covered
+                    except (ValueError, TypeError):
+                        pass
+        
+        branch_coverage_pct = 0.0
+        if total_branches > 0:
+            branch_coverage_pct = (covered_branches / total_branches) * 100.0
+        
+        return {
+            'total_branches': total_branches,
+            'covered_branches': covered_branches,
+            'branch_coverage_pct': branch_coverage_pct
+        }
+    except Exception as e:
+        print(f"    ⚠ Failed to parse go-bcov XML: {e}")
+        return None
+
+
+def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_coverage_dir, branch_coverage_stats=None):
+    """Add overall statistics to Prysm HTML report (including branch coverage if available)"""
     try:
         # Collect package statistics using go tool covdata percent
+        # Use absolute path for coverage directory to avoid path resolution issues
+        abs_coverage_dir = Path(prysm_coverage_dir).resolve()
         result = subprocess.run(
-            ["go", "tool", "covdata", "percent", f"-i={prysm_coverage_dir}"],
+            ["go", "tool", "covdata", "percent", f"-i={abs_coverage_dir}"],
             cwd=str(prysm_dir),
             capture_output=True,
             text=True,
@@ -1164,8 +2745,10 @@ def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_cove
                 package_stats.append((package, coverage))
         
         # Calculate overall statement coverage using go tool cover -func
+        # Use absolute path for coverage.txt to avoid path resolution issues
+        abs_coverage_txt = Path(coverage_txt).resolve()
         func_result = subprocess.run(
-            ["go", "tool", "cover", f"-func={coverage_txt}"],
+            ["go", "tool", "cover", f"-func={abs_coverage_txt}"],
             cwd=str(prysm_dir),
             capture_output=True,
             text=True,
@@ -1186,7 +2769,29 @@ def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_cove
         with open(coverage_html, 'r') as f:
             html_content = f.read()
         
+        # Check if statistics already exist (avoid duplicate insertion)
+        if 'Overall Statement Coverage' in html_content:
+            # Statistics already added, skip
+            return
+        
         # Generate statistics box HTML
+        branch_info = ""
+        if branch_coverage_stats:
+            branch_pct = branch_coverage_stats['branch_coverage_pct']
+            covered = branch_coverage_stats['covered_branches']
+            total = branch_coverage_stats['total_branches']
+            branch_info = f'''
+        <div style="background:#2d8659;color:#fff;padding:20px;margin:20px;border-radius:5px;">
+            <h2 style="margin:0 0 10px 0;">Overall Branch Coverage (go-bcov derived): {branch_pct:.1f}%</h2>
+            <div style="font-size:14px;">
+                Covered: {covered}/{total} branches (calculated by go-bcov from AST analysis)
+            </div>
+            <div style="font-size:12px;margin-top:5px;opacity:0.9;">
+                Note: This is syntactic branch coverage (if/switch) derived from AST parsing, not Go-native branch coverage.
+            </div>
+        </div>
+        '''
+        
         stats_html = f'''
         <div style="background:#375eab;color:#fff;padding:20px;margin:20px;border-radius:5px;">
             <h2 style="margin:0 0 10px 0;">Overall Statement Coverage: {total_coverage:.1f}%</h2>
@@ -1194,6 +2799,7 @@ def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_cove
                 (Calculated by Go official tool: go tool cover -func)
             </div>
         </div>
+        {branch_info}
         <div style="margin:20px;max-height:300px;overflow-y:auto;border:1px solid #ccc;padding:10px;border-radius:5px;">
             <h3>Package Coverage</h3>
             <table style="width:100%;border-collapse:collapse;">
@@ -1284,7 +2890,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
             text=True
         )
         
-        # 2. Generate HTML report
+        # 2. Generate HTML report with branch coverage
         html_dir = lighthouse_report_dir / "html"
         html_dir.mkdir(exist_ok=True)
         subprocess.run(
@@ -1296,6 +2902,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
                 f"--output-dir={html_dir}",
                 "--ignore-filename-regex=/.cargo|rustc/",
                 "--show-line-counts-or-regions",
+                "--show-branches=count",  # Show branch coverage with execution counts
                 "--show-instantiations"
             ],
             check=True,
@@ -1303,7 +2910,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
             text=True
         )
         
-        # 3. Generate text summary
+        # 3. Generate text summary with branch coverage
         summary_file = lighthouse_report_dir / "summary.txt"
         result = subprocess.run(
             [
@@ -1311,6 +2918,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
                 str(lighthouse_binary),
                 f"--instr-profile={profdata_file}",
                 "--ignore-filename-regex=/.cargo|rustc/",
+                "--show-branch-summary",  # Show branch condition statistics in summary table
                 "--show-instantiation-summary"
             ],
             capture_output=True,
@@ -1612,6 +3220,1092 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
         print(f"    ✗ HTML report not found: {html_index}")
         print(f"    ℹ Check if coverage JSON files contain actual file paths (not just node:internal/*)")
 
+def generate_accumulated_coverage_report(output_base_dir, spectec_core_dir, cleanup_after_report=False):
+    """
+    Generate accumulated coverage report for entire test suite.
+    Collects coverage data from all test cases and merges them into a single report per client.
+    
+    Args:
+        output_base_dir: Base output directory (e.g., node_sanity_slots)
+        spectec_core_dir: spectec-core directory path
+        cleanup_after_report: Delete original coverage data after generating reports
+    """
+    output_base_path = Path(output_base_dir)
+    testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
+    
+    print(f"\n{'='*60}")
+    print(f"Generating Accumulated Coverage Reports")
+    print(f"{'='*60}\n")
+    
+    # Create total-node-coverage directory
+    total_coverage_dir = output_base_path / "total-node-coverage"
+    total_coverage_dir.mkdir(exist_ok=True)
+    
+    clients = ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]
+    
+    for client in clients:
+        print(f"\n[+] Processing accumulated {client.capitalize()} coverage...")
+        
+        # Find all test case directories
+        test_case_dirs = [d for d in output_base_path.iterdir() if d.is_dir() and not d.name.startswith("total-node-coverage")]
+        
+        # Collect all coverage data directories for this client
+        client_cov_dirs = []
+        for test_case_dir in test_case_dirs:
+            client_dir = test_case_dir / client
+            if client_dir.exists():
+                cov_dirs = sorted([d for d in client_dir.iterdir() if d.is_dir() and d.name.startswith("cov_output_")])
+                client_cov_dirs.extend(cov_dirs)
+        
+        if not client_cov_dirs:
+            print(f"  ⚠ No coverage data found for {client}")
+            continue
+        
+        print(f"  ℹ Found {len(client_cov_dirs)} test case(s) with coverage data")
+        
+        # Create client-specific output directory
+        client_output_dir = total_coverage_dir / client
+        client_output_dir.mkdir(exist_ok=True)
+        
+        # Merge and generate report based on client type
+        if client == "prysm":
+            _merge_prysm_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
+        elif client == "lighthouse":
+            _merge_lighthouse_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
+        elif client == "teku":
+            _merge_teku_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
+        elif client == "nimbus":
+            _merge_nimbus_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
+        elif client == "lodestar":
+            _merge_lodestar_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
+        
+        # Cleanup original data if requested
+        if cleanup_after_report:
+            for cov_dir in client_cov_dirs:
+                _cleanup_coverage_data(cov_dir, client)
+    
+    print(f"\n{'='*60}")
+    print(f"Accumulated coverage reports saved in: {total_coverage_dir}")
+    print(f"{'='*60}\n")
+
+
+def generate_final_accumulated_coverage_report(test_suite_output_dirs, final_output_dir, spectec_core_dir):
+    """
+    Generate final accumulated coverage report by merging coverage data from multiple test suites.
+    
+    This function collects merged coverage data from each test suite's total-node-coverage directory
+    and merges them into a single final report per client.
+    
+    Args:
+        test_suite_output_dirs: List of test suite output directories (e.g., ["./coverage_epoch_processing", "./coverage_operation", ...])
+        final_output_dir: Final output directory for merged coverage reports
+        spectec_core_dir: spectec-core directory path
+    """
+    testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
+    final_output_path = Path(final_output_dir)
+    final_output_path.mkdir(parents=True, exist_ok=True)
+    
+    print(f"\n{'='*60}")
+    print(f"Generating Final Accumulated Coverage Reports")
+    print(f"{'='*60}\n")
+    print(f"Test suites: {len(test_suite_output_dirs)}")
+    for suite_dir in test_suite_output_dirs:
+        print(f"  - {suite_dir}")
+    print(f"Final output: {final_output_path}\n")
+    
+    clients = ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]
+    
+    for client in clients:
+        print(f"\n[+] Processing final accumulated {client.capitalize()} coverage...")
+        
+        # Collect merged_coverage directories from all test suites
+        # Note: Nimbus uses "report" directory instead of "merged_coverage"
+        merged_coverage_dirs = []
+        for suite_dir in test_suite_output_dirs:
+            suite_path = Path(suite_dir)
+            if client == "nimbus":
+                # Nimbus stores coverage in report directory, not merged_coverage
+                total_coverage_dir = suite_path / "total-node-coverage" / client / "report"
+                if total_coverage_dir.exists():
+                    merged_coverage_dirs.append(total_coverage_dir)
+                    print(f"  ✓ Found: {suite_path.name}/total-node-coverage/{client}/report")
+            else:
+                # Other clients use merged_coverage directory
+                total_coverage_dir = suite_path / "total-node-coverage" / client / "merged_coverage"
+                if total_coverage_dir.exists():
+                    merged_coverage_dirs.append(total_coverage_dir)
+                    print(f"  ✓ Found: {suite_path.name}/total-node-coverage/{client}/merged_coverage")
+        
+        if not merged_coverage_dirs:
+            print(f"  ⚠ No merged coverage data found for {client}")
+            continue
+        
+        print(f"  ℹ Merging {len(merged_coverage_dirs)} test suite(s)")
+        
+        # Create client-specific output directory
+        client_output_dir = final_output_path / client
+        client_output_dir.mkdir(exist_ok=True)
+        
+        # Merge and generate report based on client type
+        if client == "prysm":
+            _merge_final_prysm_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
+        elif client == "lighthouse":
+            _merge_final_lighthouse_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
+        elif client == "teku":
+            _merge_final_teku_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
+        elif client == "nimbus":
+            _merge_final_nimbus_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
+        elif client == "lodestar":
+            _merge_final_lodestar_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
+    
+    print(f"\n{'='*60}")
+    print(f"Final accumulated coverage reports saved in: {final_output_path}")
+    print(f"{'='*60}\n")
+
+
+def _merge_final_prysm_coverage(merged_coverage_dirs, output_dir, testing_clients_dir):
+    """Merge Prysm coverage data from multiple test suites (already merged data)"""
+    if not merged_coverage_dirs:
+        print(f"    ✗ No merged coverage directories found")
+        return
+    
+    # Create final merged coverage directory
+    final_merged_cov_dir = output_dir / "merged_coverage"
+    final_merged_cov_dir.mkdir(exist_ok=True)
+    
+    try:
+        # Merge using go tool covdata merge - use merged directories directly
+        # Use absolute paths to avoid path resolution issues
+        # Note: -i option requires comma-separated directories, not multiple -i flags
+        input_dirs = [str(Path(d).resolve()) for d in merged_coverage_dirs]
+        abs_final_merged_cov_dir = Path(final_merged_cov_dir).resolve()
+        
+        # Join input directories with comma
+        input_dirs_str = ",".join(input_dirs)
+        
+        subprocess.run(
+            ["go", "tool", "covdata", "merge", f"-i={input_dirs_str}", f"-o={abs_final_merged_cov_dir}"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # Generate report from merged data
+        _generate_prysm_report(final_merged_cov_dir, testing_clients_dir)
+        
+        # Move report to output_dir
+        report_dir = final_merged_cov_dir / "report"
+        if report_dir.exists():
+            final_report_dir = output_dir / "report"
+            if final_report_dir.exists():
+                shutil.rmtree(final_report_dir)
+            shutil.move(str(report_dir), str(final_report_dir))
+            
+            # Ensure statistics are added to the final report
+            # (in case they weren't added during _generate_prysm_report)
+            coverage_txt = final_report_dir / "coverage.txt"
+            coverage_html = final_report_dir / "coverage.html"
+            coverage_xml = final_report_dir / "coverage_bcov.xml"
+            
+            branch_coverage_stats = None
+            if coverage_xml.exists():
+                branch_coverage_stats = _parse_bcov_xml(coverage_xml)
+            
+            if coverage_txt.exists() and coverage_html.exists():
+                prysm_dir = testing_clients_dir / "prysm"
+                _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, final_merged_cov_dir, branch_coverage_stats)
+            
+            print(f"    ✓ Final accumulated report: {final_report_dir / 'coverage.html'}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+def _merge_final_lighthouse_coverage(merged_coverage_dirs, output_dir, testing_clients_dir):
+    """Merge Lighthouse coverage data from multiple test suites (already merged profdata files)"""
+    # Collect all merged.profdata files
+    all_profdata_files = []
+    for merged_dir in merged_coverage_dirs:
+        profdata_file = merged_dir / "merged.profdata"
+        if profdata_file.exists():
+            all_profdata_files.append(profdata_file)
+        else:
+            # Debug: check what files exist in merged_dir
+            print(f"    ℹ Checking {merged_dir}: exists={merged_dir.exists()}")
+            if merged_dir.exists():
+                files = list(merged_dir.iterdir())
+                print(f"    ℹ Files in {merged_dir.name}: {[f.name for f in files]}")
+    
+    if not all_profdata_files:
+        print(f"    ✗ No merged.profdata files found in merged_coverage directories")
+        print(f"    ℹ Searched {len(merged_coverage_dirs)} directory(ies)")
+        return
+    
+    # Create final merged coverage directory
+    final_merged_cov_dir = output_dir / "merged_coverage"
+    final_merged_cov_dir.mkdir(exist_ok=True)
+    final_merged_profdata = final_merged_cov_dir / "merged.profdata"
+    
+    try:
+        # Find llvm-profdata
+        rustc_result = subprocess.run(
+            ["rustc", "--print", "sysroot"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        sysroot = Path(rustc_result.stdout.strip())
+        llvm_tools_dir = sysroot / "lib" / "rustlib" / "x86_64-unknown-linux-gnu" / "bin"
+        llvm_profdata = llvm_tools_dir / "llvm-profdata"
+        
+        if not llvm_profdata.exists():
+            print(f"    ✗ llvm-profdata not found")
+            return
+        
+        # Merge all profdata files
+        subprocess.run(
+            [str(llvm_profdata), "merge", "-sparse", "-o", str(final_merged_profdata)] + [str(f) for f in all_profdata_files],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # Verify merged profdata was created
+        if not final_merged_profdata.exists():
+            print(f"    ✗ Failed to create merged.profdata at {final_merged_profdata}")
+            return
+        
+        print(f"    ℹ Created merged.profdata: {final_merged_profdata}")
+        
+        # Generate report from merged profdata
+        lighthouse_src = testing_clients_dir / "lighthouse"
+        lighthouse_binary = lighthouse_src / "target" / "release" / "lcli-cov"
+        
+        if not lighthouse_binary.exists():
+            print(f"    ✗ Lighthouse binary not found: {lighthouse_binary}")
+            return
+        
+        llvm_cov = llvm_tools_dir / "llvm-cov"
+        if not llvm_cov.exists():
+            print(f"    ✗ llvm-cov not found")
+            return
+        
+        report_dir = output_dir / "report"
+        report_dir.mkdir(exist_ok=True)
+        html_dir = report_dir / "html"
+        html_dir.mkdir(exist_ok=True)
+        
+        # Generate HTML report with branch coverage
+        # Use absolute paths for profdata and output directory
+        subprocess.run(
+            [
+                str(llvm_cov),
+                "show",
+                str(lighthouse_binary),
+                f"--instr-profile={final_merged_profdata.resolve()}",
+                "--format=html",
+                f"--output-dir={html_dir.resolve()}",
+                "--ignore-filename-regex=/.cargo|rustc/",
+                "--show-line-counts-or-regions",
+                "--show-branches=count",
+                "--show-instantiations",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=str(lighthouse_src)
+        )
+        
+        # Generate text summary with branch coverage
+        summary_file = report_dir / "summary.txt"
+        result = subprocess.run(
+            [
+                str(llvm_cov),
+                "report",
+                str(lighthouse_binary),
+                f"--instr-profile={final_merged_profdata.resolve()}",
+                "--ignore-filename-regex=/.cargo|rustc/",
+                "--show-branch-summary",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=str(lighthouse_src)
+        )
+        
+        with open(summary_file, 'w') as f:
+            f.write(result.stdout)
+        
+        print(f"    ✓ Final accumulated report: {html_dir / 'index.html'}")
+        print(f"    ✓ Summary: {summary_file}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+def _merge_final_teku_coverage(merged_coverage_dirs, output_dir, testing_clients_dir):
+    """Merge Teku coverage data from multiple test suites (already merged exec files)"""
+    # Collect all teku-coverage-merged.exec files
+    all_exec_files = []
+    for merged_dir in merged_coverage_dirs:
+        exec_file = merged_dir / "teku-coverage-merged.exec"
+        if exec_file.exists():
+            all_exec_files.append(exec_file)
+    
+    if not all_exec_files:
+        print(f"    ✗ No teku-coverage-merged.exec files found")
+        return
+    
+    # Create final merged coverage directory
+    final_merged_cov_dir = output_dir / "merged_coverage"
+    final_merged_cov_dir.mkdir(exist_ok=True)
+    
+    jacoco_cli = testing_clients_dir / "jacoco" / "jacococli.jar"
+    if not jacoco_cli.exists():
+        print(f"    ✗ JaCoCo CLI not found at {jacoco_cli}")
+        return
+    
+    try:
+        # Merge exec files using JaCoCo CLI
+        final_merged_exec = final_merged_cov_dir / "teku-coverage-merged.exec"
+        
+        subprocess.run(
+            ["java", "-jar", str(jacoco_cli), "merge"] + [str(f) for f in all_exec_files] + ["--destfile", str(final_merged_exec)],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # Generate report from merged exec file
+        teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
+        teku_jars = list(teku_lib_dir.glob("teku-*.jar"))
+        
+        if not teku_jars:
+            print(f"    ✗ No Teku jar files found")
+            return
+        
+        classfiles_args = []
+        for jar in teku_jars:
+            classfiles_args.extend(["--classfiles", str(jar)])
+        
+        teku_root = testing_clients_dir / "teku"
+        sourcefiles_args = ["--sourcefiles", str(teku_root / "teku" / "src" / "main" / "java")]
+        
+        report_dir = output_dir / "report"
+        report_dir.mkdir(exist_ok=True)
+        
+        subprocess.run(
+            ["java", "-jar", str(jacoco_cli),
+                "report", str(final_merged_exec),
+                "--html", str(report_dir),
+                "--xml", str(report_dir / "coverage.xml"),
+                "--csv", str(report_dir / "coverage.csv"),
+            ] + classfiles_args + sourcefiles_args,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        print(f"    ✓ Final accumulated report: {report_dir / 'index.html'}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+def _merge_final_nimbus_coverage(merged_coverage_dirs, output_dir, testing_clients_dir):
+    """Merge Nimbus coverage data from multiple test suites (already merged info files)"""
+    nimbus_src = testing_clients_dir / "nimbus-eth2"
+    if not nimbus_src.exists():
+        return
+    
+    # Collect coverage.info files from report directories
+    # Note: merged_coverage_dirs contains report directories for Nimbus
+    all_coverage_infos = []
+    for report_dir in merged_coverage_dirs:
+        # merged_coverage_dirs for Nimbus are already report directories
+        coverage_info = report_dir / "coverage.info"
+        if coverage_info.exists() and coverage_info.stat().st_size > 0:
+            all_coverage_infos.append(coverage_info)
+            print(f"    ℹ Found: {coverage_info}")
+        else:
+            # Debug: check what files exist in report_dir
+            if report_dir.exists():
+                files = list(report_dir.iterdir())
+                print(f"    ℹ Files in {report_dir.name}: {[f.name for f in files]}")
+    
+    if not all_coverage_infos:
+        print(f"    ✗ No coverage.info or merged.info files found")
+        print(f"    ℹ Searched {len(merged_coverage_dirs)} directory(ies)")
+        return
+    
+    try:
+        report_dir = output_dir / "report"
+        report_dir.mkdir(exist_ok=True)
+        final_merged_coverage_info = report_dir / "coverage.info"
+        
+        # Merge coverage info files using lcov (preserve branch coverage)
+        lcov_args = ["lcov", "--rc", "lcov_branch_coverage=1"]
+        for info in all_coverage_infos:
+            lcov_args.extend(["-a", str(info)])
+        lcov_args.extend(["-o", str(final_merged_coverage_info)])
+        
+        subprocess.run(
+            lcov_args,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # Filter generated_not_to_break_here
+        coverage_clean = report_dir / "coverage_clean.info"
+        with open(final_merged_coverage_info, 'r') as infile, open(coverage_clean, 'w') as outfile:
+            for line in infile:
+                if 'generated_not_to_break_here' not in line:
+                    outfile.write(line)
+        
+        # Generate HTML report with branch coverage
+        subprocess.run(
+            [
+                "genhtml",
+                str(coverage_clean),
+                "--output-directory", str(report_dir),
+                "--prefix", str(nimbus_src),
+                "--branch-coverage",
+            ],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        print(f"    ✓ Final accumulated report: {report_dir / 'index.html'}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_clients_dir):
+    """Merge Lodestar coverage data from multiple test suites (already merged JSON files)"""
+    # Collect all JSON files from merged_coverage directories
+    all_json_files = []
+    for merged_dir in merged_coverage_dirs:
+        json_files = list(merged_dir.glob("coverage-*.json"))
+        all_json_files.extend(json_files)
+        if not json_files:
+            # Debug: check what files exist in merged_dir
+            print(f"    ℹ Checking {merged_dir}: exists={merged_dir.exists()}")
+            if merged_dir.exists():
+                files = list(merged_dir.iterdir())
+                print(f"    ℹ Files in {merged_dir.name}: {[f.name for f in files]}")
+    
+    if not all_json_files:
+        print(f"    ✗ No coverage JSON files found in merged_coverage directories")
+        print(f"    ℹ Searched {len(merged_coverage_dirs)} directory(ies)")
+        return
+    
+    lodestar_dir = testing_clients_dir / "lodestar"
+    report_dir = output_dir / "report"
+    report_dir.mkdir(exist_ok=True)
+    
+    # Create final merged coverage directory
+    final_merged_cov_dir = output_dir / "merged_coverage"
+    final_merged_cov_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Copy all JSON files to final merged directory
+    for i, json_file in enumerate(all_json_files):
+        shutil.copy2(json_file, final_merged_cov_dir / f"coverage-{i:06d}.json")
+    
+    # Verify files were copied
+    copied_files = list(final_merged_cov_dir.glob("coverage-*.json"))
+    if not copied_files:
+        print(f"    ✗ Failed to copy JSON files to {final_merged_cov_dir}")
+        return
+    print(f"    ℹ Copied {len(copied_files)} JSON file(s) to merged_coverage directory")
+    
+    try:
+        # Merge and generate report using c8
+        # Use --clean=false to prevent c8 from deleting temp files
+        # Use absolute paths since c8 runs from lodestar directory
+        subprocess.run(
+            [
+                "npx", "c8", "report",
+                f"--temp-directory={final_merged_cov_dir.resolve()}",
+                "--reporter=html",
+                "--reporter=text",
+                f"--report-dir={report_dir.resolve()}",
+                "--exclude-node-modules=false",
+                "--extension=.js",
+                "--include=node_modules/@lodestar/**/*.js",
+                "--include=node_modules/@chainsafe/**/*.js",
+                "--exclude=**/transition.js",
+                "--exclude=**/generateCachedStateCapella.js",
+                "--clean=false",  # Don't delete temp files
+            ],
+            cwd=str(lodestar_dir),
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        print(f"    ✓ Final accumulated report: {report_dir / 'index.html'}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+def _merge_prysm_coverage(cov_dirs, output_dir, testing_clients_dir):
+    """Merge Prysm coverage data from multiple test cases"""
+    # Collect all covcounters.* and covmeta.* files from original directories
+    all_cov_dirs = []
+    for cov_dir in cov_dirs:
+        if cov_dir.exists():
+            all_cov_dirs.append(cov_dir)
+    
+    if not all_cov_dirs:
+        print(f"    ✗ No coverage data directories found")
+        return
+    
+    # Create merged coverage directory
+    merged_cov_dir = output_dir / "merged_coverage"
+    merged_cov_dir.mkdir(exist_ok=True)
+    
+    # Merge using go tool covdata merge - use original directories directly
+    try:
+        # Build input directories list
+        input_dirs = [str(d) for d in all_cov_dirs]
+        
+        subprocess.run(
+            ["go", "tool", "covdata", "merge", f"-o={merged_cov_dir}"] + [f"-i={d}" for d in input_dirs],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # Generate report from merged data
+        _generate_prysm_report(merged_cov_dir, testing_clients_dir)
+        
+        # Move report to output_dir
+        report_dir = merged_cov_dir / "report"
+        if report_dir.exists():
+            final_report_dir = output_dir / "report"
+            if final_report_dir.exists():
+                shutil.rmtree(final_report_dir)
+            shutil.move(str(report_dir), str(final_report_dir))
+            print(f"    ✓ Accumulated report: {final_report_dir / 'coverage.html'}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
+    """Merge Lighthouse coverage data from multiple test cases"""
+    # First, try to find already-converted profdata files from individual reports
+    all_profdata_files = []
+    for cov_dir in cov_dirs:
+        if cov_dir.exists():
+            report_dir = cov_dir / "report"
+            if report_dir.exists():
+                profdata_file = report_dir / "lighthouse.profdata"
+                if profdata_file.exists():
+                    all_profdata_files.append(profdata_file)
+    
+    # If we have profdata files, merge them directly
+    if all_profdata_files:
+        try:
+            merged_cov_dir = output_dir / "merged_coverage"
+            merged_cov_dir.mkdir(exist_ok=True)
+            merged_profdata = merged_cov_dir / "merged.profdata"
+            
+            # Find llvm-profdata
+            rustc_result = subprocess.run(
+                ["rustc", "--print", "sysroot"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            sysroot = Path(rustc_result.stdout.strip())
+            llvm_tools_dir = sysroot / "lib" / "rustlib" / "x86_64-unknown-linux-gnu" / "bin"
+            llvm_profdata = llvm_tools_dir / "llvm-profdata"
+            
+            if not llvm_profdata.exists():
+                print(f"    ✗ llvm-profdata not found")
+                all_profdata_files = []  # Fall through to profraw approach
+            else:
+                subprocess.run(
+                    [str(llvm_profdata), "merge", "-sparse", "-o", str(merged_profdata)] + [str(f) for f in all_profdata_files],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+        except subprocess.CalledProcessError as e:
+            print(f"    ⚠ Failed to merge profdata files, trying profraw approach: {e}")
+            all_profdata_files = []
+    
+    # Fallback: Collect and merge .profraw files
+    if not all_profdata_files:
+        all_profraw_files = []
+        for cov_dir in cov_dirs:
+            if cov_dir.exists():
+                profraw_files = list(cov_dir.glob("*.profraw"))
+                all_profraw_files.extend(profraw_files)
+        
+        if not all_profraw_files:
+            print(f"    ✗ No .profraw or .profdata files found")
+            return
+        
+        # Create merged coverage directory
+        merged_cov_dir = output_dir / "merged_coverage"
+        merged_cov_dir.mkdir(exist_ok=True)
+        
+        # Merge using llvm-profdata merge - use original files directly
+        try:
+            merged_profdata = merged_cov_dir / "merged.profdata"
+            
+            # Find llvm-profdata
+            rustc_result = subprocess.run(
+                ["rustc", "--print", "sysroot"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            sysroot = Path(rustc_result.stdout.strip())
+            llvm_tools_dir = sysroot / "lib" / "rustlib" / "x86_64-unknown-linux-gnu" / "bin"
+            llvm_profdata = llvm_tools_dir / "llvm-profdata"
+            
+            if not llvm_profdata.exists():
+                print(f"    ✗ llvm-profdata not found")
+                return
+            
+            subprocess.run(
+                [str(llvm_profdata), "merge", "-sparse", "-o", str(merged_profdata)] + [str(f) for f in all_profraw_files],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"    ✗ Failed to merge profraw files: {e}")
+            if e.stderr:
+                print(f"    ℹ Error: {e.stderr}")
+            return
+    
+    # Generate report from merged profdata
+    try:
+        
+        # Generate report from merged data
+        # Create a temporary cov_output structure for _generate_lighthouse_report
+        temp_cov_dir = merged_cov_dir / "temp_cov"
+        temp_cov_dir.mkdir(exist_ok=True)
+        import shutil
+        shutil.copy2(merged_profdata, temp_cov_dir / "merged.profraw")
+        
+        # We need to modify _generate_lighthouse_report to accept merged profdata
+        # For now, create a wrapper that uses the merged profdata directly
+        lighthouse_src = testing_clients_dir / "lighthouse"
+        lighthouse_binary = lighthouse_src / "target" / "release" / "lcli-cov"
+        
+        if not lighthouse_binary.exists():
+            print(f"    ✗ Lighthouse binary not found: {lighthouse_binary}")
+            return
+        
+        # Find Rust toolchain llvm-tools path
+        rustc_result = subprocess.run(
+            ["rustc", "--print", "sysroot"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        sysroot = Path(rustc_result.stdout.strip())
+        llvm_tools = sysroot / "lib" / "rustlib" / "x86_64-unknown-linux-gnu" / "bin"
+        llvm_cov = llvm_tools / "llvm-cov"
+        
+        if not llvm_cov.exists():
+            print(f"    ✗ llvm-cov not found at {llvm_cov}")
+            return
+        
+        report_dir = output_dir / "report"
+        report_dir.mkdir(exist_ok=True)
+        html_dir = report_dir / "html"
+        html_dir.mkdir(exist_ok=True)
+        
+        # Generate HTML report using llvm-cov with branch coverage (same options as individual reports)
+        subprocess.run(
+            [
+                str(llvm_cov),
+                "show",
+                str(lighthouse_binary),
+                f"--instr-profile={merged_profdata}",
+                "--format=html",
+                f"--output-dir={html_dir}",
+                "--ignore-filename-regex=/.cargo|rustc/",
+                "--show-line-counts-or-regions",
+                "--show-branches=count",  # Show branch coverage with execution counts
+                "--show-instantiations",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=str(lighthouse_src)
+        )
+        
+        # Generate text summary with branch coverage
+        summary_file = report_dir / "summary.txt"
+        result = subprocess.run(
+            [
+                str(llvm_cov),
+                "report",
+                str(lighthouse_binary),
+                f"--instr-profile={merged_profdata}",
+                "--ignore-filename-regex=/.cargo|rustc/",
+                "--show-branch-summary",  # Show branch condition statistics in summary table
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=str(lighthouse_src)
+        )
+        
+        with open(summary_file, 'w') as f:
+            f.write(result.stdout)
+        
+        print(f"    ✓ Accumulated report: {html_dir / 'index.html'}")
+        print(f"    ✓ Summary: {summary_file}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+def _merge_teku_coverage(cov_dirs, output_dir, testing_clients_dir):
+    """Merge Teku coverage data from multiple test cases"""
+    # Collect all teku-coverage.exec files
+    all_exec_files = []
+    for cov_dir in cov_dirs:
+        exec_file = cov_dir / "teku-coverage.exec"
+        if exec_file.exists():
+            all_exec_files.append(exec_file)
+    
+    if not all_exec_files:
+        print(f"    ✗ No teku-coverage.exec files found")
+        return
+    
+    # Create merged coverage directory
+    merged_cov_dir = output_dir / "merged_coverage"
+    merged_cov_dir.mkdir(exist_ok=True)
+    
+    jacoco_cli = testing_clients_dir / "jacoco" / "jacococli.jar"
+    if not jacoco_cli.exists():
+        print(f"    ✗ JaCoCo CLI not found at {jacoco_cli}")
+        return
+    
+    try:
+        # Merge exec files using JaCoCo CLI
+        merged_exec = merged_cov_dir / "teku-coverage-merged.exec"
+        
+        subprocess.run(
+            ["java", "-jar", str(jacoco_cli), "merge"] + [str(f) for f in all_exec_files] + ["--destfile", str(merged_exec)],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # Generate report from merged exec file
+        teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
+        teku_jars = list(teku_lib_dir.glob("teku-*.jar"))
+        
+        if not teku_jars:
+            print(f"    ✗ No Teku jar files found")
+            return
+        
+        classfiles_args = []
+        for jar in teku_jars:
+            classfiles_args.extend(["--classfiles", str(jar)])
+        
+        teku_root = testing_clients_dir / "teku"
+        src_dirs = []
+        for src_dir in teku_root.rglob("src/main/java"):
+            if src_dir.is_dir():
+                src_dirs.append(str(src_dir))
+        
+        if not src_dirs:
+            print(f"    ✗ No source directories found")
+            return
+        
+        report_dir = output_dir / "report"
+        report_dir.mkdir(exist_ok=True)
+        
+        # Add --sourcefiles option for each source directory (same as individual reports)
+        sourcefiles_args = []
+        for src_dir in src_dirs:
+            sourcefiles_args.extend(["--sourcefiles", src_dir])
+        
+        subprocess.run(
+            [
+                "java", "-jar", str(jacoco_cli),
+                "report", str(merged_exec),
+                "--html", str(report_dir),
+                "--xml", str(report_dir / "coverage.xml"),
+                "--csv", str(report_dir / "coverage.csv"),
+            ] + classfiles_args + sourcefiles_args,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        print(f"    ✓ Accumulated report: {report_dir / 'index.html'}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+def _merge_nimbus_coverage(cov_dirs, output_dir, testing_clients_dir):
+    """Merge Nimbus coverage data from multiple test cases"""
+    nimbus_src = testing_clients_dir / "nimbus-eth2"
+    if not nimbus_src.exists():
+        return
+    
+    # Collect all coverage info files from individual test cases (if they exist)
+    # Otherwise, collect .gcda files and merge them
+    all_coverage_infos = []
+    for cov_dir in cov_dirs:
+        # Check if individual test case already has coverage.info
+        # cov_dir is like: node_sanity_slots/pyspec_tests_slots_1/nimbus/cov_output_slots_1
+        # report dir would be: node_sanity_slots/pyspec_tests_slots_1/nimbus/report
+        client_dir = cov_dir.parent if cov_dir.parent else None
+        if client_dir:
+            test_case_report_dir = client_dir / "report"
+            if test_case_report_dir.exists():
+                coverage_info = test_case_report_dir / "coverage.info"
+                if coverage_info.exists() and coverage_info.stat().st_size > 0:
+                    all_coverage_infos.append(coverage_info)
+    
+    # If we have coverage.info files, merge them using lcov
+    if all_coverage_infos:
+        try:
+            report_dir = output_dir / "report"
+            report_dir.mkdir(exist_ok=True)
+            merged_coverage_info = report_dir / "coverage.info"
+            
+            # Merge coverage info files using lcov (preserve branch coverage)
+            lcov_args = ["lcov", "--rc", "lcov_branch_coverage=1"]  # Preserve branch coverage during merge
+            for info in all_coverage_infos:
+                lcov_args.extend(["-a", str(info)])
+            lcov_args.extend(["-o", str(merged_coverage_info)])
+            
+            subprocess.run(
+                lcov_args,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            
+            # Generate HTML report
+            subprocess.run(
+                [
+                    "genhtml",
+                    str(merged_coverage_info),
+                    "--output-directory", str(report_dir),
+                    "--prefix", str(nimbus_src),
+                ],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            
+            print(f"    ✓ Accumulated report: {report_dir / 'index.html'}")
+            return
+        except subprocess.CalledProcessError as e:
+            print(f"    ⚠ Failed to merge coverage.info files, trying .gcda approach: {e}")
+    
+    # Fallback: Collect all .gcda files and generate coverage from scratch
+    # Need to copy .gcno files from original nimcache to match .gcda files
+    all_gcda_dirs = []
+    for cov_dir in cov_dirs:
+        nimcache_dir = cov_dir / "nimcache"
+        if nimcache_dir.exists():
+            all_gcda_dirs.append(nimcache_dir)
+    
+    if not all_gcda_dirs:
+        print(f"    ✗ No .gcda files found")
+        return
+    
+    try:
+        # Check lcov command
+        subprocess.run(["lcov", "--version"], check=True, capture_output=True)
+        
+        report_dir = output_dir / "report"
+        report_dir.mkdir(exist_ok=True)
+        coverage_info = report_dir / "coverage.info"
+        
+        # Use original nimcache for .gcno files (generated at compile time)
+        original_nimcache = nimbus_src / "nimcache"
+        
+        if not original_nimcache.exists():
+            print(f"    ✗ Original nimcache not found: {original_nimcache}")
+            return
+        
+        # Collect coverage from all directories and merge
+        temp_info_files = []
+        for i, gcda_dir in enumerate(all_gcda_dirs):
+            temp_info = report_dir / f"temp_coverage_{i}.info"
+            
+            # Create a temporary directory with both .gcno and .gcda files
+            temp_capture_dir = report_dir / f"temp_capture_{i}"
+            if temp_capture_dir.exists():
+                shutil.rmtree(temp_capture_dir)
+            temp_capture_dir.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                # Copy .gcno files from original nimcache to temp directory
+                for gcno_file in original_nimcache.rglob("*.gcno"):
+                    relative_path = gcno_file.relative_to(original_nimcache)
+                    target_gcno = temp_capture_dir / relative_path
+                    target_gcno.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(gcno_file, target_gcno)
+                
+                # Copy .gcda files from test case directory to temp directory (same relative path)
+                for gcda_file in gcda_dir.rglob("*.gcda"):
+                    relative_path = gcda_file.relative_to(gcda_dir)
+                    target_gcda = temp_capture_dir / relative_path
+                    target_gcda.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(gcda_file, target_gcda)
+                
+                # Now capture coverage from temp directory (has both .gcno and .gcda)
+                result = subprocess.run(
+                    [
+                        "lcov",
+                        "--capture",
+                        "--directory", str(temp_capture_dir),
+                        "--output-file", str(temp_info),  # Use --output-file instead of --output
+                        "--base-directory", str(nimbus_src),
+                        "--rc", "lcov_branch_coverage=1"  # Enable branch coverage
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                
+                # Check if file was created and has content
+                if temp_info.exists() and temp_info.stat().st_size > 0:
+                    temp_info_files.append(temp_info)
+                else:
+                    print(f"    ⚠ Warning: Empty coverage info generated from {gcda_dir.name}")
+                
+                # Clean up temp directory
+                shutil.rmtree(temp_capture_dir, ignore_errors=True)
+            except subprocess.CalledProcessError as e:
+                print(f"    ⚠ Warning: Failed to capture coverage from {gcda_dir.name}: {e.stderr if e.stderr else 'Unknown error'}")
+                shutil.rmtree(temp_capture_dir, ignore_errors=True)
+                continue
+        
+        if not temp_info_files:
+            print(f"    ✗ No valid coverage data collected")
+            return
+        
+        # Merge all temporary info files (preserve branch coverage)
+        lcov_args = ["lcov", "--rc", "lcov_branch_coverage=1"]  # Preserve branch coverage during merge
+        for info in temp_info_files:
+            lcov_args.extend(["-a", str(info)])
+        lcov_args.extend(["-o", str(coverage_info)])
+        
+        subprocess.run(
+            lcov_args,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # Filter generated_not_to_break_here (same as individual reports)
+        coverage_clean = report_dir / "coverage_clean.info"
+        with open(coverage_info, 'r') as infile, open(coverage_clean, 'w') as outfile:
+            for line in infile:
+                if 'generated_not_to_break_here' not in line:
+                    outfile.write(line)
+        
+        # Clean up temp files
+        for temp_info in temp_info_files:
+            temp_info.unlink()
+        
+        # Generate HTML report with branch coverage (using filtered coverage_clean.info)
+        subprocess.run(
+            [
+                "genhtml",
+                str(coverage_clean),
+                "--output-directory", str(report_dir),
+                "--prefix", str(nimbus_src),
+                "--branch-coverage",  # Enable branch coverage display
+            ],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        print(f"    ✓ Accumulated report: {report_dir / 'index.html'}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
+    """Merge Lodestar coverage data from multiple test cases"""
+    # Collect all coverage JSON files
+    all_json_files = []
+    for cov_dir in cov_dirs:
+        json_files = list(cov_dir.glob("coverage-*.json"))
+        all_json_files.extend(json_files)
+    
+    if not all_json_files:
+        print(f"    ✗ No coverage JSON files found")
+        return
+    
+    lodestar_dir = testing_clients_dir / "lodestar"
+    report_dir = output_dir / "report"
+    report_dir.mkdir(exist_ok=True)
+    
+    # Create merged coverage directory
+    merged_cov_dir = output_dir / "merged_coverage"
+    merged_cov_dir.mkdir(exist_ok=True)
+    
+    # Copy all JSON files to merged directory
+    import shutil
+    for i, json_file in enumerate(all_json_files):
+        shutil.copy2(json_file, merged_cov_dir / f"coverage-{i:06d}.json")
+    
+    try:
+        # Merge and generate report using c8
+        subprocess.run(
+            [
+                "npx", "c8", "report",
+                f"--temp-directory={merged_cov_dir}",
+                "--reporter=html",
+                "--reporter=text",
+                f"--report-dir={report_dir}",
+                "--exclude-node-modules=false",
+                "--extension=.js",
+                "--include=node_modules/@lodestar/**/*.js",
+                "--include=node_modules/@chainsafe/**/*.js",
+                "--exclude=**/transition.js",
+                "--exclude=**/generateCachedStateCapella.js",
+            ],
+            cwd=str(lodestar_dir),
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        print(f"    ✓ Accumulated report: {report_dir / 'index.html'}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
 def _cleanup_coverage_data(cov_dir, client):
     """Delete original coverage measurement data after report generation
     
@@ -1667,7 +4361,14 @@ def _cleanup_coverage_data(cov_dir, client):
         print(f"    ⚠ Warning: Failed to cleanup coverage data: {e}")
 
 
-def find_test_case_dirs(test_suite_dir):
+def find_test_case_dirs(test_suite_dir, test_type="state-transition"):
+    """
+    Find test case directories based on test type.
+    
+    Args:
+        test_suite_dir: Test suite directory path
+        test_type: "state-transition", "operation", or "epoch-processing"
+    """
     test_suite_path = Path(test_suite_dir).resolve()
     test_case_dirs = []
     
@@ -1675,25 +4376,78 @@ def find_test_case_dirs(test_suite_dir):
     for pre_file in test_suite_path.rglob("pre.ssz_snappy"):
         parent = pre_file.parent
         # Exclude output directories: exclude if any part of path starts with _
-        # Examples: .../_sanity_independent/... or .../_results/... etc.
         parent_parts = parent.parts
-        if not any(part.startswith('_') for part in parent_parts):
-            test_case_dirs.append(parent)
+        if any(part.startswith('_') for part in parent_parts):
+            continue
+        
+        # Filter by test type
+        if test_type == "operation":
+            # For operation, check if directory is under operations/ path
+            if "operations" not in parent_parts:
+                continue
+        elif test_type == "epoch-processing":
+            # For epoch-processing, check if directory is under epoch_processing/ path
+            if "epoch_processing" not in parent_parts:
+                continue
+        elif test_type == "sanity-slots":
+            # For sanity-slots, check if directory is under sanity/slots/ path
+            if "sanity" not in parent_parts or "slots" not in parent_parts:
+                continue
+        elif test_type == "state-transition":
+            # For state-transition, exclude operations, epoch_processing, and sanity/slots (but include sanity/blocks, random, finality)
+            if "operations" in parent_parts or "epoch_processing" in parent_parts:
+                continue
+            # Exclude sanity/slots (handled by sanity-slots test type)
+            if "sanity" in parent_parts and "slots" in parent_parts:
+                continue
+        
+        test_case_dirs.append(parent)
     
     # Find all directories containing pre.ssz files (already converted format)
     for pre_file in test_suite_path.rglob("pre.ssz"):
         parent = pre_file.parent
         # Remove duplicates and exclude output directories
         parent_parts = parent.parts
-        if parent not in test_case_dirs and not any(part.startswith('_') for part in parent_parts):
-            test_case_dirs.append(parent)
+        if any(part.startswith('_') for part in parent_parts):
+            continue
+        
+        if parent in test_case_dirs:
+            continue
+        
+        # Filter by test type
+        if test_type == "operation":
+            if "operations" not in parent_parts:
+                continue
+        elif test_type == "epoch-processing":
+            if "epoch_processing" not in parent_parts:
+                continue
+        elif test_type == "sanity-slots":
+            # For sanity-slots, check if directory is under sanity/slots/ path
+            if "sanity" not in parent_parts or "slots" not in parent_parts:
+                continue
+        elif test_type == "state-transition":
+            # For state-transition, exclude operations, epoch_processing, and sanity/slots (but include sanity/blocks, random, finality)
+            if "operations" in parent_parts or "epoch_processing" in parent_parts:
+                continue
+            # Exclude sanity/slots (handled by sanity-slots test type)
+            if "sanity" in parent_parts and "slots" in parent_parts:
+                continue
+        
+        test_case_dirs.append(parent)
     
     # Find all directories containing pre_*.ssz files (state mutation format)
-    for pre_file in test_suite_path.rglob("pre_*.ssz"):
-        parent = pre_file.parent
-        # Remove duplicates and exclude output directories
-        parent_parts = parent.parts
-        if parent not in test_case_dirs and not any(part.startswith('_') for part in parent_parts):
+    # Only for state-transition
+    if test_type == "state-transition":
+        for pre_file in test_suite_path.rglob("pre_*.ssz"):
+            parent = pre_file.parent
+            # Remove duplicates and exclude output directories
+            parent_parts = parent.parts
+            if any(part.startswith('_') for part in parent_parts):
+                continue
+            
+            if parent in test_case_dirs:
+                continue
+            
             test_case_dirs.append(parent)
     
     return sorted(test_case_dirs)
@@ -1710,10 +4464,16 @@ def main():
                        help="Test suite directory (e.g., Converter/OfficialTestSuite/random). "
                             "If provided, automatically finds all test cases with pre.ssz or pre.ssz_snappy files. "
                             ".ssz_snappy files are automatically decompressed to .ssz.")
+    parser.add_argument("--test-type", type=str, default="state-transition",
+                       choices=["state-transition", "operation", "epoch-processing", "sanity-slots"],
+                       help="Type of test to run: state-transition (default), operation, epoch-processing, or sanity-slots")
+    parser.add_argument("--fork-version", type=str, default="capella",
+                       choices=["capella", "deneb"],
+                       help="Fork version to use: capella (default) or deneb")
     parser.add_argument("beaconstate_dir_path", nargs="?", default=None,
                        help="Path to beaconstate files dir (required if --test-suite is not used)")
     parser.add_argument("block_dir_path", nargs="?", default=None,
-                       help="Path to block files dir (required if --test-suite is not used)")
+                       help="Path to block files dir (required if --test-suite is not used, ignored for epoch-processing)")
     parser.add_argument("output", nargs="?", default=None,
                        help="Path to output directory (required if --test-suite is not used)")                   
     parser.add_argument("--output-base", type=str, default=None,
@@ -1727,8 +4487,27 @@ def main():
     parser.add_argument("--cleanup-after-report", action="store_true",
                        help="Delete original coverage measurement data after generating reports. "
                             "This saves disk space but prevents regenerating reports later.")
+    parser.add_argument("--generate-final-coverage", nargs="+", metavar="OUTPUT_DIR",
+                       help="Generate final accumulated coverage report by merging coverage data from multiple test suites. "
+                            "Provide one or more test suite output directories (e.g., ./coverage_epoch_processing ./coverage_operation). "
+                            "This option requires --final-output-dir to specify where the final report should be saved.")
+    parser.add_argument("--final-output-dir", type=str, default=None,
+                       help="Output directory for final accumulated coverage report (required when using --generate-final-coverage)")
 
     args = parser.parse_args()
+    
+    # Handle --generate-final-coverage mode (standalone mode)
+    if args.generate_final_coverage:
+        if not args.final_output_dir:
+            parser.error("--final-output-dir is required when using --generate-final-coverage")
+        
+        script_dir = Path(__file__).parent.resolve()
+        generate_final_accumulated_coverage_report(
+            args.generate_final_coverage,
+            args.final_output_dir,
+            script_dir
+        )
+        sys.exit(0)
 
     # Find spectec-core directory
     script_dir = Path(__file__).parent.resolve()
@@ -1743,7 +4522,7 @@ def main():
             sys.exit(1)
         
         # Find all test cases
-        test_case_dirs = find_test_case_dirs(args.test_suite)
+        test_case_dirs = find_test_case_dirs(args.test_suite, test_type=args.test_type)
         
         if not test_case_dirs:
             print(f"No test cases found in {test_suite_path}")
@@ -1779,29 +4558,64 @@ def main():
             print(f"Output: {output_dir}")
             print(f"{'='*60}")
             
-            # Execute state_transition
+            # Execute test based on test type
             try:
-                successful_clients_by_index = state_transition(
-                    str(test_case_dir),
-                    str(test_case_dir),
-                    str(output_dir),
-                    spectec_core_dir=script_dir,
-                    workflow=args.workflow,
-                    enable_coverage=args.enable_coverage
-                )
+                if args.test_type == "state-transition":
+                    successful_clients_by_index = state_transition(
+                        str(test_case_dir),
+                        str(test_case_dir),
+                        str(output_dir),
+                        spectec_core_dir=script_dir,
+                        workflow=args.workflow,
+                        enable_coverage=args.enable_coverage,
+                        fork_version=args.fork_version
+                    )
+                elif args.test_type == "operation":
+                    successful_clients_by_index = operation(
+                        str(test_case_dir),
+                        str(output_dir),
+                        spectec_core_dir=script_dir,
+                        enable_coverage=args.enable_coverage,
+                        fork_version=args.fork_version
+                    )
+                elif args.test_type == "epoch-processing":
+                    successful_clients_by_index = epoch_processing(
+                        str(test_case_dir),
+                        str(output_dir),
+                        spectec_core_dir=script_dir,
+                        enable_coverage=args.enable_coverage,
+                        fork_version=args.fork_version
+                    )
+                elif args.test_type == "sanity-slots":
+                    successful_clients_by_index = sanity_slots(
+                        str(test_case_dir),
+                        str(output_dir),
+                        spectec_core_dir=script_dir,
+                        enable_coverage=args.enable_coverage,
+                        fork_version=args.fork_version
+                    )
+                else:
+                    print(f"✗ Unknown test type: {args.test_type}")
+                    total_failed += 1
+                    continue
                 
                 # Execute SSZ file comparison (only compare successful clients)
                 compare_ssz_files_in_output(str(output_dir), successful_clients_by_index)
                 
-                # Generate coverage reports (per test case)
-                if args.enable_coverage:
-                    generate_coverage_reports_per_testcase(str(output_dir), script_dir, cleanup_after_report=args.cleanup_after_report)
+                # Note: Individual test case coverage reports are skipped when generating accumulated reports
+                # Uncomment the line below if you want both individual and accumulated reports
+                # if args.enable_coverage:
+                #     generate_coverage_reports_per_testcase(str(output_dir), script_dir, cleanup_after_report=False)
                 
                 print(f"✓ Completed: {test_name}")
                 total_passed += 1
             except Exception as e:
                 print(f"✗ Failed: {test_name} - {e}")
                 total_failed += 1
+        
+        # Generate accumulated coverage report for entire test suite
+        if args.enable_coverage:
+            generate_accumulated_coverage_report(str(output_base), script_dir, cleanup_after_report=args.cleanup_after_report)
         
         # Summary
         print(f"\n{'='*60}")
@@ -1814,17 +4628,50 @@ def main():
         
     # Single directory mode (legacy method)
     else:
-        if not args.beaconstate_dir_path or not args.block_dir_path or not args.output:
-            parser.error("beaconstate_dir_path, block_dir_path, and output are required when --test-suite is not used")
+        if not args.beaconstate_dir_path or not args.output:
+            parser.error("beaconstate_dir_path and output are required when --test-suite is not used")
         
-        successful_clients_by_index = state_transition(
-            args.beaconstate_dir_path,
-            args.block_dir_path,
-            args.output,
-            spectec_core_dir=script_dir,
-            workflow=args.workflow,
-            enable_coverage=args.enable_coverage
-        )
+        if args.test_type == "state-transition":
+            if not args.block_dir_path:
+                parser.error("block_dir_path is required for state-transition test type")
+            successful_clients_by_index = state_transition(
+                args.beaconstate_dir_path,
+                args.block_dir_path,
+                args.output,
+                spectec_core_dir=script_dir,
+                workflow=args.workflow,
+                enable_coverage=args.enable_coverage,
+                fork_version=args.fork_version
+            )
+        elif args.test_type == "operation":
+            # For operation, beaconstate_dir_path is the test case directory
+            successful_clients_by_index = operation(
+                args.beaconstate_dir_path,
+                args.output,
+                spectec_core_dir=script_dir,
+                enable_coverage=args.enable_coverage,
+                fork_version=args.fork_version
+            )
+        elif args.test_type == "epoch-processing":
+            # For epoch-processing, beaconstate_dir_path is the test case directory
+            successful_clients_by_index = epoch_processing(
+                args.beaconstate_dir_path,
+                args.output,
+                spectec_core_dir=script_dir,
+                enable_coverage=args.enable_coverage,
+                fork_version=args.fork_version
+            )
+        elif args.test_type == "sanity-slots":
+            # For sanity-slots, beaconstate_dir_path is the test case directory
+            successful_clients_by_index = sanity_slots(
+                args.beaconstate_dir_path,
+                args.output,
+                spectec_core_dir=script_dir,
+                enable_coverage=args.enable_coverage,
+                fork_version=args.fork_version
+            )
+        else:
+            parser.error(f"Unknown test type: {args.test_type}")
         
         # Execute SSZ file comparison (only compare successful clients)
         compare_ssz_files_in_output(args.output, successful_clients_by_index)
