@@ -220,29 +220,66 @@ if [ -d "nimbus-eth2" ] && [ -d "nimbus-eth2/.git" ]; then
     # Clean checkout to ensure we start from original code
     git fetch
     git checkout v25.11.0
+    # Reset to v25.11.0 (in case of local modifications to tracked files)
+    # Note: This doesn't affect submodules - they remain in their current state
     git reset --hard v25.11.0
+    # Clean untracked files, but be careful with submodules
+    # Submodules are tracked by .gitmodules, so they won't be deleted by git clean
+    # However, if submodules are in a bad state, they might need re-initialization
     git clean -fd
+
 else
     echo "Nimbus is missing or corrupt (not a git repo). Re-cloning..."
     rm -rf nimbus-eth2
     git clone https://github.com/status-im/nimbus-eth2
     cd nimbus-eth2
     git checkout v25.11.0
+    # Note: We do NOT initialize submodules here because:
+    # 1. build_original_clients.sh doesn't initialize submodules
+    # 2. The submodule commit in v25.11.0 (f80cfd8 for nim-serialization) is not
+    #    compatible with Nim 1.6.20 (noxcannotraisey pragma issue)
+    # 3. We'll try to use env.sh if it exists, otherwise use direct nim compilation
+    # If submodules are needed, they should be initialized manually with a compatible version
 fi
 
-# Apply modified code
+# Build Nimbus if not already built (make will handle submodules automatically)
+if [ ! -f "build/ncli" ] && [ ! -f "ncli/ncli" ]; then
+    JOBS=2
+    if command -v nproc >/dev/null 2>&1; then
+        NUM_CORES=$(nproc 2>/dev/null)
+        if [ -n "$NUM_CORES" ] && [ "$NUM_CORES" -gt 0 ] 2>/dev/null; then
+            if [ "$NUM_CORES" -gt 4 ]; then
+                JOBS=4
+            else
+                JOBS=$NUM_CORES
+            fi
+        fi
+    fi
+    echo "Building Nimbus with $JOBS parallel jobs (make will handle submodules)..."
+    if ! make -j${JOBS} 2>&1; then
+        echo "Error: Make build failed for Nimbus."
+        echo "Trying with fewer parallel jobs (j2)..."
+        if ! make -j2 2>&1; then
+            echo "Error: Make build failed for Nimbus even with j2."
+            exit 1
+        fi
+    fi
+fi
+
+# Apply modified code (after make build, so submodules are initialized)
 if [ -f "${workspace}/modified_code/nimbus/ncli.nim" ]; then
     echo "Applying modified Nimbus code..."
     cp "${workspace}/modified_code/nimbus/ncli.nim" ncli/ncli.nim
     echo "Nimbus: Modified code applied"
+    # After applying modified code, we need to rebuild
+    MODIFIED_CODE_APPLIED=true
 else
     echo "Warning: Modified Nimbus code not found at ${workspace}/modified_code/nimbus/ncli.nim"
+    MODIFIED_CODE_APPLIED=false
 fi
 
-# Build Nimbus
-if [ -f "ncli/ncli" ] && [ "ncli/ncli.nim" -ot "ncli/ncli" ] 2>/dev/null; then
-    echo "Nimbus ncli is already built and up-to-date. Skipping build..."
-else
+# Build Nimbus with modified code (if modified code was applied, always rebuild)
+if [ "$MODIFIED_CODE_APPLIED" = "true" ] || [ ! -f "ncli/ncli" ] || [ "ncli/ncli.nim" -nt "ncli/ncli" ] 2>/dev/null; then
     # Clean previous build artifacts
     rm -f ncli/ncli
     

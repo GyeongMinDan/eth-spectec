@@ -1087,7 +1087,8 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
                 "slots",
                 "--pre", state,
                 "--post", paths["teku"]["output"],
-                str(slot_value),  # Positional parameter: number of slots (delta, default=true)
+                "--delta",  # Interpret slot_value as delta from pre-state (default=true, but explicit for clarity)
+                str(slot_value),  # Positional parameter: number of slots (delta from pre-state)
                 "--Xnetwork-altair-fork-epoch=0",
                 "--Xnetwork-bellatrix-fork-epoch=0",
                 "--Xnetwork-capella-fork-epoch=0",
