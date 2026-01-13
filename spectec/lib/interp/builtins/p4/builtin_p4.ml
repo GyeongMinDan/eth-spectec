@@ -1,3 +1,5 @@
+module Fresh = Fresh
+
 let builtins =
   [
     Nats.builtins;
