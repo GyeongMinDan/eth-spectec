@@ -37,10 +37,17 @@ type coverage_state = {
   node_il : Instrumentation.Node_coverage_il.result option;
   node_sl : Instrumentation.Node_coverage_sl.result option;
   dependency : Instrumentation.Dependency.result option;
+  path_condition : Instrumentation.Path_condition.result option;
 }
 
 let empty_coverage =
-  { branch = None; node_il = None; node_sl = None; dependency = None }
+  {
+    branch = None;
+    node_il = None;
+    node_sl = None;
+    dependency = None;
+    path_condition = None;
+  }
 
 (* Main checkpoint type - saved/loaded state *)
 type t = {

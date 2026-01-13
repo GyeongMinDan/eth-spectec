@@ -241,7 +241,7 @@ module Make (Tgt : Runner.Target.S) = struct
          let open Runner.Testgen in
          try
            (* Load checkpoint *)
-           let _checkpoint, coverage, dependency =
+           let _checkpoint, coverage, dependency, path_condition =
              load_checkpoint checkpoint_file
            in
 
@@ -249,13 +249,28 @@ module Make (Tgt : Runner.Target.S) = struct
            let uncovered = get_uncovered_premises coverage in
 
            if list_only then (
-             (* Just list uncovered premises *)
+             (* Just list uncovered premises with test case info *)
              Format.printf "Uncovered Premises (%d total):\n\n"
                (List.length uncovered);
              List.iter
                (fun prem ->
-                 Format.printf "  UID %d: %s/%s\n    %s\n\n" prem.uid
-                   prem.relation prem.rule prem.content)
+                 let test_cases =
+                   Runner.Testgen.get_test_cases_for_premise prem.uid coverage
+                 in
+                 Format.printf "  UID %d: %s/%s\n" prem.uid prem.relation
+                   prem.rule;
+                 Format.printf "    Content: %s\n" prem.content;
+                 if test_cases = [] then
+                   Format.printf
+                     "    Test cases: (none - premise never succeeded)\n"
+                 else (
+                   Format.printf
+                     "    Test cases that succeeded this premise (%d):\n"
+                     (List.length test_cases);
+                   List.iter
+                     (fun test_id -> Format.printf "      - %s\n" test_id)
+                     test_cases);
+                 Format.printf "\n")
                uncovered)
            else
              (* Generate test cases *)
@@ -289,7 +304,8 @@ module Make (Tgt : Runner.Target.S) = struct
                (fun uid ->
                  try
                    let pre_path, block_path =
-                     generate_test_case uid coverage dependency None
+                     generate_test_case uid coverage dependency path_condition
+                       None
                    in
                    Format.printf "Generated test case for premise UID %d:\n" uid;
                    Format.printf "  Pre: %s\n" pre_path;

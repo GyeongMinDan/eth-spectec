@@ -32,6 +32,7 @@ module Node_coverage_sl = Instrumentation_handlers.Node_coverage_sl
 module Profile = Instrumentation_handlers.Profile
 module Trace = Instrumentation_handlers.Trace
 module Dependency = Instrumentation_handlers.Dependency
+module Path_condition = Instrumentation_handlers.Path_condition
 
 (* Config is defined locally in this library *)
 module Config = Config

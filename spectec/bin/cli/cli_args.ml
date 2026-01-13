@@ -41,6 +41,11 @@ let config_flags =
     flag "--dep-analysis" (optional int) ~doc:"LEVEL 1=summary, 2=full"
   and dep_output =
     flag "--dep-output" (optional string) ~doc:"FILE output file for dep"
+  and path_level =
+    flag "--path-condition" (optional int) ~doc:"LEVEL 1=summary, 2=full"
+  and path_output =
+    flag "--path-output" (optional string)
+      ~doc:"FILE output file for path condition"
   in
   Config.
     {
@@ -71,4 +76,10 @@ let config_flags =
             (parse_level ~summary:Dependency.Summary ~full:Dependency.Full
                dep_level) ~output:dep_output ~make_cfg:(fun ~level ~output ->
             Dependency.{ level; output });
+      path_condition =
+        make_config
+          ~level_opt:
+            (parse_level ~summary:Path_condition.Summary
+               ~full:Path_condition.Full path_level) ~output:path_output
+          ~make_cfg:(fun ~level ~output -> Path_condition.{ level; output });
     }

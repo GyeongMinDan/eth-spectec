@@ -10,6 +10,7 @@ module Branch_coverage = Instrumentation_handlers.Branch_coverage
 module Node_coverage_il = Instrumentation_handlers.Node_coverage_il
 module Node_coverage_sl = Instrumentation_handlers.Node_coverage_sl
 module Dependency = Instrumentation_handlers.Dependency
+module Path_condition = Instrumentation_handlers.Path_condition
 module Output = Instrumentation_core.Output
 
 (* Shared level type for node coverage and field deps *)
@@ -21,6 +22,7 @@ type t = {
   branch_coverage : Branch_coverage.config option;
   node_coverage : Node_coverage_il.config option;
   dependency : Dependency.config option;
+  path_condition : Path_condition.config option;
 }
 
 let default =
@@ -30,6 +32,7 @@ let default =
     branch_coverage = None;
     node_coverage = None;
     dependency = None;
+    path_condition = None;
   }
 
 (* Convert config to handler list *)
@@ -45,10 +48,13 @@ let to_handlers config =
         (* Both IL and SL handlers share the same config;
           they self-select based on spec type at init() *)
         [ Node_coverage_il.make cfg; Node_coverage_sl.make cfg ])
+  @ (match config.dependency with
+    | None -> []
+    | Some cfg -> [ Dependency.make cfg ])
   @
-  match config.dependency with
+  match config.path_condition with
   | None -> []
-  | Some cfg -> [ Dependency.make cfg ]
+  | Some cfg -> [ Path_condition.make cfg ]
 
 (* Close all output destinations after finish() *)
 let close_outputs config =
@@ -60,4 +66,7 @@ let close_outputs config =
   Option.iter
     (fun c -> Output.close c.Node_coverage_il.output)
     config.node_coverage;
-  Option.iter (fun c -> Output.close c.Dependency.output) config.dependency
+  Option.iter (fun c -> Output.close c.Dependency.output) config.dependency;
+  Option.iter
+    (fun c -> Output.close c.Path_condition.output)
+    config.path_condition
