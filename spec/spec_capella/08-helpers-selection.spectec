@@ -116,6 +116,8 @@ def $compute_proposer_index_loop(state, vid*, bytes32_seed, uint64_total, uint64
   -- if state.VALIDATORS[validatorIndex_candidate] = validator_v
   -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
   ;; 4 break 조건
+  ;; inserted overflow check
+  -- if $( gwei_effective * $MAX_RANDOM_BYTE <= $UINT64_MAX )
   -- if $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
 
 ;; continue case: 위 조건 미충족 → i+1 로 재귀

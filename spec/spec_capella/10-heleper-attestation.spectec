@@ -310,6 +310,8 @@ def $next_sync_committee_indices_loop(
   -- if state.VALIDATORS[vid_candidate] = validator_v
   -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
   ;; 4 합격이면 append
+  ;; inserted overflow check
+  -- if $( gwei_effective * $MAX_RANDOM_BYTE <= $UINT64_MAX )
   -- if $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
   -- if vid_acc_sel* = ( vid_acc* ++ [ vid_candidate ] )
   ;; 5 재귀(i+1)

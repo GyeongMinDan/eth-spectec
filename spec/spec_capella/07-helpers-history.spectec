@@ -38,6 +38,8 @@ def $get_randao_mix(state, epoch) = bytes32_mix
 dec $get_finality_delay(beaconState) : uint64
 def $get_finality_delay(state) =
   $( $get_previous_epoch(state) - state.FINALIZED_CHECKPOINT.EPOCH )
+  ;; inserted underflow check
+  -- if $( $get_previous_epoch(state) >= state.FINALIZED_CHECKPOINT.EPOCH )
 
 ;; [Phase0]
 ;; is_in_inactivity_leak : state -> bool

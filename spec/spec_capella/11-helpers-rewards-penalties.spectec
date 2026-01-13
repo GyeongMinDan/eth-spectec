@@ -64,6 +64,9 @@ rule ApplyEffectiveBalance/main:
   -- if $( $EFFECTIVE_BALANCE_INCREMENT / $HYSTERESIS_QUOTIENT ) = uint64_hyst_inc
   -- if $( uint64_hyst_inc * $HYSTERESIS_DOWNWARD_MULTIPLIER ) = uint64_down_th
   -- if $( uint64_hyst_inc * $HYSTERESIS_UPWARD_MULTIPLIER )  = uint64_up_th
+  ;; inserted overflow checks
+  -- if $( balance + uint64_down_th <= $UINT64_MAX )
+  -- if $( validator.EFFECTIVE_BALANCE + uint64_up_th <= $UINT64_MAX )
   -- if $( balance + uint64_down_th < validator.EFFECTIVE_BALANCE )
      \/ $( validator.EFFECTIVE_BALANCE + uint64_up_th < balance )
 
@@ -89,6 +92,8 @@ def $inact_penalty_one(nat_i, (state, vid_matching*, vid_eligible*, uint64_den))
   -- if $(vid < |state.INACTIVITY_SCORES|)
   -- if state.INACTIVITY_SCORES[vid] = uint64_score
   -- if $( gwei_eff * uint64_score ) = uint64_num
+  ;; inserted overflow check
+  -- if $( uint64_num <= $UINT64_MAX )
   -- if $( uint64_num / uint64_den ) = gwei_penalty
 
 def $inact_penalty_one(nat_i, (state, vid_matching*, vid_eligible*, uint64_den))
