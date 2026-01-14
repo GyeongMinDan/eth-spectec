@@ -309,6 +309,7 @@ let get_result () =
 let restore result =
   Hashtbl.clear State.prems_attempted;
   Hashtbl.clear State.prems_succeeded;
+  Hashtbl.clear State.prems_failed;
   Hashtbl.clear State.prem_to_test;
   List.iter
     (fun (key, count) -> Hashtbl.replace State.prems_attempted key count)
@@ -316,6 +317,16 @@ let restore result =
   List.iter
     (fun (key, count) -> Hashtbl.replace State.prems_succeeded key count)
     result.prems_succeeded;
+  (* Reconstruct prems_failed from attempted - succeeded *)
+  List.iter
+    (fun (key, attempted_count) ->
+      let succeeded_count =
+        Hashtbl.find_opt State.prems_succeeded key |> Option.value ~default:0
+      in
+      let failed_count = attempted_count - succeeded_count in
+      if failed_count > 0 then
+        Hashtbl.replace State.prems_failed key failed_count)
+    result.prems_attempted;
   (* Restore UID mapping through static service *)
   Instrumentation_static.Premise_uid.restore
     (result.prem_to_uid, result.uid_to_prem);
