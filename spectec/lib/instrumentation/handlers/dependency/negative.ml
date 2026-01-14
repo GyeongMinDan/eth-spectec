@@ -115,52 +115,37 @@ let extract_fields_from_cmp (env : source_env) (exp : Il.exp) :
       !fields
   | _ -> []
 
-type premise_path_conditions = {
-  premise_uid : string; (* Premise UID as string *)
-  path_conditions : path_condition list;
-      (* Multiple paths can reach this premise *)
-}
-
 (* === Handler State === *)
 module State = struct
-  (* Source environment: maps variable names to their field accesses *)
   let env : source_env = C.create_env ()
-
-  (* Relation input variable names (from spec) *)
   let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
-
-  (* Current relation being analyzed *)
   let current_relation : string ref = ref ""
-
-  (* Path condition stack: not used in simplified version *)
-  (* let path_stack : path_condition list ref = ref [] *)
-
-  (* Collected path conditions: premise_uid -> path_condition list *)
-  let collected : (string, path_condition list) Hashtbl.t = Hashtbl.create 1000
-
-  (* Whitelist: if non-empty, only analyze these relations *)
-  let whitelist : string list ref = ref []
 
   (* Track if we're in a selected premise *)
   let in_selected_premise : bool ref = ref false
-  let current_premise_uid : string option ref = ref None
+  let current_premise_uid : int option ref = ref None
+
+  (* Per-premise blacklist: premise_uid -> path_condition list *)
+  let blacklists : (int, path_condition list) Hashtbl.t = Hashtbl.create 1000
 
   let reset () =
     C.clear_env env;
     Hashtbl.clear relation_inputs;
     current_relation := "";
-    (* path_stack := []; *)
-    Hashtbl.clear collected;
     in_selected_premise := false;
-    current_premise_uid := None
+    current_premise_uid := None;
+    Hashtbl.clear blacklists
 
-  (* Check if relation is whitelisted *)
-  let is_whitelisted rel =
-    match !whitelist with
-    | [] -> true (* empty whitelist = analyze all *)
-    | wl -> List.mem rel wl
-
-  (* Simplified: no frame tracking needed *)
+  let add_blacklist (premise_uid : int) (fields : field_access list) =
+    if fields <> [] then
+      let existing =
+        match Hashtbl.find_opt blacklists premise_uid with
+        | Some bl -> bl
+        | None -> []
+      in
+      (* Only add if not already present *)
+      if not (List.mem fields existing) then
+        Hashtbl.replace blacklists premise_uid (fields :: existing)
 end
 
 (* === Handler Implementation === *)
@@ -168,96 +153,27 @@ end
 module M : Instrumentation_core.Handler.S = struct
   let init ~spec =
     State.reset ();
-    Hashtbl.clear State.relation_inputs;
-    (* Extract input variable names from State_transition relation *)
     match spec with
     | Instrumentation_core.Handler.IlSpec il_spec ->
-        List.iter
-          (fun def ->
-            match def.it with
-            | Il.RelD (id, _, input_hints, rules) ->
-                if id.it = "State_transition" && rules <> [] then
-                  (* Get input expressions from first rule's notexp *)
-                  let rule = List.hd rules in
-                  let _, notexp, _ = rule.it in
-                  let _, exps = notexp in
-                  (* Split expressions based on input_hints (indices) *)
-                  let exps_input =
-                    exps
-                    |> List.mapi (fun idx exp -> (idx, exp))
-                    |> List.filter (fun (idx, _) -> List.mem idx input_hints)
-                    |> List.map snd
-                  in
-                  (* Extract variable names from input expressions *)
-                  let input_vars =
-                    List.filter_map
-                      (fun exp ->
-                        match exp.it with Il.VarE id -> Some id.it | _ -> None)
-                      exps_input
-                  in
-                  Hashtbl.replace State.relation_inputs id.it input_vars
-            | _ -> ())
-          il_spec
-    | Instrumentation_core.Handler.SlSpec _ ->
-        ();
-        (* Use same whitelist as dependency *)
-        State.whitelist :=
-          [
-            "State_transition";
-            "ProcessBlockHeader";
-            "ProcessWithdrawals";
-            "ProcessExecutionPayload";
-            "ProcessRandao";
-            "ProcessEth1Data";
-            "ProcessSyncAggregate";
-            "ProcessProposerSlashing";
-            "ProcessAttesterSlashing";
-            "ProcessAttestation";
-            "ProcessDeposit";
-            "ProcessVoluntaryExit";
-            "ProcessBlsToExecutionChange";
-            "ProcessSlot";
-            "ProcessJustificationAndFinalization";
-            "ProcessInactivityUpdates";
-            "ProcessRewardsAndPenalties";
-            "ProcessRegistryUpdates";
-            "ProcessSlashings";
-            "ProcessEth1DataReset";
-            "ProcessEffectiveBalanceUpdates";
-            "ProcessSlashingsReset";
-            "ProcessRandaoMixesReset";
-            "ProcessHistoricalSummariesUpdate";
-            "ProcessParticipationFlagUpdates";
-            "ProcessSyncCommitteeUpdates";
-          ]
+        let inputs = C.extract_relation_inputs il_spec in
+        Hashtbl.iter
+          (fun k v -> Hashtbl.replace State.relation_inputs k v)
+          inputs
+    | Instrumentation_core.Handler.SlSpec _ -> ()
 
   let on_test_start = Instrumentation_core.Noop.on_test_start
   let on_test_end = Instrumentation_core.Noop.on_test_end
 
-  (* Track relation entry: bind input variables *)
   let on_rel_enter ~id ~at:_ ~values =
     State.current_relation := id;
-    (* For State_transition, bind input variables to state and block *)
-    if id = "State_transition" then
-      match Hashtbl.find_opt State.relation_inputs id with
-      | Some input_vars -> (
-          match (input_vars, values) with
-          | state_var :: block_var :: _, _state_val :: _block_val :: _ ->
-              (* Bind state variable to state input *)
-              C.bind_source State.env state_var { source = State; fields = [] };
-              (* Bind block variable to block input *)
-              C.bind_source State.env block_var { source = Block; fields = [] }
-          | _ -> ())
-      | None -> ()
+    C.bind_state_transition_inputs State.env State.relation_inputs id values
 
   let on_rel_exit ~id:_ ~at:_ ~success:_ =
     State.current_relation := "";
     C.clear_env State.env
 
-  let on_rule_enter ~id:_ ~rule_id:_ ~at:_ =
-    () (* Simplified: no frame tracking *)
-
-  let on_rule_exit ~id:_ ~rule_id:_ ~at:_ ~success:_ = () (* Simplified *)
+  let on_rule_enter ~id:_ ~rule_id:_ ~at:_ = ()
+  let on_rule_exit ~id:_ ~rule_id:_ ~at:_ ~success:_ = ()
   let on_func_enter = Instrumentation_core.Noop.on_func_enter
   let on_func_exit = Instrumentation_core.Noop.on_func_exit
   let on_clause_enter = Instrumentation_core.Noop.on_clause_enter
@@ -265,30 +181,25 @@ module M : Instrumentation_core.Handler.S = struct
   let on_iter_prem_enter = Instrumentation_core.Noop.on_iter_prem_enter
   let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
 
-  (* Track premise entry: check if it's selected and start tracking *)
-  let on_prem_enter ~prem ~at =
-    (* Simplified: only track if-premises in whitelisted relations *)
-    if State.is_whitelisted !State.current_relation then
+  let on_prem_enter ~prem ~at:_ =
+    if C.is_whitelisted !State.current_relation then
       match prem.it with
-      | Il.IfPr _ ->
-          (* Create UID string from premise location *)
-          let uid_str =
-            Printf.sprintf "%s:%d-%d" !State.current_relation at.left.line
-              at.right.line
-          in
-          State.in_selected_premise := true;
-          State.current_premise_uid := Some uid_str
-          (* Don't push frame - we'll collect fields directly *)
+      | Il.IfPr _ -> (
+          let key = Premise_uid.prem_key prem in
+          match Premise_uid.get_uid key with
+          | Some uid ->
+              State.in_selected_premise := true;
+              State.current_premise_uid := Some uid
+          | None -> ())
       | _ -> ()
 
-  (* Track premise exit: record path condition if selected *)
   let on_prem_exit ~prem ~at:_ ~success =
     if !State.in_selected_premise then
       match prem.it with
       | Il.IfPr exp ->
-          (* Simplified: just extract fields and record them directly *)
+          (* Extract fields and record as blacklist *)
           let fields = extract_fields_from_cmp State.env exp in
-          (* Only record fields that resolve to state/block (not Unknown) *)
+          (* Only record fields that resolve to state/block *)
           let resolved_fields =
             List.filter
               (fun f -> match f.source with Unknown -> false | _ -> true)
@@ -296,16 +207,7 @@ module M : Instrumentation_core.Handler.S = struct
           in
           (if success && resolved_fields <> [] then
              match !State.current_premise_uid with
-             | Some uid ->
-                 let existing =
-                   match Hashtbl.find_opt State.collected uid with
-                   | Some paths -> paths
-                   | None -> []
-                 in
-                 (* Only add if not already present *)
-                 if not (List.mem resolved_fields existing) then
-                   Hashtbl.replace State.collected uid
-                     (resolved_fields :: existing)
+             | Some uid -> State.add_blacklist uid resolved_fields
              | None -> ());
           State.in_selected_premise := false;
           State.current_premise_uid := None
@@ -315,7 +217,6 @@ module M : Instrumentation_core.Handler.S = struct
   let on_prem_fields ~prem ~fields:_ ~lookup:_ ~at:_ =
     match prem.it with
     | Il.LetPr ({ it = Il.VarE id; _ }, rhs) -> (
-        (* Bind LHS var to RHS path *)
         match resolve_to_path State.env rhs with
         | Some path -> C.bind_source State.env id.it path
         | None -> ())
@@ -324,57 +225,41 @@ module M : Instrumentation_core.Handler.S = struct
   let on_instr = Instrumentation_core.Noop.on_instr
 
   let finish () =
-    (* Output collected path conditions *)
-    Format.printf "\n=== Path Conditions ===\n\n";
+    Format.fprintf !fmt "\n=== Negative Dependencies (Blacklists) ===\n\n";
     Hashtbl.iter
       (fun uid paths ->
-        Format.printf "premise %s:\n" uid;
+        Format.fprintf !fmt "premise %d:\n" uid;
         List.iter
           (fun path ->
-            let string_of_field_access (access : field_access) : string =
-              let string_of_input_source = function
-                | State -> "state"
-                | Block -> "block"
-                | Unknown -> "?"
-              in
-              match (access.source, access.fields) with
-              | Unknown, [] -> "?"
-              | Unknown, fields -> (
-                  match fields with
-                  | "state" :: rest -> "state" ^ "." ^ String.concat "." rest
-                  | "block" :: rest -> "block" ^ "." ^ String.concat "." rest
-                  | _ -> "?." ^ String.concat "." fields)
-              | source, [] -> string_of_input_source source
-              | source, fields ->
-                  string_of_input_source source ^ "." ^ String.concat "." fields
-            in
             let path_str =
-              String.concat ", " (List.map string_of_field_access path)
+              String.concat ", " (List.map C.string_of_field_access path)
             in
-            Format.printf "  [%s]\n" path_str)
+            Format.fprintf !fmt "  [%s]\n" path_str)
           paths;
-        Format.printf "\n")
-      State.collected
+        Format.fprintf !fmt "\n")
+      State.blacklists
 end
-
-let make cfg : (module Instrumentation_core.Handler.S) =
-  config := cfg;
-  fmt := Instrumentation_core.Output.formatter cfg.output;
-  (module M)
 
 (* Result type for programmatic access *)
 type result = {
-  path_conditions : (string * path_condition list) list;
-      (* premise_uid -> path_condition list *)
+  blacklists : (int * path_condition list) list;
+      (* premise_uid -> list of field_access lists *)
 }
 
 let get_result () =
   {
-    path_conditions =
-      Hashtbl.fold (fun uid paths acc -> (uid, paths) :: acc) State.collected [];
+    blacklists =
+      Hashtbl.fold
+        (fun uid paths acc -> (uid, paths) :: acc)
+        State.blacklists [];
   }
 
-(* Handler with data access *)
+let restore result =
+  Hashtbl.clear State.blacklists;
+  List.iter
+    (fun (uid, paths) -> Hashtbl.replace State.blacklists uid paths)
+    result.blacklists
+
 module HandlerWithData :
   Instrumentation_core.Handler.S_with_data with type result = result = struct
   include M
@@ -382,8 +267,13 @@ module HandlerWithData :
   type nonrec result = result
 
   let get_result = get_result
-  let restore _result = () (* Path conditions are derived, not restored *)
+  let restore = restore
 end
+
+let make cfg : (module Instrumentation_core.Handler.S) =
+  config := cfg;
+  fmt := Instrumentation_core.Output.formatter cfg.output;
+  (module M)
 
 let make_with_data cfg =
   config := cfg;

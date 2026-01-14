@@ -223,6 +223,11 @@ module Make (Tgt : Runner.Target.S) = struct
        let%map checkpoint_file =
          flag "--checkpoint" (required string)
            ~doc:"FILE checkpoint file to load coverage and dependency data"
+       and test_dir =
+         flag "--test-dir" (optional string)
+           ~doc:
+             "DIR directory containing original test cases (default: target's \
+              test directory)"
        and output_dir =
          flag "--output" (optional string)
            ~doc:
@@ -290,6 +295,10 @@ module Make (Tgt : Runner.Target.S) = struct
                | uids -> uids
              in
 
+             let test_path =
+               match test_dir with Some dir -> dir | None -> Tgt.test_dir
+             in
+
              let output_path =
                match output_dir with
                | Some dir -> dir
@@ -303,13 +312,19 @@ module Make (Tgt : Runner.Target.S) = struct
              List.iter
                (fun uid ->
                  try
-                   let pre_path, block_path =
-                     generate_test_case uid coverage dependency path_condition
-                       None
-                   in
-                   Format.printf "Generated test case for premise UID %d:\n" uid;
-                   Format.printf "  Pre: %s\n" pre_path;
-                   Format.printf "  Block: %s\n\n" block_path
+                   match
+                     generate_test_case ~test_dir:test_path
+                       ~output_dir:output_path uid coverage dependency
+                       path_condition None
+                   with
+                   | Some (pre_path, block_path) ->
+                       Format.printf "Generated test case for premise UID %d:\n"
+                         uid;
+                       Format.printf "  Pre: %s\n" pre_path;
+                       Format.printf "  Block: %s\n\n" block_path
+                   | None ->
+                       Format.printf
+                         "Skipped premise UID %d: no test cases available\n" uid
                  with e ->
                    Format.eprintf
                      "Error generating test for premise UID %d: %s\n" uid

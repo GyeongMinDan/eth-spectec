@@ -37,7 +37,7 @@ module Node_coverage_sl = Instrumentation_handlers.Node_coverage_sl
 module Profile = Instrumentation_handlers.Profile
 module Trace = Instrumentation_handlers.Trace
 
-(* Re-export new dependency analysis modules *)
+(* Re-export dependency analysis modules *)
 module Dependency = Instrumentation_dependency
 
 (* Config is defined locally in this library *)

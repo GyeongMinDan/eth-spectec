@@ -344,11 +344,11 @@ let extract_mutation_suggestions (cmp : comparison) : mutation_suggestion list =
 module State = struct
   let output_file : string option ref = ref None
 
-  (* Whitelist: if non-empty, only analyze these relations *)
-  let whitelist : string list ref = ref []
-
   (* Source environment for variable provenance *)
   let env : source_env = C.create_env ()
+
+  (* Relation input variable names from spec *)
+  let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
 
   (* Already-analyzed premises (by location string) *)
   let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
@@ -356,11 +356,17 @@ module State = struct
   (* Current context *)
   let current_relation : string ref = ref ""
   let current_rule : string ref = ref ""
+  let current_test_id : string ref = ref ""
 
-  (* Path condition stack: list of frames, each frame is list of conditions *)
+  (* Path condition stack *)
   let path_stack : condition_frame list ref = ref []
 
-  (* Collected results: relation -> rule -> analyzed_expr list *)
+  (* Per-test results: premise_uid -> test_id -> mutation_suggestion list *)
+  let per_test_results :
+      (int, (string, mutation_suggestion list) Hashtbl.t) Hashtbl.t =
+    Hashtbl.create 1000
+
+  (* Legacy results for output: relation -> rule -> analyzed_expr list *)
   let results : (string, (string, analyzed_expr list) Hashtbl.t) Hashtbl.t =
     Hashtbl.create 100
 
@@ -368,16 +374,17 @@ module State = struct
   let premise_count = ref 0
   let if_prem_count = ref 0
   let skipped_count = ref 0
-
-  (* Function depth: > 0 means we're inside a helper function call *)
   let func_depth = ref 0
 
   let reset () =
     C.clear_env env;
+    Hashtbl.clear relation_inputs;
     Hashtbl.clear seen_prems;
     current_relation := "";
     current_rule := "";
+    current_test_id := "";
     path_stack := [];
+    Hashtbl.clear per_test_results;
     Hashtbl.clear results;
     premise_count := 0;
     if_prem_count := 0;
@@ -385,12 +392,6 @@ module State = struct
     func_depth := 0
 
   let in_helper_function () = !func_depth > 0
-
-  let is_whitelisted rel =
-    match !whitelist with
-    | [] -> true (* empty whitelist = analyze all *)
-    | wl -> List.mem rel wl
-
   let already_seen loc = Hashtbl.mem seen_prems loc
   let mark_seen loc = Hashtbl.replace seen_prems loc ()
   let push_frame () = path_stack := [] :: !path_stack
@@ -402,6 +403,25 @@ module State = struct
     match !path_stack with
     | frame :: rest -> path_stack := (cond :: frame) :: rest
     | [] -> path_stack := [ [ cond ] ]
+
+  (* Add per-test mutation result *)
+  let add_per_test_mutation (premise_uid : int)
+      (mutations : mutation_suggestion list) =
+    if !current_test_id <> "" && mutations <> [] then
+      let test_table =
+        match Hashtbl.find_opt per_test_results premise_uid with
+        | Some t -> t
+        | None ->
+            let t = Hashtbl.create 100 in
+            Hashtbl.add per_test_results premise_uid t;
+            t
+      in
+      let existing =
+        match Hashtbl.find_opt test_table !current_test_id with
+        | Some m -> m
+        | None -> []
+      in
+      Hashtbl.replace test_table !current_test_id (existing @ mutations)
 
   let add_result (expr : analyzed_expr) =
     let rel = !current_relation in
@@ -425,65 +445,23 @@ end
 (* === Handler Implementation === *)
 
 module M : Instrumentation_core.Handler.S = struct
-  (* Store relation input variable names from spec *)
-  let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
-
   let init ~spec =
     State.reset ();
-    Hashtbl.clear relation_inputs;
-    (* Extract input variable names from State_transition relation *)
     match spec with
     | Instrumentation_core.Handler.IlSpec il_spec ->
-        List.iter
-          (fun def ->
-            match def.it with
-            | Il.RelD (id, _, input_hints, rules) ->
-                if id.it = "State_transition" && rules <> [] then
-                  (* Get input expressions from first rule's notexp *)
-                  let rule = List.hd rules in
-                  let _, notexp, _ = rule.it in
-                  let _, exps = notexp in
-                  (* Split expressions based on input_hints (indices) *)
-                  let exps_input =
-                    exps
-                    |> List.mapi (fun idx exp -> (idx, exp))
-                    |> List.filter (fun (idx, _) -> List.mem idx input_hints)
-                    |> List.map snd
-                  in
-                  (* Extract variable names from input expressions *)
-                  let input_vars =
-                    List.filter_map
-                      (fun exp ->
-                        match exp.it with Il.VarE id -> Some id.it | _ -> None)
-                      exps_input
-                  in
-                  Hashtbl.replace relation_inputs id.it input_vars
-            | _ -> ())
-          il_spec
+        let inputs = C.extract_relation_inputs il_spec in
+        Hashtbl.iter
+          (fun k v -> Hashtbl.replace State.relation_inputs k v)
+          inputs
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
-  let on_test_start = Instrumentation_core.Noop.on_test_start
-  let on_test_end = Instrumentation_core.Noop.on_test_end
+  let on_test_start ~test_case_id = State.current_test_id := test_case_id
+  let on_test_end ~test_case_id:_ = State.current_test_id := ""
 
-  (* Track relation/rule context and manage source env *)
   let on_rel_enter ~id ~at:_ ~values =
     State.current_relation := id;
     State.push_frame ();
-    (* For State_transition, bind input variables to state and block *)
-    if id = "State_transition" then
-      match Hashtbl.find_opt relation_inputs id with
-      | Some input_vars -> (
-          match (input_vars, values) with
-          | state_var :: block_var :: _, _state_val :: _block_val :: _ ->
-              (* Bind state variable to state input *)
-              C.bind_source State.env state_var { source = State; fields = [] };
-              (* Bind block variable to block input *)
-              C.bind_source State.env block_var { source = Block; fields = [] }
-          | _ -> ())
-      | None -> ()
-    else
-      (* For nested relations, we'll track input mappings when we see rule-premises *)
-      ()
+    C.bind_state_transition_inputs State.env State.relation_inputs id values
 
   let on_rel_exit ~id:_ ~at:_ ~success:_ =
     State.pop_frame ();
@@ -499,13 +477,10 @@ module M : Instrumentation_core.Handler.S = struct
     State.pop_frame ();
     State.current_rule := ""
 
-  (* Track function calls to skip premises inside helper functions *)
   let on_func_enter ~id:_ ~at:_ ~values:_ =
     State.func_depth := !State.func_depth + 1
 
   let on_func_exit ~id:_ ~at:_ = State.func_depth := !State.func_depth - 1
-
-  (* Forward unused hooks to Noop *)
   let on_clause_enter = Instrumentation_core.Noop.on_clause_enter
   let on_clause_exit = Instrumentation_core.Noop.on_clause_exit
   let on_iter_prem_enter = Instrumentation_core.Noop.on_iter_prem_enter
@@ -513,30 +488,24 @@ module M : Instrumentation_core.Handler.S = struct
   let on_prem_enter = Instrumentation_core.Noop.on_prem_enter
   let on_instr = Instrumentation_core.Noop.on_instr
 
-  (* Track let-premise bindings for source env *)
   let on_prem_exit ~prem ~at:_ ~success =
     if success then
       match prem.it with
       | Il.LetPr ({ it = Il.VarE id; _ }, rhs) -> (
-          (* Bind LHS var to RHS path *)
           match resolve_to_path State.env rhs with
           | Some path -> C.bind_source State.env id.it path
           | None -> ())
       | _ -> ()
 
-  (* Main hook: analyze if-premises *)
   let on_prem_fields ~prem ~fields:_ ~lookup:_ ~at =
     State.premise_count := !State.premise_count + 1;
-    (* Print progress every 1000 premises *)
     if !State.premise_count mod 1000 = 0 then
-      Format.eprintf "\r[Dependency] %d premises, %d if-prems, %d skipped...%!"
+      Format.eprintf "\r[Positive] %d premises, %d if-prems, %d skipped...%!"
         !State.premise_count !State.if_prem_count !State.skipped_count;
 
-    (* Skip if inside helper function (not direct rule body) *)
-    if State.in_helper_function () then () (* Skip if not in whitelist *)
-    else if not (State.is_whitelisted !State.current_relation) then ()
-    (* Skip if already analyzed this premise *)
-      else
+    if State.in_helper_function () then ()
+    else if not (C.is_whitelisted !State.current_relation) then ()
+    else
       let loc = string_of_region at in
       if State.already_seen loc then
         State.skipped_count := !State.skipped_count + 1
@@ -545,19 +514,35 @@ module M : Instrumentation_core.Handler.S = struct
         State.mark_seen loc;
         State.if_prem_count := !State.if_prem_count + 1;
         match prem.it with
-        | Il.IfPr exp ->
+        | Il.IfPr exp -> (
             let analyzed = analyze_expression State.env exp in
             State.add_result analyzed;
-            State.add_condition analyzed
-        | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
+            State.add_condition analyzed;
+            (* Extract mutations and add per-test result *)
+            match analyzed with
+            | Comparison cmp -> (
+                let mutations = extract_mutation_suggestions cmp in
+                let key = Premise_uid.prem_key prem in
+                match Premise_uid.get_uid key with
+                | Some uid -> State.add_per_test_mutation uid mutations
+                | None -> ())
+            | _ -> ())
+        | Il.IterPr ({ it = Il.IfPr exp; _ }, _) -> (
             let analyzed = analyze_expression State.env exp in
             State.add_result analyzed;
-            State.add_condition analyzed
+            State.add_condition analyzed;
+            match analyzed with
+            | Comparison cmp -> (
+                let mutations = extract_mutation_suggestions cmp in
+                let key = Premise_uid.prem_key prem in
+                match Premise_uid.get_uid key with
+                | Some uid -> State.add_per_test_mutation uid mutations
+                | None -> ())
+            | _ -> ())
         | _ -> ())
 
-  (* Output *)
   let finish () =
-    Format.fprintf !fmt "\n=== Field Dependencies ===\n\n";
+    Format.fprintf !fmt "\n=== Positive Dependencies ===\n\n";
     Hashtbl.iter
       (fun rel rules ->
         Format.fprintf !fmt "relation %s\n" rel;
@@ -573,61 +558,35 @@ module M : Instrumentation_core.Handler.S = struct
       State.results
 end
 
-(* Result type for programmatic access and checkpoint restoration *)
+(* Result type for programmatic access *)
 type result = {
-  results : (string * (string * analyzed_expr list) list) list;
-      (* relation -> (rule * analyzed_expr list) list *)
-  mutations : (string * (string * mutation_suggestion list) list) list;
-      (* relation -> (rule * mutation_suggestion list) list *)
+  per_test_mutations : (int * (string * mutation_suggestion list) list) list;
+      (* premise_uid -> test_id -> mutations *)
 }
 
 let get_result () =
-  let results =
+  let per_test_mutations =
     Hashtbl.fold
-      (fun rel rules acc ->
-        let rule_exprs =
-          Hashtbl.fold (fun rule exprs acc -> (rule, exprs) :: acc) rules []
+      (fun uid test_table acc ->
+        let test_muts =
+          Hashtbl.fold (fun tid muts acc -> (tid, muts) :: acc) test_table []
         in
-        (rel, rule_exprs) :: acc)
-      State.results []
+        (uid, test_muts) :: acc)
+      State.per_test_results []
   in
-  (* Extract mutation suggestions from comparisons *)
-  let mutations =
-    List.map
-      (fun (rel, rule_exprs) ->
-        let rule_mutations =
-          List.map
-            (fun (rule, exprs) ->
-              let muts =
-                List.fold_left
-                  (fun acc expr ->
-                    match expr with
-                    | Comparison cmp -> acc @ extract_mutation_suggestions cmp
-                    | _ -> acc)
-                  [] exprs
-              in
-              (rule, muts))
-            rule_exprs
-        in
-        (rel, rule_mutations))
-      results
-  in
-  { results; mutations }
+  { per_test_mutations }
 
-(* Restore state from a previous result (for checkpoint resume) *)
 let restore result =
-  Hashtbl.clear State.results;
+  Hashtbl.clear State.per_test_results;
   List.iter
-    (fun (rel, rule_exprs) ->
-      let rules = Hashtbl.create 20 in
+    (fun (uid, test_muts) ->
+      let test_table = Hashtbl.create 100 in
       List.iter
-        (fun (rule, exprs) -> Hashtbl.replace rules rule exprs)
-        rule_exprs;
-      Hashtbl.replace State.results rel rules)
-    result.results
-(* Note: mutations are derived from results, so we don't need to restore them separately *)
+        (fun (tid, muts) -> Hashtbl.replace test_table tid muts)
+        test_muts;
+      Hashtbl.replace State.per_test_results uid test_table)
+    result.per_test_mutations
 
-(* Handler with data access - implements S_with_data signature *)
 module HandlerWithData :
   Instrumentation_core.Handler.S_with_data with type result = result = struct
   include M

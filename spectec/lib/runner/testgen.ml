@@ -97,19 +97,17 @@ let checkpoint_summary (checkpoint_file : string) : string =
       in
       Format.fprintf fmt "    Uncovered premises: %d\n" uncovered_count
   | None -> ());
-  Format.fprintf fmt "  Dependency data: %s\n"
+  Format.fprintf fmt "  Positive data: %s\n"
     (if Option.is_some dependency then "present" else "missing");
   (match dependency with
   | Some dep ->
-      Format.fprintf fmt "    Relations analyzed: %d\n"
-        (List.length dep.results);
       let total_mutations =
         List.fold_left
-          (fun acc (_, rule_muts) ->
+          (fun acc (_, test_muts) ->
             List.fold_left
               (fun acc (_, muts) -> acc + List.length muts)
-              acc rule_muts)
-          0 dep.mutations
+              acc test_muts)
+          0 dep.per_test_mutations
       in
       Format.fprintf fmt "    Total mutation suggestions: %d\n" total_mutations
   | None -> ());
@@ -117,8 +115,8 @@ let checkpoint_summary (checkpoint_file : string) : string =
     (if Option.is_some path_condition then "present" else "missing");
   (match path_condition with
   | Some pc ->
-      Format.fprintf fmt "    Premises with path conditions: %d\n"
-        (List.length pc.path_conditions)
+      Format.fprintf fmt "    Premises with blacklists: %d\n"
+        (List.length pc.blacklists)
   | None -> ());
   Format.pp_print_flush fmt ();
   Buffer.contents buf
@@ -160,36 +158,21 @@ let get_uncovered_premises
       !uncovered
 
 (* Get mutation suggestions for a premise from dependency analysis.
-   Since dependency results are organized by relation/rule, we search through
-   all relations/rules to find mutations that might apply to this premise.
-   In the future, we could store relation/rule info with each premise UID. *)
+   Since dependency results are now organized per-test, we collect all mutations
+   for this premise across all test cases. *)
 let get_mutation_suggestions_for_premise (premise_uid : premise_uid)
-    (coverage : Instrumentation.Node_coverage_il.result option)
+    (_coverage : Instrumentation.Node_coverage_il.result option)
     (dependency : Instrumentation.Dependency.Positive.result option) :
     Instrumentation.Dependency.Positive.mutation_suggestion list =
-  match (coverage, dependency) with
-  | None, _ | _, None -> []
-  | Some cov, Some dep -> (
-      (* Find premise key for this UID *)
-      let premise_key =
-        List.find_map
-          (fun (uid, key) -> if uid = premise_uid then Some key else None)
-          cov.uid_to_prem
-      in
-      match premise_key with
+  match dependency with
+  | None -> []
+  | Some dep -> (
+      (* Find mutations for this premise UID *)
+      match List.assoc_opt premise_uid dep.per_test_mutations with
       | None -> []
-      | Some (_region, _) ->
-          (* Search through all dependency results for mutations.
-             Since we don't have direct mapping from premise to relation/rule,
-             we collect all mutations from all relations/rules.
-             In practice, the user should run dependency analysis on specific
-             test cases that cover the premise, which will give more targeted results. *)
-          List.fold_left
-            (fun acc (_, rule_mutations) ->
-              List.fold_left
-                (fun acc (_, mutations) -> acc @ mutations)
-                acc rule_mutations)
-            [] dep.mutations)
+      | Some test_muts ->
+          (* Collect all mutations across all test cases *)
+          List.fold_left (fun acc (_, muts) -> acc @ muts) [] test_muts)
 
 (* Infer mutation constraints from dependency analysis. *)
 let infer_mutation_constraints (premise_uid : premise_uid)
@@ -236,7 +219,17 @@ let infer_mutation_constraints (premise_uid : premise_uid)
         { field_path; target_values } :: acc)
     [] suggestions
 
-(* Find test cases that covered a premise *)
+(* Check if a test case ID corresponds to a state transition test.
+   State transition tests are identified by having 'state_transition' in their path. *)
+let is_state_transition_test (test_case_id : test_case_id) : bool =
+  try
+    let _ =
+      Str.search_forward (Str.regexp_string "state_transition") test_case_id 0
+    in
+    true
+  with Not_found -> false
+
+(* Find test cases that covered a premise, filtered to only state transition tests *)
 let get_test_cases_for_premise (premise_uid : premise_uid)
     (coverage : Instrumentation.Node_coverage_il.result option) :
     test_case_id list =
@@ -262,7 +255,9 @@ let get_test_cases_for_premise (premise_uid : premise_uid)
           in
           match Hashtbl.find_opt key_to_test_cases key with
           | None -> []
-          | Some test_cases -> test_cases))
+          | Some test_cases ->
+              (* Filter to only state transition tests *)
+              List.filter is_state_transition_test test_cases))
 
 (* Get premise information including test cases that covered it *)
 let get_premise_info (premise_uid : premise_uid)
@@ -294,64 +289,94 @@ let get_premise_info (premise_uid : premise_uid)
               },
               test_cases ))
 
-(* TODO: Mutate JSON input files based on mutation constraints. *)
-let mutate_json_input (_test_case_id : test_case_id)
-    (_constraints : mutation_constraint list) (_blacklisted : field_path list)
+(* Convert Il.Value.t to JSON value for mutation *)
+let value_to_json (v : Il.Value.t) : (Yojson.Safe.t, string) result =
+  match Interface.JSON.Print.value_to_json v with
+  | Ok json -> Ok json
+  | Error err -> Error (Interface.JSON.Print.string_of_error err)
+
+(* Check if a field path is blacklisted *)
+let is_blacklisted (path : field_path) (blacklist : field_path list) : bool =
+  (* Check if path starts with any blacklisted prefix *)
+  List.exists
+    (fun bl ->
+      let rec is_prefix p bl =
+        match (p, bl) with
+        | [], _ -> true (* Blacklist is a prefix *)
+        | _, [] -> false
+        | x :: xs, y :: ys -> x = y && is_prefix xs ys
+      in
+      is_prefix bl path)
+    blacklist
+
+(* Mutate JSON input files based on mutation constraints.
+   Returns paths to the mutated files (or originals if mutation failed). *)
+let mutate_json_input ~(output_dir : string) (test_case_id : test_case_id)
+    (constraints : mutation_constraint list) (blacklisted : field_path list)
     (pre_json_path : string) (block_json_path : string) : string * string =
-  (* Skeleton: return original paths for now *)
-  (* In full implementation, blacklisted fields would be excluded from mutation *)
-  (pre_json_path, block_json_path)
+  (* Ensure output directory exists *)
+  (try Unix.mkdir output_dir 0o755
+   with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+
+  (* Load JSON files *)
+  let pre_json =
+    try Some (Json_mutator.load_json pre_json_path) with _ -> None
+  in
+  let block_json =
+    try Some (Json_mutator.load_json block_json_path) with _ -> None
+  in
+
+  match (pre_json, block_json) with
+  | None, _ | _, None ->
+      (* Could not load files, return original paths *)
+      (pre_json_path, block_json_path)
+  | Some pre, Some block ->
+      (* Apply mutations, skipping blacklisted fields *)
+      let apply_constraints json =
+        List.fold_left
+          (fun json_acc constraint_ ->
+            if is_blacklisted constraint_.field_path blacklisted then json_acc
+              (* Skip blacklisted fields *)
+            else
+              match constraint_.target_values with
+              | [] -> json_acc
+              | value :: _ -> (
+                  match value_to_json value with
+                  | Ok json_value ->
+                      Json_mutator.set_field json_acc constraint_.field_path
+                        json_value
+                  | Error _ -> json_acc (* Skip if conversion fails *)))
+          json constraints
+      in
+      let mutated_pre = apply_constraints pre in
+      let mutated_block = apply_constraints block in
+
+      (* Save mutated JSON files *)
+      let output_pre_path =
+        Filename.concat output_dir (Printf.sprintf "%s_pre.json" test_case_id)
+      in
+      let output_block_path =
+        Filename.concat output_dir (Printf.sprintf "%s_block.json" test_case_id)
+      in
+      Json_mutator.save_json output_pre_path mutated_pre;
+      Json_mutator.save_json output_block_path mutated_block;
+      (output_pre_path, output_block_path)
 
 (* Get blacklisted fields from path condition for a premise.
-   Path condition results use string UIDs (like "relation:line-line"), so we
-   try to match by premise location. *)
+   Path condition results are now organized per-premise with blacklists. *)
 let get_blacklisted_fields (premise_uid : premise_uid)
-    (coverage : Instrumentation.Node_coverage_il.result option)
+    (_coverage : Instrumentation.Node_coverage_il.result option)
     (path_condition : Instrumentation.Dependency.Negative.result option) :
     field_path list =
-  match (coverage, path_condition) with
-  | None, _ | _, None -> []
-  | Some cov, Some pc -> (
-      (* Find premise key (region) for this UID *)
-      let premise_key =
-        List.find_map
-          (fun (uid, key) -> if uid = premise_uid then Some key else None)
-          cov.uid_to_prem
-      in
-      match premise_key with
+  match path_condition with
+  | None -> []
+  | Some pc -> (
+      (* Find blacklists for this premise UID *)
+      match List.assoc_opt premise_uid pc.blacklists with
       | None -> []
-      | Some (region, _) ->
-          (* Try to match path condition entries by location.
-             Path condition UIDs are strings like "relation:line-line".
-             We'll try to match by line number from the region. *)
-          let matching_paths =
-            List.fold_left
-              (fun acc (uid_str, paths) ->
-                (* Check if the string UID matches our premise location *)
-                let region_str =
-                  Printf.sprintf "%d-%d" region.left.line region.right.line
-                in
-                (* Check if region_str appears as a substring in uid_str *)
-                let is_match =
-                  try
-                    let len = String.length region_str in
-                    let uid_len = String.length uid_str in
-                    let rec check pos =
-                      if pos + len > uid_len then false
-                      else if String.sub uid_str pos len = region_str then true
-                      else check (pos + 1)
-                    in
-                    check 0
-                  with _ -> false
-                in
-                if is_match then
-                  (* This might be our premise - collect the paths *)
-                  acc @ paths
-                else acc)
-              [] pc.path_conditions
-          in
-          (* Flatten all matching path conditions and extract field paths *)
-          List.flatten matching_paths
+      | Some path_conditions ->
+          (* Flatten all path conditions and extract field paths *)
+          List.flatten path_conditions
           |> List.map (fun field_access ->
                  match field_access with
                  | {
@@ -369,12 +394,25 @@ let get_blacklisted_fields (premise_uid : premise_uid)
                  | _ -> [])
           |> List.filter (fun path -> path <> []))
 
-(* Generate test case for a selected premise *)
-let generate_test_case (premise_uid : premise_uid)
+(* Generate test case for a selected premise.
+   
+   Parameters:
+   - premise_uid: The UID of the premise to target
+   - coverage: Coverage data for premise-to-test mapping
+   - dependency: Positive analysis results for mutation suggestions
+   - path_condition: Path condition results for blacklist
+   - base_test_case_id: Optional specific test case to use as base
+   - test_dir: Directory containing test case JSON files
+   - output_dir: Directory to write mutated files
+   
+   Returns: Some (mutated_pre_path, mutated_block_path) or None if no test cases
+*)
+let generate_test_case ~(test_dir : string) ~(output_dir : string)
+    (premise_uid : premise_uid)
     (coverage : Instrumentation.Node_coverage_il.result option)
     (dependency : Instrumentation.Dependency.Positive.result option)
     (path_condition : Instrumentation.Dependency.Negative.result option)
-    (base_test_case_id : test_case_id option) : string * string =
+    (base_test_case_id : test_case_id option) : (string * string) option =
   (* Get mutation constraints *)
   let constraints =
     infer_mutation_constraints premise_uid coverage dependency
@@ -386,15 +424,45 @@ let generate_test_case (premise_uid : premise_uid)
   (* Find a base test case to mutate *)
   let test_case_id =
     match base_test_case_id with
-    | Some id -> id
+    | Some id -> Some id
     | None -> (
-        (* Use first test case that covered this premise, if any *)
         match get_test_cases_for_premise premise_uid coverage with
-        | [] -> "default_test_case"
-        | first :: _ -> first)
+        | [] -> None (* No test cases - skip this premise *)
+        | first :: _ -> Some first)
   in
-  (* For now, return placeholder paths - actual implementation will
-     load JSON files, mutate them, and save to new locations *)
-  let pre_path = Printf.sprintf "pre_%d.json" premise_uid in
-  let block_path = Printf.sprintf "block_%d.json" premise_uid in
-  mutate_json_input test_case_id constraints blacklisted pre_path block_path
+
+  match test_case_id with
+  | None -> None (* Skip when no test cases available *)
+  | Some test_id ->
+      (* Construct paths to base test case JSON files *)
+      let pre_path = Filename.concat test_dir (test_id ^ "/pre.json") in
+      let block_path = Filename.concat test_dir (test_id ^ "/block.json") in
+
+      (* Create premise-specific output directory *)
+      let premise_output_dir =
+        Filename.concat output_dir (Printf.sprintf "premise_%d" premise_uid)
+      in
+
+      (* Mutate and save *)
+      let result =
+        mutate_json_input ~output_dir:premise_output_dir test_id constraints
+          blacklisted pre_path block_path
+      in
+      Some result
+
+(* Generate test cases for multiple premises *)
+let generate_test_cases ~(test_dir : string) ~(output_dir : string)
+    (premise_uids : premise_uid list)
+    (coverage : Instrumentation.Node_coverage_il.result option)
+    (dependency : Instrumentation.Dependency.Positive.result option)
+    (path_condition : Instrumentation.Dependency.Negative.result option) :
+    (premise_uid * (string * string)) list =
+  List.filter_map
+    (fun uid ->
+      match
+        generate_test_case ~test_dir ~output_dir uid coverage dependency
+          path_condition None
+      with
+      | Some paths -> Some (uid, paths)
+      | None -> None)
+    premise_uids

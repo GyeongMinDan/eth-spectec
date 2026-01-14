@@ -10,6 +10,7 @@
   spectec.interp
   spectec.instrumentation
   spectec.interface
-  yojson)
+  yojson
+  str)
  (preprocess
   (pps ppx_let)))
