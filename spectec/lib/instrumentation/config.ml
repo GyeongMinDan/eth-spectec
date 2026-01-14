@@ -9,8 +9,8 @@ module Profile = Instrumentation_handlers.Profile
 module Branch_coverage = Instrumentation_handlers.Branch_coverage
 module Node_coverage_il = Instrumentation_handlers.Node_coverage_il
 module Node_coverage_sl = Instrumentation_handlers.Node_coverage_sl
-module Dependency = Instrumentation_handlers.Dependency
-module Path_condition = Instrumentation_handlers.Path_condition
+module Positive = Instrumentation_dependency.Positive
+module Negative = Instrumentation_dependency.Negative
 module Output = Instrumentation_core.Output
 
 (* Shared level type for node coverage and field deps *)
@@ -21,8 +21,8 @@ type t = {
   profile : Profile.config option;
   branch_coverage : Branch_coverage.config option;
   node_coverage : Node_coverage_il.config option;
-  dependency : Dependency.config option;
-  path_condition : Path_condition.config option;
+  dependency : Positive.config option;
+  path_condition : Negative.config option;
 }
 
 let default =
@@ -50,11 +50,11 @@ let to_handlers config =
         [ Node_coverage_il.make cfg; Node_coverage_sl.make cfg ])
   @ (match config.dependency with
     | None -> []
-    | Some cfg -> [ Dependency.make cfg ])
+    | Some cfg -> [ Positive.make cfg ])
   @
   match config.path_condition with
   | None -> []
-  | Some cfg -> [ Path_condition.make cfg ]
+  | Some cfg -> [ Negative.make cfg ]
 
 (* Close all output destinations after finish() *)
 let close_outputs config =
@@ -66,7 +66,5 @@ let close_outputs config =
   Option.iter
     (fun c -> Output.close c.Node_coverage_il.output)
     config.node_coverage;
-  Option.iter (fun c -> Output.close c.Dependency.output) config.dependency;
-  Option.iter
-    (fun c -> Output.close c.Path_condition.output)
-    config.path_condition
+  Option.iter (fun c -> Output.close c.Positive.output) config.dependency;
+  Option.iter (fun c -> Output.close c.Negative.output) config.path_condition

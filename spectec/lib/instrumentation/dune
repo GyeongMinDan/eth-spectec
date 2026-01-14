@@ -7,4 +7,5 @@
   instrumentation_core
   instrumentation_handlers
   instrumentation_static
+  instrumentation_dependency
   unix))

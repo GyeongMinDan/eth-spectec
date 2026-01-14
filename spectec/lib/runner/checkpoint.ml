@@ -36,8 +36,8 @@ type coverage_state = {
   branch : Instrumentation.Branch_coverage.result option;
   node_il : Instrumentation.Node_coverage_il.result option;
   node_sl : Instrumentation.Node_coverage_sl.result option;
-  dependency : Instrumentation.Dependency.result option;
-  path_condition : Instrumentation.Path_condition.result option;
+  dependency : Instrumentation.Dependency.Positive.result option;
+  path_condition : Instrumentation.Dependency.Negative.result option;
 }
 
 let empty_coverage =
@@ -136,7 +136,7 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
   let dep_cfg =
     match config.dependency with
     | Some cfg -> cfg
-    | None -> Instrumentation.Dependency.default_config
+    | None -> Instrumentation.Dependency.Positive.default_config
   in
   (* Create handlers with configured outputs *)
   let handlers =
@@ -144,7 +144,7 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
       Instrumentation.Branch_coverage.make branch_cfg;
       Instrumentation.Node_coverage_il.make node_il_cfg;
       Instrumentation.Node_coverage_sl.make node_il_cfg;
-      Instrumentation.Dependency.make dep_cfg;
+      Instrumentation.Dependency.Positive.make dep_cfg;
     ]
   in
   (* Initialize Static analysis *)
@@ -164,7 +164,7 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
   | Some node_result -> Instrumentation.Node_coverage_sl.restore node_result
   | None -> ());
   (match checkpoint.coverage.dependency with
-  | Some dep_result -> Instrumentation.Dependency.restore dep_result
+  | Some dep_result -> Instrumentation.Dependency.Positive.restore dep_result
   | None -> ());
   (* Call finish to print the reports *)
   Instrumentation.Dispatcher.finish ();

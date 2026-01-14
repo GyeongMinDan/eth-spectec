@@ -1,58 +1,63 @@
-(* Path condition analysis for test mutation guidance.
- *
- * Collects path conditions (conjunctions of if-premises) leading to each
- * selected premise. Handles IL backtracking by applying De Morgan's law
- * to negate failed path conditions.
- *
- * Key features:
- * - Reuses field resolution logic from dependency analysis
- * - Path condition collection: accumulates if-premises per premise
- * - Backtracking support: negates failed conditions using De Morgan's law
- * - Resolves all paths back to state/block inputs
- *)
+(* Negative dependency analysis for test mutation guidance.
+
+   Collects path conditions (conjunctions of if-premises) leading to each
+   premise. This provides "negative dependencies" - fields that should NOT
+   be mutated because they're part of the path condition.
+
+   Key features:
+   - Per-premise blacklist: aggregates field paths that must not change
+   - Over-approximation: captures all involved fields (simpler than positive)
+   - Could use Il.path in future for more precise tracking
+
+   Uses Common module for shared types and utilities.
+*)
 
 open Common.Source
 module Il = Lang.Il
-open Instrumentation_static.Premise_uid
+module Premise_uid = Instrumentation_static.Premise_uid
+module C = Dep_common
 
-type input_source = State | Block | Unknown
+(* Re-export types from Common for convenience *)
+type input_source = C.input_source = State | Block | Unknown
 
-type field_access = {
+type field_access = C.field_access = {
   source : input_source;
-  fields : string list; (* e.g., ["SLOT"] for state.SLOT *)
+  fields : string list;
 }
 
-type source_env = (string, field_access) Hashtbl.t
+type source_env = C.source_env
 
-let create_env () : source_env = Hashtbl.create 100
+(* === Negative-Analysis Specific Types === *)
 
-let bind_source (env : source_env) (var : string) (access : field_access) : unit
-    =
-  Hashtbl.replace env var access
+(* Path condition: a list of fields involved in if-premises leading to target *)
+type path_condition = field_access list
 
-let lookup_source (env : source_env) (var : string) : field_access option =
-  Hashtbl.find_opt env var
+(* Handler configuration *)
+type level = Summary | Full
+type config = { level : level; output : Instrumentation_core.Output.t }
 
-let clear_env (env : source_env) : unit = Hashtbl.clear env
+let default_config =
+  { level = Summary; output = Instrumentation_core.Output.stdout }
 
-(* Helper to append field to access *)
-let append_field (access : field_access) (field : string) : field_access =
-  { access with fields = access.fields @ [ field ] }
+let config = ref default_config
+let fmt = ref Format.std_formatter
 
-(* Resolve an expression to a field access - simplified version *)
+(* === Expression Resolution (Negative-specific: simpler over-approximation) === *)
+
+(* Resolve an expression to a field access - simpler than positive analysis.
+ * We only need to track fields involved, not full symbolic expressions.
+ *)
 let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_access option
     =
   match exp.it with
-  (* Variables: look up in environment or use as-is *)
   | Il.VarE id -> (
-      match lookup_source env id.it with
+      match C.lookup_source env id.it with
       | Some access -> Some access
       | None -> Some { source = Unknown; fields = [ id.it ] })
-  (* Field access: base.field *)
   | Il.DotE (base, atom) -> (
       match resolve_to_path env base with
       | Some base_path ->
-          Some (append_field base_path (Lang.Xl.Atom.string_of_atom atom.it))
+          Some (C.append_field base_path (Lang.Xl.Atom.string_of_atom atom.it))
       | None -> (
           match base.it with
           | Il.VarE id ->
@@ -62,35 +67,27 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_access option
                   fields = [ id.it; Lang.Xl.Atom.string_of_atom atom.it ];
                 }
           | _ -> None))
-  (* Array indexing: base[idx] *)
   | Il.IdxE (base, idx) -> (
       match (resolve_to_path env base, resolve_to_path env idx) with
       | Some base_path, Some idx_path ->
           let idx_str = String.concat "." idx_path.fields in
-          Some (append_field base_path ("[" ^ idx_str ^ "]"))
-      | Some base_path, None -> Some (append_field base_path "[?]")
+          Some (C.append_field base_path ("[" ^ idx_str ^ "]"))
+      | Some base_path, None -> Some (C.append_field base_path "[?]")
       | _ -> None)
-  (* Length: |base| *)
   | Il.LenE base -> (
       match resolve_to_path env base with
-      | Some path -> Some (append_field path "|length|")
+      | Some path -> Some (C.append_field path "|length|")
       | None -> None)
-  (* Constants: return None *)
   | Il.NumE _ -> None
   | Il.BoolE _ -> None
   | Il.TextE _ -> None
-  (* Subtype cast: just unwrap *)
   | Il.SubE (inner, _) -> resolve_to_path env inner
   | Il.UpCastE (_, inner) -> resolve_to_path env inner
   | Il.DownCastE (_, inner) -> resolve_to_path env inner
-  (* Iteration: e* or e+ *)
   | Il.IterE (inner, _) -> resolve_to_path env inner
-  (* Optional: e? *)
   | Il.OptE (Some inner) -> resolve_to_path env inner
   | Il.OptE None -> None
-  (* Function calls: return None for now *)
-  | Il.CallE _ -> None
-  (* Match expressions *)
+  | Il.CallE _ -> None (* Function calls: return None for simplicity *)
   | Il.MatchE (inner, _) -> (
       match resolve_to_path env inner with
       | Some access ->
@@ -98,13 +95,26 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_access option
           Some
             { source = access.source; fields = [ path_str ^ " matches ..." ] }
       | None -> None)
-  (* Fallback *)
   | _ -> None
 
-(* Path condition: a conjunction of conditions (if-premises) *)
-type path_condition = field_access list (* Fields that must not be mutated *)
+(* Extract all fields from a comparison expression *)
+let extract_fields_from_cmp (env : source_env) (exp : Il.exp) :
+    field_access list =
+  let exp1, _ = C.strip_negation exp in
+  let exp2, _ = C.strip_bool_eq exp1 in
 
-(* Collected path conditions per premise *)
+  match exp2.it with
+  | Il.CmpE (_, _, lhs, rhs) ->
+      let fields = ref [] in
+      (match resolve_to_path env lhs with
+      | Some f -> fields := f :: !fields
+      | None -> ());
+      (match resolve_to_path env rhs with
+      | Some f -> fields := f :: !fields
+      | None -> ());
+      !fields
+  | _ -> []
+
 type premise_path_conditions = {
   premise_uid : string; (* Premise UID as string *)
   path_conditions : path_condition list;
@@ -114,7 +124,7 @@ type premise_path_conditions = {
 (* === Handler State === *)
 module State = struct
   (* Source environment: maps variable names to their field accesses *)
-  let env : source_env = create_env ()
+  let env : source_env = C.create_env ()
 
   (* Relation input variable names (from spec) *)
   let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
@@ -136,7 +146,7 @@ module State = struct
   let current_premise_uid : string option ref = ref None
 
   let reset () =
-    clear_env env;
+    C.clear_env env;
     Hashtbl.clear relation_inputs;
     current_relation := "";
     (* path_stack := []; *)
@@ -152,46 +162,6 @@ module State = struct
 
   (* Simplified: no frame tracking needed *)
 end
-
-(* === Expression Analysis === *)
-
-(* Strip outermost negation: ¬e -> e *)
-let rec strip_negation (exp : Il.exp) : Il.exp * bool =
-  match exp.it with
-  | Il.UnE (`NotOp, _, inner) ->
-      let stripped, was_negated = strip_negation inner in
-      (stripped, not was_negated)
-  | _ -> (exp, false)
-
-(* Strip = true / = false wrappers *)
-let strip_bool_eq (exp : Il.exp) : Il.exp * bool =
-  match exp.it with
-  | Il.CmpE (`EqOp, _, inner, { it = Il.BoolE true; _ }) -> (inner, false)
-  | Il.CmpE (`EqOp, _, inner, { it = Il.BoolE false; _ }) -> (inner, true)
-  | Il.CmpE (`EqOp, _, { it = Il.BoolE true; _ }, inner) -> (inner, false)
-  | Il.CmpE (`EqOp, _, { it = Il.BoolE false; _ }, inner) -> (inner, true)
-  | _ -> (exp, false)
-
-(* Extract fields from a comparison expression *)
-let extract_fields_from_cmp (env : source_env) (exp : Il.exp) :
-    field_access list =
-  (* Strip negation and bool comparisons *)
-  let exp1, _ = strip_negation exp in
-  let exp2, _ = strip_bool_eq exp1 in
-
-  match exp2.it with
-  | Il.CmpE (_, _, lhs, rhs) ->
-      let fields = ref [] in
-      (* Extract LHS field *)
-      (match resolve_to_path env lhs with
-      | Some f -> fields := f :: !fields
-      | None -> ());
-      (* Extract RHS field if it's a field (not constant) *)
-      (match resolve_to_path env rhs with
-      | Some f -> fields := f :: !fields
-      | None -> ());
-      !fields
-  | _ -> []
 
 (* === Handler Implementation === *)
 
@@ -274,15 +244,15 @@ module M : Instrumentation_core.Handler.S = struct
           match (input_vars, values) with
           | state_var :: block_var :: _, _state_val :: _block_val :: _ ->
               (* Bind state variable to state input *)
-              bind_source State.env state_var { source = State; fields = [] };
+              C.bind_source State.env state_var { source = State; fields = [] };
               (* Bind block variable to block input *)
-              bind_source State.env block_var { source = Block; fields = [] }
+              C.bind_source State.env block_var { source = Block; fields = [] }
           | _ -> ())
       | None -> ()
 
   let on_rel_exit ~id:_ ~at:_ ~success:_ =
     State.current_relation := "";
-    clear_env State.env
+    C.clear_env State.env
 
   let on_rule_enter ~id:_ ~rule_id:_ ~at:_ =
     () (* Simplified: no frame tracking *)
@@ -347,7 +317,7 @@ module M : Instrumentation_core.Handler.S = struct
     | Il.LetPr ({ it = Il.VarE id; _ }, rhs) -> (
         (* Bind LHS var to RHS path *)
         match resolve_to_path State.env rhs with
-        | Some path -> bind_source State.env id.it path
+        | Some path -> C.bind_source State.env id.it path
         | None -> ())
     | _ -> ()
 
@@ -386,16 +356,6 @@ module M : Instrumentation_core.Handler.S = struct
         Format.printf "\n")
       State.collected
 end
-
-(* Handler configuration *)
-type level = Summary | Full
-type config = { level : level; output : Instrumentation_core.Output.t }
-
-let default_config =
-  { level = Summary; output = Instrumentation_core.Output.stdout }
-
-let config = ref default_config
-let fmt = ref Format.std_formatter
 
 let make cfg : (module Instrumentation_core.Handler.S) =
   config := cfg;

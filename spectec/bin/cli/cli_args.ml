@@ -73,13 +73,13 @@ let config_flags =
       dependency =
         make_config
           ~level_opt:
-            (parse_level ~summary:Dependency.Summary ~full:Dependency.Full
-               dep_level) ~output:dep_output ~make_cfg:(fun ~level ~output ->
-            Dependency.{ level; output });
+            (parse_level ~summary:Positive.Summary ~full:Positive.Full dep_level)
+          ~output:dep_output ~make_cfg:(fun ~level ~output ->
+            Positive.{ level; output });
       path_condition =
         make_config
           ~level_opt:
-            (parse_level ~summary:Path_condition.Summary
-               ~full:Path_condition.Full path_level) ~output:path_output
-          ~make_cfg:(fun ~level ~output -> Path_condition.{ level; output });
+            (parse_level ~summary:Negative.Summary ~full:Negative.Full
+               path_level) ~output:path_output ~make_cfg:(fun ~level ~output ->
+            Negative.{ level; output });
     }

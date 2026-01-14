@@ -47,7 +47,7 @@ type premise_info = {
    
    The checkpoint should contain:
    - Coverage data (node_il): premise-to-testid mapping and uncovered premises
-   - Dependency results: mutation suggestions organized by relation/rule
+   - Positive results: mutation suggestions organized by relation/rule
    - Path condition results: negative dependencies (fields to avoid mutating)
    
    Note: If dependency/path_condition results are not in the checkpoint, you may
@@ -56,8 +56,8 @@ type premise_info = {
 let load_checkpoint (checkpoint_file : string) :
     Checkpoint.t
     * Instrumentation.Node_coverage_il.result option
-    * Instrumentation.Dependency.result option
-    * Instrumentation.Path_condition.result option =
+    * Instrumentation.Dependency.Positive.result option
+    * Instrumentation.Dependency.Negative.result option =
   let checkpoint = Checkpoint.load ~file:checkpoint_file in
   let coverage = checkpoint.Checkpoint.coverage.node_il in
   let dependency = checkpoint.Checkpoint.coverage.dependency in
@@ -165,8 +165,8 @@ let get_uncovered_premises
    In the future, we could store relation/rule info with each premise UID. *)
 let get_mutation_suggestions_for_premise (premise_uid : premise_uid)
     (coverage : Instrumentation.Node_coverage_il.result option)
-    (dependency : Instrumentation.Dependency.result option) :
-    Instrumentation.Dependency.mutation_suggestion list =
+    (dependency : Instrumentation.Dependency.Positive.result option) :
+    Instrumentation.Dependency.Positive.mutation_suggestion list =
   match (coverage, dependency) with
   | None, _ | _, None -> []
   | Some cov, Some dep -> (
@@ -194,39 +194,43 @@ let get_mutation_suggestions_for_premise (premise_uid : premise_uid)
 (* Infer mutation constraints from dependency analysis. *)
 let infer_mutation_constraints (premise_uid : premise_uid)
     (coverage : Instrumentation.Node_coverage_il.result option)
-    (dependency : Instrumentation.Dependency.result option) :
+    (dependency : Instrumentation.Dependency.Positive.result option) :
     mutation_constraint list =
   let suggestions =
     get_mutation_suggestions_for_premise premise_uid coverage dependency
   in
   (* Convert mutation suggestions to mutation constraints *)
   List.fold_left
-    (fun acc (suggestion : Instrumentation.Dependency.mutation_suggestion) ->
+    (fun acc
+         (suggestion : Instrumentation.Dependency.Positive.mutation_suggestion)
+       ->
       let field_path =
-        match suggestion.field.Instrumentation.Dependency.source with
-        | Instrumentation.Dependency.State -> "state" :: suggestion.field.fields
-        | Instrumentation.Dependency.Block -> "block" :: suggestion.field.fields
-        | Instrumentation.Dependency.Unknown -> []
+        match suggestion.field.Instrumentation.Dependency.Positive.source with
+        | Instrumentation.Dependency.Positive.State ->
+            "state" :: suggestion.field.fields
+        | Instrumentation.Dependency.Positive.Block ->
+            "block" :: suggestion.field.fields
+        | Instrumentation.Dependency.Positive.Unknown -> []
       in
       if field_path = [] then acc
       else
         let target_values =
           match suggestion.strategy with
-          | Instrumentation.Dependency.ToExactValue v -> [ v ]
-          | Instrumentation.Dependency.ToDifferentValue v ->
+          | Instrumentation.Dependency.Positive.ToExactValue v -> [ v ]
+          | Instrumentation.Dependency.Positive.ToDifferentValue v ->
               [ v ] (* User will need to generate different value *)
-          | Instrumentation.Dependency.ToBoundaryMinus v ->
+          | Instrumentation.Dependency.Positive.ToBoundaryMinus v ->
               [ v ] (* User will need to compute v-1 *)
-          | Instrumentation.Dependency.ToBoundaryPlus v ->
+          | Instrumentation.Dependency.Positive.ToBoundaryPlus v ->
               [ v ] (* User will need to compute v+1 *)
-          | Instrumentation.Dependency.ToMatchField _ ->
+          | Instrumentation.Dependency.Positive.ToMatchField _ ->
               [] (* Need to resolve field value *)
-          | Instrumentation.Dependency.ToZero ->
+          | Instrumentation.Dependency.Positive.ToZero ->
               [ Il.Value.Make.num Il.Typ.nat (`Nat Bigint.zero) ]
-          | Instrumentation.Dependency.ToOne ->
+          | Instrumentation.Dependency.Positive.ToOne ->
               [ Il.Value.Make.num Il.Typ.nat (`Nat Bigint.one) ]
-          | Instrumentation.Dependency.ToMax | Instrumentation.Dependency.ToMin
-            ->
+          | Instrumentation.Dependency.Positive.ToMax
+          | Instrumentation.Dependency.Positive.ToMin ->
               [] (* Need type info to determine max/min *)
         in
         { field_path; target_values } :: acc)
@@ -303,7 +307,7 @@ let mutate_json_input (_test_case_id : test_case_id)
    try to match by premise location. *)
 let get_blacklisted_fields (premise_uid : premise_uid)
     (coverage : Instrumentation.Node_coverage_il.result option)
-    (path_condition : Instrumentation.Path_condition.result option) :
+    (path_condition : Instrumentation.Dependency.Negative.result option) :
     field_path list =
   match (coverage, path_condition) with
   | None, _ | _, None -> []
@@ -351,14 +355,14 @@ let get_blacklisted_fields (premise_uid : premise_uid)
           |> List.map (fun field_access ->
                  match field_access with
                  | {
-                  Instrumentation.Path_condition.source =
-                    Instrumentation.Path_condition.State;
+                  Instrumentation.Dependency.Negative.source =
+                    Instrumentation.Dependency.Negative.State;
                   fields;
                  } ->
                      "state" :: fields
                  | {
-                  Instrumentation.Path_condition.source =
-                    Instrumentation.Path_condition.Block;
+                  Instrumentation.Dependency.Negative.source =
+                    Instrumentation.Dependency.Negative.Block;
                   fields;
                  } ->
                      "block" :: fields
@@ -368,8 +372,8 @@ let get_blacklisted_fields (premise_uid : premise_uid)
 (* Generate test case for a selected premise *)
 let generate_test_case (premise_uid : premise_uid)
     (coverage : Instrumentation.Node_coverage_il.result option)
-    (dependency : Instrumentation.Dependency.result option)
-    (path_condition : Instrumentation.Path_condition.result option)
+    (dependency : Instrumentation.Dependency.Positive.result option)
+    (path_condition : Instrumentation.Dependency.Negative.result option)
     (base_test_case_id : test_case_id option) : string * string =
   (* Get mutation constraints *)
   let constraints =

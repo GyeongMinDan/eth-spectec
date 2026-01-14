@@ -1,17 +1,32 @@
-(* Dependency analysis for test mutation guidance.
+(* Positive dependency analysis for test mutation guidance.
 
-   Tracks source paths (provenance) of variables and analyzes
-   if-premises to extract field dependencies.
+   Tracks source paths (provenance) of variables and analyzes if-premises
+   to extract field dependencies and mutation suggestions.
 
-   Key components:
-   - Source environment: maps var_name -> source_path
-   - Expression analysis: strip negation, find comparison
-   - Path condition stack: accumulate conditions for backtracking
+   Key features:
+   - Per-test mutation tracking: mutations are organized by (premise_uid, test_id)
+   - Symbolic expression tracking: preserves full comparison context
+   - Mutation strategy extraction: generates concrete mutation suggestions
+
+   Uses Common module for shared types and utilities.
 *)
 
 open Common.Source
 module Il = Lang.Il
-open Instrumentation_static.Premise_uid
+module Premise_uid = Instrumentation_static.Premise_uid
+module C = Dep_common
+
+(* Re-export types from Common for convenience *)
+type input_source = C.input_source = State | Block | Unknown
+
+type field_access = C.field_access = {
+  source : input_source;
+  fields : string list;
+}
+
+type source_env = C.source_env
+
+(* === Positive-Analysis Specific Types === *)
 
 (* Verbosity levels *)
 type level = Summary | Full
@@ -25,20 +40,6 @@ let default_config =
 let config = ref default_config
 let fmt = ref Format.std_formatter
 
-(* === Types === *)
-
-(* Input source: tracks which top-level input a path comes from *)
-type input_source = State | Block | Unknown
-
-(* Field access - what field we're talking about *)
-type field_access = {
-  source : input_source;
-  fields : string list; (* e.g., ["SLOT"] for state.SLOT *)
-}
-
-(* Source environment: maps variable names to their field accesses *)
-type source_env = (string, field_access) Hashtbl.t
-
 (* Comparison operators *)
 type cmp_op = Eq | Ne | Lt | Le | Gt | Ge
 
@@ -48,7 +49,7 @@ type comparison_rhs =
   | Field of field_access (* RHS is another field *)
   | Unknown (* RHS couldn't be resolved *)
 
-(* Simplified comparison - just tracks the comparison *)
+(* Comparison - tracks full comparison context for accurate mutation *)
 type comparison = {
   lhs : field_access option; (* Field being compared (LHS) *)
   rhs : comparison_rhs; (* What it's compared to (RHS) *)
@@ -83,37 +84,7 @@ type analyzed_expr =
 (* Path condition frame (for backtracking) *)
 type condition_frame = analyzed_expr list
 
-(* === Source Environment === *)
-
-let create_env () : source_env = Hashtbl.create 100
-
-let bind_source (env : source_env) (var : string) (access : field_access) : unit
-    =
-  Hashtbl.replace env var access
-
-let lookup_source (env : source_env) (var : string) : field_access option =
-  Hashtbl.find_opt env var
-
-let clear_env (env : source_env) : unit = Hashtbl.clear env
-
-(* === Expression Analysis Helpers === *)
-
-(* Strip outermost negation: ¬e -> e *)
-let rec strip_negation (exp : Il.exp) : Il.exp * bool =
-  match exp.it with
-  | Il.UnE (`NotOp, _, inner) ->
-      let stripped, was_negated = strip_negation inner in
-      (stripped, not was_negated)
-  | _ -> (exp, false)
-
-(* Strip = true / = false wrappers *)
-let strip_bool_eq (exp : Il.exp) : Il.exp * bool =
-  match exp.it with
-  | Il.CmpE (`EqOp, _, inner, { it = Il.BoolE true; _ }) -> (inner, false)
-  | Il.CmpE (`EqOp, _, inner, { it = Il.BoolE false; _ }) -> (inner, true)
-  | Il.CmpE (`EqOp, _, { it = Il.BoolE true; _ }, inner) -> (inner, false)
-  | Il.CmpE (`EqOp, _, { it = Il.BoolE false; _ }, inner) -> (inner, true)
-  | _ -> (exp, false)
+(* === Expression Resolution (Positive-specific: detailed symbolic tracking) === *)
 
 (* Convert IL cmpop to our type *)
 let convert_cmpop (op : Il.cmpop) : cmp_op =
@@ -125,28 +96,24 @@ let convert_cmpop (op : Il.cmpop) : cmp_op =
   | `GtOp -> Gt
   | `GeOp -> Ge
 
-(* Helper to append field to access *)
-let append_field (access : field_access) (field : string) : field_access =
-  { access with fields = access.fields @ [ field ] }
-
 (* Resolve an expression to a field access.
  * Returns None if we can't determine the input source.
+ * This version tracks symbolic expressions in detail.
  *)
 let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_access option
     =
   match exp.it with
   (* Variables: look up in environment or use as-is *)
   | Il.VarE id -> (
-      match lookup_source env id.it with
+      match C.lookup_source env id.it with
       | Some access -> Some access
       | None -> Some { source = Unknown; fields = [ id.it ] })
   (* Field access: base.field *)
   | Il.DotE (base, atom) -> (
       match resolve_to_path env base with
       | Some base_path ->
-          Some (append_field base_path (Lang.Xl.Atom.string_of_atom atom.it))
+          Some (C.append_field base_path (Lang.Xl.Atom.string_of_atom atom.it))
       | None -> (
-          (* If base couldn't be resolved, try to extract variable name for partial path *)
           match base.it with
           | Il.VarE id ->
               Some
@@ -160,15 +127,15 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_access option
       match (resolve_to_path env base, resolve_to_path env idx) with
       | Some base_path, Some idx_path ->
           let idx_str = String.concat "." idx_path.fields in
-          Some (append_field base_path ("[" ^ idx_str ^ "]"))
-      | Some base_path, None -> Some (append_field base_path "[?]")
+          Some (C.append_field base_path ("[" ^ idx_str ^ "]"))
+      | Some base_path, None -> Some (C.append_field base_path "[?]")
       | _ -> None)
   (* Length: |base| *)
   | Il.LenE base -> (
       match resolve_to_path env base with
-      | Some path -> Some (append_field path "|length|")
+      | Some path -> Some (C.append_field path "|length|")
       | None -> None)
-  (* Constants: these don't have an input source - return None for field access *)
+  (* Constants: these don't have an input source *)
   | Il.NumE _ -> None
   | Il.BoolE _ -> None
   | Il.TextE _ -> None
@@ -190,14 +157,12 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_access option
   | Il.BinE (op, _, lhs, rhs) -> (
       let op_str =
         match op with
-        (* Num.binop *)
         | `AddOp -> "+"
         | `SubOp -> "-"
         | `MulOp -> "*"
         | `DivOp -> "/"
         | `ModOp -> "%"
         | `PowOp -> "^"
-        (* Bool.binop *)
         | `AndOp -> "/\\"
         | `OrOp -> "\\/"
         | `ImplOp -> "=>"
@@ -205,7 +170,6 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_access option
       in
       match (resolve_to_path env lhs, resolve_to_path env rhs) with
       | Some l, Some r ->
-          (* If both have same source, preserve it; otherwise Unknown *)
           let source = if l.source = r.source then l.source else Unknown in
           let l_str = String.concat "." l.fields in
           let r_str = String.concat "." r.fields in
@@ -229,7 +193,7 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_access option
   (* Optional: e? *)
   | Il.OptE (Some inner) -> resolve_to_path env inner
   | Il.OptE None -> None
-  (* Function calls: preserve function call info even though it's not a field access *)
+  (* Function calls: preserve function call info *)
   | Il.CallE (id, _, args) ->
       let resolve_arg arg =
         match arg.it with
@@ -253,28 +217,25 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_access option
           Some
             { source = access.source; fields = [ path_str ^ " matches ..." ] }
       | None -> None)
-  (* Fallback: can't resolve to field access *)
+  (* Fallback *)
   | _ -> None
 
-(* Check if expression is a constant value (can be evaluated statically) *)
+(* Check if expression is a constant value *)
 let is_constant_exp (exp : Il.exp) : Il.Value.t option =
   match exp.it with
   | Il.NumE n -> (
-      (* Get the type from the expression's note *)
       match exp.note with
       | Il.NumT typ -> Some (Il.Value.Make.num (Il.NumT typ) n)
-      | _ -> Some (Il.Value.Make.num Il.Typ.nat n) (* Default to nat *))
+      | _ -> Some (Il.Value.Make.num Il.Typ.nat n))
   | Il.BoolE b -> Some (Il.Value.Make.bool Il.Typ.bool b)
   | Il.TextE s -> Some (Il.Value.Make.text Il.Typ.text s)
   | _ -> None
 
 (* Resolve RHS to comparison_rhs *)
 let resolve_rhs (env : source_env) (exp : Il.exp) : comparison_rhs =
-  (* First check if it's a constant *)
   match is_constant_exp exp with
   | Some v -> Constant v
   | None -> (
-      (* Try to resolve as a field *)
       match resolve_to_path env exp with
       | Some field -> Field field
       | None -> Unknown)
@@ -282,9 +243,6 @@ let resolve_rhs (env : source_env) (exp : Il.exp) : comparison_rhs =
 (* Analyze a comparison expression *)
 let analyze_cmp (env : source_env) (op : Il.cmpop) (lhs : Il.exp) (rhs : Il.exp)
     (raw : Il.exp) : comparison =
-  (* For LHS, try to resolve as field access.
-   * If it's a constant, that's unusual but we'll show it as Unknown.
-   * For RHS, use resolve_rhs which handles both constants and fields *)
   {
     lhs = resolve_to_path env lhs;
     rhs = resolve_rhs env rhs;
@@ -294,9 +252,8 @@ let analyze_cmp (env : source_env) (op : Il.cmpop) (lhs : Il.exp) (rhs : Il.exp)
 
 (* Main expression analysis *)
 let analyze_expression (env : source_env) (exp : Il.exp) : analyzed_expr =
-  (* Strip outer negation and bool comparisons *)
-  let exp1, _neg1 = strip_negation exp in
-  let exp2, _neg2 = strip_bool_eq exp1 in
+  let exp1, _neg1 = C.strip_negation exp in
+  let exp2, _neg2 = C.strip_bool_eq exp1 in
 
   match exp2.it with
   | Il.CmpE (op, _, lhs, rhs) -> Comparison (analyze_cmp env op lhs rhs exp)
@@ -304,15 +261,13 @@ let analyze_expression (env : source_env) (exp : Il.exp) : analyzed_expr =
       let resolve_arg arg =
         match arg.it with
         | Il.ExpA exp -> resolve_to_path env exp
-        | Il.DefA _ -> None (* Def args can't be field accesses *)
+        | Il.DefA _ -> None
       in
       let arg_paths = List.filter_map resolve_arg args in
       BoolCall { name = id.it; args = arg_paths }
   | _ -> Unknown exp
 
-(* === Premise Checking === *)
-
-(* Check if premise is an if-premise (including nested iter) *)
+(* Check if premise is an if-premise *)
 let rec is_if_prem (prem : Il.prem) : bool =
   match prem.it with
   | Il.IfPr _ -> true
@@ -320,25 +275,6 @@ let rec is_if_prem (prem : Il.prem) : bool =
   | _ -> false
 
 (* === String Formatting === *)
-
-let string_of_input_source = function
-  | State -> "state"
-  | Block -> "block"
-  | Unknown -> "?"
-
-let string_of_field_access (access : field_access) : string =
-  match (access.source, access.fields) with
-  | Unknown, [] -> "?"
-  | Unknown, fields -> (
-      (* For Unknown source with fields, check if first field is "state" or "block" *)
-      (* If so, use that as the source instead of showing "?." *)
-      match fields with
-      | "state" :: rest -> "state" ^ "." ^ String.concat "." rest
-      | "block" :: rest -> "block" ^ "." ^ String.concat "." rest
-      | _ -> "?." ^ String.concat "." fields)
-  | source, [] -> string_of_input_source source
-  | source, fields ->
-      string_of_input_source source ^ "." ^ String.concat "." fields
 
 let string_of_cmp_op = function
   | Eq -> "=="
@@ -351,12 +287,12 @@ let string_of_cmp_op = function
 let string_of_rhs (rhs : comparison_rhs) : string =
   match rhs with
   | Constant v -> Il.Print.string_of_value v
-  | Field f -> string_of_field_access f
+  | Field f -> C.string_of_field_access f
   | Unknown -> "?"
 
 let string_of_comparison (cmp : comparison) : string =
   let lhs_str =
-    match cmp.lhs with Some f -> string_of_field_access f | None -> "?"
+    match cmp.lhs with Some f -> C.string_of_field_access f | None -> "?"
   in
   let rhs_str = string_of_rhs cmp.rhs in
   Printf.sprintf "%s %s %s" lhs_str (string_of_cmp_op cmp.op) rhs_str
@@ -365,19 +301,18 @@ let string_of_analyzed (expr : analyzed_expr) : string =
   match expr with
   | Comparison cmp -> string_of_comparison cmp
   | BoolCall { name; args } ->
-      let arg_strs = List.map string_of_field_access args in
+      let arg_strs = List.map C.string_of_field_access args in
       Printf.sprintf "$%s(%s)" name (String.concat ", " arg_strs)
   | Unknown exp -> Il.Print.string_of_exp exp
 
 (* Extract mutation suggestions from a comparison *)
 let extract_mutation_suggestions (cmp : comparison) : mutation_suggestion list =
   match cmp.lhs with
-  | None -> [] (* Can't mutate if we don't know the field *)
+  | None -> []
   | Some field -> (
       match cmp.rhs with
-      | Unknown -> [] (* Can't suggest mutation without RHS info *)
+      | Unknown -> []
       | Constant v -> (
-          (* RHS is a constant - suggest boundary mutations *)
           match cmp.op with
           | Eq -> [ { field; strategy = ToExactValue v } ]
           | Ne -> [ { field; strategy = ToDifferentValue v } ]
@@ -392,7 +327,6 @@ let extract_mutation_suggestions (cmp : comparison) : mutation_suggestion list =
                 { field; strategy = ToBoundaryMinus v };
               ])
       | Field target_field -> (
-          (* RHS is another field - suggest matching it *)
           match cmp.op with
           | Eq -> [ { field; strategy = ToMatchField target_field } ]
           | Ne ->
@@ -404,8 +338,7 @@ let extract_mutation_suggestions (cmp : comparison) : mutation_suggestion list =
                       (Il.Value.Make.num Il.Typ.nat (`Nat Bigint.zero));
                 };
               ]
-              (* Placeholder *)
-          | _ -> [] (* Other ops don't make sense for field-to-field *)))
+          | _ -> []))
 
 (* === Handler State === *)
 module State = struct
@@ -415,7 +348,7 @@ module State = struct
   let whitelist : string list ref = ref []
 
   (* Source environment for variable provenance *)
-  let env : source_env = create_env ()
+  let env : source_env = C.create_env ()
 
   (* Already-analyzed premises (by location string) *)
   let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
@@ -440,7 +373,7 @@ module State = struct
   let func_depth = ref 0
 
   let reset () =
-    clear_env env;
+    C.clear_env env;
     Hashtbl.clear seen_prems;
     current_relation := "";
     current_rule := "";
@@ -543,9 +476,9 @@ module M : Instrumentation_core.Handler.S = struct
           match (input_vars, values) with
           | state_var :: block_var :: _, _state_val :: _block_val :: _ ->
               (* Bind state variable to state input *)
-              bind_source State.env state_var { source = State; fields = [] };
+              C.bind_source State.env state_var { source = State; fields = [] };
               (* Bind block variable to block input *)
-              bind_source State.env block_var { source = Block; fields = [] }
+              C.bind_source State.env block_var { source = Block; fields = [] }
           | _ -> ())
       | None -> ()
     else
@@ -556,7 +489,7 @@ module M : Instrumentation_core.Handler.S = struct
     State.pop_frame ();
     State.current_relation := "";
     State.current_rule := "";
-    clear_env State.env
+    C.clear_env State.env
 
   let on_rule_enter ~id:_ ~rule_id ~at:_ =
     State.current_rule := rule_id;
@@ -587,7 +520,7 @@ module M : Instrumentation_core.Handler.S = struct
       | Il.LetPr ({ it = Il.VarE id; _ }, rhs) -> (
           (* Bind LHS var to RHS path *)
           match resolve_to_path State.env rhs with
-          | Some path -> bind_source State.env id.it path
+          | Some path -> C.bind_source State.env id.it path
           | None -> ())
       | _ -> ()
 
@@ -705,58 +638,14 @@ module HandlerWithData :
   let restore = restore
 end
 
-let whitelist_default =
-  [
-    "State_transition";
-    (* Block Processing *)
-    "ProcessBlockHeader";
-    "ProcessWithdrawals";
-    "ProcessExecutionPayload";
-    "ProcessRandao";
-    "ProcessEth1Data";
-    "ProcessSyncAggregate";
-    (* Operations *)
-    "ProcessProposerSlashing";
-    "ProcessAttesterSlashing";
-    "ProcessAttestation";
-    "ProcessDeposit";
-    "ProcessVoluntaryExit";
-    "ProcessBlsToExecutionChange";
-    (* Slot *)
-    "ProcessSlot";
-    (* Epoch *)
-    "ProcessJustificationAndFinalization";
-    "ProcessInactivityUpdates";
-    "ProcessRewardsAndPenalties";
-    "ProcessRegistryUpdates";
-    "ProcessSlashings";
-    "ProcessEth1DataReset";
-    "ProcessEffectiveBalanceUpdates";
-    "ProcessSlashingsReset";
-    "ProcessRandaoMixesReset";
-    "ProcessHistoricalSummariesUpdate";
-    "ProcessParticipationFlagUpdates";
-    "ProcessSyncCommitteeUpdates";
-  ]
-
 let make cfg : (module Instrumentation_core.Handler.S) =
-  (* Premise_uid auto-registers itself, so we don't need to register it here *)
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
-  State.whitelist := whitelist_default;
   (module M)
 
-(* Create handler with data getter for programmatic access.
-   Usage:
-     let handler, get_dependency = Dependency.make_with_data cfg in
-     Hooks.set_handlers [handler];
-     (* ... run interpreter ... *)
-     let data = get_dependency () in
-*)
 let make_with_data cfg =
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
-  State.whitelist := whitelist_default;
   ( (module HandlerWithData : Instrumentation_core.Handler.S_with_data
       with type result = result),
     get_result )
