@@ -17,14 +17,53 @@ module Il = Lang.Il
 (* Input source: tracks which top-level input a path comes from *)
 type input_source = State | Block | Unknown
 
-(* Field access - represents a path to a field in the input *)
-type field_access = {
-  source : input_source;
-  fields : string list; (* e.g., ["SLOT"] for state.SLOT *)
-}
+(* === Structured Field Path Types === *)
 
-(* Source environment: maps variable names to their field accesses *)
-type source_env = (string, field_access) Hashtbl.t
+(* Index into a collection *)
+type index_expr =
+  | ConstInt of int (* [5] - concrete index *)
+  | PathRef of field_path (* [state.slot] - dynamic index *)
+
+(* A single step in a path *)
+and field_step =
+  | FieldAccess of string (* .validators *)
+  | IndexAccess of index_expr (* [i] *)
+
+(* Complete path to a mutable location *)
+and field_path = { source : input_source; steps : field_step list }
+
+(* What aspect of the location to mutate *)
+type mutation_target =
+  | Value (* Set the value *)
+  | CollectionLength (* Add/remove elements *)
+
+(* === Mutation Suggestion Types === *)
+
+(* Concrete: Can be applied directly *)
+type concrete_hint =
+  | ToLiteral of Lang.Il.Value.t
+  | ToMax
+  | ToMin
+  | ToZero
+  | ToOne
+
+(* Binary operations between field paths *)
+type binop = Add | Sub | Mul | Div | Mod
+
+(* Symbolic: References another field's value *)
+type symbolic_hint =
+  | ToFieldValue of field_path (* Set equal to another field *)
+  | ToFieldOffset of field_path * int (* Set to field + offset *)
+  | ToBoundaryOf of field_path * [ `Above | `Below ]
+  | ToBinOp of field_path * binop * field_path (* field1 + field2 *)
+
+type mutation_hint =
+  | Concrete of concrete_hint
+  | Symbolic of symbolic_hint
+  | Unresolved of string (* Fallback for complex expressions *)
+
+(* Source environment: maps variable names to their field paths *)
+type source_env = (string, field_path) Hashtbl.t
 
 (* === Centralized Whitelist === *)
 
@@ -70,20 +109,22 @@ let is_whitelisted (rel : string) : bool = List.mem rel eth_whitelist
 
 let create_env () : source_env = Hashtbl.create 100
 
-let bind_source (env : source_env) (var : string) (access : field_access) : unit
-    =
-  Hashtbl.replace env var access
+let bind_source (env : source_env) (var : string) (path : field_path) : unit =
+  Hashtbl.replace env var path
 
-let lookup_source (env : source_env) (var : string) : field_access option =
+let lookup_source (env : source_env) (var : string) : field_path option =
   Hashtbl.find_opt env var
 
 let clear_env (env : source_env) : unit = Hashtbl.clear env
 let copy_env (env : source_env) : source_env = Hashtbl.copy env
 
-(* === Field Access Utilities === *)
+(* === Field Path Utilities === *)
 
-let append_field (access : field_access) (field : string) : field_access =
-  { access with fields = access.fields @ [ field ] }
+let append_step (path : field_path) (step : field_step) : field_path =
+  { path with steps = path.steps @ [ step ] }
+
+let field_path_of_source (source : input_source) : field_path =
+  { source; steps = [] }
 
 (* === String Formatting === *)
 
@@ -92,18 +133,20 @@ let string_of_input_source = function
   | Block -> "block"
   | Unknown -> "?"
 
-let string_of_field_access (access : field_access) : string =
-  match (access.source, access.fields) with
-  | Unknown, [] -> "?"
-  | Unknown, fields -> (
-      (* For Unknown source with fields, check if first field is "state" or "block" *)
-      match fields with
-      | "state" :: rest -> "state" ^ "." ^ String.concat "." rest
-      | "block" :: rest -> "block" ^ "." ^ String.concat "." rest
-      | _ -> "?." ^ String.concat "." fields)
-  | source, [] -> string_of_input_source source
-  | source, fields ->
-      string_of_input_source source ^ "." ^ String.concat "." fields
+let rec string_of_index_expr (idx : index_expr) : string =
+  match idx with
+  | ConstInt i -> string_of_int i
+  | PathRef path -> string_of_field_path path
+
+and string_of_field_step (step : field_step) : string =
+  match step with
+  | FieldAccess f -> "." ^ f
+  | IndexAccess idx -> "[" ^ string_of_index_expr idx ^ "]"
+
+and string_of_field_path (path : field_path) : string =
+  let base = string_of_input_source path.source in
+  let steps_str = String.concat "" (List.map string_of_field_step path.steps) in
+  base ^ steps_str
 
 (* === Expression Analysis Helpers === *)
 
@@ -167,7 +210,7 @@ let bind_state_transition_inputs (env : source_env)
     | Some input_vars -> (
         match input_vars with
         | state_var :: block_var :: _ ->
-            bind_source env state_var { source = State; fields = [] };
-            bind_source env block_var { source = Block; fields = [] }
+            bind_source env state_var { source = State; steps = [] };
+            bind_source env block_var { source = Block; steps = [] }
         | _ -> ())
     | None -> ()

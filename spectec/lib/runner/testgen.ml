@@ -182,42 +182,45 @@ let infer_mutation_constraints (premise_uid : premise_uid)
   let suggestions =
     get_mutation_suggestions_for_premise premise_uid coverage dependency
   in
-  (* Convert mutation suggestions to mutation constraints *)
-  List.fold_left
-    (fun acc
-         (suggestion : Instrumentation.Dependency.Positive.mutation_suggestion)
-       ->
-      let field_path =
-        match suggestion.field.Instrumentation.Dependency.Positive.source with
-        | Instrumentation.Dependency.Positive.State ->
-            "state" :: suggestion.field.fields
-        | Instrumentation.Dependency.Positive.Block ->
-            "block" :: suggestion.field.fields
-        | Instrumentation.Dependency.Positive.Unknown -> []
+  (* Convert mutation suggestions to mutation constraints using new types *)
+  let module Pos = Instrumentation.Dependency.Positive in
+  let module Dep = Instrumentation.Dependency.Dep_common in
+  List.filter_map
+    (fun (suggestion : Pos.mutation_suggestion) ->
+      (* Convert field_path to string list *)
+      let rec steps_to_strings steps =
+        match steps with
+        | [] -> []
+        | Dep.FieldAccess f :: rest -> f :: steps_to_strings rest
+        | Dep.IndexAccess (Dep.ConstInt i) :: rest ->
+            Printf.sprintf "[%d]" i :: steps_to_strings rest
+        | Dep.IndexAccess (Dep.PathRef _) :: rest ->
+            "[...]" :: steps_to_strings rest (* Dynamic index - placeholder *)
       in
-      if field_path = [] then acc
+      let source_prefix =
+        match suggestion.field.Dep.source with
+        | Dep.State -> [ "state" ]
+        | Dep.Block -> [ "block" ]
+        | Dep.Unknown -> []
+      in
+      let field_path =
+        source_prefix @ steps_to_strings suggestion.field.Dep.steps
+      in
+      if field_path = [] then None
       else
         let target_values =
-          match suggestion.strategy with
-          | Instrumentation.Dependency.Positive.ToExactValue v -> [ v ]
-          | Instrumentation.Dependency.Positive.ToDifferentValue v ->
-              [ v ] (* User will need to generate different value *)
-          | Instrumentation.Dependency.Positive.ToBoundaryMinus v ->
-              [ v ] (* User will need to compute v-1 *)
-          | Instrumentation.Dependency.Positive.ToBoundaryPlus v ->
-              [ v ] (* User will need to compute v+1 *)
-          | Instrumentation.Dependency.Positive.ToMatchField _ ->
-              [] (* Need to resolve field value *)
-          | Instrumentation.Dependency.Positive.ToZero ->
+          match suggestion.hint with
+          | Dep.Concrete (Dep.ToLiteral v) -> [ v ]
+          | Dep.Concrete Dep.ToZero ->
               [ Il.Value.Make.num Il.Typ.nat (`Nat Bigint.zero) ]
-          | Instrumentation.Dependency.Positive.ToOne ->
+          | Dep.Concrete Dep.ToOne ->
               [ Il.Value.Make.num Il.Typ.nat (`Nat Bigint.one) ]
-          | Instrumentation.Dependency.Positive.ToMax
-          | Instrumentation.Dependency.Positive.ToMin ->
-              [] (* Need type info to determine max/min *)
+          | Dep.Concrete Dep.ToMax | Dep.Concrete Dep.ToMin -> []
+          | Dep.Symbolic _ -> [] (* Symbolic hints need runtime resolution *)
+          | Dep.Unresolved _ -> []
         in
-        { field_path; target_values } :: acc)
-    [] suggestions
+        Some { field_path; target_values })
+    suggestions
 
 (* Check if a test case ID corresponds to a state transition test.
    State transition tests are identified by having 'state_transition' in their path. *)
@@ -375,23 +378,26 @@ let get_blacklisted_fields (premise_uid : premise_uid)
       match List.assoc_opt premise_uid pc.blacklists with
       | None -> []
       | Some path_conditions ->
-          (* Flatten all path conditions and extract field paths *)
+          (* Flatten all path conditions and convert field_paths to string lists *)
+          let module Dep = Instrumentation.Dependency.Dep_common in
+          let rec steps_to_strings steps =
+            match steps with
+            | [] -> []
+            | Dep.FieldAccess f :: rest -> f :: steps_to_strings rest
+            | Dep.IndexAccess (Dep.ConstInt i) :: rest ->
+                Printf.sprintf "[%d]" i :: steps_to_strings rest
+            | Dep.IndexAccess (Dep.PathRef _) :: rest ->
+                "[...]" :: steps_to_strings rest
+          in
           List.flatten path_conditions
-          |> List.map (fun field_access ->
-                 match field_access with
-                 | {
-                  Instrumentation.Dependency.Negative.source =
-                    Instrumentation.Dependency.Negative.State;
-                  fields;
-                 } ->
-                     "state" :: fields
-                 | {
-                  Instrumentation.Dependency.Negative.source =
-                    Instrumentation.Dependency.Negative.Block;
-                  fields;
-                 } ->
-                     "block" :: fields
-                 | _ -> [])
+          |> List.map (fun field_path ->
+                 let source_prefix =
+                   match field_path.Dep.source with
+                   | Dep.State -> [ "state" ]
+                   | Dep.Block -> [ "block" ]
+                   | Dep.Unknown -> []
+                 in
+                 source_prefix @ steps_to_strings field_path.Dep.steps)
           |> List.filter (fun path -> path <> []))
 
 (* Generate test case for a selected premise.
