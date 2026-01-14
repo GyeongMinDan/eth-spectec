@@ -1,11 +1,39 @@
-.git
+# Ignore testing results and coverage reports
+coverage_*/
+final_coverage_report/
+*.csv
+*.json
+*.md
+!README.md
+!QUICK_START.md
+!TESTING_GUIDE.md
+!VALIDATE_RESULT_MODIFICATIONS.md
 
-
-node_modules
+# Ignore Python cache
 __pycache__/
 *.pyc
-build/
+*.pyo
+*.pyd
+.Python
+
+# Ignore build artifacts (will be built inside container)
+testing_clients/
+*.o
+*.so
+*.a
+
+# Ignore IDE files
+.vscode/
+.idea/
 *.swp
+*.swo
+*~
 
-bugs/
+# Ignore git files (optional - might want to keep .git)
+.git/
+.gitignore
 
+# Ignore other temporary files
+*.log
+*.tmp
+.DS_Store
