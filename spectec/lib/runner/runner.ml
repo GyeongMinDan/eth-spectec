@@ -274,17 +274,7 @@ let run_target_coverage ?(config = Instrumentation.Config.default)
   (* Load checkpoint if resuming *)
   let loaded_checkpoint =
     match checkpoint_config.resume_from with
-    | Some file -> (
-        let checkpoint = Checkpoint.load ~file in
-        match Checkpoint.verify_spec checkpoint ~spec_files with
-        | Ok () ->
-            if verbose then
-              Format.printf "Resuming from checkpoint: %s\n"
-                (Checkpoint.summary checkpoint);
-            Some checkpoint
-        | Error e ->
-            Format.printf "%s\n" (Error.string_of_error e);
-            None)
+    | Some file -> Checkpoint.verify_and_load ~file ~spec_files ~verbose
     | None -> None
   in
 
@@ -296,23 +286,8 @@ let run_target_coverage ?(config = Instrumentation.Config.default)
   | None -> ());
 
   let save_current_checkpoint () =
-    match checkpoint_config.output_file with
-    | Some file ->
-        let checkpoint =
-          Checkpoint.create ~spec_files ~completed_inputs:!all_completed_inputs
-            ~coverage:
-              {
-                branch = Some (Instrumentation.Branch_coverage.get_result ());
-                node_il = Some (Instrumentation.Node_coverage_il.get_result ());
-                node_sl = Some (Instrumentation.Node_coverage_sl.get_result ());
-                dependency =
-                  Some (Instrumentation.Dependency.Positive.get_result ());
-                path_condition =
-                  Some (Instrumentation.Dependency.Negative.get_result ());
-              }
-        in
-        Checkpoint.save ~file checkpoint
-    | None -> ()
+    Checkpoint.save_current ~spec_files ~completed_inputs:!all_completed_inputs
+      ~output_file:checkpoint_config.output_file
   in
 
   let results =

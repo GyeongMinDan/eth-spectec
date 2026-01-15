@@ -1,26 +1,3 @@
-(* Checkpoint module for coverage run persistence.
-
-   Enables long-running coverage runs to be interrupted and resumed.
-   Saves accumulated coverage state and list of completed test inputs.
-
-   Usage:
-     (* Configure checkpointing *)
-     let config = Checkpoint.{
-       output_file = Some "coverage.ckpt";
-       resume_from = None;
-       save_interval = 100;
-     } in
-
-     (* During run *)
-     let checkpoint = Checkpoint.create ~spec_files ~completed_inputs:["test1"; "test2"] in
-     Checkpoint.save ~file:"coverage.ckpt" checkpoint;
-
-     (* On resume *)
-     let checkpoint = Checkpoint.load ~file:"coverage.ckpt" in
-     if Checkpoint.verify_spec checkpoint ~spec_files then
-       (* filter out completed inputs and continue *)
-*)
-
 (* Configuration for checkpointing behavior *)
 type config = {
   output_file : string option; (* File to save checkpoints to *)
@@ -39,15 +16,6 @@ type coverage_state = {
   dependency : Instrumentation.Dependency.Positive.result option;
   path_condition : Instrumentation.Dependency.Negative.result option;
 }
-
-let empty_coverage =
-  {
-    branch = None;
-    node_il = None;
-    node_sl = None;
-    dependency = None;
-    path_condition = None;
-  }
 
 (* Main checkpoint type - saved/loaded state *)
 type t = {
@@ -115,6 +83,59 @@ let summary checkpoint =
         (time_record.tm_mon + 1) time_record.tm_mday time_record.tm_hour
         time_record.tm_min time_record.tm_sec )
 
+(* Load and verify checkpoint from file.
+   Returns Some checkpoint if valid, None if invalid or file doesn't exist. *)
+let verify_and_load ~file ~spec_files ~verbose =
+  try
+    let checkpoint = load ~file in
+    match verify_spec checkpoint ~spec_files with
+    | Ok () ->
+        if verbose then
+          Format.printf "Resuming from checkpoint: %s\n" (summary checkpoint);
+        Some checkpoint
+    | Error e ->
+        Format.printf "%s\n" (Error.string_of_error e);
+        None
+  with _ -> None
+
+(* Restore coverage state from checkpoint.
+   This should be called after instrumentation handlers are initialized
+   but before running any tests. *)
+let restore_coverage checkpoint =
+  (match checkpoint.coverage.branch with
+  | Some branch_result -> Instrumentation.Branch_coverage.restore branch_result
+  | None -> ());
+  (match checkpoint.coverage.node_il with
+  | Some node_result -> Instrumentation.Node_coverage_il.restore node_result
+  | None -> ());
+  (match checkpoint.coverage.node_sl with
+  | Some node_result -> Instrumentation.Node_coverage_sl.restore node_result
+  | None -> ());
+  match checkpoint.coverage.dependency with
+  | Some dep_result -> Instrumentation.Dependency.Positive.restore dep_result
+  | None -> ()
+
+(* Collect current coverage state from all instrumentation handlers *)
+let get_current_coverage () =
+  {
+    branch = Some (Instrumentation.Branch_coverage.get_result ());
+    node_il = Some (Instrumentation.Node_coverage_il.get_result ());
+    node_sl = Some (Instrumentation.Node_coverage_sl.get_result ());
+    dependency = Some (Instrumentation.Dependency.Positive.get_result ());
+    path_condition = Some (Instrumentation.Dependency.Negative.get_result ());
+  }
+
+(* Save current checkpoint state to file.
+   Collects current coverage state and completed inputs, then saves to file if configured. *)
+let save_current ~spec_files ~completed_inputs ~output_file =
+  match output_file with
+  | Some file ->
+      let checkpoint =
+        create ~spec_files ~completed_inputs ~coverage:(get_current_coverage ())
+      in
+      save ~file checkpoint
+  | None -> ()
+
 (* Display full checkpoint report with coverage data.
    Uses provided config for output destinations, or defaults to Full/stdout. *)
 let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
@@ -154,18 +175,7 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
   Instrumentation.Dispatcher.set_handlers handlers;
   Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec);
   (* Restore state from checkpoint data *)
-  (match checkpoint.coverage.branch with
-  | Some branch_result -> Instrumentation.Branch_coverage.restore branch_result
-  | None -> ());
-  (match checkpoint.coverage.node_il with
-  | Some node_result -> Instrumentation.Node_coverage_il.restore node_result
-  | None -> ());
-  (match checkpoint.coverage.node_sl with
-  | Some node_result -> Instrumentation.Node_coverage_sl.restore node_result
-  | None -> ());
-  (match checkpoint.coverage.dependency with
-  | Some dep_result -> Instrumentation.Dependency.Positive.restore dep_result
-  | None -> ());
+  restore_coverage checkpoint;
   (* Call finish to print the reports *)
   Instrumentation.Dispatcher.finish ();
   Instrumentation.Config.close_outputs config
