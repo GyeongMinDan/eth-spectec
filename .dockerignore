@@ -5,9 +5,6 @@ final_coverage_report/
 *.json
 *.md
 !README.md
-!QUICK_START.md
-!TESTING_GUIDE.md
-!VALIDATE_RESULT_MODIFICATIONS.md
 
 # Ignore Python cache
 __pycache__/
