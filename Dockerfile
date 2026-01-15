@@ -112,6 +112,7 @@ RUN apt-get update && \
         python3-dev \
         libssl-dev \
         libsnappy-dev \
+        lcov \
         git-lfs \
         apt-transport-https \
         gnupg \
@@ -125,7 +126,8 @@ RUN apt-get update && \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
     rustup default stable && \
-    rustup toolchain install nightly --component llvm-tools-preview
+    rustup toolchain install nightly --component llvm-tools-preview && \
+    cargo install grcov
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 
@@ -356,8 +358,13 @@ RUN go build -cover -o pcli-cov ./tools/pcli
 # Build Teku with coverage (download JaCoCo agent)
 WORKDIR /workspace/spectec-core/testing_clients/teku
 RUN ./gradlew installDist && \
-    cp -r build/install/teku build/install/teku-cov && \
-    wget -q -O build/install/teku-cov/lib/jacocoagent.jar https://repo1.maven.org/maven2/org/jacoco/jacoco/0.8.10/jacoco-0.8.10.jar || true
+    cp -r build/install/teku build/install/teku-cov
+
+# Download JaCoCo agent to the expected location (matching build_coverage_clients.sh)
+WORKDIR /workspace/spectec-core/testing_clients
+RUN mkdir -p jacoco && \
+    wget -q -O jacoco/jacocoagent.jar https://repo1.maven.org/maven2/org/jacoco/org.jacoco.agent/0.8.11/org.jacoco.agent-0.8.11-runtime.jar && \
+    wget -q -O jacoco/jacococli.jar https://repo1.maven.org/maven2/org/jacoco/org.jacoco.cli/0.8.11/org.jacoco.cli-0.8.11-nodeps.jar
 
 # Build Nimbus with coverage
 WORKDIR /workspace/spectec-core/testing_clients/nimbus-eth2
