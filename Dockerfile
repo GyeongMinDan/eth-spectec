@@ -122,14 +122,14 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # ============================================
-# Stage 2: Install Rust (for Lighthouse)
+# Stage 2: Install Rust (for Lighthouse) # Not used grcov
 # ============================================
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
     rustup default stable && \
     rustup component add llvm-tools-preview && \
     rustup toolchain install nightly --component llvm-tools-preview && \
-    cargo install grcov
+    cargo install grcov 
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 
