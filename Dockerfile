@@ -107,6 +107,7 @@ RUN apt-get update && \
         llvm-dev \
         libclang-dev \
         clang \
+        llvm \
         python3 \
         python3-pip \
         python3-dev \
@@ -126,6 +127,7 @@ RUN apt-get update && \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
     rustup default stable && \
+    rustup component add llvm-tools-preview && \
     rustup toolchain install nightly --component llvm-tools-preview && \
     cargo install grcov
 
@@ -142,6 +144,9 @@ RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz && \
 ENV PATH="/usr/local/go/bin:${PATH}"
 ENV GOPATH="/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
+
+# Install go-bcov for Prysm branch coverage
+RUN go install github.com/alx99/go-bcov@v1
 
 # ============================================
 # Stage 4: Install Java 21 (for Teku)
