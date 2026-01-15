@@ -4,35 +4,81 @@
 # This Dockerfile builds all Ethereum 2.0 clients (Prysm, Lighthouse, Teku, Nimbus, Lodestar)
 # with modified code for differential testing and coverage instrumentation support.
 #
-# Usage:
-#   # Build base environment (clones and builds clients)
+# ============================================
+# Step 1: Clone the repository
+# ============================================
+#   git clone --recursive https://github.com/GyeongMinDan/eth-spectec.git
+#   cd eth-spectec
+#
+#   Or if you already cloned without --recursive:
+#   git submodule update --init --recursive
+#
+# ============================================
+# Step 2: Build Docker image with coverage binaries
+# ============================================
+#   # Build base environment (clones and builds original clients)
 #   docker build -t eth2test:base --target base .
 #
-#   # Build with coverage binaries
+#   # Build with coverage binaries (recommended for coverage testing)
 #   docker build -t eth2test:coverage --target coverage .
 #
-#   # Run tests (output saved in container, will be lost when container exits)
-#   docker run -it --rm eth2test:coverage python3 diff_testing.py --test-suite ...
+#   Note: This will take a long time (6000s in macbook pre 19) as it builds all clients.
 #
-#   # Run tests with volume mount (output saved to local ./results directory)
-#   docker run -it --rm \
-#     -v $(pwd)/results:/workspace/spectec-core/results \
+# ============================================
+# Step 3: Run diff_testing.py with coverage
+# ============================================
+#   # Basic usage (results saved to local ./results directory)
+#   docker run --rm -it \
+#     -v "$(pwd)/results:/workspace/spectec-core/results" \
 #     eth2test:coverage \
-#     python3 diff_testing.py --test-suite ... --output-base ./results
+#     bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
+#       --test-suite Converter/OfficialTestSuite/capella/sanity/blocks/pyspec_tests \
+#       --test-type state-transition \
+#       --workflow sequential \
+#       --fork-version capella \
+#       --output-base ./results/coverage_sanity_block_test \
+#       --enable-coverage \
+#       --cleanup-after-report'
 #
-#   # Generate final accumulated coverage report (after running multiple test suites)
-#   # Option 1: Run in Docker container (recommended - all tools available)
-#   docker run -it --rm \
-#     -v $(pwd)/results:/workspace/spectec-core/results \
+#   # Example with different test suite
+#   docker run --rm -it \
+#     -v "$(pwd)/results:/workspace/spectec-core/results" \
 #     eth2test:coverage \
-#     python3 diff_testing.py \
-#       --generate-final-coverage ./results/coverage_suite1 ./results/coverage_suite2 \
-#       --final-output-dir ./results/final_coverage_report
+#     bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
+#       --test-suite Converter/OfficialTestSuite/capella/sanity/slots/pyspec_tests \
+#       --test-type sanity-slots \
+#       --fork-version capella \
+#       --output-base ./results/coverage_sanity_slot_test \
+#       --enable-coverage \
+#       --cleanup-after-report'
 #
-#   # Option 2: Run locally (requires all coverage tools installed locally)
-#   python3 diff_testing.py \
-#     --generate-final-coverage ./results/coverage_suite1 ./results/coverage_suite2 \
-#     --final-output-dir ./results/final_coverage_report
+#   Important Notes:
+#   - Do NOT mount the entire project directory (e.g., -v "$(pwd):/workspace/spectec-core")
+#     This will hide the testing_clients/ binaries built inside the Docker image.
+#   - Only mount the results directory to save output files.
+#   - All test cases and binaries are already inside the Docker image.
+#
+# ============================================
+# Step 4: Generate final accumulated coverage report (optional)
+# ============================================
+#   # After running multiple test suites, generate a combined coverage report
+#   docker run --rm -it \
+#     -v "$(pwd)/results:/workspace/spectec-core/results" \
+#     eth2test:coverage \
+#     bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
+#       --generate-final-coverage \
+#       ./results/coverage_suite1 \
+#       ./results/coverage_suite2 \
+#       --final-output-dir ./results/final_coverage_report'
+#
+# ============================================
+# Output Files Location
+# ============================================
+#   All output files will be saved to: ./results/ (local directory)
+#   - Client outputs: ./results/<test_name>/<client>/output/
+#   - Coverage data: ./results/<test_name>/<client>/cov_output_*/
+#   - Reports: ./results/<test_name>/report_*.md
+#   - CSV logs: ./results/<test_name>/*.csv
 
 ARG UBUNTU_VERSION=22.04
 FROM ubuntu:${UBUNTU_VERSION} AS base
@@ -63,6 +109,7 @@ RUN apt-get update && \
         clang \
         python3 \
         python3-pip \
+        python3-dev \
         libssl-dev \
         libsnappy-dev \
         git-lfs \
@@ -184,12 +231,13 @@ RUN git clone https://github.com/status-im/nimbus-eth2.git && \
     git reset --hard v25.11.0 && \
     git clean -fd
 
-# Clone Lodestar (v1.36.0)
-RUN git clone https://github.com/ChainSafe/lodestar.git && \
+# Setup Lodestar (create package.json and install dependencies)
+WORKDIR /workspace/spectec-core/testing_clients
+RUN mkdir -p lodestar && \
     cd lodestar && \
-    git checkout v1.36.0 && \
-    git reset --hard v1.36.0 && \
-    git clean -fd
+    echo '{\n  "dependencies": {\n    "@lodestar/state-transition": "1.36.0"\n  },\n  "type": "module"\n}' > package.json && \
+    npm i @lodestar/state-transition@1.36.0 && \
+    npm install
 
 # ============================================
 # Stage 10: Apply modified code
@@ -253,6 +301,11 @@ RUN if [ -f "modified_code/lodestar/transition.js" ]; then \
         cp modified_code/lodestar/generateCachedStateCapella.js testing_clients/lodestar/generateCachedStateCapella.js; \
     fi
 
+# Comment out postState.commit() calls in Lodestar node_modules
+RUN if [ -f "testing_clients/lodestar/node_modules/@lodestar/state-transition/lib/stateTransition.js" ]; then \
+        sed -i 's/^[[:space:]]*postState\.commit();/    \/\/postState.commit();/g' testing_clients/lodestar/node_modules/@lodestar/state-transition/lib/stateTransition.js; \
+    fi
+
 # ============================================
 # Stage 11: Build original clients (no coverage)
 # ============================================
@@ -294,7 +347,7 @@ WORKDIR /workspace/spectec-core
 WORKDIR /workspace/spectec-core/testing_clients/lighthouse
 RUN RUSTFLAGS="-Cinstrument-coverage -Z coverage-options=branch" \
     cargo +nightly build --release --bin lcli && \
-    cp target/release/lcli lcli-cov
+    cp target/release/lcli target/release/lcli-cov
 
 # Build Prysm with coverage
 WORKDIR /workspace/spectec-core/testing_clients/prysm
@@ -303,8 +356,8 @@ RUN go build -cover -o pcli-cov ./tools/pcli
 # Build Teku with coverage (download JaCoCo agent)
 WORKDIR /workspace/spectec-core/testing_clients/teku
 RUN ./gradlew installDist && \
-    cp -r build/install/teku teku-cov && \
-    wget -q -O teku-cov/lib/jacocoagent.jar https://repo1.maven.org/maven2/org/jacoco/jacoco/0.8.10/jacoco-0.8.10.jar || true
+    cp -r build/install/teku build/install/teku-cov && \
+    wget -q -O build/install/teku-cov/lib/jacocoagent.jar https://repo1.maven.org/maven2/org/jacoco/jacoco/0.8.10/jacoco-0.8.10.jar || true
 
 # Build Nimbus with coverage
 WORKDIR /workspace/spectec-core/testing_clients/nimbus-eth2
