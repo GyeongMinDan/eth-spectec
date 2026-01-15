@@ -139,10 +139,13 @@ RUN wget -q https://nim-lang.org/download/nim-${NIM_VERSION}-linux_x64.tar.xz &&
 ENV PATH="/opt/nim/bin:${PATH}"
 
 # ============================================
-# Stage 8: Copy project files
+# Stage 8: Copy project files and install Python dependencies
 # ============================================
 COPY . /workspace/spectec-core
 WORKDIR /workspace/spectec-core
+
+# Install Python dependencies (including snappy for decompression)
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Create testing_clients directory
 RUN mkdir -p testing_clients
