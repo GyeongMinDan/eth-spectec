@@ -64,6 +64,7 @@ RUN apt-get update && \
         python3 \
         python3-pip \
         libssl-dev \
+        libsnappy-dev \
         git-lfs \
         apt-transport-https \
         gnupg \
