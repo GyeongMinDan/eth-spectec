@@ -42,7 +42,7 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_path option =
   | Il.VarE id -> (
       match lookup_source env id.it with
       | Some path -> Some path
-      | None -> Some (field_path_of_source Unknown))
+      | None -> Some { source = Unknown; steps = [ FieldAccess id.it ] })
   (* Field access: base.field *)
   | Il.DotE (base, atom) -> (
       match resolve_to_path env base with
@@ -86,23 +86,43 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_path option =
   | Il.MatchE _ -> None
   | _ -> None
 
-(* Extract all fields from a comparison expression *)
-let extract_fields_from_cmp (env : source_env) (exp : Il.exp) : field_path list
-    =
-  let exp1, _ = strip_negation exp in
-  let exp2, _ = strip_bool_eq exp1 in
-
-  match exp2.it with
-  | Il.CmpE (_, _, lhs, rhs) ->
-      let fields = ref [] in
-      (match resolve_to_path env lhs with
-      | Some f -> fields := f :: !fields
-      | None -> ());
-      (match resolve_to_path env rhs with
-      | Some f -> fields := f :: !fields
-      | None -> ());
-      !fields
+(* Extract all fields from an expression recursively *)
+let rec extract_fields_from_expr (env : source_env) (exp : Il.exp) :
+    field_path list =
+  match exp.it with
+  (* Base case: field access *)
+  | Il.VarE _ | Il.DotE _ | Il.IdxE _ -> (
+      match resolve_to_path env exp with Some f -> [ f ] | None -> [])
+  (* Recursive cases *)
+  | Il.UnE (_, _, inner) -> extract_fields_from_expr env inner
+  | Il.BinE (_, _, lhs, rhs) | Il.CmpE (_, _, lhs, rhs) | Il.MemE (lhs, rhs) ->
+      extract_fields_from_expr env lhs @ extract_fields_from_expr env rhs
+  | Il.SubE (inner, _)
+  | Il.UpCastE (_, inner)
+  | Il.DownCastE (_, inner)
+  | Il.IterE (inner, _)
+  | Il.LenE inner ->
+      extract_fields_from_expr env inner
+  | Il.CallE (_, _, args) ->
+      List.concat_map
+        (fun arg ->
+          match arg.it with
+          | Il.ExpA e -> extract_fields_from_expr env e
+          | Il.DefA _ -> [])
+        args
+  | Il.OptE (Some inner) -> extract_fields_from_expr env inner
+  (* Match expression optional *)
+  | Il.MatchE (cond, _cases) -> extract_fields_from_expr env cond
+  (* We don't extract from cases as they are conditional *)
+  (* Ignore others *)
   | _ -> []
+
+(* Check if premise is an if-premise *)
+let rec is_if_prem (prem : Il.prem) : bool =
+  match prem.it with
+  | Il.IfPr _ -> true
+  | Il.IterPr (inner, _) -> is_if_prem inner
+  | _ -> false
 
 (* === Handler State === *)
 module State = struct
@@ -110,14 +130,14 @@ module State = struct
   let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
   let current_relation : string ref = ref ""
 
-  (* Track if we're in a selected premise *)
-  let in_selected_premise : bool ref = ref false
-  let current_premise_uid : int option ref = ref None
+  (* Already-analyzed premises (by location string) *)
+  let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
 
   (* Progress counters *)
   let premise_count : int ref = ref 0
   let if_prem_count : int ref = ref 0
   let blacklist_count : int ref = ref 0
+  let skipped_count : int ref = ref 0
 
   (* Per-premise blacklist: premise_uid -> path_condition list *)
   let blacklists : (int, path_condition list) Hashtbl.t = Hashtbl.create 1000
@@ -125,13 +145,16 @@ module State = struct
   let reset () =
     clear_env env;
     Hashtbl.clear relation_inputs;
+    Hashtbl.clear seen_prems;
     current_relation := "";
-    in_selected_premise := false;
-    current_premise_uid := None;
     premise_count := 0;
     if_prem_count := 0;
     blacklist_count := 0;
+    skipped_count := 0;
     Hashtbl.clear blacklists
+
+  let already_seen loc = Hashtbl.mem seen_prems loc
+  let mark_seen loc = Hashtbl.replace seen_prems loc ()
 
   let add_blacklist (premise_uid : int) (fields : field_path list) =
     if fields <> [] then
@@ -178,60 +201,89 @@ module M : Instrumentation_core.Handler.S = struct
   let on_clause_exit = Instrumentation_core.Noop.on_clause_exit
   let on_iter_prem_enter = Instrumentation_core.Noop.on_iter_prem_enter
   let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
+  let on_prem_enter = Instrumentation_core.Noop.on_prem_enter
 
-  let on_prem_enter ~prem ~at:_ =
-    if is_whitelisted !State.current_relation then
+  let on_prem_exit ~prem ~at:_ ~success =
+    if success then
       match prem.it with
-      | Il.IfPr _ -> (
-          State.if_prem_count := !State.if_prem_count + 1;
-          let key = Premise_uid.prem_key prem in
-          match Premise_uid.get_uid key with
-          | Some uid ->
-              State.in_selected_premise := true;
-              State.current_premise_uid := Some uid
+      | Il.LetPr ({ it = Il.VarE id; _ }, rhs) -> (
+          match resolve_to_path State.env rhs with
+          | Some path -> bind_source State.env id.it path
           | None -> ())
       | _ -> ()
 
-  let on_prem_exit ~prem ~at:_ ~success =
-    if !State.in_selected_premise then
-      match prem.it with
-      | Il.IfPr exp ->
-          (* Extract fields and record as blacklist *)
-          let fields = extract_fields_from_cmp State.env exp in
-          (* Only record fields that resolve to state/block *)
-          let resolved_fields =
-            List.filter
-              (fun f -> match f.source with Unknown -> false | _ -> true)
-              fields
-          in
-          (if success && resolved_fields <> [] then
-             match !State.current_premise_uid with
-             | Some uid -> State.add_blacklist uid resolved_fields
-             | None -> ());
-          State.in_selected_premise := false;
-          State.current_premise_uid := None
-      | _ -> ()
-
-  (* Track let bindings to update source environment *)
-  let on_prem_fields ~prem ~fields:_ ~lookup:_ ~at:_ =
+  (* Track let bindings to update source environment and process IfPr premises *)
+  let on_prem_fields ~prem ~fields:_ ~lookup:_ ~at =
     State.premise_count := !State.premise_count + 1;
     if !State.premise_count mod 500 = 0 then
-      Format.eprintf "\r[Negative] %d premises, %d if-prems, %d blacklists...%!"
-        !State.premise_count !State.if_prem_count !State.blacklist_count;
+      Format.eprintf
+        "\r[Negative] %d premises, %d if-prems, %d blacklists, %d skipped...%!"
+        !State.premise_count !State.if_prem_count !State.blacklist_count
+        !State.skipped_count;
 
+    (* Update source environment for let bindings *)
     match prem.it with
     | Il.LetPr ({ it = Il.VarE id; _ }, rhs) -> (
         match resolve_to_path State.env rhs with
         | Some path -> bind_source State.env id.it path
         | None -> ())
-    | _ -> ()
+    | _ ->
+        ();
+
+        (* Process IfPr premises in whitelisted relations *)
+        if not (is_whitelisted !State.current_relation) then ()
+        else
+          let loc = string_of_region at in
+          if State.already_seen loc then
+            State.skipped_count := !State.skipped_count + 1
+          else if not (is_if_prem prem) then ()
+          else (
+            State.mark_seen loc;
+            State.if_prem_count := !State.if_prem_count + 1;
+            match prem.it with
+            | Il.IfPr exp ->
+                (* Extract fields and record as blacklist *)
+                let fields = extract_fields_from_expr State.env exp in
+                (* Record blacklist for this premise - path condition dependencies *)
+                (* Include Unknown sources (will be printed as "?") like positive analysis *)
+                if fields <> [] then
+                  let key = Premise_uid.prem_key prem in
+                  (* Get or assign UID for this premise *)
+                  let uid =
+                    match Premise_uid.get_uid key with
+                    | Some uid -> uid
+                    | None -> Premise_uid.assign_uid key
+                  in
+                  State.add_blacklist uid fields
+            | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
+                (* Handle iterated IfPr premises *)
+                let fields = extract_fields_from_expr State.env exp in
+                (* Include Unknown sources (will be printed as "?") like positive analysis *)
+                if fields <> [] then
+                  let key = Premise_uid.prem_key prem in
+                  let uid =
+                    match Premise_uid.get_uid key with
+                    | Some uid -> uid
+                    | None -> Premise_uid.assign_uid key
+                  in
+                  State.add_blacklist uid fields
+            | _ -> ())
 
   let on_instr = Instrumentation_core.Noop.on_instr
 
   let finish () =
-    Format.fprintf !fmt "\n=== Negative Dependencies (Blacklists) ===\n\n";
-    Hashtbl.iter
-      (fun uid paths ->
+    Format.fprintf !fmt "\n=== Negative Dependencies (Blacklists) ===\n\n%!";
+    (* Collect and sort by premise UID for stable, readable output *)
+    let entries =
+      Hashtbl.fold
+        (fun uid paths acc -> (uid, paths) :: acc)
+        State.blacklists []
+    in
+    let sorted =
+      List.sort (fun (uid1, _) (uid2, _) -> compare uid1 uid2) entries
+    in
+    List.iter
+      (fun (uid, paths) ->
         Format.fprintf !fmt "premise %d:\n" uid;
         List.iter
           (fun path ->
@@ -241,7 +293,8 @@ module M : Instrumentation_core.Handler.S = struct
             Format.fprintf !fmt "  [%s]\n" path_str)
           paths;
         Format.fprintf !fmt "\n")
-      State.blacklists
+      sorted;
+    Format.pp_print_flush !fmt ()
 end
 
 (* Result type for programmatic access *)
@@ -275,11 +328,17 @@ module HandlerWithData :
 end
 
 let make cfg : (module Instrumentation_core.Handler.S) =
+  Instrumentation_static.Static.register
+    (module Instrumentation_static.Premise_uid.Premise_uid
+    : Instrumentation_static.Static.S);
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   (module M)
 
 let make_with_data cfg =
+  Instrumentation_static.Static.register
+    (module Instrumentation_static.Premise_uid.Premise_uid
+    : Instrumentation_static.Static.S);
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   ( (module HandlerWithData : Instrumentation_core.Handler.S_with_data

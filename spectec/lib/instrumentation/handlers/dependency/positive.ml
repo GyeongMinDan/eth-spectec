@@ -86,7 +86,7 @@ let rec resolve_to_field_path (env : source_env) (exp : Il.exp) :
   | Il.VarE id -> (
       match lookup_source env id.it with
       | Some path -> Some path
-      | None -> Some (field_path_of_source Unknown))
+      | None -> Some { source = Unknown; steps = [ FieldAccess id.it ] })
   (* Field access: base.field *)
   | Il.DotE (base, atom) -> (
       match resolve_to_field_path env base with
@@ -117,12 +117,11 @@ let rec resolve_to_field_path (env : source_env) (exp : Il.exp) :
               | Some idx_path ->
                   Some (append_step base_path (IndexAccess (PathRef idx_path)))
               | None -> None)))
-  (* Subtype casts: unwrap *)
-  | Il.SubE (inner, _) -> resolve_to_field_path env inner
-  | Il.UpCastE (_, inner) -> resolve_to_field_path env inner
-  | Il.DownCastE (_, inner) -> resolve_to_field_path env inner
-  (* Iteration: unwrap *)
-  | Il.IterE (inner, _) -> resolve_to_field_path env inner
+  | Il.SubE (inner, _)
+  | Il.UpCastE (_, inner)
+  | Il.DownCastE (_, inner)
+  | Il.IterE (inner, _) ->
+      resolve_to_field_path env inner
   (* Optional: unwrap if Some *)
   | Il.OptE (Some inner) -> resolve_to_field_path env inner
   | Il.OptE None -> None
@@ -549,11 +548,17 @@ module HandlerWithData :
 end
 
 let make cfg : (module Instrumentation_core.Handler.S) =
+  Instrumentation_static.Static.register
+    (module Instrumentation_static.Premise_uid.Premise_uid
+    : Instrumentation_static.Static.S);
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   (module M)
 
 let make_with_data cfg =
+  Instrumentation_static.Static.register
+    (module Instrumentation_static.Premise_uid.Premise_uid
+    : Instrumentation_static.Static.S);
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   ( (module HandlerWithData : Instrumentation_core.Handler.S_with_data
