@@ -58,7 +58,14 @@ let load_checkpoint (checkpoint_file : string) :
     * Instrumentation.Node_coverage_il.result option
     * Instrumentation.Dependency.Positive.result option
     * Instrumentation.Dependency.Negative.result option =
-  let checkpoint = Checkpoint.load ~file:checkpoint_file in
+  let checkpoint =
+    match Checkpoint.load_from_file ~file:checkpoint_file with
+    | Ok checkpoint -> checkpoint
+    | Error e ->
+        failwith
+          (Printf.sprintf "Failed to load checkpoint: %s"
+             (Error.string_of_error e))
+  in
   let coverage = checkpoint.Checkpoint.coverage.node_il in
   let dependency = checkpoint.Checkpoint.coverage.dependency in
   let path_condition = checkpoint.Checkpoint.coverage.path_condition in

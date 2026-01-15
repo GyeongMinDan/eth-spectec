@@ -13,7 +13,7 @@ type config = {
 val default_config : config
 
 (* Coverage state from handlers - extensible for new handlers *)
-type coverage_state = {
+type coverage = {
   branch : Instrumentation.Branch_coverage.result option;
   node_il : Instrumentation.Node_coverage_il.result option;
   node_sl : Instrumentation.Node_coverage_sl.result option;
@@ -25,27 +25,24 @@ type coverage_state = {
 type t = {
   spec_hash : string; (* MD5 of concatenated spec file contents *)
   completed_inputs : string list; (* IDs of processed test cases *)
-  coverage : coverage_state;
+  coverage : coverage;
   timestamp : float; (* Unix timestamp *)
 }
 
-(* Load checkpoint from file *)
-val load : file:string -> t
+(* Load checkpoint from file using Marshal.
+   Returns Ok checkpoint if successful, Error if file cannot be loaded. *)
+val load_from_file : file:string -> (t, Error.t) result
 
-(* Verify that spec files haven't changed *)
-val verify_spec : t -> spec_files:string list -> (unit, Error.t) result
-
-(* Load and verify checkpoint from file.
-   Returns Some checkpoint if valid, None if invalid or file doesn't exist. *)
+(* Load and verify checkpoint from file *)
 val verify_and_load :
-  file:string -> spec_files:string list -> verbose:bool -> t option
+  file:string -> spec_files:string list -> verbose:bool -> (t, Error.t) result
 
 (* Filter out already-completed inputs *)
 val filter_remaining : t -> 'a list -> get_id:('a -> string) -> 'a list
 
 (* Save current checkpoint state to file.
    Collects current coverage state and completed inputs, then saves to file if configured. *)
-val save_current :
+val save :
   spec_files:string list ->
   completed_inputs:string list ->
   output_file:string option ->

@@ -1,3 +1,7 @@
+(* ============================================================================
+   TYPES AND CONFIGURATION
+   ============================================================================ *)
+
 (* Configuration for checkpointing behavior *)
 type config = {
   output_file : string option; (* File to save checkpoints to *)
@@ -9,7 +13,7 @@ let default_config =
   { output_file = None; resume_from = None; save_interval = 100 }
 
 (* Coverage state from handlers - extensible for new handlers *)
-type coverage_state = {
+type coverage = {
   branch : Instrumentation.Branch_coverage.result option;
   node_il : Instrumentation.Node_coverage_il.result option;
   node_sl : Instrumentation.Node_coverage_sl.result option;
@@ -21,9 +25,13 @@ type coverage_state = {
 type t = {
   spec_hash : string; (* MD5 of concatenated spec file contents *)
   completed_inputs : string list; (* IDs of processed test cases *)
-  coverage : coverage_state;
+  coverage : coverage;
   timestamp : float; (* Unix timestamp *)
 }
+
+(* ============================================================================
+   INTERNAL HELPERS
+   ============================================================================ *)
 
 (* Compute MD5 hash of spec files for change detection *)
 let compute_spec_hash spec_files =
@@ -39,7 +47,7 @@ let compute_spec_hash spec_files =
   in
   Digest.string contents |> Digest.to_hex
 
-(* Create a new checkpoint *)
+(* Create a new checkpoint with current timestamp *)
 let create ~spec_files ~completed_inputs ~coverage =
   {
     spec_hash = compute_spec_hash spec_files;
@@ -48,33 +56,8 @@ let create ~spec_files ~completed_inputs ~coverage =
     timestamp = Unix.gettimeofday ();
   }
 
-(* Save checkpoint to file using Marshal *)
-let save ~file checkpoint =
-  let output_channel = open_out_bin file in
-  Marshal.to_channel output_channel checkpoint [];
-  close_out output_channel
-
-(* Load checkpoint from file *)
-let load ~file =
-  let input_channel = open_in_bin file in
-  let checkpoint : t = Marshal.from_channel input_channel in
-  close_in input_channel;
-  checkpoint
-
-(* Verify that spec files haven't changed *)
-let verify_spec checkpoint ~spec_files =
-  let current_hash = compute_spec_hash spec_files in
-  if checkpoint.spec_hash = current_hash then Ok ()
-  else Error (Error.SpecMismatchError (checkpoint.spec_hash, current_hash))
-
-(* Filter out already-completed inputs *)
-let filter_remaining checkpoint inputs ~get_id =
-  List.filter
-    (fun input -> not (List.mem (get_id input) checkpoint.completed_inputs))
-    inputs
-
-(* Human-readable summary of checkpoint *)
-let summary checkpoint =
+(* Format checkpoint as human-readable summary string *)
+let format_summary checkpoint =
   Printf.sprintf "Checkpoint: %d tests completed, saved at %s"
     (List.length checkpoint.completed_inputs)
     ( Unix.gmtime checkpoint.timestamp |> fun time_record ->
@@ -83,22 +66,60 @@ let summary checkpoint =
         (time_record.tm_mon + 1) time_record.tm_mday time_record.tm_hour
         time_record.tm_min time_record.tm_sec )
 
-(* Load and verify checkpoint from file.
-   Returns Some checkpoint if valid, None if invalid or file doesn't exist. *)
-let verify_and_load ~file ~spec_files ~verbose =
-  try
-    let checkpoint = load ~file in
-    match verify_spec checkpoint ~spec_files with
-    | Ok () ->
-        if verbose then
-          Format.printf "Resuming from checkpoint: %s\n" (summary checkpoint);
-        Some checkpoint
-    | Error e ->
-        Format.printf "%s\n" (Error.string_of_error e);
-        None
-  with _ -> None
+(* ============================================================================
+   FILE I/O (SERIALIZATION)
+   ============================================================================ *)
 
-(* Restore coverage state from checkpoint.
+(* Load checkpoint from file using Marshal.
+   Returns Ok checkpoint if successful, Error if file cannot be loaded. *)
+let load_from_file ~file =
+  try
+    let input_channel = open_in_bin file in
+    let checkpoint : t = Marshal.from_channel input_channel in
+    close_in input_channel;
+    Ok checkpoint
+  with
+  | Sys_error msg ->
+      Error
+        (Error.DirectoryError
+           (Printf.sprintf "Failed to load checkpoint file '%s': %s" file msg))
+  | e ->
+      Error
+        (Error.DirectoryError
+           (Printf.sprintf "Failed to load checkpoint file '%s': %s" file
+              (Printexc.to_string e)))
+
+(* Save checkpoint to file using Marshal *)
+let save_to_file ~file checkpoint =
+  let output_channel = open_out_bin file in
+  Marshal.to_channel output_channel checkpoint [];
+  close_out output_channel
+
+(* ============================================================================
+   VALIDATION
+   ============================================================================ *)
+
+(* Verify that spec files haven't changed since checkpoint was created *)
+let verify_spec checkpoint ~spec_files =
+  let current_hash = compute_spec_hash spec_files in
+  if checkpoint.spec_hash = current_hash then Ok ()
+  else Error (Error.SpecMismatchError (checkpoint.spec_hash, current_hash))
+
+(* ============================================================================
+   COVERAGE OPERATIONS
+   ============================================================================ *)
+
+(* Capture current coverage state from all instrumentation handlers *)
+let snapshot_coverage () =
+  {
+    branch = Some (Instrumentation.Branch_coverage.get_result ());
+    node_il = Some (Instrumentation.Node_coverage_il.get_result ());
+    node_sl = Some (Instrumentation.Node_coverage_sl.get_result ());
+    dependency = Some (Instrumentation.Dependency.Positive.get_result ());
+    path_condition = Some (Instrumentation.Dependency.Negative.get_result ());
+  }
+
+(* Restore coverage state from checkpoint into instrumentation handlers.
    This should be called after instrumentation handlers are initialized
    but before running any tests. *)
 let restore_coverage checkpoint =
@@ -111,36 +132,56 @@ let restore_coverage checkpoint =
   (match checkpoint.coverage.node_sl with
   | Some node_result -> Instrumentation.Node_coverage_sl.restore node_result
   | None -> ());
-  match checkpoint.coverage.dependency with
+  (match checkpoint.coverage.dependency with
   | Some dep_result -> Instrumentation.Dependency.Positive.restore dep_result
+  | None -> ());
+  match checkpoint.coverage.path_condition with
+  | Some pc_result -> Instrumentation.Dependency.Negative.restore pc_result
   | None -> ()
 
-(* Collect current coverage state from all instrumentation handlers *)
-let get_current_coverage () =
-  {
-    branch = Some (Instrumentation.Branch_coverage.get_result ());
-    node_il = Some (Instrumentation.Node_coverage_il.get_result ());
-    node_sl = Some (Instrumentation.Node_coverage_sl.get_result ());
-    dependency = Some (Instrumentation.Dependency.Positive.get_result ());
-    path_condition = Some (Instrumentation.Dependency.Negative.get_result ());
-  }
+(* ============================================================================
+   PUBLIC API
+   ============================================================================ *)
 
-(* Save current checkpoint state to file.
+(* Load and verify checkpoint from file.
+   Returns Ok checkpoint if valid, Error if file cannot be loaded or spec mismatch. *)
+let verify_and_load ~file ~spec_files ~verbose =
+  let ( let* ) = Result.bind in
+  let* checkpoint = load_from_file ~file in
+  match verify_spec checkpoint ~spec_files with
+  | Ok () ->
+      if verbose then
+        Format.printf "Resuming from checkpoint: %s\n"
+          (format_summary checkpoint);
+      Ok checkpoint
+  | Error e -> Error e
+
+(* Filter out already-completed inputs from a list *)
+let filter_remaining checkpoint inputs ~get_id =
+  List.filter
+    (fun input -> not (List.mem (get_id input) checkpoint.completed_inputs))
+    inputs
+
+(* Capture current state and save checkpoint to file.
    Collects current coverage state and completed inputs, then saves to file if configured. *)
-let save_current ~spec_files ~completed_inputs ~output_file =
+let save ~spec_files ~completed_inputs ~output_file =
   match output_file with
   | Some file ->
       let checkpoint =
-        create ~spec_files ~completed_inputs ~coverage:(get_current_coverage ())
+        create ~spec_files ~completed_inputs ~coverage:(snapshot_coverage ())
       in
-      save ~file checkpoint
+      save_to_file ~file checkpoint
   | None -> ()
+
+(* ============================================================================
+   DISPLAY
+   ============================================================================ *)
 
 (* Display full checkpoint report with coverage data.
    Uses provided config for output destinations, or defaults to Full/stdout. *)
 let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
   Format.printf "=== Checkpoint Contents ===\n\n";
-  Format.printf "%s\n\n" (summary checkpoint);
+  Format.printf "%s\n\n" (format_summary checkpoint);
   Format.printf "Completed tests: %d\n\n"
     (List.length checkpoint.completed_inputs);
   (* Use provided config if present, else default to Full/stdout *)
