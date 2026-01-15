@@ -132,7 +132,7 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 # ============================================
 # Stage 3: Install Go (for Prysm)
 # ============================================
-ARG GO_VERSION=1.21.5
+ARG GO_VERSION=1.24.2
 RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz && \
     tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz && \
     rm go${GO_VERSION}.linux-amd64.tar.gz
