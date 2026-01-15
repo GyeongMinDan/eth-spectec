@@ -21,8 +21,8 @@ type t = {
   profile : Profile.config option;
   branch_coverage : Branch_coverage.config option;
   node_coverage : Node_coverage_il.config option;
-  dependency : Positive.config option;
-  path_condition : Negative.config option;
+  dep_pos : Positive.config option;
+  dep_neg : Negative.config option;
 }
 
 let default =
@@ -31,8 +31,8 @@ let default =
     profile = None;
     branch_coverage = None;
     node_coverage = None;
-    dependency = None;
-    path_condition = None;
+    dep_pos = None;
+    dep_neg = None;
   }
 
 (* Convert config to handler list *)
@@ -48,13 +48,8 @@ let to_handlers config =
         (* Both IL and SL handlers share the same config;
           they self-select based on spec type at init() *)
         [ Node_coverage_il.make cfg; Node_coverage_sl.make cfg ])
-  @ (match config.dependency with
-    | None -> []
-    | Some cfg -> [ Positive.make cfg ])
-  @
-  match config.path_condition with
-  | None -> []
-  | Some cfg -> [ Negative.make cfg ]
+  @ (match config.dep_pos with None -> [] | Some cfg -> [ Positive.make cfg ])
+  @ match config.dep_neg with None -> [] | Some cfg -> [ Negative.make cfg ]
 
 (* Close all output destinations after finish() *)
 let close_outputs config =
@@ -66,5 +61,5 @@ let close_outputs config =
   Option.iter
     (fun c -> Output.close c.Node_coverage_il.output)
     config.node_coverage;
-  Option.iter (fun c -> Output.close c.Positive.output) config.dependency;
-  Option.iter (fun c -> Output.close c.Negative.output) config.path_condition
+  Option.iter (fun c -> Output.close c.Positive.output) config.dep_pos;
+  Option.iter (fun c -> Output.close c.Negative.output) config.dep_neg

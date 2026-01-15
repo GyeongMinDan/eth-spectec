@@ -195,10 +195,15 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
     | Some cfg -> cfg
     | None -> Instrumentation.Node_coverage_il.default_config
   in
-  let dep_cfg =
-    match config.dependency with
+  let dep_pos_cfg =
+    match config.dep_pos with
     | Some cfg -> cfg
     | None -> Instrumentation.Dependency.Positive.default_config
+  in
+  let dep_neg_cfg =
+    match config.dep_neg with
+    | Some cfg -> cfg
+    | None -> Instrumentation.Dependency.Negative.default_config
   in
   (* Create handlers with configured outputs *)
   let handlers =
@@ -206,7 +211,8 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
       Instrumentation.Branch_coverage.make branch_cfg;
       Instrumentation.Node_coverage_il.make node_il_cfg;
       Instrumentation.Node_coverage_sl.make node_il_cfg;
-      Instrumentation.Dependency.Positive.make dep_cfg;
+      Instrumentation.Dependency.Positive.make dep_pos_cfg;
+      Instrumentation.Dependency.Negative.make dep_neg_cfg;
     ]
   in
   (* Initialize Static analysis *)

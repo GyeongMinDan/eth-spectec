@@ -71,13 +71,13 @@ let config_flags =
             (parse_named_level ~summary:Node_coverage_il.Summary
                ~full:Node_coverage_il.Full node_level) ~output:node_output
           ~make_cfg:(fun ~level ~output -> Node_coverage_il.{ level; output });
-      dependency =
+      dep_pos =
         make_config
           ~level_opt:
             (parse_named_level ~summary:Positive.Summary ~full:Positive.Full
                dep_pos_level) ~output:dep_pos_output
           ~make_cfg:(fun ~level ~output -> Positive.{ level; output });
-      path_condition =
+      dep_neg =
         make_config
           ~level_opt:
             (parse_named_level ~summary:Negative.Summary ~full:Negative.Full
