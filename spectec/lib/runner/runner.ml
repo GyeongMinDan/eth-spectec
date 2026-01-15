@@ -287,7 +287,8 @@ let run_target_coverage ?(config = Instrumentation.Config.default)
   let all_completed_inputs = ref [] in
   (match loaded_checkpoint with
   | Some checkpoint ->
-      all_completed_inputs := checkpoint.Checkpoint.completed_inputs
+      all_completed_inputs := checkpoint.Checkpoint.completed_inputs;
+      Checkpoint.restore_coverage checkpoint
   | None -> ());
 
   let save_current_checkpoint () =

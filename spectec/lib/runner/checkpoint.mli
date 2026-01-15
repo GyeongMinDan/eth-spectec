@@ -40,6 +40,9 @@ val verify_and_load :
 (* Filter out already-completed inputs *)
 val filter_remaining : t -> 'a list -> get_id:('a -> string) -> 'a list
 
+(* Restores coverage state *)
+val restore_coverage : t -> unit
+
 (* Save current checkpoint state to file.
    Collects current coverage state and completed inputs, then saves to file if configured. *)
 val save :
