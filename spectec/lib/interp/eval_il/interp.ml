@@ -1151,4 +1151,5 @@ let load_def (ctx : Ctx.t) (def : def) : Ctx.t =
       Ctx.add_func Global ctx id func
 
 let load_spec (ctx : Ctx.t) (spec : spec) : Ctx.t =
+  Ctx.clear_global ctx;
   List.fold_left load_def ctx spec

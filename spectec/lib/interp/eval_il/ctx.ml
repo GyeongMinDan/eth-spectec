@@ -271,6 +271,11 @@ let empty_global () : global =
     fenv = FIdHashtbl.create 64;
   }
 
+let clear_global (ctx : t) : unit =
+  TIdHashtbl.clear ctx.global.tdenv;
+  RIdHashtbl.clear ctx.global.renv;
+  FIdHashtbl.clear ctx.global.fenv
+
 let empty_local_cached : local =
   { tdenv = TDEnv.empty; fenv = FEnv.empty; venv = VEnv.empty }
 
