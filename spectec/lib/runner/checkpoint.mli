@@ -33,6 +33,9 @@ type t = {
    Returns Ok checkpoint if successful, Error if file cannot be loaded. *)
 val load_from_file : file:string -> (t, Error.t) result
 
+(* Save checkpoint to file using Marshal *)
+val save_to_file : file:string -> t -> unit
+
 (* Load and verify checkpoint from file *)
 val verify_and_load :
   file:string -> spec_files:string list -> verbose:bool -> (t, Error.t) result
@@ -55,3 +58,9 @@ val save :
    Uses provided config for output destinations, or defaults to Full/stdout. *)
 val display_report :
   spec:Lang.Il.spec -> config:Instrumentation.Config.t -> t -> unit
+
+(* Merge two checkpoints into a new checkpoint.
+   Merges completed_inputs (union) and coverage data.
+   Returns Error if spec hashes don't match.
+   For now, only merges IL node coverage data. Other coverage types are TODO. *)
+val merge : t -> t -> (t, Error.t) result

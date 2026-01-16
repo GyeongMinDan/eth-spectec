@@ -189,31 +189,73 @@ module Make (Tgt : Runner.Target.S) = struct
              Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error error))
 
   let make_checkpoint () =
-    Core.Command.basic ~summary:"Checkpoint utilities"
-      (let open Core.Command.Let_syntax in
-       let open Core.Command.Param in
-       let%map report_from =
-         flag "--report" (required string)
-           ~doc:"FILE decode and display checkpoint contents (no tests run)"
-       and instrumentation_config = Cli_args.config_flags in
-       fun () ->
-         let open Runner in
-         let run () =
-           let spec_files = collect_spec_files Tgt.spec_dir in
-           let* spec = parse_spec_files spec_files in
-           let* spec_il = elaborate spec in
-           let* checkpoint =
-             Checkpoint.verify_and_load ~file:report_from ~spec_files
-               ~verbose:true
+    let report_command =
+      Core.Command.basic ~summary:"Decode and display checkpoint contents"
+        (let open Core.Command.Let_syntax in
+         let open Core.Command.Param in
+         let%map checkpoint_file = anon ("checkpoint-file" %: string)
+         and instrumentation_config = Cli_args.config_flags in
+         fun () ->
+           let open Runner in
+           let run () =
+             let spec_files = collect_spec_files Tgt.spec_dir in
+             let* spec = parse_spec_files spec_files in
+             let* spec_il = elaborate spec in
+             let* checkpoint =
+               Checkpoint.verify_and_load ~file:checkpoint_file ~spec_files
+                 ~verbose:true
+             in
+             Checkpoint.display_report ~spec:spec_il
+               ~config:instrumentation_config checkpoint;
+             Ok ()
            in
-           Checkpoint.display_report ~spec:spec_il
-             ~config:instrumentation_config checkpoint;
-           Ok ()
+           match run () with
+           | Ok () -> ()
+           | Error error ->
+               Format.printf "Error:\n  %s\n"
+                 (Runner.Error.string_of_error error))
+    in
+    let merge_command =
+      Core.Command.basic ~summary:"Merge two checkpoint files"
+        (let open Core.Command.Let_syntax in
+         let open Core.Command.Param in
+         let%map checkpoint_file1 = anon ("checkpoint-file-1" %: string)
+         and checkpoint_file2 = anon ("checkpoint-file-2" %: string)
+         and output_file =
+           flag "--output" (required string)
+             ~doc:"FILE output file for merged checkpoint"
          in
-         match run () with
-         | Ok () -> ()
-         | Error error ->
-             Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error error))
+         fun () ->
+           let open Runner in
+           let run () =
+             let spec_files = collect_spec_files Tgt.spec_dir in
+             let* checkpoint1 =
+               Checkpoint.verify_and_load ~file:checkpoint_file1 ~spec_files
+                 ~verbose:false
+             in
+             let* checkpoint2 =
+               Checkpoint.verify_and_load ~file:checkpoint_file2 ~spec_files
+                 ~verbose:false
+             in
+             let* merged = Checkpoint.merge checkpoint1 checkpoint2 in
+             Checkpoint.save_to_file ~file:output_file merged;
+             Format.printf "Merged checkpoint saved to: %s\n" output_file;
+             Format.printf "  Checkpoint 1: %d tests\n"
+               (List.length checkpoint1.completed_inputs);
+             Format.printf "  Checkpoint 2: %d tests\n"
+               (List.length checkpoint2.completed_inputs);
+             Format.printf "  Merged: %d tests\n"
+               (List.length merged.completed_inputs);
+             Ok ()
+           in
+           match run () with
+           | Ok () -> ()
+           | Error error ->
+               Format.printf "Error:\n  %s\n"
+                 (Runner.Error.string_of_error error))
+    in
+    Core.Command.group ~summary:"Checkpoint utilities"
+      [ ("report", report_command); ("merge", merge_command) ]
 
   (* Generate "testgen" command *)
   let make_testgen () =

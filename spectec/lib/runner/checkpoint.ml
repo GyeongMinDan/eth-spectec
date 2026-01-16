@@ -106,6 +106,113 @@ let verify_spec checkpoint ~spec_files =
   else Error (Error.SpecMismatchError (checkpoint.spec_hash, current_hash))
 
 (* ============================================================================
+   MERGE OPERATIONS
+   ============================================================================ *)
+
+(* Merge two IL node coverage results *)
+let merge_node_il_coverage (result1 : Instrumentation.Node_coverage_il.result)
+    (result2 : Instrumentation.Node_coverage_il.result) :
+    Instrumentation.Node_coverage_il.result =
+  (* Helper to merge count lists by summing counts for each key *)
+  let merge_counts counts1 counts2 =
+    let tbl = Hashtbl.create 256 in
+    let add_count key count =
+      let existing = Hashtbl.find_opt tbl key |> Option.value ~default:0 in
+      Hashtbl.replace tbl key (existing + count)
+    in
+    List.iter (fun (key, count) -> add_count key count) counts1;
+    List.iter (fun (key, count) -> add_count key count) counts2;
+    Hashtbl.to_seq tbl |> List.of_seq
+  in
+  (* Helper to merge test case lists by union (removing duplicates) *)
+  let merge_test_lists tests1 tests2 =
+    let tbl = Hashtbl.create 256 in
+    (* Union two test ID lists, removing duplicates *)
+    let union_test_ids existing new_ids =
+      List.fold_left
+        (fun existing test_id ->
+          if List.mem test_id existing then existing else test_id :: existing)
+        existing new_ids
+    in
+    let add_tests key test_ids =
+      let existing = Hashtbl.find_opt tbl key |> Option.value ~default:[] in
+      Hashtbl.replace tbl key (union_test_ids existing test_ids)
+    in
+    List.iter (fun (key, test_ids) -> add_tests key test_ids) tests1;
+    List.iter (fun (key, test_ids) -> add_tests key test_ids) tests2;
+    Hashtbl.to_seq tbl |> List.of_seq
+  in
+  {
+    (* Use from first - should be same if spec matches *)
+    Instrumentation.Node_coverage_il.prem_to_uid = result1.prem_to_uid;
+    Instrumentation.Node_coverage_il.uid_to_prem = result1.uid_to_prem;
+    Instrumentation.Node_coverage_il.total_prems = result1.total_prems;
+    Instrumentation.Node_coverage_il.prems_attempted =
+      merge_counts result1.prems_attempted result2.prems_attempted;
+    Instrumentation.Node_coverage_il.prems_succeeded =
+      merge_counts result1.prems_succeeded result2.prems_succeeded;
+    Instrumentation.Node_coverage_il.prem_to_test =
+      merge_test_lists result1.prem_to_test result2.prem_to_test;
+  }
+
+(* Merge two coverage structures.
+   For now, only merges IL node coverage. Other coverage types are TODO. *)
+let merge_coverage coverage1 coverage2 =
+  let node_il =
+    match (coverage1.node_il, coverage2.node_il) with
+    | Some r1, Some r2 -> Some (merge_node_il_coverage r1 r2)
+    | Some r, None | None, Some r -> Some r
+    | None, None -> None
+  in
+  {
+    branch = coverage1.branch;
+    (* TODO: merge branch coverage *)
+    node_il;
+    node_sl = coverage1.node_sl;
+    (* TODO: merge SL node coverage *)
+    dependency = coverage1.dependency;
+    (* TODO: merge dependency coverage *)
+    path_condition = coverage1.path_condition;
+    (* TODO: merge path condition coverage *)
+  }
+
+(* Merge two checkpoints into a new checkpoint.
+   - Merges completed_inputs (union)
+   - Merges coverage data (IL node coverage merged, others TODO)
+   - Uses spec_hash from first checkpoint (they should match)
+   - Creates new timestamp *)
+let merge checkpoint1 checkpoint2 =
+  (* Verify spec hashes match *)
+  if checkpoint1.spec_hash <> checkpoint2.spec_hash then
+    Error
+      (Error.SpecMismatchError (checkpoint1.spec_hash, checkpoint2.spec_hash))
+  else
+    (* Merge completed inputs (union of both lists, removing duplicates) *)
+    let completed_inputs =
+      (* Use string -> unit hashtable to track seen IDs *)
+      let seen = Hashtbl.create 256 in
+      (* Add all IDs from first checkpoint *)
+      List.iter
+        (fun id -> Hashtbl.replace seen id ())
+        checkpoint1.completed_inputs;
+      (* Add all IDs from second checkpoint (duplicates automatically handled) *)
+      List.iter
+        (fun id -> Hashtbl.replace seen id ())
+        checkpoint2.completed_inputs;
+      (* Collect all unique IDs into a list *)
+      Hashtbl.fold (fun id () seen_list -> id :: seen_list) seen []
+    in
+    (* Merge coverage *)
+    let coverage = merge_coverage checkpoint1.coverage checkpoint2.coverage in
+    Ok
+      {
+        spec_hash = checkpoint1.spec_hash;
+        completed_inputs;
+        coverage;
+        timestamp = Unix.gettimeofday ();
+      }
+
+(* ============================================================================
    COVERAGE OPERATIONS
    ============================================================================ *)
 
