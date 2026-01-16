@@ -327,6 +327,9 @@ def parse_operation(test_case_dir, output_parent_dir, converter_dir=None):
         ops_idx = test_case_path_parts.index("operations")
         if ops_idx + 1 < len(test_case_path_parts):
             operation_type = test_case_path_parts[ops_idx + 1]
+            # Normalize operation type names (e.g., "withdrawals" -> "withdrawal")
+            if operation_type == "withdrawals":
+                operation_type = "withdrawal"
     
     # If not found in path, try to find operation file
     operation_file_map = {
@@ -339,7 +342,7 @@ def parse_operation(test_case_dir, output_parent_dir, converter_dir=None):
         "sync_aggregate": ["sync_aggregate.ssz", "sync_aggregate.ssz_snappy"],
         "execution_payload": ["body.ssz", "body.ssz_snappy", "execution_payload.ssz", "execution_payload.ssz_snappy"],
         "bls_to_execution_change": ["address_change.ssz", "address_change.ssz_snappy", "bls_to_execution_change.ssz", "bls_to_execution_change.ssz_snappy"],
-        "withdrawal": ["execution_payload.ssz", "execution_payload.ssz_snappy", "withdrawal.ssz", "withdrawal.ssz_snappy"],
+        "withdrawal": ["withdrawal.ssz", "withdrawal.ssz_snappy", "execution_payload.ssz", "execution_payload.ssz_snappy"],
     }
     
     # Find operation file
@@ -794,7 +797,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                         print(f"[+] Coverage enabled: JAVA_OPTS={env['JAVA_OPTS']}")
                     else:
                         print(f"[!] Warning: JaCoCo agent not found at {jacoco_agent_path}")
-                        print(f"[!] Download from: https://www.jacoco.org/jacoco/trunk/doc/agent.html")
+                        #print(f"[!] Download from: https://www.jacoco.org/jacoco/trunk/doc/agent.html")
                 
                 elif client.name == "Nimbus":
                     # Nim/C: gcov automatically generates .gcda files, no special env var needed
@@ -1140,19 +1143,75 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
                         print(f"[!] Warning: JaCoCo agent not found at {jacoco_agent_path}")
                 
                 elif client.name == "Nimbus":
-                    # Nimbus: gcov automatically generates .gcda files
-                    print(f"[+] Coverage enabled: gcov will generate .gcda files")
+                    # Nim/C: gcov automatically generates .gcda files, no special env var needed
+                    # For independent coverage per test case, initialize .gcda files before execution
+                    # and copy them after execution
+                    nimbus_src = testing_clients_dir / "nimbus-eth2"
+                    nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
+                    
+                    # Delete existing .gcda files before execution (for independent measurement)
+                    if nimbus_gcda_dir.exists():
+                        for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
+                            try:
+                                gcda_file.unlink()
+                            except:
+                                pass
+                    print(f"[+] Coverage enabled: gcov will auto-generate .gcda files in build directory")
                 
                 elif client.name == "Lodestar":
-                    # Lodestar: c8 automatically generates coverage
-                    env["NODE_V8_COVERAGE"] = str(coverage_dirs["lodestar"])
-                    print(f"[+] Coverage enabled: NODE_V8_COVERAGE={env['NODE_V8_COVERAGE']}")
+                    # Node.js: Use c8 for coverage measurement
+                    # c8 collects coverage at runtime, so wrap the command with c8
+                    lodestar_dir = testing_clients_dir / "lodestar"
+                    coverage_report_dir = coverage_dirs["lodestar"] / "report"
+                    coverage_temp_dir = coverage_dirs["lodestar"]  # JSON file storage location
+                    coverage_report_dir.mkdir(parents=True, exist_ok=True)
+                    coverage_temp_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Wrap original node command with c8
+                    original_cmd_path = str(client.cmd_path)
+                    original_cmd_args = [str(arg) for arg in client.cmd_args]
+                    
+                    # c8 options:
+                    # --exclude-node-modules=false: include node_modules (excluded by default)
+                    # --temp-directory: specify coverage JSON file storage location
+                    # --include: only include Lodestar code (exclude transition.js wrapper)
+                    c8_args = [
+                        "c8",
+                        "--all",
+                        "--reporter=text",
+                        "--reporter=html",
+                        f"--report-dir={coverage_report_dir}",
+                        f"--temp-directory={coverage_temp_dir}",
+                        "--exclude-node-modules=false",
+                        "--extension=.js",
+                        "--include=node_modules/@lodestar/**/*.js",
+                        "--include=node_modules/@chainsafe/**/*.js",
+                        "--exclude=**/transition.js",
+                        "--exclude=**/generateCachedStateCapella.js",
+                        original_cmd_path,  # node path
+                    ] + original_cmd_args  # original arguments (all converted to strings)
+                    
+                    # Execute c8 using npx
+                    client.cmd_path = "npx"
+                    client.cmd_args = c8_args
+                    cmd = ["npx"] + c8_args
+                    
+                    print(f"[+] Coverage enabled: c8 with report-dir={coverage_report_dir}")
+                    print(f"[+] Coverage temp-directory: {coverage_temp_dir}")
+                    print(f"[+] Coverage command: npx {' '.join(c8_args)}")
+
+            # Set cwd (only for Lodestar coverage mode)
+            if client.name == "Lodestar" and enable_coverage:
+                cwd = str(testing_clients_dir / "lodestar")
+            else:
+                cwd = None
 
             client.output = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 env=env,
+                cwd=cwd,
             )
             client.status_code = client.output.returncode
             end_time = perf_counter()
@@ -1267,11 +1326,16 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
 
     # Map operation type names for specific clients
     # Lighthouse uses "sync_committee" instead of "sync_aggregate", and "withdrawals" instead of "withdrawal"
+    # Prysm uses "withdrawals" instead of "withdrawal"
     lighthouse_operation_type = operation_type
     if operation_type == "sync_aggregate":
         lighthouse_operation_type = "sync_committee"
     elif operation_type == "withdrawal":
         lighthouse_operation_type = "withdrawals"
+    
+    prysm_operation_type = operation_type
+    if operation_type == "withdrawal":
+        prysm_operation_type = "withdrawals"
 
     # Build Lodestar command arguments
     lodestar_args = [
@@ -1304,7 +1368,7 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
     # Build Prysm command arguments
     prysm_args = [
         "operation",
-        f"--operation-type={operation_type}",
+        f"--operation-type={prysm_operation_type}",
         f"--pre-state-path={state}",
         f"--operation-path={operation}",
         f"--post-state-output-path={paths['prysm']['output']}",
