@@ -3237,6 +3237,9 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
         try:
             # Regenerate report using c8 report command
             # Read JSON files from temp-directory to generate report
+            # Increase Node.js memory limit for large JSON file processing
+            env = os.environ.copy()
+            env["NODE_OPTIONS"] = "--max-old-space-size=8192"  # 8GB heap size
             subprocess.run(
                 [
                     "npx", "c8", "report",
@@ -3252,6 +3255,7 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
                     "--exclude=**/generateCachedStateCapella.js",
                 ],
                 cwd=str(lodestar_dir),
+                env=env,
                 check=True,
                 capture_output=True,
                 text=True
@@ -3801,6 +3805,9 @@ def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_cli
         # Merge and generate report using c8
         # Use --clean=false to prevent c8 from deleting temp files
         # Use absolute paths since c8 runs from lodestar directory
+        # Increase Node.js memory limit for large JSON file processing (1822+ files)
+        env = os.environ.copy()
+        env["NODE_OPTIONS"] = "--max-old-space-size=8192"  # 8GB heap size
         subprocess.run(
             [
                 "npx", "c8", "report",
@@ -3817,6 +3824,7 @@ def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_cli
                 "--clean=false",  # Don't delete temp files
             ],
             cwd=str(lodestar_dir),
+            env=env,
             check=True,
             capture_output=True,
             text=True
@@ -4351,6 +4359,9 @@ def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
     
     try:
         # Merge and generate report using c8
+        # Increase Node.js memory limit for large JSON file processing
+        env = os.environ.copy()
+        env["NODE_OPTIONS"] = "--max-old-space-size=8192"  # 8GB heap size
         subprocess.run(
             [
                 "npx", "c8", "report",
@@ -4366,6 +4377,7 @@ def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
                 "--exclude=**/generateCachedStateCapella.js",
             ],
             cwd=str(lodestar_dir),
+            env=env,
             check=True,
             capture_output=True,
             text=True
