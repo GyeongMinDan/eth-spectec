@@ -1446,6 +1446,10 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
             # Setup coverage environment variables (same as process_clients)
             env = os.environ.copy()
             
+            # Set FORK_VERSION environment variable for Nimbus
+            if client.name == "Nimbus":
+                env["FORK_VERSION"] = fork_version
+            
             # Set EXECUTION_VALID environment variable for Nimbus execution_payload operation
             if client.name == "Nimbus" and operation_type == "execution_payload" and execution_valid is not None:
                 env["EXECUTION_VALID"] = "true" if execution_valid else "false"
@@ -1761,6 +1765,9 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
 
             # Setup coverage environment variables (same as process_clients)
             env = os.environ.copy()
+            # Set FORK_VERSION environment variable for Nimbus
+            if client.name == "Nimbus":
+                env["FORK_VERSION"] = fork_version
             if enable_coverage:
                 client_name_lower = client.name.lower()
                 
