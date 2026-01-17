@@ -2,17 +2,12 @@
 ;; fork-data / domain helpers
 ;; =========================
 
-;; ------------------------------------------------------------
-;; compute_fork_data_root(version, genesis_root) : root
-;; ------------------------------------------------------------
+;; [Phase0] compute_fork_data_root(version, genesis_root) : root
 dec $compute_fork_data_root(version, root) : root
 def $compute_fork_data_root(version, root) =
   $hash_tree_root_forkdata({ CURRENT_VERSION version, GENESIS_VALIDATORS_ROOT root })
 
-;; ------------------------------------------------------------
-;; compute_domain(domainType, [version], [genesis_root]) : domain
-;; (옵셔널 인자 조합 4가지)
-;; ------------------------------------------------------------
+;; [Phase0] compute_domain(domainType, version?, genesis_root?) : domain
 dec $compute_domain(domainType, version?, root?) : domain
 
 def $compute_domain(domainType, version, root) =
@@ -27,13 +22,9 @@ def $compute_domain(domainType, version, eps) =
 def $compute_domain(domainType, eps, root) =
   $concat_domain(domainType, $first_28_bytes($compute_fork_data_root($GENESIS_FORK_VERSION, root)))
 
-;; ------------------------------------------------------------
-;; get_domain(state, domainType, [epoch]) : domain
-;; (epoch 미지정 시 현재 epoch 기준 분기)
-;; ------------------------------------------------------------
+;; [Phase0] get_domain(BeaconState, DomainType, Epoch?) -> Domain
 dec $get_domain(beaconState, domainType, epoch?) : domain
 
-;; epoch 생략: 현재 epoch 사용
 def $get_domain(state, domainType, eps) =
   $compute_domain(domainType, state.FORK.PREVIOUS_VERSION, state.GENESIS_VALIDATORS_ROOT)
   -- if $get_current_epoch(state) = epoch_cur
@@ -44,7 +35,6 @@ def $get_domain(state, domainType, eps) =
   -- if $get_current_epoch(state) = epoch_cur
   -- if $(state.FORK.EPOCH <= epoch_cur)
 
-;; epoch 명시: 전달된 epoch 사용
 def $get_domain(state, domainType, epoch) =
   $compute_domain(domainType, state.FORK.PREVIOUS_VERSION, state.GENESIS_VALIDATORS_ROOT)
   -- if $(epoch < state.FORK.EPOCH)
@@ -53,9 +43,7 @@ def $get_domain(state, domainType, epoch) =
   $compute_domain(domainType, state.FORK.CURRENT_VERSION, state.GENESIS_VALIDATORS_ROOT)
   -- if $(state.FORK.EPOCH <= epoch)
 
-;; ------------------------------------------------------------
-;; verify_block_signature
-;; ------------------------------------------------------------
+;; [Phase0] verify_block_signature(BeaconState, SignedBeaconBlock) -> bool
 dec $verify_block_signature(beaconState, signedBeaconBlock) : boolean
 
 def $verify_block_signature(state, signedBeaconBlock) = true

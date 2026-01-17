@@ -87,9 +87,7 @@ def $min_uint64(x, y) = y
   -- otherwise
 
 
-;; ------------------------------------------------------------
-;; eth_fast_aggregate_verify
-;; ------------------------------------------------------------
+;; [Altair: ProcessSyncAggregate] eth_fast_aggregate_verify
 dec $eth_fast_aggregate_verify(blsPubkey*, bytes32, blsSignature) : boolean
 
 def $eth_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature) = true

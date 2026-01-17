@@ -84,7 +84,7 @@ def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound,
        )
 
 ;; --------------------------------------------
-;; get_expected_withdrawals(state) : withdrawal*
+;; [Capella] get_expected_withdrawals(state) : withdrawal*
 ;; --------------------------------------------
 dec $get_expected_withdrawals(beaconState) : withdrawal*
 

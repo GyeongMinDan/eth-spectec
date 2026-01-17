@@ -30,12 +30,9 @@ rule ProcessBlockHeader:
   -- if ~state.VALIDATORS[block.PROPOSER_INDEX].SLASHED
 
 
-;;
 ;; [Capella]
 ;; process_withdrawals
 ;;  mutates: NEXT_WITHDRAWAL_INDEX, NEXT_WITHDRAWAL_VALIDATOR_INDEX
-;;
-
 relation ProcessWithdrawals:
   beaconState executionPayload ~> beaconState
   hint(input %0 %1)
@@ -94,12 +91,9 @@ rule ProcessWithdrawals/lenPartial:
   -- if $( (state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX
          + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP) \ |state_after_debits.VALIDATORS| ) = vid_next
 
-;;
 ;; [Bellatrix -> Capella]
 ;; process_execution_payload
 ;;  mutates: LATEST_EXECUTION_PAYLOAD_HEADER
-;;
-
 relation ProcessExecutionPayload:
   beaconState beaconBlockBody ~> beaconState
   hint(input %0 %1)
