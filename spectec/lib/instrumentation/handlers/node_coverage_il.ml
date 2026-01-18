@@ -12,7 +12,7 @@
 *)
 
 open Common.Source
-module Il = Lang.Il
+open Lang.Il
 open Instrumentation_core.Util
 open Instrumentation_static.Premise_uid
 
@@ -30,7 +30,7 @@ let fmt = ref Format.std_formatter
 
 (* Runtime state - changes during execution *)
 module State = struct
-  let il_spec : Il.spec ref = ref []
+  let il_spec : spec ref = ref []
   let prems_attempted : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let prems_succeeded : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let prems_failed : (region * string, int) Hashtbl.t = Hashtbl.create 256
@@ -76,8 +76,8 @@ module M : Instrumentation_core.Handler.S = struct
   let rec count_prem prem =
     State.total_prems := !State.total_prems + 1;
     match prem.it with
-    | Il.LetPr _ -> ()
-    | Il.IterPr (inner, _) -> count_prem inner
+    | LetPr _ -> ()
+    | IterPr (inner, _) -> count_prem inner
     | _ -> State.total_if_prems := !State.total_if_prems + 1
 
   let init ~spec =
@@ -88,19 +88,19 @@ module M : Instrumentation_core.Handler.S = struct
         List.iter
           (fun def ->
             match def.it with
-            | Il.RelD (_, _, _, rules) ->
+            | RelD (_, _, _, rules) ->
                 List.iter
                   (fun rule ->
                     let _, _, prems = rule.it in
                     List.iter (fun prem -> count_prem prem) prems)
                   rules
-            | Il.DecD (_, _, _, _, clauses) ->
+            | DecD (_, _, _, _, clauses) ->
                 List.iter
                   (fun clause ->
                     let _, _, prems = clause.it in
                     List.iter (fun prem -> count_prem prem) prems)
                   clauses
-            | Il.TypD _ -> ())
+            | TypD _ -> ())
           il_spec
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
@@ -131,7 +131,7 @@ module M : Instrumentation_core.Handler.S = struct
       State.record_premise_coverage key)
     else
       match prem.it with
-      | Il.LetPr _ -> ()
+      | LetPr _ -> ()
       | _ -> State.incr_count State.prems_failed key
 
   let on_instr = Instrumentation_core.Noop.on_instr
@@ -164,7 +164,7 @@ module M : Instrumentation_core.Handler.S = struct
       List.iter
         (fun def ->
           match def.it with
-          | Il.RelD (id, _, _, rules) ->
+          | RelD (id, _, _, rules) ->
               List.iter
                 (fun rule ->
                   let rule_id, _, prems = rule.it in
@@ -173,11 +173,11 @@ module M : Instrumentation_core.Handler.S = struct
                       if not (Hashtbl.mem State.prems_succeeded (prem_key prem))
                       then
                         uncovered :=
-                          (id.it, rule_id.it, Il.Print.string_of_prem prem)
+                          (id.it, rule_id.it, Print.string_of_prem prem)
                           :: !uncovered)
                     prems)
                 rules
-          | Il.DecD (id, _, _, _, clauses) ->
+          | DecD (id, _, _, _, clauses) ->
               List.iteri
                 (fun idx clause ->
                   let _, _, prems = clause.it in
@@ -188,11 +188,11 @@ module M : Instrumentation_core.Handler.S = struct
                         uncovered :=
                           ( id.it,
                             Format.sprintf "clause/%d" idx,
-                            Il.Print.string_of_prem prem )
+                            Print.string_of_prem prem )
                           :: !uncovered)
                     prems)
                 clauses
-          | Il.TypD _ -> ())
+          | TypD _ -> ())
         !State.il_spec;
       if !uncovered <> [] then (
         Format.fprintf !fmt "\nNever succeeded:\n";
@@ -225,7 +225,7 @@ module M : Instrumentation_core.Handler.S = struct
 
   let print_prem indent prem =
     let succ_fail = fmt_succ_fail prem in
-    let content = Il.Print.string_of_prem prem |> normalize_whitespace in
+    let content = Print.string_of_prem prem |> normalize_whitespace in
     let uid =
       match get_uid (prem_key prem) with Some uid -> uid | None -> -1
     in
@@ -246,7 +246,7 @@ module M : Instrumentation_core.Handler.S = struct
     List.iter
       (fun def ->
         match def.it with
-        | Il.RelD (id, _, _, rules) ->
+        | RelD (id, _, _, rules) ->
             Format.fprintf !fmt "\nrelation %s:\n" id.it;
             List.iter
               (fun rule ->
@@ -254,7 +254,7 @@ module M : Instrumentation_core.Handler.S = struct
                 Format.fprintf !fmt "      rule %s:\n" rule_id.it;
                 print_prems "    " prems)
               rules
-        | Il.DecD (id, _, _, _, clauses) ->
+        | DecD (id, _, _, _, clauses) ->
             Format.fprintf !fmt "\ndef $%s:\n" id.it;
             List.iteri
               (fun idx clause ->
@@ -262,7 +262,7 @@ module M : Instrumentation_core.Handler.S = struct
                 Format.fprintf !fmt "      clause %d:\n" idx;
                 print_prems "    " prems)
               clauses
-        | Il.TypD _ -> ())
+        | TypD _ -> ())
       !State.il_spec
 
   (* --- Finish: print report --- *)
