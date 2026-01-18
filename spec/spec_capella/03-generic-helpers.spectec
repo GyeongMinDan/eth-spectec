@@ -56,7 +56,7 @@ def $add_flag(participationFlags, n) = participationFlags
 def $add_flag(participationFlags, n) = participationFlags
   -- if $( ((participationFlags / $pow2(n)) \ 2) = 1 )
 def $add_flag(participationFlags, n) = $( participationFlags + $pow2(n) )
-  -- if $( ((participationFlags / $pow2(n)) \ 2) = 0 )
+  -- otherwise
 
 
 ;; =========================

@@ -131,7 +131,7 @@ rule AddFlag/main:
   -- if ~$has_flag(participationFlags, vid_flag)
 rule AddFlag/skip:
   participationFlags `[ _ ] `++ `{ vid_flag } `# _ `#SUM reward ~> participationFlags `#SUM reward
-  -- if $has_flag(participationFlags, vid_flag)
+  -- otherwise
 
 ;; [Custom]
 ;; fold AddFlag over flag indices

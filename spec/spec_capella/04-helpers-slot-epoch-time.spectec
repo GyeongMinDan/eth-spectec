@@ -33,4 +33,4 @@ dec $get_prev_slot(slot) : slot
 def $get_prev_slot(slot) = 0
   -- if slot = 0
 def $get_prev_slot(slot) = $(slot - 1)
-  -- if $(slot > 0)
+  -- otherwise
