@@ -173,6 +173,8 @@ rule WeighJustificationAndFinalization/justify_neither_finalize_prev:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
   ;; branch 1: (false, false)
   -- if ~ $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
   -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
@@ -199,6 +201,8 @@ rule WeighJustificationAndFinalization/justify_neither_finalize_neither:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
   ;; branch 1: (false, false)
   -- if ~ $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
   -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
@@ -229,6 +233,8 @@ rule WeighJustificationAndFinalization/justify_prev_finalize_prev:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
   ;; branch 1: (true, false)
   -- if $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
   -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
@@ -258,6 +264,8 @@ rule WeighJustificationAndFinalization/justify_prev_finalize_neither:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
   ;; branch 1: (true, false)
   -- if $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
   -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
@@ -288,6 +296,8 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_cur:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
   ;; branch 1: (_, true)
   -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
   -- if bit* = [
@@ -318,6 +328,8 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_prev:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
   ;; branch 1: (_, true)
   -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
   -- if bit* = [
@@ -349,6 +361,8 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_neither:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
   ;; branch 1: (_, true)
   -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
   -- if bit* = [

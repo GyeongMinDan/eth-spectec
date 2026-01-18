@@ -242,7 +242,7 @@ rule ProcessVoluntaryExit/main:
   -- if $(epoch_cur >= voluntaryExit.EPOCH)
   ;; assert 4: verify the validator has been active long enough
   ;; inserted overflow check
-  -- if $(validator.ACTIVATION_EPOCH + $SHARD_COMMITTEE_PERIOD <= $UINT64_MAX)
+  -- if $(validator.ACTIVATION_EPOCH <= $UINT64_MAX - $SHARD_COMMITTEE_PERIOD )
   -- if $(epoch_cur >= validator.ACTIVATION_EPOCH + $SHARD_COMMITTEE_PERIOD)
   ;; verify signature
   -- if $get_domain(state, $DOMAIN_VOLUNTARY_EXIT, voluntaryExit.EPOCH) = domain_exit
