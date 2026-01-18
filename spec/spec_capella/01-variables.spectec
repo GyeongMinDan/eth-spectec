@@ -8,6 +8,7 @@ var n : nat
 var x : nat
 var y : nat
 var count : nat
+var flag : nat
 
 var bit : boolean
 

@@ -2,9 +2,7 @@
 ;; helpers for shuffle/committee/proposer/seed
 ;; =======================================
 
-;; [Custom]
-;; choose_index : nat_bit==1 이면 flip, 아니면 그대로
-
+;; [Custom | branch : apply_shuffle_round]
 dec $choose_index(uint64, uint64, nat) : uint64
 def $choose_index(i, uint64_flip, nat_bit) = uint64_flip
   -- if nat_bit = 1
