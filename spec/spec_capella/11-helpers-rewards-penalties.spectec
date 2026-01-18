@@ -56,8 +56,8 @@ rule ApplyEffectiveBalance/main:
   -- if $( uint64_hyst_inc * $HYSTERESIS_DOWNWARD_MULTIPLIER ) = uint64_down_th
   -- if $( uint64_hyst_inc * $HYSTERESIS_UPWARD_MULTIPLIER )  = uint64_up_th
   ;; inserted overflow checks
-  -- if $( balance + uint64_down_th <= $UINT64_MAX )
-  -- if $( validator.EFFECTIVE_BALANCE + uint64_up_th <= $UINT64_MAX )
+  -- if $( balance <= $UINT64_MAX - uint64_down_th )
+  -- if $( validator.EFFECTIVE_BALANCE  <= $UINT64_MAX - uint64_up_th )
   -- if $( balance + uint64_down_th < validator.EFFECTIVE_BALANCE )
      \/ $( validator.EFFECTIVE_BALANCE + uint64_up_th < balance )
 
@@ -65,29 +65,25 @@ rule ApplyEffectiveBalance/skip:
   validator `.EFFECTIVE_BALANCE _ ~> validator
   -- otherwise
 
-;; --------------------------------------------
-;; per-index inactivity penalty
-;; capture: (state, matching_set*, eligible_set*, denom)
-;; rewards 는 건드는 코드 없으므로 penalty 에 대해 0으로 갈지 아니면 조건을 만족하여 값을 바꿀지만 결정되면 됨.
-;; --------------------------------------------
-dec $inact_penalty_one(nat, (beaconState, validatorIndex*, validatorIndex*, uint64)) : gwei
+;; [Custom | loop : get_inactivity_penalty_deltas]
+dec $inact_penalty_one(nat, beaconState, validatorIndex*, validatorIndex*) : gwei
 
-def $inact_penalty_one(nat_i, (state, vid_matching*, vid_eligible*, uint64_den))
-  = gwei_penalty
-  -- if vid = nat_i
-  -- if ( vid <- vid_eligible* )
+def $inact_penalty_one(vid, state, vid_matching*, vid_eligible*)
+  = penalty
+  -- if vid <- vid_eligible*
   -- if ~( vid <- vid_matching* )
   -- if $(vid < |state.VALIDATORS|)
-  -- if state.VALIDATORS[vid] = validator_v
-  -- if gwei_eff = validator_v.EFFECTIVE_BALANCE
+  -- if state.VALIDATORS[vid].EFFECTIVE_BALANCE = balance_effective
+  ;; inserted bound check guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
   -- if state.INACTIVITY_SCORES[vid] = uint64_score
-  -- if $( gwei_eff * uint64_score ) = uint64_num
+  -- if $(balance_effective * uint64_score) = penalty_numerator
   ;; inserted overflow check
-  -- if $( uint64_num <= $UINT64_MAX )
-  -- if $( uint64_num / uint64_den ) = gwei_penalty
+  -- if $(penalty_numerator <= $UINT64_MAX)
+  -- if $($INACTIVITY_SCORE_BIAS * $INACTIVITY_PENALTY_QUOTIENT_BELLATRIX) = penalty_denominator
+  -- if $( penalty_numerator / penalty_denominator) = penalty
 
-def $inact_penalty_one(nat_i, (state, vid_matching*, vid_eligible*, uint64_den))
+def $inact_penalty_one(_, _, _, _)
   = 0
   -- otherwise
 
@@ -105,9 +101,8 @@ def $get_inactivity_penalty_deltas(state) = (reward*, penalty*)
          state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev
        ) = vid_matching*
   -- if $get_eligible_validator_indices(state) = vid_eligible*
-  -- if $( $INACTIVITY_SCORE_BIAS * $INACTIVITY_PENALTY_QUOTIENT_BELLATRIX ) = uint64_den
   ;; change map_list_2_
-  -- if ($inact_penalty_one(nat_idx, (state, vid_matching*, vid_eligible*, uint64_den)) = penalty)*
+  -- if ($inact_penalty_one(nat_idx, state, vid_matching*, vid_eligible*) = penalty)*
 
 ;; --------------------------------------------
 ;; eligible validator만 처리하는 버전 (Python 스펙과 동일)
