@@ -56,7 +56,7 @@ def $exit_epoch_eq(validator, epoch) = false
 dec $fold_max_epoch(epoch, epoch) : epoch
 def $fold_max_epoch(epoch_acc, epoch_x) = $max_uint64(epoch_acc, epoch_x)
 
-;; helper: churn >= limit이면 epoch + 1, 아니면 epoch
+;; helper: churn >= limit -> epoch + 1, else epoch
 dec $select_epoch_exit_queue(epoch, uint64, uint64) : epoch
 def $select_epoch_exit_queue(epoch_exit_queue_0, uint64_churn, uint64_limit) = epoch_result
   -- if $( uint64_churn >= uint64_limit )

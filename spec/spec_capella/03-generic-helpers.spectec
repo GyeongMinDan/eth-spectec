@@ -98,7 +98,7 @@ def $eth_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature) =
   $bls_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature)
   -- otherwise
 
-;; --- 실행 엔진 ---
+;; [Bellatrix: ProcessExecutionPayload] execution engine
 dec $ee_verify_and_notify_new_payload(executionPayload) : bool
 
 ;; (n, v)에서 v.PUBKEY == pk ?
