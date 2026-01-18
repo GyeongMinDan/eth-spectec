@@ -40,7 +40,7 @@ module State = struct
 
   let current_test_case_id : string option ref = ref None
   let total_prems = ref 0
-  let total_if_prems = ref 0
+  let total_fallible_prems = ref 0
 
   let reset () =
     il_spec := [];
@@ -50,7 +50,7 @@ module State = struct
     Hashtbl.clear prem_to_test;
     current_test_case_id := None;
     total_prems := 0;
-    total_if_prems := 0
+    total_fallible_prems := 0
 
   (* Set current test case ID (called by runner before each test) *)
   let set_test_case_id id = current_test_case_id := Some id
@@ -72,13 +72,22 @@ module State = struct
     Hashtbl.replace tbl key (count + 1)
 end
 
+let rec is_fallible prem =
+  match prem.it with
+  | LetPr _ | ElsePr | DebugPr _ -> false
+  | IterPr (inner, _) -> is_fallible inner
+  | IfPr _ | RulePr _ -> true
+
 module M : Instrumentation_core.Handler.S = struct
   let rec count_prem prem =
-    State.total_prems := !State.total_prems + 1;
     match prem.it with
-    | LetPr _ -> ()
+    (* count IfPr, RulePr, and their iterations *)
+    | LetPr _ | ElsePr | DebugPr _ ->
+        State.total_prems := !State.total_prems + 1
     | IterPr (inner, _) -> count_prem inner
-    | _ -> State.total_if_prems := !State.total_if_prems + 1
+    | IfPr _ | RulePr _ ->
+        State.total_prems := !State.total_prems + 1;
+        State.total_fallible_prems := !State.total_fallible_prems + 1
 
   let init ~spec =
     State.reset ();
@@ -130,9 +139,15 @@ module M : Instrumentation_core.Handler.S = struct
       State.incr_count State.prems_succeeded key;
       State.record_premise_coverage key)
     else
-      match prem.it with
-      | LetPr _ -> ()
-      | _ -> State.incr_count State.prems_failed key
+      let rec incr_failures prem =
+        match prem.it with
+        | LetPr _ | ElsePr | DebugPr _ -> ()
+        | IterPr (inner, _) -> incr_failures inner
+        | IfPr _ | RulePr _ ->
+            let key = prem_key prem in
+            State.incr_count State.prems_failed key
+      in
+      incr_failures prem
 
   let on_instr = Instrumentation_core.Noop.on_instr
   let on_prem_fields = Instrumentation_core.Noop.on_prem_fields
@@ -144,17 +159,17 @@ module M : Instrumentation_core.Handler.S = struct
     let failed = Hashtbl.length State.prems_failed in
     let attempted = Hashtbl.length State.prems_attempted in
     let total = !State.total_prems in
-    let total_if = !State.total_if_prems in
+    let total_fallible = !State.total_fallible_prems in
     if total > 0 then (
       Format.fprintf !fmt
-        "IL Premises: %d/%d succeeded (%.2f%%), %d/%d attempted (%.2f%%)\n"
-        succeeded total
-        (percentage succeeded total)
+        "IL Premises: %d/%d attempted (%.2f%%), %d/%d succeeded (%.2f%%)\n"
         attempted total
-        (percentage attempted total);
+        (percentage attempted total)
+        succeeded total
+        (percentage succeeded total);
       Format.fprintf !fmt
-        "If Premises: %d/%d failed at least once, %d never failed\n" failed
-        total_if (attempted - failed))
+        "Fallible Premises: %d/%d failed at least once, %d never failed\n"
+        failed total_fallible (total_fallible - failed))
 
   let print_uncovered () =
     let total = !State.total_prems in
@@ -224,12 +239,17 @@ module M : Instrumentation_core.Handler.S = struct
     Hashtbl.find_opt State.prems_succeeded key |> Option.value ~default:0
 
   let print_prem indent prem =
-    let succ_fail = fmt_succ_fail prem in
     let content = Print.string_of_prem prem |> normalize_whitespace in
     let uid =
       match get_uid (prem_key prem) with Some uid -> uid | None -> -1
     in
-    Format.fprintf !fmt "%4d: %s %s-- %s\n" uid succ_fail indent content
+    if is_fallible prem then
+      let succ_fail = fmt_succ_fail prem in
+      Format.fprintf !fmt "%4d: %s %s-- %s\n" uid succ_fail indent content
+    else
+      let succ = get_prem_succeeded (prem_key prem) in
+      Format.fprintf !fmt "%4d: %s     %s-- %s\n" uid (format_count succ) indent
+        content
 
   let print_prems indent prems =
     List.iter (print_prem indent) prems;
