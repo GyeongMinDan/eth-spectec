@@ -85,8 +85,7 @@ rule ProcessInactivityUpdates/skip:
 
 rule ProcessInactivityUpdates/main:
   state ~> state_updated
-  ;; branch-complete
-  -- if $get_current_epoch(state) =/= $GENESIS_EPOCH
+  -- otherwise
   -- if $get_eligible_validator_indices(state) = vid_eligible*
   -- ApplyInactivity_over_vids: state `.INACTIVITY_SCORES `[ vid_eligible* ] ~>* state_updated
 
@@ -104,7 +103,7 @@ rule ProcessRewardsAndPenalties/skip:
 
 rule ProcessRewardsAndPenalties/main:
   state ~> state_out
-  -- if $get_current_epoch(state) =/= $GENESIS_EPOCH
+  -- otherwise
   ;; 1: create flag indices: 0..|PARTICIPATION_FLAG_WEIGHTS|-1
   -- if $range(|$PARTICIPATION_FLAG_WEIGHTS|) = vid_flag*
   -- if ( $get_flag_index_deltas(state, vid_flag) = (reward_flag*, penalty_flag*) )*
@@ -126,7 +125,7 @@ relation ProcessRegistryUpdates:
   beaconState ~> beaconState
   hint(input %0)
 
-rule ProcessRegistryUpdates/main:
+rule ProcessRegistryUpdates:
   state ~> state_out
   ;; 1. process eligibility and ejections for each validator
   -- if $range(|state.VALIDATORS|) = vid*
@@ -193,9 +192,10 @@ rule ProcessEth1DataReset/skip:
 
 rule ProcessEth1DataReset/main:
   state ~> state[.ETH1_DATA_VOTES = eps]
-  -- if $($get_current_epoch(state) + 1) = epoch_next
-  ;; branch-complete
-  -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
+  -- otherwise
+  ;; -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; ;; branch-complete
+  ;; -- if $(epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) = 0
 
 ;; [Phase 0]
 ;; process_effective_balance_updates
@@ -220,14 +220,7 @@ relation ProcessSlashingsReset:
   beaconState ~> beaconState
   hint(input %0)
 
-rule ProcessSlashingsReset/skip:
-  state ~> state
-  -- if $($get_current_epoch(state) + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = i
-  ;; inserted guard
-  -- if $(i >= |state.SLASHINGS|)
-
-rule ProcessSlashingsReset/main:
+rule ProcessSlashingsReset:
   state ~> state[.SLASHINGS[i] = 0]
   -- if $($get_current_epoch(state) + 1) = epoch_next
   -- if $(epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR) = i
@@ -243,15 +236,7 @@ relation ProcessRandaoMixesReset:
   beaconState ~> beaconState
   hint(input %0)
 
-rule ProcessRandaoMixesReset/skip:
-  state ~> state
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $(epoch_cur + 1) = epoch_next
-  -- if $(epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR) = i
-  ;; inserted guard
-  -- if $(i >= |state.RANDAO_MIXES|)
-
-rule ProcessRandaoMixesReset/main:
+rule ProcessRandaoMixesReset:
   state ~> state[.RANDAO_MIXES[i] = $get_randao_mix(state, epoch_cur)]
   -- if $get_current_epoch(state) = epoch_cur
   -- if $(epoch_cur + 1) = epoch_next
@@ -276,9 +261,10 @@ rule ProcessHistoricalSummariesUpdate/skip:
 rule ProcessHistoricalSummariesUpdate/main:
   state ~>
     state[.HISTORICAL_SUMMARIES = state.HISTORICAL_SUMMARIES ++ [ historicalSummary ]]
-  -- if $($get_current_epoch(state) + 1) = epoch_next
-  ;; branch-complete
-  -- if $( epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH) ) = 0
+  -- otherwise
+  ;; -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; ;; branch-complete
+  ;; -- if $( epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH) ) = 0
   -- if $hash_tree_root_roots(state.BLOCK_ROOTS) = root_block_summary
   -- if $hash_tree_root_roots(state.STATE_ROOTS) = root_state_summary
   -- if { BLOCK_SUMMARY_ROOT root_block_summary, STATE_SUMMARY_ROOT root_state_summary } = historicalSummary
@@ -317,6 +303,7 @@ rule ProcessSyncCommitteeUpdates/main:
   state ~> 
     state[.CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE]
          [.NEXT_SYNC_COMMITTEE    = $get_next_sync_committee(state)]
-  -- if $($get_current_epoch(state) + 1) = epoch_next
-  ;; branch-complete
-  -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = 0
+  -- otherwise
+  ;; -- if $($get_current_epoch(state) + 1) = epoch_next
+  ;; ;; branch-complete
+  ;; -- if $(epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) = 0

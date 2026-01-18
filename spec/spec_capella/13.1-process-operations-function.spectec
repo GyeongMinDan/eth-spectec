@@ -6,7 +6,7 @@ relation ProcessProposerSlashing:
   beaconState proposerSlashing ~> beaconState
   hint(input %0 %1)
 
-rule ProcessProposerSlashing/main:
+rule ProcessProposerSlashing:
   state proposerSlashing ~> state_slashed
   -- if beaconBlockHeader_1 = proposerSlashing.SIGNED_HEADER_1.MESSAGE
   -- if beaconBlockHeader_2 = proposerSlashing.SIGNED_HEADER_2.MESSAGE
@@ -62,7 +62,7 @@ relation ProcessAttesterSlashing:
   beaconState attesterSlashing ~> beaconState
   hint(input %0 %1)
 
-rule ProcessAttesterSlashing/main:
+rule ProcessAttesterSlashing:
   state attesterSlashing ~> state_slashed
   -- if indexedAttestation_1 = attesterSlashing.ATTESTATION_1
   -- if indexedAttestation_2 = attesterSlashing.ATTESTATION_2
