@@ -1,89 +1,48 @@
-;; 구간 보정: nat x + uint64 start → uint64
-dec $add_offset_nat_uint64(nat, uint64) : uint64
-def $add_offset_nat_uint64(nat_x, uint64_start) = $(uint64_start + nat_x)
-
-;; 하나의 i에 대해 셔플 인덱스를 통해 validatorIndex 뽑기
-;; capture: (indices*, seed, len)
-dec $pick_shuffled_vi(uint64, (validatorIndex*, bytes32, uint64)) : validatorIndex
-def $pick_shuffled_vi(i, (vid*, seed, uint64_len)) = vid_picked
-  -- if $compute_shuffled_index(i, uint64_len, seed) = uint64_shuf
-  -- if vid*[uint64_shuf] = vid_picked
-
-
-;; --------------------------------------------
-;; compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
-;; --------------------------------------------
-
+;; [Phase0] compute_committee(Sequence[ValidatorIndex], Bytes32, uint64, uint64) : Sequence[ValidatorIndex]
 dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
 
-def $compute_committee(vid*, seed, uint64_index, uint64_count) = vid_committee*
-  -- if |vid*| = uint64_len
-  -- if $( (uint64_len * uint64_index) / uint64_count ) = uint64_start
-  -- if $(uint64_index + 1) = uint64_plus_index
-  -- if $( (uint64_len * uint64_plus_index) / uint64_count ) = uint64_end
-  -- if $( uint64_end - uint64_start ) = uint64_span
-  ;; [0..span-1] 만들고 → 각 원소에 start를 더해 [start..end-1] i-리스트 만들기
-  -- if $range(uint64_span) = nat_r*
-  ;; change map_list_2_
-  -- if ($add_offset_nat_uint64(nat_r, uint64_start) = uint64_i_list)*
-  ;; 각 i에 대해 indices[shuffle(i, len, seed)] 선택
-  ;; change map_list_2_
-  -- if ($pick_shuffled_vi(uint64_i_list, (vid*, seed, uint64_len)) = vid_committee)*
+def $compute_committee(vid*, seed, i, count) = vid_committee*
+  -- if $( (|vid*| * i) / count ) = i_start
+  -- if $( (|vid*| * (i + 1)) / count ) = i_end
+  -- if $range($(i_end - i_start)) = n*
+  -- if $(n + i_start = i_range)*
+  -- if ($compute_shuffled_index(i_range, |vid*|, seed) = i_shuffled)*
+  -- if (vid*[i_shuffled] = vid_committee)*
 
-
-;; ------------------------------------------------------------
-;; get_committee_count_per_slot
-;; ------------------------------------------------------------
+;; [Phase0] get_committee_count_per_slot(BeaconState, Epoch) -> uint64
 dec $get_committee_count_per_slot(beaconState, epoch) : uint64
-def $get_committee_count_per_slot(state, epoch_epoch) = uint64_committees_per_slot
-  -- if $get_active_validator_indices(state, epoch_epoch) = vid_active*
-  -- if $( |vid_active*| ) = uint64_len_active
-  -- if $(uint64_len_active / $SLOTS_PER_EPOCH) = uint64_per_slot
-  -- if $(uint64_per_slot / $TARGET_COMMITTEE_SIZE) = uint64_estimate
-  -- if $min_uint64($MAX_COMMITTEES_PER_SLOT, uint64_estimate) = uint64_capped
-  -- if $max_uint64(1, uint64_capped) = uint64_committees_per_slot
+def $get_committee_count_per_slot(state, epoch) 
+  = $max_uint64(
+      1,
+      $min_uint64(
+        $MAX_COMMITTEES_PER_SLOT,
+        $( |$get_active_validator_indices(state, epoch)|
+           / $SLOTS_PER_EPOCH
+           / $TARGET_COMMITTEE_SIZE )
+      )
+    )
 
-;; ------------------------------------------------------------
-;; get_beacon_committee
-;; ------------------------------------------------------------
+;; [Phase0] get_beacon_committee(BeaconState, Slot, CommitteeIndex) -> Sequence[ValidatorIndex]
 dec $get_beacon_committee(beaconState, slot, committeeIndex) : validatorIndex*
-def $get_beacon_committee(state, slot, committeeIndex) = vid_committee*
+def $get_beacon_committee(state, slot, committeeIndex)
+  = $compute_committee(
+      $get_active_validator_indices(state, epoch),
+      $get_seed(state, epoch, $DOMAIN_BEACON_ATTESTER),
+      $( (slot \ $SLOTS_PER_EPOCH) * count_committees_per_slot + committeeIndex ),
+      $( count_committees_per_slot * $SLOTS_PER_EPOCH )
+    )
   -- if $compute_epoch_at_slot(slot) = epoch
-  -- if $get_committee_count_per_slot(state, epoch) = uint64_committees_per_slot
-  -- if $get_active_validator_indices(state, epoch) = vid*
-  -- if $get_seed(state, epoch, $DOMAIN_BEACON_ATTESTER) = seed
-  -- if $( (slot \ $SLOTS_PER_EPOCH) * uint64_committees_per_slot + committeeIndex ) = uint64_index
-  -- if $( uint64_committees_per_slot * $SLOTS_PER_EPOCH ) = uint64_count
-  -- if $compute_committee(
-         vid*,
-         seed,
-         uint64_index,
-         uint64_count
-       ) = vid_committee*
+  -- if $get_committee_count_per_slot(state, epoch) = count_committees_per_slot
 
-;; --------------------------------------------
-;; is aggregation_bits[i] true?
-;; --------------------------------------------
+;; [Custom | filter : get_attesting_indices] aggregation_bits[i] = true
 dec $bit_is_one_at_index((nat, validatorIndex), boolean*) : bool
 
-def $bit_is_one_at_index((n_i, vid), boolean_bits*)
-  = true
-  -- if $(n_i < |boolean_bits*|)
-  -- if boolean_bits*[n_i] = true
+def $bit_is_one_at_index((i, _), bit*)
+  = bit*[i]
+  ;; inserted guard
+  -- if $(i < |bit*|)
 
-def $bit_is_one_at_index((n_i, vid), boolean_bits*)
-  = false
-  -- otherwise
-
-;; --------------------------------------------
-;; validatorIndex 만 뽑기
-;; --------------------------------------------
-dec $collect_vi((nat, validatorIndex), boolean*) : validatorIndex
-def $collect_vi((n_i, vid), boolean_bits*) = vid
-
-;; --------------------------------------------
-;; get_attesting_indices(state, attestation) : validatorIndex*
-;; --------------------------------------------
+;; [Phase0] get_attesting_indices(BeaconState, Attestation) -> Set[ValidatorIndex]
 dec $get_attesting_indices(beaconState, attestation) : validatorIndex*
 
 def $get_attesting_indices(state, attestation) = vid_set*
@@ -93,58 +52,45 @@ def $get_attesting_indices(state, attestation) = vid_set*
          attestation.DATA.INDEX
        ) = vid_committee*
   -- if $enumerate_<validatorIndex>(vid_committee*)
-       = (n_i, vid)*
+       = (i, vid)*
   -- if $filter_list_2_<(nat, validatorIndex), boolean*>(
-         (n_i, vid)*,
+         (i, vid)*,
          attestation.AGGREGATION_BITS,
          def $bit_is_one_at_index
-       ) = (n_sel, vid_sel)*
-  ;; chagne map_list_2_
-  -- if ($collect_vi((n_sel, vid_sel), attestation.AGGREGATION_BITS) = vid_list)*
-  -- if $to_set_<validatorIndex>(vid_list*) = vid_set*
+       ) = (_, vid_attesting)*
+  -- if $to_set_<validatorIndex>(vid_attesting*) = vid_set*
 
-;; ------------------------------------------------------------
-;; is_slashable_attestation_data
-;; ------------------------------------------------------------
+;; [Phase0] is_slashable_attestation_data(AttestationData, AttestationData) -> bool
 dec $is_slashable_attestation_data(attestationData, attestationData) : bool
 def $is_slashable_attestation_data(attestationData_1, attestationData_2) =
   ( ( attestationData_1 =/= attestationData_2 )
-    /\ $( attestationData_1.TARGET.EPOCH = attestationData_2.TARGET.EPOCH ) )
+    /\ $( attestationData_1.TARGET.EPOCH = attestationData_2.TARGET.EPOCH ) ) ;;double vote
   \/
   ( $( attestationData_1.SOURCE.EPOCH < attestationData_2.SOURCE.EPOCH )
-    /\ $( attestationData_2.TARGET.EPOCH < attestationData_1.TARGET.EPOCH ) )
+    /\ $( attestationData_2.TARGET.EPOCH < attestationData_1.TARGET.EPOCH ) ) ;;surround vote
 
-;;
-;; is_valid_indexed_attestation
-;;
+;; [Phase0] is_valid_indexed_attestation(BeaconState, IndexedAttestation) -> bool
 dec $is_valid_indexed_attestation(beaconState, indexedAttestation) : boolean
-;; 1. empty list
+;; false: empty list
 def $is_valid_indexed_attestation(state, indexedAttestation) = false
-  -- if vid* = indexedAttestation.ATTESTING_INDICES
-  -- if |vid*| = 0
-
-;; 2. not sorted
+  -- if |indexedAttestation.ATTESTING_INDICES| = 0
+;; false: not sorted
 def $is_valid_indexed_attestation(state, indexedAttestation) = false
+  -- if $sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES))
+  =/= indexedAttestation.ATTESTING_INDICES
+;; otherwise
+def $is_valid_indexed_attestation(state, indexedAttestation)
+  = $bls_fast_aggregate_verify(blsPubkey*, root_signing, indexedAttestation.SIGNATURE)
   -- if vid* = indexedAttestation.ATTESTING_INDICES
-  -- if $to_set_<validatorIndex>(vid*) = vid_set*
-  -- if $sort_<validatorIndex>(vid_set*) = vid_sorted*
-  -- if vid_sorted* =/= vid*
-
-;; 3. if is true
-def $is_valid_indexed_attestation(state, indexedAttestation) = true
-  -- if vid* = indexedAttestation.ATTESTING_INDICES
-  -- if $to_set_<validatorIndex>(vid*) = vid_set*
-  -- if $sort_<validatorIndex>(vid_set*) = vid_sorted*
-  -- if $( |vid_sorted*| > 0 )
-  -- if vid_sorted* = vid*
-  -- if (state.VALIDATORS[vid].PUBKEY = blsPubkey_pk)*
-  -- if $get_domain(state, $DOMAIN_BEACON_ATTESTER, indexedAttestation.DATA.TARGET.EPOCH) = domain_att
-  -- if $compute_signing_root_attestationData(indexedAttestation.DATA, domain_att) = root_sign
-  -- if $bls_fast_aggregate_verify(blsPubkey_pk*, root_sign, indexedAttestation.SIGNATURE) = true
+  -- if $(|indexedAttestation.ATTESTING_INDICES| > 0)
+  -- if $sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES))
+      = indexedAttestation.ATTESTING_INDICES
+  -- if (state.VALIDATORS[vid].PUBKEY = blsPubkey)*
+  -- if $get_domain(state, $DOMAIN_BEACON_ATTESTER, indexedAttestation.DATA.TARGET.EPOCH) = domain
+  -- if $compute_signing_root_attestationData(indexedAttestation.DATA, domain) = root_signing
 
 ;; [Custom]
 ;;  modifies: .VALIDATORS[](.EXIT_EPOCH, .WITHDRAWABLE_EPOCH, .SLASHED) .SLASHINGS, .BALANCES
-
 relation SlashIfEligible:
   beaconState SLASH`? `[ validatorIndex ] ~> beaconState `#SLASHED bool
   hint(input %0 %1)
