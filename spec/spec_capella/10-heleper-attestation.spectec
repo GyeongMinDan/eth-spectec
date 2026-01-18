@@ -5,8 +5,8 @@ def $add_offset_nat_uint64(nat_x, uint64_start) = $(uint64_start + nat_x)
 ;; 하나의 i에 대해 셔플 인덱스를 통해 validatorIndex 뽑기
 ;; capture: (indices*, seed, len)
 dec $pick_shuffled_vi(uint64, (validatorIndex*, bytes32, uint64)) : validatorIndex
-def $pick_shuffled_vi(uint64_i, (vid*, bytes32_seed, uint64_len)) = vid_picked
-  -- if $compute_shuffled_index(uint64_i, uint64_len, bytes32_seed) = uint64_shuf
+def $pick_shuffled_vi(i, (vid*, seed, uint64_len)) = vid_picked
+  -- if $compute_shuffled_index(i, uint64_len, seed) = uint64_shuf
   -- if vid*[uint64_shuf] = vid_picked
 
 
@@ -16,7 +16,7 @@ def $pick_shuffled_vi(uint64_i, (vid*, bytes32_seed, uint64_len)) = vid_picked
 
 dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
 
-def $compute_committee(vid*, bytes32_seed, uint64_index, uint64_count) = vid_committee*
+def $compute_committee(vid*, seed, uint64_index, uint64_count) = vid_committee*
   -- if |vid*| = uint64_len
   -- if $( (uint64_len * uint64_index) / uint64_count ) = uint64_start
   -- if $(uint64_index + 1) = uint64_plus_index
@@ -28,7 +28,7 @@ def $compute_committee(vid*, bytes32_seed, uint64_index, uint64_count) = vid_com
   -- if ($add_offset_nat_uint64(nat_r, uint64_start) = uint64_i_list)*
   ;; 각 i에 대해 indices[shuffle(i, len, seed)] 선택
   ;; change map_list_2_
-  -- if ($pick_shuffled_vi(uint64_i_list, (vid*, bytes32_seed, uint64_len)) = vid_committee)*
+  -- if ($pick_shuffled_vi(uint64_i_list, (vid*, seed, uint64_len)) = vid_committee)*
 
 
 ;; ------------------------------------------------------------
@@ -51,12 +51,12 @@ def $get_beacon_committee(state, slot, committeeIndex) = vid_committee*
   -- if $compute_epoch_at_slot(slot) = epoch
   -- if $get_committee_count_per_slot(state, epoch) = uint64_committees_per_slot
   -- if $get_active_validator_indices(state, epoch) = vid*
-  -- if $get_seed(state, epoch, $DOMAIN_BEACON_ATTESTER) = bytes32_seed
+  -- if $get_seed(state, epoch, $DOMAIN_BEACON_ATTESTER) = seed
   -- if $( (slot \ $SLOTS_PER_EPOCH) * uint64_committees_per_slot + committeeIndex ) = uint64_index
   -- if $( uint64_committees_per_slot * $SLOTS_PER_EPOCH ) = uint64_count
   -- if $compute_committee(
          vid*,
-         bytes32_seed,
+         seed,
          uint64_index,
          uint64_count
        ) = vid_committee*
@@ -271,8 +271,7 @@ def $get_attestation_participation_flag_indices(state, attestationData, uint64_i
   ;; 합치기
   -- if nat_flag_indices* = nat_flags_source* ++ nat_flags_target* ++ nat_flags_head*
 
-;; next_sync_committee_indices_loop:
-;; state, 활성검증자목록, seed, 활성수, i, 누적리스트  ->  누적리스트(길이 = SYNC_COMMITTEE_SIZE)
+;; [Phase0 | loop : get_next_sync_committee_indices]
 dec $next_sync_committee_indices_loop(
   beaconState, validatorIndex*, bytes32, uint64, uint64, validatorIndex*
 ) : validatorIndex*
@@ -362,51 +361,39 @@ def $next_sync_committee_indices_loop(
        ) = vid_ret*
 
 
-;; --------------------------------------------
-;; get_next_sync_committee_indices(state) : validatorIndex*
-;; --------------------------------------------
+;; [Phase0] get_next_sync_committee_indices(BeaconState) -> Sequence[ValidatorIndex]
 dec $get_next_sync_committee_indices(beaconState) : validatorIndex*
 
 def $get_next_sync_committee_indices(state) = vid_out*
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if epoch_next = $( epoch_cur + 1 )
+  -- if epoch_next = $( $get_current_epoch(state) + 1 )
   -- if $get_active_validator_indices(state, epoch_next) = vid_active*
-  -- if $( |vid_active*| ) = uint64_active_cnt
-  -- if $get_seed(state, epoch_next, $DOMAIN_SYNC_COMMITTEE) = bytes32_seed
+  -- if |vid_active*| = count_active
+  -- if $get_seed(state, epoch_next, $DOMAIN_SYNC_COMMITTEE) = seed
   -- if $next_sync_committee_indices_loop(
          state,
          vid_active*,
-         bytes32_seed,
-         uint64_active_cnt,
+         seed,
+         count_active,
          0,
-         eps ;; 빈 리스트 초기화 해서 넘기니까 그냥 eps 으로 넘김
+         eps ;; empty list
        ) = vid_out*
 
-;; --------------------------------------------
-;; get_next_sync_committee(state) : SyncCommittee
-;; --------------------------------------------
+;; [Phase0] get_next_sync_committee(BeaconState) -> SyncCommittee
 dec $get_next_sync_committee(beaconState) : syncCommittee
 
-def $get_next_sync_committee(state) = syncCommittee
+def $get_next_sync_committee(state)
+  = { PUBKEYS          blsPubkey*,
+      AGGREGATE_PUBKEY blsPubkey_aggregate }
   -- if $get_next_sync_committee_indices(state) = vid*
-  ;; indices로 선택된 validator들의 PUBKEY 리스트 생성
-  -- if (state.VALIDATORS[vid].PUBKEY = blsPubkey_list)*
-  ;; pubkey 집합을 BLS aggregate
-  -- if $eth_aggregate_pubkeys(blsPubkey_list*) = blsPubkey_agg
-  -- if syncCommittee =
-       { PUBKEYS         blsPubkey_list*,
-         AGGREGATE_PUBKEY blsPubkey_agg }
+  -- if (state.VALIDATORS[vid].PUBKEY = blsPubkey)*
+  -- if $eth_aggregate_pubkeys(blsPubkey*) = blsPubkey_aggregate
 
 
-;; --------------------------------------------
-;; get_indexed_attestation(state, attestation) : indexedAttestation
-;; --------------------------------------------
+;; [Phase0] get_indexed_attestation(BeaconState, Attestation) -> IndexedAttestation
 dec $get_indexed_attestation(beaconState, attestation) : indexedAttestation
 
-def $get_indexed_attestation(state, attestation) = indexedAttestation_ret
-  -- if $get_attesting_indices(state, attestation) = vid_set*
-  -- if $sort_<validatorIndex>(vid_set*) = vid_sorted*
-  -- if indexedAttestation_ret =
-       { ATTESTING_INDICES vid_sorted*,
-         DATA               attestation.DATA,
-         SIGNATURE          attestation.SIGNATURE }
+def $get_indexed_attestation(state, attestation)
+  = { ATTESTING_INDICES $sort_<validatorIndex>(vid_attesting*),
+      DATA               attestation.DATA,
+      SIGNATURE          attestation.SIGNATURE }
+  -- if $get_attesting_indices(state, attestation) = vid_attesting*

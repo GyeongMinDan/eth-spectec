@@ -7,6 +7,7 @@ var j : nat
 var n : nat
 var x : nat
 var y : nat
+var count : nat
 
 var bit : boolean
 
@@ -17,8 +18,7 @@ var vid: validatorIndex
 
 var delta           : gwei
 var current         : gwei
-
 var balance : gwei
-
 var reward : gwei
 var penalty : gwei
+var seed : bytes32

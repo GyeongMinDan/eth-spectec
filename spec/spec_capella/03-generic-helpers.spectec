@@ -36,35 +36,25 @@ def $fold_<X, Y>(def $fold_func, X, Y_h :: Y_t*)
 ;; =========================
 ;; flag helpers
 ;; =========================
-;; --------------------------------------------
-;; has_flag: flags의 i번째 비트가 1인가? 와 동일한 의미
-;; --------------------------------------------
-
-;; uint8 범위 내에 없으면 false
+;; [Custom : ProcessAttestations / AddFlag ] has_flag: flags[i] = 1
 dec $has_flag(participationFlags, nat) : boolean
 
+;; range check for uint8
 def $has_flag(participationFlags, n) = false
   -- if $( n >= 8 )
-
 def $has_flag(participationFlags, n) = true
   -- if $( ((participationFlags / $pow2(n)) \ 2) = 1 )
-
 def $has_flag(participationFlags, n) = false
   -- otherwise
 
-
-;; --------------------------------------------
-;; add_flag: flags의 i번째 비트를 더해서(or) 반환
-;; --------------------------------------------
+;; [Custom : ProcessAttestations / AddFlag ] add_flag: flags[i] += 1
 dec $add_flag(participationFlags, nat) : participationFlags
 
-;; uint8 범위 내에 없으면 false
+;; range check for uint8
 def $add_flag(participationFlags, n) = participationFlags
   -- if $( n >= 8 )
-
 def $add_flag(participationFlags, n) = participationFlags
   -- if $( ((participationFlags / $pow2(n)) \ 2) = 1 )
-
 def $add_flag(participationFlags, n) = $( participationFlags + $pow2(n) )
   -- if $( ((participationFlags / $pow2(n)) \ 2) = 0 )
 
@@ -86,16 +76,15 @@ def $min_uint64(x, y) = x
 def $min_uint64(x, y) = y
   -- otherwise
 
-
-;; [Altair: ProcessSyncAggregate] eth_fast_aggregate_verify
+;; [Altair: ProcessSyncAggregate] eth_fast_aggregate_verify (missing in spec?)
 dec $eth_fast_aggregate_verify(blsPubkey*, bytes32, blsSignature) : boolean
 
 def $eth_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature) = true
   -- if |blsPubkey*| = 0
   -- if blsSignature = $G2_POINT_AT_INFINITY
 
-def $eth_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature) =
-  $bls_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature)
+def $eth_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature)
+  = $bls_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature)
   -- otherwise
 
 ;; [Bellatrix: ProcessExecutionPayload] execution engine

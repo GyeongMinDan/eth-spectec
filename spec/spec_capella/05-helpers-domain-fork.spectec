@@ -47,11 +47,9 @@ def $get_domain(state, domainType, epoch) =
 dec $verify_block_signature(beaconState, signedBeaconBlock) : boolean
 
 def $verify_block_signature(state, signedBeaconBlock) = true
-  -- if validator_prop = state.VALIDATORS[signedBeaconBlock.MESSAGE.PROPOSER_INDEX]
-  -- if $get_domain(state, $DOMAIN_BEACON_PROPOSER, eps) = domain_prop
-  -- if $compute_signing_root_beaconBlock(signedBeaconBlock.MESSAGE, domain_prop) = root_sign
-  -- if $bls_verify(validator_prop.PUBKEY, root_sign, signedBeaconBlock.SIGNATURE) = boolean_bls_result
-  -- if boolean_bls_result = true
+  -- if validator_proposer = state.VALIDATORS[signedBeaconBlock.MESSAGE.PROPOSER_INDEX]
+  -- if $compute_signing_root_beaconBlock(signedBeaconBlock.MESSAGE, $get_domain(state, $DOMAIN_BEACON_PROPOSER, eps)) = root_signing
+  -- if $bls_verify(validator_proposer.PUBKEY, root_signing, signedBeaconBlock.SIGNATURE)
 
 def $verify_block_signature(state, signedBeaconBlock) = false
   -- otherwise
