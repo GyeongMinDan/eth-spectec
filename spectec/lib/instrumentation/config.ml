@@ -35,8 +35,24 @@ let default =
     dep_neg = None;
   }
 
+(* TODO: generalize *)
+let register_static_dependencies config =
+  let deps =
+    (match config.node_coverage with
+    | None -> []
+    | Some _ -> Node_coverage_il.static_dependencies ())
+  in
+  (* Register all dependencies (idempotent register() handles deduplication) *)
+  List.iter
+    (fun (module M : Instrumentation_static.Static.S) ->
+      Instrumentation_static.Static.register (module M))
+    deps
+
 (* Convert config to handler list *)
 let to_handlers config =
+  (* First, register all static analysis dependencies *)
+  register_static_dependencies config;
+  (* Then create handlers (they no longer need to register dependencies themselves) *)
   (match config.trace with None -> [] | Some cfg -> [ Trace.make cfg ])
   @ (match config.profile with None -> [] | Some cfg -> [ Profile.make cfg ])
   @ (match config.branch_coverage with

@@ -347,9 +347,7 @@ let restore result =
       if failed_count > 0 then
         Hashtbl.replace State.prems_failed key failed_count)
     result.prems_attempted;
-  (* Restore UID mapping through static service *)
-  Instrumentation_static.Premise_uid.restore
-    (result.prem_to_uid, result.uid_to_prem);
+
   List.iter
     (fun (key, test_cases) -> Hashtbl.replace State.prem_to_test key test_cases)
     result.prem_to_test;
@@ -370,9 +368,14 @@ module HandlerWithData :
   let restore = restore
 end
 
+(* Declare static analysis dependencies *)
+let static_dependencies () =
+  [
+    (module Instrumentation_static.Premise_uid.Premise_uid
+    : Instrumentation_static.Static.S);
+  ]
+
 let make cfg =
-  Instrumentation_static.Static.register
-    (module Premise_uid : Instrumentation_static.Static.S);
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   (module M : Instrumentation_core.Handler.S)
