@@ -2,15 +2,15 @@
 ;; helpers for rewards, penlaties and balances
 ;; =========================
 
-;; --------------------------------------------
-;; get_total_balance(state, indices) : gwei
-;; --------------------------------------------
+;; [Phase0] get_total_balance(BeaconState, Set[ValidatorIndex]) -> Gwei
 dec $get_total_balance(beaconState, validatorIndex*) : gwei
 
-def $get_total_balance(state, validatorIndex*) = gwei_total
-  -- if (state.VALIDATORS[validatorIndex].EFFECTIVE_BALANCE = balance)*
-  -- if $sum_<gwei>(balance*) = gwei_sum
-  -- if $max_uint64($EFFECTIVE_BALANCE_INCREMENT, gwei_sum) = gwei_total
+def $get_total_balance(state, vid*)
+  = $max_uint64(
+      $EFFECTIVE_BALANCE_INCREMENT,
+      $sum_<gwei>(balance*)
+    )
+  -- if (state.VALIDATORS[vid].EFFECTIVE_BALANCE = balance)*
 
 dec $get_total_active_balance(beaconState) : gwei
 
@@ -20,34 +20,25 @@ def $get_total_active_balance(state) = gwei_total
   -- if $to_set_<validatorIndex>(vid_active*) = vid_set*
   -- if $get_total_balance(state, vid_set*) = gwei_total
 
-;; --------------------------------------------
-;; get_base_reward_per_increment(state) : gwei
-;;
-;; --------------------------------------------
+;; [Altair] get_base_reward_per_increment(BeaconState) -> Gwei
 dec $get_base_reward_per_increment(beaconState) : gwei
 
-def $get_base_reward_per_increment(state) = gwei_base
-  -- if $get_total_active_balance(state) = gwei_total_active
-  -- if $integer_square_root(gwei_total_active) = uint64_sqrt_total
-  -- if $( $EFFECTIVE_BALANCE_INCREMENT * $BASE_REWARD_FACTOR ) = uint64_num
-  -- if $( uint64_num / uint64_sqrt_total ) = gwei_base
+def $get_base_reward_per_increment(state)
+  = $(
+       $EFFECTIVE_BALANCE_INCREMENT * $BASE_REWARD_FACTOR
+       / $integer_square_root($get_total_active_balance(state))
+     )
 
-;; --------------------------------------------
-;; get_base_reward(state, index) : gwei
-;; --------------------------------------------
+;; [Phase0 -> Altair] get_base_reward(BeaconState, ValidatorIndex) -> Gwei
 dec $get_base_reward(beaconState, validatorIndex) : gwei
 
-def $get_base_reward(state, vid) = gwei_reward
+def $get_base_reward(state, vid) = reward
+  ;; inserted bound check guard
   -- if $(vid < |state.VALIDATORS|)
-  -- if state.VALIDATORS[vid] = validator_i
-  -- if $( validator_i.EFFECTIVE_BALANCE / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_increments
-  -- if $get_base_reward_per_increment(state) = gwei_per_inc
-  -- if $( uint64_increments * gwei_per_inc ) = gwei_reward
+  -- if $( state.VALIDATORS[vid].EFFECTIVE_BALANCE / $EFFECTIVE_BALANCE_INCREMENT ) = uint64_increments
+  -- if $( uint64_increments * $get_base_reward_per_increment(state) ) = reward
 
-;; ------------------------------------------------------------
-;; rebalance rule for a single (index, validator) pair
-;; (computes hysteresis thresholds and updates EFFECTIVE_BALANCE if needed)
-;; ------------------------------------------------------------
+;; [Custom | loop : ProcessInactivityUpdates]
 relation ApplyEffectiveBalance:
   validator `.EFFECTIVE_BALANCE gwei ~> validator
   hint(input %0 %1)

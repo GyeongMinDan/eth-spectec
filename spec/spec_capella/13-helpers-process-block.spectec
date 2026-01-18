@@ -2,102 +2,100 @@
 ;; helpers for withdrawals
 ;; --------------------------------------------
 
-;; 내부 루프:
-;; (state, epoch, wi, vi, bound, i, withdrawal_acc*) → withdrawal_acc*
+;; [Custom | loop : get_expected_withdrawals]
+;; roughly corresponds to get_validators_sweep_withdrawals
 dec $expected_withdrawals_loop(
   beaconState, epoch, withdrawalIndex, validatorIndex, uint64, uint64, withdrawal*
 ) : withdrawal*
 
 ;; base 1: payload 한도
-def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(_, _, _, _, _, _, withdrawal_acc*)
   = withdrawal_acc*
   -- if |withdrawal_acc*| = $MAX_WITHDRAWALS_PER_PAYLOAD
 
-;; base 2: bound 횟수 반복
-def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
+def $expected_withdrawals_loop(_, _, _, _, uint64_bound, i, withdrawal_acc*)
   = withdrawal_acc*
-  -- if $( uint64_i >= uint64_bound )
+  -- if $( i >= uint64_bound )
 
-;; step: 현재 vi 점검 → (전액/부분/미해당) 처리 → i+1, vi'로 진행
-def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
-  = withdrawal_out*
+;; case 1: fully withdrawable
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, i, withdrawal_acc*)
+  = $expected_withdrawals_loop(
+      state,
+      epoch,
+      $(withdrawalIndex + 1),
+      $((vid + 1) \ |state.VALIDATORS|),
+      uint64_bound,
+      $(i + 1),
+      withdrawal_acc* ++ [ withdrawal ]
+    )
+  ;; inserted bound check guard
   -- if $(vid < |state.VALIDATORS|)
   -- if validator = state.VALIDATORS[vid]
-  -- if gwei_balance = state.BALANCES[vid]
-  ;; case A: fully withdrawable
-  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch) = true
-  -- if executionAddress_addr = $extract_execution_address(validator.WITHDRAWAL_CREDENTIALS)
-  -- if withdrawal_w =
+  -- if balance = state.BALANCES[vid]
+  ;; branch: fully withdrawable
+  -- if $is_fully_withdrawable_validator(validator, balance, epoch) = true
+  -- if withdrawal =
        { INDEX           withdrawalIndex,
          VALIDATOR_INDEX vid,
-         ADDRESS         executionAddress_addr,
-         AMOUNT          gwei_balance }
-  -- if withdrawal_sel* = ( withdrawal_acc* ++ [ withdrawal_w ] )
-  -- if withdrawalIndex_next = $( withdrawalIndex + 1 )
-  ;; 다음 인덱스(원형 증가)
-  -- if $( |state.VALIDATORS| ) = uint64_N
-  -- if $( (vid + 1) \ uint64_N ) = validatorIndex_next
-  -- if withdrawal_out* =
-       $expected_withdrawals_loop(
-         state, epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
-       )
+         ADDRESS         $extract_execution_address(validator.WITHDRAWAL_CREDENTIALS),
+         AMOUNT          balance }
+       
 
-;; case B: partially withdrawable
-def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
-  = withdrawal_out*
+;; case 2: partially withdrawable
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, i, withdrawal_acc*)
+  = $expected_withdrawals_loop(
+      state,
+      epoch,
+      $(withdrawalIndex + 1),
+      $((vid + 1) \ |state.VALIDATORS|),
+      uint64_bound,
+      $(i + 1),
+      withdrawal_acc* ++ [ withdrawal ]
+    )
+  ;; inserted bound check guard
   -- if $(vid < |state.VALIDATORS|)
   -- if validator = state.VALIDATORS[vid]
-  -- if gwei_balance = state.BALANCES[vid]
-  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch) = false
-  -- if $is_partially_withdrawable_validator(validator, gwei_balance) = true
-  -- if executionAddress_addr = $extract_execution_address(validator.WITHDRAWAL_CREDENTIALS)
-  -- if $( gwei_balance - $MAX_EFFECTIVE_BALANCE ) = gwei_excess
-  -- if withdrawal_w =
+  -- if balance = state.BALANCES[vid]
+  ;; branch: partially withdrawable
+  -- if $is_fully_withdrawable_validator(validator, balance, epoch) = false
+  -- if $is_partially_withdrawable_validator(validator, balance) = true
+  -- if withdrawal =
        { INDEX           withdrawalIndex,
          VALIDATOR_INDEX vid,
-         ADDRESS         executionAddress_addr,
-         AMOUNT          gwei_excess }
-  -- if withdrawal_sel* = ( withdrawal_acc* ++ [ withdrawal_w ] )
-  -- if withdrawalIndex_next = $( withdrawalIndex + 1 )
-  -- if $( |state.VALIDATORS| ) = uint64_N
-  -- if $( (vid + 1) \ uint64_N ) = validatorIndex_next
-  -- if withdrawal_out* =
-       $expected_withdrawals_loop(
-         state, epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
-       )
+         ADDRESS         $extract_execution_address(validator.WITHDRAWAL_CREDENTIALS),
+         AMOUNT          $( balance - $MAX_EFFECTIVE_BALANCE ) }
 
-;; case C: 미해당 → append 없음 / wi 변화 없음
-def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, uint64_i, withdrawal_acc*)
-  = withdrawal_out*
+;; case C: neither
+def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound, i, withdrawal_acc*)
+  = $expected_withdrawals_loop(
+      state,
+      epoch,
+      withdrawalIndex,
+      $((vid + 1) \ |state.VALIDATORS|),
+      uint64_bound,
+      $(i + 1),
+      withdrawal_acc*
+    )
+  ;; inserted bound check guard
   -- if $(vid < |state.VALIDATORS|)
   -- if validator = state.VALIDATORS[vid]
-  -- if gwei_balance = state.BALANCES[vid]
-  -- if $is_fully_withdrawable_validator(validator, gwei_balance, epoch) = false
-  -- if $is_partially_withdrawable_validator(validator, gwei_balance) = false
-  -- if withdrawal_sel* = withdrawal_acc*
-  -- if withdrawalIndex_next = withdrawalIndex
-  -- if $( |state.VALIDATORS| ) = uint64_N
-  -- if $( (vid + 1) \ uint64_N ) = validatorIndex_next
-  -- if withdrawal_out* =
-       $expected_withdrawals_loop(
-         state, epoch, withdrawalIndex_next, validatorIndex_next, uint64_bound, $(uint64_i + 1), withdrawal_sel*
-       )
+  -- if balance = state.BALANCES[vid]
+  ;; branch: neither
+  -- if ~ $is_fully_withdrawable_validator(validator, balance, epoch)
+  -- if ~ $is_partially_withdrawable_validator(validator, balance)
 
-;; --------------------------------------------
-;; [Capella] get_expected_withdrawals(state) : withdrawal*
-;; --------------------------------------------
+;; [Capella] get_expected_withdrawals(BeaconState) -> ExpectedWithdrawals
 dec $get_expected_withdrawals(beaconState) : withdrawal*
 
-def $get_expected_withdrawals(state) = withdrawal_out*
+def $get_expected_withdrawals(state)
+  = $expected_withdrawals_loop(
+      state, epoch_cur, withdrawalIndex_start, validatorIndex_start, uint64_bound, 0, eps
+    )
   -- if epoch_cur = $get_current_epoch(state)
   -- if withdrawalIndex_start = state.NEXT_WITHDRAWAL_INDEX
   -- if validatorIndex_start  = state.NEXT_WITHDRAWAL_VALIDATOR_INDEX
-  -- if |state.VALIDATORS| = uint64_N
-  -- if uint64_bound = $min_uint64(uint64_N, $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP)
-  -- if withdrawal_out* =
-       $expected_withdrawals_loop(
-         state, epoch_cur, withdrawalIndex_start, validatorIndex_start, uint64_bound, 0, eps
-       )
+  -- if uint64_bound = $min_uint64(|state.VALIDATORS|, $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP)
+
 relation ApplyWithdrawal:
   beaconState `.BALANCES `{ withdrawal } ~> beaconState
   hint(input %0 %1)
