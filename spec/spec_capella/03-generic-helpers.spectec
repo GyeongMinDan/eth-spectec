@@ -90,35 +90,12 @@ def $eth_fast_aggregate_verify(blsPubkey*, bytes32_msg, blsSignature)
 ;; [Bellatrix: ProcessExecutionPayload] execution engine
 dec $ee_verify_and_notify_new_payload(executionPayload) : bool
 
-;; (n, v)에서 v.PUBKEY == pk ?
-dec $pubkey_match_en((nat, validator), blsPubkey) : bool
+;; [Custom: ProcessSyncAggregate] index_of_pubkey(state, pk) : validatorIndex
+dec $index_of_pubkey((validatorIndex, blsPubkey)*, blsPubkey) : validatorIndex
 
-def $pubkey_match_en((n, validator), blsPubkey) = true
-  -- if validator.PUBKEY = blsPubkey
+def $index_of_pubkey((vid_h, blsPubkey_h) :: (vid_t, blsPubkey_t)*, blsPubkey_committee) = vid_h
+  -- if blsPubkey_h = blsPubkey_committee
 
-def $pubkey_match_en((n_i, validator), blsPubkey) = false
+def $index_of_pubkey((vid_h, blsPubkey_h) :: (vid_t, blsPubkey_t)*, blsPubkey_committee)
+  = $index_of_pubkey((vid_t, blsPubkey_t)*, blsPubkey_committee)
   -- otherwise
-
-;; (n, v) → ValidatorIndex(n)
-dec $pick_index_en_validator((nat, validator)) : validatorIndex
-def $pick_index_en_validator((n, validator)) = vid
-  -- if vid = n
-
-
-;; beaconstate의 validator 의 pubkey 들 리스트에 blspubkey와 일치하는 해당 index를 반환
-;; --------------------------------------------
-;; index_of_pubkey(state, pk) : validatorIndex
-;; --------------------------------------------
-dec $index_of_pubkey(beaconState, blsPubkey) : validatorIndex
-
-def $index_of_pubkey(state, blsPubkey) = validatorIndex_idx
-  -- if state.VALIDATORS = validator_list*
-  -- if $enumerate_<validator>(validator_list*) = (n_i, validator)*
-  -- if $filter_list_2_<(nat, validator), blsPubkey>(
-         (n_i, validator)*,
-         blsPubkey,
-         def $pubkey_match_en
-       ) = (n_sel, validator_sel)*
-  -- if $( |(n_sel, validator_sel)*| ) = 1
-  -- if (nat_n0, validator_0) = (n_sel, validator_sel)*[0]
-  -- if $pick_index_en_validator((nat_n0, validator_0)) = validatorIndex_idx

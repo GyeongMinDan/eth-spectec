@@ -206,8 +206,8 @@ rule ApplyDeposit/new_pubkey_invalid_sig:
 ;; else: existing pubkey
 rule ApplyDeposit/existing_pubkey:
   state `.VALIDATORS `++ `{ blsPubkey bytes32_wc gwei_amount } SIGNED blsSignature ~> state_out
-  -- if state.VALIDATORS = validator*
+  -- if $enumerate_<validator>(state.VALIDATORS) = (vid, validator)*
   -- if (validator.PUBKEY = blsPubkey_existing)*
   -- if ( blsPubkey <- blsPubkey_existing* )
-  -- if $index_of_pubkey(state, blsPubkey) = vid  ;; use index_of_pubkey
-  -- IncreaseBalance: state `.BALANCES `[ vid ] `+ gwei_amount ~> state_out
+  -- if $index_of_pubkey((vid, blsPubkey_existing)*, blsPubkey) = vid_found  ;; use index_of_pubkey
+  -- IncreaseBalance: state `.BALANCES `[ vid_found ] `+ gwei_amount ~> state_out
