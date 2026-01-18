@@ -58,12 +58,12 @@ def $fold_max_epoch(epoch_acc, epoch_x) = $max_uint64(epoch_acc, epoch_x)
 
 ;; helper: churn >= limit -> epoch + 1, else epoch
 dec $select_epoch_exit_queue(epoch, uint64, uint64) : epoch
-def $select_epoch_exit_queue(epoch_exit_queue_0, uint64_churn, uint64_limit) = epoch_result
+def $select_epoch_exit_queue(epoch_exit_queue_0, uint64_churn, uint64_limit)
+  = $( epoch_exit_queue_0 + 1 )
   -- if $( uint64_churn >= uint64_limit )
-  -- if $( epoch_exit_queue_0 + 1 ) = epoch_result
-def $select_epoch_exit_queue(epoch_exit_queue_0, uint64_churn, uint64_limit) = epoch_result
-  -- if $( uint64_churn < uint64_limit )
-  -- if epoch_exit_queue_0 = epoch_result
+def $select_epoch_exit_queue(epoch_exit_queue_0, uint64_churn, uint64_limit)
+  = epoch_exit_queue_0
+  -- otherwise
 
 ;; [Phase0]
 ;; initiate_validator_exit(state, index) : state
@@ -88,25 +88,20 @@ rule InitiateValidatorExit/main:
   -- if $(vid < |state.VALIDATORS|)
   -- if state.VALIDATORS[vid] = validator
   ;; branch
+  ;; Compute exit queue epoch
   -- if validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH
-  ;; (1) exit_epochs = [v.exit_epoch for v in state.validators if v.exit_epoch != FAR_FUTURE_EPOCH]
   -- if $filter_list_<validator>(state.VALIDATORS, def $exit_epoch_not_far_future) = validator_exit*
   -- if (validator_exit.EXIT_EPOCH = epoch_exit)*
-  ;; (2) epoch_act_exit = compute_activation_exit_epoch(get_current_epoch(state))
-  -- if $compute_activation_exit_epoch($get_current_epoch(state)) = epoch_activation_exit
-  ;; (3) exit_queue_epoch_0 = max(exit_epochs + [epoch_act_exit])
-  -- if epoch_exit* ++ [ epoch_activation_exit ] = epoch_exit_all*
-  -- if $fold_<epoch, epoch>(def $fold_max_epoch, 0, epoch_exit_all*) = epoch_exit_queue_0
-  ;; (4) exit_queue_churn = len([v for v in state.validators if v.exit_epoch == exit_queue_epoch_0])
-  -- if $filter_list_2_<validator, epoch>(validator_exit*, epoch_exit_queue_0, def $exit_epoch_eq) = validator_list_eq*
-  -- if |validator_list_eq*| = uint64_exit_queue_churn
-  ;; (5) 한도 체크 및 epoch_exit_queue 결정 (helper 함수로 분기 처리)
+  -- if $fold_<epoch, epoch>(def $fold_max_epoch, 0, epoch_exit* ++ [ $compute_activation_exit_epoch($get_current_epoch(state)) ]) = epoch_exit_queue_0
+  -- if $filter_list_2_<validator, epoch>(validator_exit*, epoch_exit_queue_0, def $exit_epoch_eq) = validator_exit_queue*
+  -- if |validator_exit_queue*| = uint64_exit_queue_churn
   -- if $get_validator_churn_limit(state) = uint64_churn_limit
-  ;; TODO: inline helper
+  ;; TODO: inline helper?
   -- if $select_epoch_exit_queue(epoch_exit_queue_0, uint64_exit_queue_churn, uint64_churn_limit) = epoch_exit_queue
-  ;; (6) update validator.exit_epoch / withdrawable_epoch
+  ;; Set validator exit epoch and withdrawable epoch
+  ;; inserted overflow check
+  -- if $(epoch_exit_queue <= $UINT64_MAX - $MIN_VALIDATOR_WITHDRAWABILITY_DELAY)
   -- if epoch_withdrawable = $( epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY )
-  -- if $(epoch_withdrawable <= $UINT64_MAX)
 
 ;; [Phase0 -> Altair -> Bellatrix]
 ;; slash_validator(state, slashed_index, whistleblower_index = None) : beaconState

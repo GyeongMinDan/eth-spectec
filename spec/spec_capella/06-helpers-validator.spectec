@@ -96,8 +96,8 @@ def $get_validator_churn_limit(state)
   -- if $get_active_validator_indices(state, $get_current_epoch(state)) = vid_active*
 
 ;; [Altair] get_index_for_new_validator(BeaconState) : ValidatorIndex
-dec $get_index_for_new_validator(beaconState) : validatorIndex
-def $get_index_for_new_validator(state) = |state.VALIDATORS|
+;; dec $get_index_for_new_validator(beaconState) : validatorIndex
+;; def $get_index_for_new_validator(state) = |state.VALIDATORS|
 
 ;; [Phase0] get_validator_from_deposit(BLSPubkey, Bytes32, uint64) : validator
 dec $get_validator_from_deposit(blsPubkey, bytes32, uint64) : validator
@@ -127,14 +127,15 @@ rule AddValidatorToRegistry:
           [.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_prev_updated*]
           [.CURRENT_EPOCH_PARTICIPATION = participationFlags_cur_updated*]
           [.INACTIVITY_SCORES = uint64_inactivity_updated*]
-  -- if $get_index_for_new_validator(state) = vid
+  ;; inlined: get_index_for_new_validator
+  -- if |state.VALIDATORS| = vid_new
   -- if $get_validator_from_deposit(blsPubkey, bytes32_wc, uint64_amount) = validator
   ;; update state
-  -- if $set_or_append_list_<validator>(state.VALIDATORS, vid, validator) = validator_updated*
-  -- if $set_or_append_list_<gwei>(state.BALANCES, vid, uint64_amount) = balance_updated*
-  -- if $set_or_append_list_<participationFlags>(state.PREVIOUS_EPOCH_PARTICIPATION, vid, 0) = participationFlags_prev_updated*
-  -- if $set_or_append_list_<participationFlags>(state.CURRENT_EPOCH_PARTICIPATION, vid, 0) = participationFlags_cur_updated*
-  -- if $set_or_append_list_<uint64>(state.INACTIVITY_SCORES, vid, 0) = uint64_inactivity_updated*
+  -- if $set_or_append_list_<validator>(state.VALIDATORS, vid_new, validator) = validator_updated*
+  -- if $set_or_append_list_<gwei>(state.BALANCES, vid_new, uint64_amount) = balance_updated*
+  -- if $set_or_append_list_<participationFlags>(state.PREVIOUS_EPOCH_PARTICIPATION, vid_new, 0) = participationFlags_prev_updated*
+  -- if $set_or_append_list_<participationFlags>(state.CURRENT_EPOCH_PARTICIPATION, vid_new, 0) = participationFlags_cur_updated*
+  -- if $set_or_append_list_<uint64>(state.INACTIVITY_SCORES, vid_new, 0) = uint64_inactivity_updated*
 
 
 ;; [Custom | filter helper : get_eligible_validator_indices]

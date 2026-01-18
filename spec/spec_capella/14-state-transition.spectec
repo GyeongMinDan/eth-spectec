@@ -19,6 +19,7 @@ rule State_transition/validate:
 ;; validate_result = false
 rule State_transition/skip-validate:
   state signedBeaconBlock false ~>* state_next
+  ;; assert
   -- if signedBeaconBlock.MESSAGE = beaconBlock
   -- ProcessSlots: state beaconBlock.SLOT ~> state_cur
   -- ProcessBlock: state_cur beaconBlock ~>* state_next
