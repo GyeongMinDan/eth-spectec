@@ -114,7 +114,7 @@ let checkpoint_summary (checkpoint_file : string) : string =
             List.fold_left
               (fun acc (_, muts) -> acc + List.length muts)
               acc test_muts)
-          0 dep.per_test_mutations
+          0 dep.per_test_sym_mutations
       in
       Format.fprintf fmt "    Total mutation suggestions: %d\n" total_mutations
   | None -> ());
@@ -170,12 +170,12 @@ let get_uncovered_premises
 let get_mutation_suggestions_for_premise (premise_uid : premise_uid)
     (_coverage : Instrumentation.Node_coverage_il.result option)
     (dependency : Instrumentation.Dependency.Positive.result option) :
-    Instrumentation.Dependency.Positive.mutation_suggestion list =
+    Instrumentation.Dependency.Positive.sym_mutation list =
   match dependency with
   | None -> []
   | Some dep -> (
       (* Find mutations for this premise UID *)
-      match List.assoc_opt premise_uid dep.per_test_mutations with
+      match List.assoc_opt premise_uid dep.per_test_sym_mutations with
       | None -> []
       | Some test_muts ->
           (* Collect all mutations across all test cases *)
@@ -189,44 +189,69 @@ let infer_mutation_constraints (premise_uid : premise_uid)
   let suggestions =
     get_mutation_suggestions_for_premise premise_uid coverage dependency
   in
-  (* Convert mutation suggestions to mutation constraints using new types *)
+  (* Convert sym_mutation to mutation constraints using new types *)
   let module Pos = Instrumentation.Dependency.Positive in
   let module Dep = Instrumentation.Dependency.Dep_common in
+  (* Helper to convert field_path to string list *)
+  let rec steps_to_strings steps =
+    match steps with
+    | [] -> []
+    | Dep.FieldAccess f :: rest -> f :: steps_to_strings rest
+    | Dep.IndexAccess (Dep.ConstInt i) :: rest ->
+        Printf.sprintf "[%d]" i :: steps_to_strings rest
+    | Dep.IndexAccess (Dep.PathRef _) :: rest ->
+        "[...]" :: steps_to_strings rest (* Dynamic index - placeholder *)
+  in
+
+  (* Helper to extract concrete values from sym_expr *)
+  let rec extract_values_from_sym_expr (sym : Pos.sym_expr) : Il.Value.t list =
+    match sym with
+    | Pos.SConst v -> [ v ]
+    | Pos.SPath _ -> [] (* Field path - would need runtime resolution *)
+    | Pos.SVar _ -> [] (* Variable - would need runtime resolution *)
+    | Pos.SBinOp (_, _, s1, s2) ->
+        extract_values_from_sym_expr s1 @ extract_values_from_sym_expr s2
+    | Pos.SUnOp (_, _, s) -> extract_values_from_sym_expr s
+    | Pos.SUpdate (s, _) -> extract_values_from_sym_expr s
+    | Pos.SCall _ -> [] (* Function call - would need runtime resolution *)
+    | Pos.SUnknown _ -> []
+  in
+
   List.filter_map
-    (fun (suggestion : Pos.mutation_suggestion) ->
-      (* Convert field_path to string list *)
-      let rec steps_to_strings steps =
-        match steps with
-        | [] -> []
-        | Dep.FieldAccess f :: rest -> f :: steps_to_strings rest
-        | Dep.IndexAccess (Dep.ConstInt i) :: rest ->
-            Printf.sprintf "[%d]" i :: steps_to_strings rest
-        | Dep.IndexAccess (Dep.PathRef _) :: rest ->
-            "[...]" :: steps_to_strings rest (* Dynamic index - placeholder *)
-      in
-      let source_prefix =
-        match suggestion.field.Dep.source with
-        | Dep.State -> [ "state" ]
-        | Dep.Block -> [ "block" ]
-        | Dep.Unknown -> []
-      in
-      let field_path =
-        source_prefix @ steps_to_strings suggestion.field.Dep.steps
-      in
-      if field_path = [] then None
-      else
-        let target_values =
-          match suggestion.hint with
-          | Dep.Concrete (Dep.ToLiteral v) -> [ v ]
-          | Dep.Concrete Dep.ToZero ->
-              [ Il.Value.Make.num Il.Typ.nat (`Nat Bigint.zero) ]
-          | Dep.Concrete Dep.ToOne ->
-              [ Il.Value.Make.num Il.Typ.nat (`Nat Bigint.one) ]
-          | Dep.Concrete Dep.ToMax | Dep.Concrete Dep.ToMin -> []
-          | Dep.Symbolic _ -> [] (* Symbolic hints need runtime resolution *)
-          | Dep.Unresolved _ -> []
-        in
-        Some { field_path; target_values })
+    (fun (sym_mut : Pos.sym_mutation) ->
+      (* Skip unresolved mutations - they're for debugging only *)
+      match sym_mut.suggestion with
+      | Pos.Unresolved _ -> None
+      | _ -> (
+          (* Convert target_path to string list *)
+          match sym_mut.target_path with
+          | None -> None (* Skip if target_path is unresolved *)
+          | Some target_path ->
+              let source_prefix =
+                match target_path.Dep.source with
+                | Dep.State -> [ "state" ]
+                | Dep.Block -> [ "block" ]
+                | Dep.Unknown -> []
+              in
+              let field_path =
+                source_prefix @ steps_to_strings target_path.Dep.steps
+              in
+              if field_path = [] then None
+              else
+                let target_values =
+                  match sym_mut.suggestion with
+                  | Pos.ToValue sym_expr ->
+                      (* Extract concrete values from symbolic expression *)
+                      extract_values_from_sym_expr sym_expr
+                  | Pos.ToRelation (_, sym_expr) ->
+                      (* For relations like <=, >=, we can extract values from the RHS *)
+                      extract_values_from_sym_expr sym_expr
+                  | Pos.Unresolved _ ->
+                      [] (* Shouldn't reach here due to match above *)
+                in
+                (* Only include if we have concrete values *)
+                if target_values = [] then None
+                else Some { field_path; target_values }))
     suggestions
 
 (* Check if a test case ID corresponds to a state transition test.

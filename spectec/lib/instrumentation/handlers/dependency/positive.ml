@@ -30,38 +30,88 @@ let default_config =
 let config = ref default_config
 let fmt = ref Format.std_formatter
 
-(* Comparison operators *)
+(* Comparison operators - used by sym_mutation *)
 type cmp_op = Eq | Ne | Lt | Le | Gt | Ge
 
-(* RHS of comparison - what we're comparing against *)
-type comparison_rhs =
-  | Constant of Il.Value.t
-  | FieldPath of field_path
-  | Unknown
+(* === Field Path Set for Efficient Dependency Tracking === *)
 
-(* Comparison - tracks full comparison context for accurate mutation *)
-type comparison = {
-  lhs : field_path option;
-  rhs : comparison_rhs;
-  op : cmp_op;
-  raw_exp : Il.exp;
+module FieldPathSet = Set.Make (struct
+  type t = field_path
+
+  let compare = compare
+end)
+
+(* === Symbolic Expression Types === *)
+
+(* Symbolic expression - tracks structure, not values *)
+type sym_expr =
+  | SVar of string (* Variable reference *)
+  | SPath of field_path (* Resolved field path *)
+  | SBinOp of Il.binop * Il.optyp * sym_expr * sym_expr (* A + B, A - B, etc. *)
+  | SUnOp of Il.unop * Il.optyp * sym_expr (* -A, !A *)
+  | SConst of Il.Value.t (* Constant value *)
+  | SUpdate of sym_expr * field_path list (* state{.A, .B} - tracks mutations *)
+  | SCall of string * sym_expr list (* $func(args) - future: inline getters *)
+  | SUnknown of string (* Unresolvable *)
+
+(* Enhanced source environment - maps variables to symbolic expressions *)
+type sym_env = (string, sym_expr) Hashtbl.t
+
+(* Mutation suggestion with symbolic target *)
+type sym_mutation = {
+  target_path : field_path option; (* None if unresolved *)
+  suggestion : mutation_kind;
+  debug_info : string option;
+      (* Debug info about why mutation was generated or not *)
 }
 
-(* Mutation suggestion using field_path and mutation_hint *)
-type mutation_suggestion = {
-  field : field_path;
-  target : mutation_target;
-  hint : mutation_hint;
-}
+and mutation_kind =
+  | ToValue of sym_expr (* Set to symbolic expression *)
+  | ToRelation of cmp_op * sym_expr
+  | Unresolved of string
 
-(* Analyzed expression result *)
-type analyzed_expr =
-  | Comparison of comparison
-  | BoolCall of { name : string; args : field_path list }
-  | Unknown of Il.exp
+(* Unresolved mutation with reason *)
+(* e.g., <= (A + B) → A=B, A=B+1, A=B-MAX *)
 
-(* Path condition frame (for backtracking) *)
-type condition_frame = analyzed_expr list
+(* Frame for tracking sym_env bindings in scope *)
+type pos_frame = { local_env : sym_env }
+
+(* Lookup function ref - set by State module after initialization *)
+(* This allows resolvers defined before State to use frame-aware lookup *)
+let lookup_sym_ref : (string -> sym_expr option) ref = ref (fun _ -> None)
+
+(* === Domain Knowledge: Ethereum Beacon Chain === *)
+
+(* Check if a variable name refers to the state object *)
+let is_state_var (name : string) : bool =
+  name = "state" || name = "state'" || name = "state_cur" || name = "state_next"
+  || name = "state_out"
+  || name = "state_after_header"
+  || String.starts_with ~prefix:"state_" name
+
+(* Convert block input pattern to field path (used in on_rel_enter) *)
+let path_of_block_pattern
+    (pattern : Instrumentation_static.Mutator_analysis.block_input_pattern) :
+    field_path =
+  match pattern with
+  | Instrumentation_static.Mutator_analysis.FullBlock
+  | Instrumentation_static.Mutator_analysis.BlockMessage ->
+      { source = Block; steps = [] }
+  | Instrumentation_static.Mutator_analysis.BlockBody ->
+      { source = Block; steps = [ FieldAccess "BODY" ] }
+  | Instrumentation_static.Mutator_analysis.ExecutionPayload ->
+      {
+        source = Block;
+        steps = [ FieldAccess "BODY"; FieldAccess "EXECUTION_PAYLOAD" ];
+      }
+  | Instrumentation_static.Mutator_analysis.SyncAggregate ->
+      {
+        source = Block;
+        steps = [ FieldAccess "BODY"; FieldAccess "SYNC_AGGREGATE" ];
+      }
+  | Instrumentation_static.Mutator_analysis.Custom _path ->
+      (* Defer to actual converter - will be defined later *)
+      { source = Unknown; steps = [] }
 
 (* === Expression Resolution (Positive-specific: detailed symbolic tracking) === *)
 
@@ -78,18 +128,28 @@ let convert_cmpop (op : Il.cmpop) : cmp_op =
 (* Resolve expression to structured field_path.
    More restrictive than resolve_to_path - only returns paths that can be mutated.
    Complex expressions (BinE, UnE, LenE, etc.) return None.
+   Uses sym_env for variable lookups.
+   
+   Domain knowledge: State variables always refer to the same state object,
+   so we can infer State source for common state variable names.
 *)
-let rec resolve_to_field_path (env : source_env) (exp : Il.exp) :
+let rec resolve_to_field_path (sym_env : sym_env) (exp : Il.exp) :
     field_path option =
+  (* Use frame-aware lookup instead of direct hashtable access *)
+  let lookup id = !lookup_sym_ref id in
   match exp.it with
-  (* Variables: look up in environment *)
+  (* Variables: look up using frame-aware lookup for SPath *)
   | Il.VarE id -> (
-      match lookup_source env id.it with
-      | Some path -> Some path
-      | None -> Some { source = Unknown; steps = [ FieldAccess id.it ] })
+      match lookup id.it with
+      | Some (SPath path) -> Some path
+      | Some _ -> None (* Has sym_expr but not a path *)
+      | None ->
+          (* Use centralized domain knowledge for state variables *)
+          if is_state_var id.it then Some { source = State; steps = [] }
+          else Some { source = Unknown; steps = [ FieldAccess id.it ] })
   (* Field access: base.field *)
   | Il.DotE (base, atom) -> (
-      match resolve_to_field_path env base with
+      match resolve_to_field_path sym_env base with
       | Some base_path ->
           Some
             (append_step base_path
@@ -97,7 +157,7 @@ let rec resolve_to_field_path (env : source_env) (exp : Il.exp) :
       | None -> None)
   (* Array indexing: base[idx] *)
   | Il.IdxE (base, idx) -> (
-      match resolve_to_field_path env base with
+      match resolve_to_field_path sym_env base with
       | None -> None
       | Some base_path -> (
           (* Try to resolve index *)
@@ -113,7 +173,7 @@ let rec resolve_to_field_path (env : source_env) (exp : Il.exp) :
               | _ -> None (* Non-nat index *))
           | _ -> (
               (* Try to resolve as field path *)
-              match resolve_to_field_path env idx with
+              match resolve_to_field_path sym_env idx with
               | Some idx_path ->
                   Some (append_step base_path (IndexAccess (PathRef idx_path)))
               | None -> None)))
@@ -121,9 +181,9 @@ let rec resolve_to_field_path (env : source_env) (exp : Il.exp) :
   | Il.UpCastE (_, inner)
   | Il.DownCastE (_, inner)
   | Il.IterE (inner, _) ->
-      resolve_to_field_path env inner
+      resolve_to_field_path sym_env inner
   (* Optional: unwrap if Some *)
-  | Il.OptE (Some inner) -> resolve_to_field_path env inner
+  | Il.OptE (Some inner) -> resolve_to_field_path sym_env inner
   | Il.OptE None -> None
   (* Everything else: can't represent as mutable path *)
   | Il.NumE _ | Il.BoolE _ | Il.TextE _ -> None (* Constants *)
@@ -146,41 +206,125 @@ let is_constant_exp (exp : Il.exp) : Il.Value.t option =
   | Il.TextE s -> Some (Il.Value.Make.text Il.Typ.text s)
   | _ -> None
 
-(* Resolve RHS to comparison_rhs *)
-let resolve_rhs (env : source_env) (exp : Il.exp) : comparison_rhs =
-  match is_constant_exp exp with
-  | Some v -> Constant v
-  | None -> (
-      match resolve_to_field_path env exp with
-      | Some field -> FieldPath field
-      | None -> Unknown)
-
-(* Analyze a comparison expression *)
-let analyze_cmp (env : source_env) (op : Il.cmpop) (lhs : Il.exp) (rhs : Il.exp)
-    (raw : Il.exp) : comparison =
-  {
-    lhs = resolve_to_field_path env lhs;
-    rhs = resolve_rhs env rhs;
-    op = convert_cmpop op;
-    raw_exp = raw;
-  }
-
-(* Main expression analysis *)
-let analyze_expression (env : source_env) (exp : Il.exp) : analyzed_expr =
-  let exp1, _neg1 = strip_negation exp in
-  let exp2, _neg2 = strip_bool_eq exp1 in
-
-  match exp2.it with
-  | Il.CmpE (op, _, lhs, rhs) -> Comparison (analyze_cmp env op lhs rhs exp)
+(* Resolve expression to symbolic expression *)
+let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
+  (* Use frame-aware lookup instead of direct hashtable access *)
+  let lookup id = !lookup_sym_ref id in
+  match exp.it with
+  (* Variable lookup *)
+  | Il.VarE id -> (
+      match lookup id.it with Some sym -> sym | None -> SVar id.it)
+  (* Field paths - handle DotE and IdxE recursively *)
+  | Il.DotE (base, atom) -> (
+      let base_sym = resolve_to_sym_expr sym_env base in
+      match base_sym with
+      | SPath base_path ->
+          SPath
+            (append_step base_path
+               (FieldAccess (Lang.Xl.Atom.string_of_atom atom.it)))
+      | _ -> (
+          (* Fallback to direct resolution *)
+          match resolve_to_field_path sym_env exp with
+          | Some path -> SPath path
+          | None -> SUnknown "complex_path"))
+  | Il.IdxE (base, idx) -> (
+      let base_sym = resolve_to_sym_expr sym_env base in
+      let idx_sym = resolve_to_sym_expr sym_env idx in
+      match (base_sym, idx_sym) with
+      | SPath base_path, SPath idx_path ->
+          SPath (append_step base_path (IndexAccess (PathRef idx_path)))
+      | SPath _base_path, SConst _v -> (
+          (* For now, we can't easily extract numeric index from Il.Value.t *)
+          (* Fallback to direct resolution *)
+          match resolve_to_field_path sym_env exp with
+          | Some path -> SPath path
+          | None -> SUnknown "complex_path")
+      | _ -> (
+          (* Fallback to direct resolution *)
+          match resolve_to_field_path sym_env exp with
+          | Some path -> SPath path
+          | None -> SUnknown "complex_path"))
+  (* Constants *)
+  | Il.NumE _ | Il.BoolE _ | Il.TextE _ -> (
+      match is_constant_exp exp with
+      | Some v -> SConst v
+      | None -> SUnknown "constant")
+  (* Binary operations *)
+  | Il.BinE (op, typ, e1, e2) ->
+      let s1 = resolve_to_sym_expr sym_env e1 in
+      let s2 = resolve_to_sym_expr sym_env e2 in
+      SBinOp (op, typ, s1, s2)
+  (* Unary operations *)
+  | Il.UnE (op, typ, e) ->
+      let s = resolve_to_sym_expr sym_env e in
+      SUnOp (op, typ, s)
+  (* Length expressions *)
+  | Il.LenE inner ->
+      (* For now, treat as a special kind of call - we can't resolve to a concrete value *)
+      (* but we can still track it symbolically *)
+      SCall ("len", [ resolve_to_sym_expr sym_env inner ])
+  (* Function calls *)
   | Il.CallE (id, _, args) ->
-      let resolve_arg arg =
-        match arg.it with
-        | Il.ExpA exp -> resolve_to_field_path env exp
-        | Il.DefA _ -> None
+      let func_name = id.it in
+      let sym_args =
+        List.filter_map
+          (fun arg ->
+            match arg.it with
+            | Il.ExpA e -> Some (resolve_to_sym_expr sym_env e)
+            | Il.DefA _ -> None)
+          args
       in
-      let arg_paths = List.filter_map resolve_arg args in
-      BoolCall { name = id.it; args = arg_paths }
-  | _ -> Unknown exp
+      (* Handle special functions that return computed values we can track *)
+      if func_name = "get_current_epoch" || func_name = "$get_current_epoch"
+      then
+        (* This returns a computed epoch value - treat as a symbolic variable for now *)
+        SVar "current_epoch"
+      else SCall (func_name, sym_args)
+  (* Unwrap wrappers *)
+  | Il.SubE (e, _) | Il.UpCastE (_, e) | Il.DownCastE (_, e) | Il.IterE (e, _)
+    ->
+      resolve_to_sym_expr sym_env e
+  | Il.OptE (Some e) -> resolve_to_sym_expr sym_env e
+  (* Everything else *)
+  | _ -> SUnknown "unsupported"
+
+(* Extract all field paths from a symbolic expression *)
+let rec extract_paths_from_sym_expr (sym : sym_expr) : field_path list =
+  match sym with
+  | SVar _ -> [] (* Variables don't have paths directly *)
+  | SPath p -> [ p ]
+  | SBinOp (_, _, s1, s2) ->
+      extract_paths_from_sym_expr s1 @ extract_paths_from_sym_expr s2
+  | SUnOp (_, _, s) -> extract_paths_from_sym_expr s
+  | SConst _ -> []
+  | SUpdate (s, paths) -> extract_paths_from_sym_expr s @ paths
+  | SCall (_, args) -> List.concat_map extract_paths_from_sym_expr args
+  | SUnknown _ -> []
+
+(* Convert Mutator_analysis.field_path to Dep_common.field_path *)
+let rec convert_ma_index_expr
+    (idx : Instrumentation_static.Mutator_analysis.index_expr) : index_expr =
+  match idx with
+  | Instrumentation_static.Mutator_analysis.ConstInt i -> ConstInt i
+  | Instrumentation_static.Mutator_analysis.PathRef p ->
+      PathRef (convert_ma_field_path p)
+
+and convert_ma_field_step
+    (step : Instrumentation_static.Mutator_analysis.field_step) : field_step =
+  match step with
+  | Instrumentation_static.Mutator_analysis.FieldAccess s -> FieldAccess s
+  | Instrumentation_static.Mutator_analysis.IndexAccess idx ->
+      IndexAccess (convert_ma_index_expr idx)
+
+and convert_ma_field_path
+    (path : Instrumentation_static.Mutator_analysis.field_path) : field_path =
+  let source =
+    match path.source with
+    | Instrumentation_static.Mutator_analysis.State -> State
+    | Instrumentation_static.Mutator_analysis.Block -> Block
+    | Instrumentation_static.Mutator_analysis.Unknown -> Unknown
+  in
+  { source; steps = List.map convert_ma_field_step path.steps }
 
 (* Check if premise is an if-premise *)
 let rec is_if_prem (prem : Il.prem) : bool =
@@ -199,103 +343,268 @@ let string_of_cmp_op = function
   | Gt -> ">"
   | Ge -> ">="
 
-let string_of_rhs (rhs : comparison_rhs) : string =
-  match rhs with
-  | Constant v -> Il.Print.string_of_value v
-  | FieldPath f -> string_of_field_path f
-  | Unknown -> "?"
+(* String formatting for symbolic expressions *)
+let rec string_of_sym_expr (sym : sym_expr) : string =
+  match sym with
+  | SVar id -> id
+  | SPath path -> string_of_field_path path
+  | SBinOp (op, _, s1, s2) ->
+      Printf.sprintf "(%s %s %s)" (string_of_sym_expr s1)
+        (Il.Print.string_of_binop op)
+        (string_of_sym_expr s2)
+  | SUnOp (op, _, s) ->
+      Printf.sprintf "%s%s" (Il.Print.string_of_unop op) (string_of_sym_expr s)
+  | SConst v -> Il.Print.string_of_value v
+  | SUpdate (s, paths) ->
+      Printf.sprintf "%s{.%s}" (string_of_sym_expr s)
+        (String.concat ", ." (List.map string_of_field_path paths))
+  | SCall (name, args) ->
+      Printf.sprintf "$%s(%s)" name
+        (String.concat ", " (List.map string_of_sym_expr args))
+  | SUnknown msg -> Printf.sprintf "?%s" msg
 
-let string_of_comparison (cmp : comparison) : string =
-  let lhs_str =
-    match cmp.lhs with Some f -> string_of_field_path f | None -> "?"
+(* String formatting for mutation suggestions *)
+let string_of_mutation_kind (kind : mutation_kind) : string =
+  match kind with
+  | ToValue sym -> Printf.sprintf "= %s" (string_of_sym_expr sym)
+  | ToRelation (op, sym) ->
+      Printf.sprintf "%s %s"
+        (match op with
+        | Eq -> "=="
+        | Ne -> "!="
+        | Lt -> "<"
+        | Le -> "<="
+        | Gt -> ">"
+        | Ge -> ">=")
+        (string_of_sym_expr sym)
+  | Unresolved reason -> Printf.sprintf "[UNRESOLVED: %s]" reason
+
+let string_of_sym_mutation (mut : sym_mutation) : string =
+  let target_str =
+    match mut.target_path with
+    | Some path -> string_of_field_path path
+    | None -> "?"
   in
-  let rhs_str = string_of_rhs cmp.rhs in
-  Printf.sprintf "%s %s %s" lhs_str (string_of_cmp_op cmp.op) rhs_str
+  let base_str =
+    Printf.sprintf "%s → %s" target_str (string_of_mutation_kind mut.suggestion)
+  in
+  match mut.debug_info with
+  | Some info -> Printf.sprintf "%s [DEBUG: %s]" base_str info
+  | None -> base_str
 
-let string_of_analyzed (expr : analyzed_expr) : string =
-  match expr with
-  | Comparison cmp -> string_of_comparison cmp
-  | BoolCall { name; args } ->
-      let arg_strs = List.map string_of_field_path args in
-      Printf.sprintf "$%s(%s)" name (String.concat ", " arg_strs)
-  | Unknown exp -> Il.Print.string_of_exp exp
+(* Check if a field path corresponds to a variable in sym_env *)
+let find_var_for_path (sym_env : sym_env) (path : field_path) : sym_expr option
+    =
+  let rec path_matches (sym : sym_expr) : bool =
+    match sym with
+    | SPath p when p = path -> true
+    | SBinOp (_, _, s1, s2) -> path_matches s1 || path_matches s2
+    | SUnOp (_, _, s) -> path_matches s
+    | SUpdate (s, _) -> path_matches s
+    | SCall (_, args) -> List.exists path_matches args
+    | _ -> false
+  in
+  let found_var = ref None in
+  Hashtbl.iter
+    (fun _var_id sym ->
+      if !found_var = None && path_matches sym then found_var := Some sym)
+    sym_env;
+  !found_var
 
-(* Extract mutation suggestions from a comparison *)
-let extract_mutation_suggestions (cmp : comparison) : mutation_suggestion list =
-  match cmp.lhs with
-  | None -> []
-  | Some field -> (
-      match cmp.rhs with
-      | Unknown -> []
-      | Constant v -> (
-          let target = Value in
-          match cmp.op with
-          | Eq ->
-              (* For ==: mutate to exact value *)
-              [ { field; target; hint = Concrete (ToLiteral v) } ]
-          | Ne ->
-              (* For !=: can't easily generate different value, use Unresolved *)
-              [ { field; target; hint = Unresolved "!= constraint" } ]
-          | Lt | Le ->
-              (* For <, <=: try boundary below *)
-              [ { field; target; hint = Concrete (ToLiteral v) } ]
-          | Gt | Ge ->
-              (* For >, >=: try boundary above *)
-              [ { field; target; hint = Concrete (ToLiteral v) } ])
-      | FieldPath target_field -> (
-          let target = Value in
-          match cmp.op with
-          | Eq ->
-              (* For ==: set to match other field *)
-              [ { field; target; hint = Symbolic (ToFieldValue target_field) } ]
-          | Ne ->
-              (* For !=: unresolved *)
-              [ { field; target; hint = Unresolved "!= field constraint" } ]
-          | Lt ->
-              (* For <: set to boundary below *)
-              [
-                {
-                  field;
-                  target;
-                  hint = Symbolic (ToBoundaryOf (target_field, `Below));
-                };
-              ]
-          | Le ->
-              (* For <=: set to match or below *)
-              [
-                { field; target; hint = Symbolic (ToFieldValue target_field) };
-                {
-                  field;
-                  target;
-                  hint = Symbolic (ToBoundaryOf (target_field, `Below));
-                };
-              ]
-          | Gt ->
-              (* For >: set to boundary above *)
-              [
-                {
-                  field;
-                  target;
-                  hint = Symbolic (ToBoundaryOf (target_field, `Above));
-                };
-              ]
-          | Ge ->
-              (* For >=: set to match or above *)
-              [
-                { field; target; hint = Symbolic (ToFieldValue target_field) };
-                {
-                  field;
-                  target;
-                  hint = Symbolic (ToBoundaryOf (target_field, `Above));
-                };
-              ]))
+(* === Mutation Extraction Helpers === *)
+
+(* Resolve LHS expression to a field path.
+   Function calls (including length expressions) are computed values,
+   not mutable field paths, so they return None. *)
+let resolve_comparison_lhs (sym_env : sym_env) (lhs_exp : Il.exp) :
+    field_path option =
+  let lhs_sym = resolve_to_sym_expr sym_env lhs_exp in
+  match lhs_sym with
+  | SPath p -> Some p
+  | SCall _ -> None (* Function calls/len are computed, not mutable paths *)
+  | SBinOp _ | SUnOp _ -> None (* Arithmetic expressions are not mutable *)
+  | _ -> (
+      let paths = extract_paths_from_sym_expr lhs_sym in
+      match paths with p :: _ -> Some p | [] -> None)
+
+(* Resolve RHS expression to symbolic expression *)
+let resolve_comparison_rhs (sym_env : sym_env) (rhs_exp : Il.exp) : sym_expr =
+  resolve_to_sym_expr sym_env rhs_exp
+
+(* Generate mutations for a function call RHS *)
+let handle_function_call_rhs (target_path : field_path) (func_name : string)
+    (args : sym_expr list) (rhs_exp : Il.exp) : sym_mutation list =
+  match func_name with
+  | "ZERO_ROOT" when args = [] ->
+      (* ZERO_ROOT is a constant - suggest setting LHS to it *)
+      [
+        {
+          target_path = Some target_path;
+          suggestion = ToValue (SCall (func_name, args));
+          debug_info = None;
+        };
+      ]
+  | "hash_tree_root_beaconBlockHeader" ->
+      [
+        {
+          target_path = Some target_path;
+          suggestion =
+            Unresolved
+              (Printf.sprintf "RHS: complex hash function %s" func_name);
+          debug_info = Some (Il.Print.string_of_exp rhs_exp);
+        };
+      ]
+  | "get_randao_mix" | "compute_time_at_slot" ->
+      [
+        {
+          target_path = Some target_path;
+          suggestion =
+            Unresolved (Printf.sprintf "RHS: computed value from %s" func_name);
+          debug_info = Some (Il.Print.string_of_exp rhs_exp);
+        };
+      ]
+  | _ ->
+      [
+        {
+          target_path = Some target_path;
+          suggestion =
+            Unresolved (Printf.sprintf "RHS: function call %s" func_name);
+          debug_info = Some (Il.Print.string_of_exp rhs_exp);
+        };
+      ]
+
+(* Generate mutations based on comparison operator and RHS *)
+let generate_mutations (target_path : field_path) (rhs_sym : sym_expr)
+    (cmp_op : cmp_op) (rhs_exp : Il.exp) : sym_mutation list =
+  match rhs_sym with
+  | SConst v ->
+      (* RHS is constant: suggest setting LHS to that value *)
+      [
+        {
+          target_path = Some target_path;
+          suggestion = ToValue (SConst v);
+          debug_info = None;
+        };
+      ]
+  | SPath _ | SVar _ | SBinOp _ | SUnOp _ -> (
+      (* RHS is symbolic: generate mutation based on operator *)
+      match cmp_op with
+      | Eq | Ne ->
+          [
+            {
+              target_path = Some target_path;
+              suggestion = ToValue rhs_sym;
+              debug_info = None;
+            };
+          ]
+      | Lt | Le | Gt | Ge ->
+          [
+            {
+              target_path = Some target_path;
+              suggestion = ToRelation (cmp_op, rhs_sym);
+              debug_info = None;
+            };
+          ])
+  | SUnknown reason ->
+      [
+        {
+          target_path = Some target_path;
+          suggestion = Unresolved (Printf.sprintf "RHS: %s" reason);
+          debug_info = Some (Il.Print.string_of_exp rhs_exp);
+        };
+      ]
+  | SCall (func_name, args) ->
+      handle_function_call_rhs target_path func_name args rhs_exp
+  | _ ->
+      [
+        {
+          target_path = Some target_path;
+          suggestion =
+            Unresolved
+              (Printf.sprintf "RHS type: %s" (string_of_sym_expr rhs_sym));
+          debug_info = None;
+        };
+      ]
+
+(* Handle boolean field access (for if-premises that check boolean fields) *)
+let handle_boolean_field (sym_env : sym_env) (exp : Il.exp) : sym_mutation list
+    =
+  let lhs_sym = resolve_to_sym_expr sym_env exp in
+  let lhs_path =
+    match lhs_sym with
+    | SPath p -> Some p
+    | _ -> (
+        let paths = extract_paths_from_sym_expr lhs_sym in
+        match paths with p :: _ -> Some p | [] -> None)
+  in
+  match lhs_path with
+  | None ->
+      [
+        {
+          target_path = None;
+          suggestion =
+            Unresolved
+              (Printf.sprintf "Boolean field LHS unresolved: %s"
+                 (Il.Print.string_of_exp exp));
+          debug_info = None;
+        };
+      ]
+  | Some target_path ->
+      (* For boolean fields, suggest setting to false (to make condition fail) *)
+      [
+        {
+          target_path = Some target_path;
+          suggestion = ToValue (SConst (Il.Value.Make.bool Il.Typ.bool false));
+          debug_info =
+            Some
+              (Printf.sprintf "Boolean field: %s" (Il.Print.string_of_exp exp));
+        };
+      ]
+
+(* Extract symbolic mutation suggestions from a comparison expression.
+   Takes the raw Il.exp (should be CmpE after stripping bool wrappers). *)
+let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
+    sym_mutation list =
+  match exp.it with
+  | Il.CmpE (op, _, lhs_exp, rhs_exp) -> (
+      (* Resolve LHS to field path *)
+      match resolve_comparison_lhs sym_env lhs_exp with
+      | None ->
+          (* LHS couldn't be resolved to a path *)
+          [
+            {
+              target_path = None;
+              suggestion =
+                Unresolved
+                  (Printf.sprintf "LHS unresolved: %s"
+                     (Il.Print.string_of_exp lhs_exp));
+              debug_info = Some (Il.Print.string_of_exp exp);
+            };
+          ]
+      | Some target_path ->
+          (* Resolve RHS and generate mutations *)
+          let rhs_sym = resolve_comparison_rhs sym_env rhs_exp in
+          let cmp_op = convert_cmpop op in
+          generate_mutations target_path rhs_sym cmp_op rhs_exp)
+  | Il.DotE _ | Il.IdxE _ -> handle_boolean_field sym_env exp
+  | _ ->
+      (* Not a comparison expression or handled boolean field *)
+      [
+        {
+          target_path = None;
+          suggestion =
+            Unresolved
+              (Printf.sprintf "Not handled: %s" (Il.Print.string_of_exp exp));
+          debug_info = None;
+        };
+      ]
 
 (* === Handler State === *)
 module State = struct
   let output_file : string option ref = ref None
 
-  (* Source environment for variable provenance *)
-  let env : source_env = create_env ()
+  (* Symbolic expression environment - maps variable names to symbolic expressions *)
+  let sym_env : sym_env = Hashtbl.create 100
 
   (* Relation input variable names from spec *)
   let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
@@ -308,17 +617,13 @@ module State = struct
   let current_rule : string ref = ref ""
   let current_test_id : string ref = ref ""
 
-  (* Path condition stack *)
-  let path_stack : condition_frame list ref = ref []
+  (* Frame stack for sym_env backtracking *)
+  let frames : pos_frame list ref = ref []
 
-  (* Per-test results: premise_uid -> test_id -> mutation_suggestion list *)
-  let per_test_results :
-      (int, (string, mutation_suggestion list) Hashtbl.t) Hashtbl.t =
+  (* Per-test symbolic mutations: premise_uid -> test_id -> sym_mutation list *)
+  let per_test_sym_mutations :
+      (int, (string, sym_mutation list) Hashtbl.t) Hashtbl.t =
     Hashtbl.create 1000
-
-  (* Legacy results for output: relation -> rule -> analyzed_expr list *)
-  let results : (string, (string, analyzed_expr list) Hashtbl.t) Hashtbl.t =
-    Hashtbl.create 100
 
   (* Progress tracking *)
   let premise_count = ref 0
@@ -327,15 +632,14 @@ module State = struct
   let func_depth = ref 0
 
   let reset () =
-    clear_env env;
+    Hashtbl.clear sym_env;
     Hashtbl.clear relation_inputs;
     Hashtbl.clear seen_prems;
     current_relation := "";
     current_rule := "";
     current_test_id := "";
-    path_stack := [];
-    Hashtbl.clear per_test_results;
-    Hashtbl.clear results;
+    frames := [];
+    Hashtbl.clear per_test_sym_mutations;
     premise_count := 0;
     if_prem_count := 0;
     skipped_count := 0;
@@ -344,53 +648,102 @@ module State = struct
   let in_helper_function () = !func_depth > 0
   let already_seen loc = Hashtbl.mem seen_prems loc
   let mark_seen loc = Hashtbl.replace seen_prems loc ()
-  let push_frame () = path_stack := [] :: !path_stack
 
-  let pop_frame () =
-    match !path_stack with _ :: rest -> path_stack := rest | [] -> ()
+  (* Frame management for sym_env backtracking *)
+  let push_sym_frame () =
+    let new_frame = { local_env = Hashtbl.create 20 } in
+    frames := new_frame :: !frames
 
-  let add_condition (cond : analyzed_expr) =
-    match !path_stack with
-    | frame :: rest -> path_stack := (cond :: frame) :: rest
-    | [] -> path_stack := [ [ cond ] ]
+  let pop_sym_frame_success () =
+    match !frames with
+    | frame :: rest -> (
+        frames := rest;
+        (* Merge local_env into parent frame or global sym_env *)
+        match rest with
+        | parent :: _ ->
+            Hashtbl.iter
+              (fun k v -> Hashtbl.replace parent.local_env k v)
+              frame.local_env
+        | [] ->
+            Hashtbl.iter
+              (fun k v -> Hashtbl.replace sym_env k v)
+              frame.local_env)
+    | [] -> ()
 
-  (* Add per-test mutation result *)
-  let add_per_test_mutation (premise_uid : int)
-      (mutations : mutation_suggestion list) =
-    if !current_test_id <> "" && mutations <> [] then
+  let pop_sym_frame_failure () =
+    match !frames with _ :: rest -> frames := rest | [] -> ()
+
+  (* Lookup in sym_env: check frames from top to bottom, then global *)
+  let lookup_sym (id : string) : sym_expr option =
+    let rec check_frames fs =
+      match fs with
+      | [] -> Hashtbl.find_opt sym_env id
+      | frame :: rest -> (
+          match Hashtbl.find_opt frame.local_env id with
+          | Some v -> Some v
+          | None -> check_frames rest)
+    in
+    check_frames !frames
+
+  (* Bind in current frame's local_env (or global if no frame) *)
+  let bind_sym (id : string) (expr : sym_expr) : unit =
+    match !frames with
+    | frame :: _ -> Hashtbl.replace frame.local_env id expr
+    | [] -> Hashtbl.replace sym_env id expr
+
+  (* Add per-test symbolic mutation result *)
+  let add_per_test_sym_mutation (premise_uid : int)
+      (mutations : sym_mutation list) =
+    if mutations <> [] then
+      let test_id =
+        if !current_test_id <> "" then !current_test_id else "default"
+      in
       let test_table =
-        match Hashtbl.find_opt per_test_results premise_uid with
+        match Hashtbl.find_opt per_test_sym_mutations premise_uid with
         | Some t -> t
         | None ->
             let t = Hashtbl.create 100 in
-            Hashtbl.add per_test_results premise_uid t;
+            Hashtbl.add per_test_sym_mutations premise_uid t;
             t
       in
       let existing =
-        match Hashtbl.find_opt test_table !current_test_id with
+        match Hashtbl.find_opt test_table test_id with
         | Some m -> m
         | None -> []
       in
-      Hashtbl.replace test_table !current_test_id (existing @ mutations)
-
-  let add_result (expr : analyzed_expr) =
-    let rel = !current_relation in
-    let rule = !current_rule in
-    if rel = "" then ()
-    else
-      let rules =
-        match Hashtbl.find_opt results rel with
-        | Some r -> r
-        | None ->
-            let r = Hashtbl.create 20 in
-            Hashtbl.add results rel r;
-            r
-      in
-      let exprs =
-        match Hashtbl.find_opt rules rule with Some e -> e | None -> []
-      in
-      Hashtbl.replace rules rule (exprs @ [ expr ])
+      Hashtbl.replace test_table test_id (existing @ mutations)
 end
+
+(* Initialize the lookup_sym_ref to point to State.lookup_sym *)
+let () = lookup_sym_ref := State.lookup_sym
+
+(* Helper: Bind relation inputs based on static analysis results *)
+let bind_relation_inputs (input_info : Instrumentation_static.Mutator_analysis.relation_input_info) : unit =
+  let bind_state var = State.bind_sym var (SPath { source = State; steps = [] }) in
+  let bind_block var pattern =
+    let path = match pattern with
+      | Instrumentation_static.Mutator_analysis.Custom p -> convert_ma_field_path p
+      | _ -> path_of_block_pattern pattern
+    in
+    State.bind_sym var (SPath path)
+  in
+  match input_info.block_pattern with
+  | Some pattern -> (
+      match input_info.input_var_names with
+      | state_var :: block_var :: _ ->
+          bind_state state_var;
+          bind_block block_var pattern
+      | [var] -> (
+          (* Single input: use heuristic based on pattern type *)
+          match pattern with
+          | Instrumentation_static.Mutator_analysis.FullBlock
+          | Instrumentation_static.Mutator_analysis.BlockMessage ->
+              bind_block var pattern
+          | _ -> bind_state var)
+      | _ -> ())
+  | None ->
+      (* No block pattern: all inputs are state *)
+      List.iter bind_state input_info.input_var_names
 
 (* === Handler Implementation === *)
 
@@ -408,50 +761,71 @@ module M : Instrumentation_core.Handler.S = struct
   let on_test_start ~test_case_id = State.current_test_id := test_case_id
   let on_test_end ~test_case_id:_ = State.current_test_id := ""
 
-  let on_rel_enter ~id ~at:_ ~values =
+  let on_rel_enter ~id ~at:_ ~values:_ =
     State.current_relation := id;
-    State.push_frame ();
-    bind_state_transition_inputs State.env State.relation_inputs id values
+    State.push_sym_frame ();
+    (* Bind inputs using static analysis *)
+    if is_whitelisted id then
+      match Instrumentation_static.Mutator_analysis.get_relation_input_info id with
+      | Some input_info -> bind_relation_inputs input_info
+      | None -> ()
+    else if id = "State_transition" then
+      (* Fallback for State_transition if static analysis didn't capture it *)
+      match Hashtbl.find_opt State.relation_inputs id with
+      | Some (state_var :: block_var :: _) ->
+          State.bind_sym state_var (SPath { source = State; steps = [] });
+          State.bind_sym block_var (SPath { source = Block; steps = [] })
+      | _ -> ()
 
-  let on_rel_exit ~id:_ ~at:_ ~success:_ =
-    State.pop_frame ();
+  let on_rel_exit ~id:_ ~at:_ ~success =
     State.current_relation := "";
     State.current_rule := "";
-    clear_env State.env
+    (* Pop the relation's frame instead of clearing everything *)
+    if success then State.pop_sym_frame_success ()
+    else State.pop_sym_frame_failure ()
 
   let on_rule_enter ~id:_ ~rule_id ~at:_ =
     State.current_rule := rule_id;
-    State.push_frame ()
 
-  let on_rule_exit ~id:_ ~rule_id:_ ~at:_ ~success:_ =
-    State.pop_frame ();
+    State.push_sym_frame ()
+
+  let on_rule_exit ~id:_ ~rule_id:_ ~at:_ ~success =
+    if success then State.pop_sym_frame_success ()
+    else State.pop_sym_frame_failure ();
     State.current_rule := ""
 
   let on_func_enter ~id:_ ~at:_ ~values:_ =
     State.func_depth := !State.func_depth + 1
 
   let on_func_exit ~id:_ ~at:_ = State.func_depth := !State.func_depth - 1
-  let on_clause_enter = Instrumentation_core.Noop.on_clause_enter
-  let on_clause_exit = Instrumentation_core.Noop.on_clause_exit
-  let on_iter_prem_enter = Instrumentation_core.Noop.on_iter_prem_enter
-  let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
-  let on_prem_enter = Instrumentation_core.Noop.on_prem_enter
+  let on_clause_enter ~id:_ ~clause_idx:_ ~at:_ = State.push_sym_frame ()
+
+  let on_clause_exit ~id:_ ~clause_idx:_ ~at:_ ~success =
+    if success then State.pop_sym_frame_success ()
+    else State.pop_sym_frame_failure ()
+
+  let on_iter_prem_enter ~prem ~at:_ =
+    (* Track iteration variables in symbolic environment *)
+    match prem.it with
+    | Il.IterPr (_, (_iter, vars)) ->
+        (* Bind iteration variables to symbolic environment *)
+        List.iter
+          (fun (id, _typ, _) ->
+            (* For now, treat iteration variables as unknown symbolic values *)
+            (* In the future, we could be more specific about their ranges/types *)
+            Hashtbl.replace State.sym_env id.it (SVar id.it))
+          vars
+    | _ -> ()
+
+  let on_iter_prem_exit ~at:_ =
+    (* Note: We don't unbind iteration variables on exit because they might be used
+       in subsequent premises. The symbolic environment persists across the relation. *)
+    ()
+
   let on_instr = Instrumentation_core.Noop.on_instr
 
-  let on_prem_exit ~prem ~at:_ ~success =
-    if success then
-      match prem.it with
-      | Il.LetPr ({ it = Il.VarE id; _ }, rhs) -> (
-          match resolve_to_field_path State.env rhs with
-          | Some path -> bind_source State.env id.it path
-          | None -> ())
-      | _ -> ()
-
-  let on_prem_fields ~prem ~fields:_ ~lookup:_ ~at =
+  let on_prem_enter ~prem ~at =
     State.premise_count := !State.premise_count + 1;
-    if !State.premise_count mod 1000 = 0 then
-      Format.eprintf "\r[Positive] %d premises, %d if-prems, %d skipped...%!"
-        !State.premise_count !State.if_prem_count !State.skipped_count;
 
     if State.in_helper_function () then ()
     else if not (is_whitelisted !State.current_relation) then ()
@@ -464,78 +838,116 @@ module M : Instrumentation_core.Handler.S = struct
         State.mark_seen loc;
         State.if_prem_count := !State.if_prem_count + 1;
         match prem.it with
-        | Il.IfPr exp -> (
-            let analyzed = analyze_expression State.env exp in
-            State.add_result analyzed;
-            State.add_condition analyzed;
-            (* Extract mutations and add per-test result *)
-            match analyzed with
-            | Comparison cmp -> (
-                let mutations = extract_mutation_suggestions cmp in
-                let key = Premise_uid.prem_key prem in
-                match Premise_uid.get_uid key with
-                | Some uid -> State.add_per_test_mutation uid mutations
-                | None -> ())
-            | _ -> ())
-        | Il.IterPr ({ it = Il.IfPr exp; _ }, _) -> (
-            let analyzed = analyze_expression State.env exp in
-            State.add_result analyzed;
-            State.add_condition analyzed;
-            match analyzed with
-            | Comparison cmp -> (
-                let mutations = extract_mutation_suggestions cmp in
-                let key = Premise_uid.prem_key prem in
-                match Premise_uid.get_uid key with
-                | Some uid -> State.add_per_test_mutation uid mutations
-                | None -> ())
-            | _ -> ())
+        | Il.IfPr exp ->
+            (* Strip negation and bool_eq wrappers *)
+            let exp1, _neg1 = strip_negation exp in
+            let exp2, _neg2 = strip_bool_eq exp1 in
+            (* Extract symbolic mutations directly from expression *)
+            let sym_mutations = extract_symbolic_mutations State.sym_env exp2 in
+            let prem_key = Premise_uid.prem_key prem in
+            let uid = Premise_uid.assign_uid prem_key in
+            State.add_per_test_sym_mutation uid sym_mutations
+        | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
+            let exp1, _neg1 = strip_negation exp in
+            let exp2, _neg2 = strip_bool_eq exp1 in
+            let sym_mutations = extract_symbolic_mutations State.sym_env exp2 in
+            let prem_key = Premise_uid.prem_key prem in
+            let uid = Premise_uid.assign_uid prem_key in
+            State.add_per_test_sym_mutation uid sym_mutations
         | _ -> ())
 
+  let on_prem_exit ~prem ~at:_ ~success =
+    if success then
+      (* Mutation extraction happens in on_prem_enter. Here we handle variable bindings. *)
+      match prem.it with
+      (* Bind symbolic expression for let premises *)
+      | Il.LetPr ({ it = Il.VarE id; _ }, rhs) ->
+          let sym = resolve_to_sym_expr State.sym_env rhs in
+          Hashtbl.replace State.sym_env id.it sym
+      (* Handle IterPr(LetPr) - nested let bindings in iterations *)
+      | Il.IterPr ({ it = Il.LetPr ({ it = Il.VarE id; _ }, rhs); _ }, _) ->
+          let sym = resolve_to_sym_expr State.sym_env rhs in
+          Hashtbl.replace State.sym_env id.it sym
+      (* Handle rule premises with mutator detection *)
+      | Il.RulePr (id, (_, args)) -> (
+          match
+            Instrumentation_static.Mutator_analysis.get_mutator_info id.it
+          with
+          | Some mutator_info ->
+              (* Mutator: resolve first arg and create SUpdate *)
+              let base_sym =
+                match args with
+                | arg :: _ -> resolve_to_sym_expr State.sym_env arg
+                | [] -> SUnknown "no_args"
+              in
+              let converted_paths =
+                List.map convert_ma_field_path mutator_info.mutated_paths
+              in
+              let _result_sym = SUpdate (base_sym, converted_paths) in
+              (* Bind result to a synthetic variable if needed *)
+              (* For now, we don't bind rule results as they're not assigned to variables *)
+              ()
+          | None ->
+              (* Getter or unknown: treat as function call *)
+              ())
+      | _ -> ()
+    else
+      (* On failure, we don't accumulate dependencies or update bindings *)
+      ()
+
+  (* Noop - logic moved to on_prem_enter *)
+  let on_prem_fields = Instrumentation_core.Noop.on_prem_fields
+
   let finish () =
-    Format.fprintf !fmt "\n=== Positive Dependencies ===\n\n";
-    Hashtbl.iter
-      (fun rel rules ->
-        Format.fprintf !fmt "relation %s\n" rel;
-        Hashtbl.iter
-          (fun rule exprs ->
-            Format.fprintf !fmt "  rule %s\n" rule;
-            List.iter
-              (fun expr ->
-                Format.fprintf !fmt "    %s\n" (string_of_analyzed expr))
-              exprs)
-          rules;
-        Format.fprintf !fmt "\n")
-      State.results
+    Format.fprintf !fmt "\n=== Symbolic Mutations ===\n\n";
+    (* Print symbolic mutations organized by premise UID *)
+    let entries =
+      Hashtbl.fold
+        (fun uid tests acc -> (uid, tests) :: acc)
+        State.per_test_sym_mutations []
+    in
+    let sorted =
+      List.sort (fun (uid1, _) (uid2, _) -> compare uid1 uid2) entries
+    in
+    if sorted = [] then Format.fprintf !fmt "(no symbolic mutations found)\n\n"
+    else
+      List.iter
+        (fun (uid, tests) ->
+          Format.fprintf !fmt "premise %d:\n" uid;
+          Hashtbl.iter
+            (fun test_id muts ->
+              Format.fprintf !fmt "  test %s:\n" test_id;
+              List.iter
+                (fun mut ->
+                  Format.fprintf !fmt "    %s\n" (string_of_sym_mutation mut))
+                muts)
+            tests;
+          Format.fprintf !fmt "\n")
+        sorted;
+    Format.pp_print_flush !fmt ()
 end
 
 (* Result type for programmatic access *)
 type result = {
-  per_test_mutations : (int * (string * mutation_suggestion list) list) list;
-      (* premise_uid -> test_id -> mutations *)
+  per_test_sym_mutations : (int * (string * sym_mutation list) list) list;
+      (* premise_uid -> test_id -> sym_mutation list *)
 }
 
 let get_result () =
-  let per_test_mutations =
-    Hashtbl.fold
-      (fun uid test_table acc ->
-        let test_muts =
-          Hashtbl.fold (fun tid muts acc -> (tid, muts) :: acc) test_table []
-        in
-        (uid, test_muts) :: acc)
-      State.per_test_results []
-  in
-  { per_test_mutations }
+  {
+    per_test_sym_mutations =
+      Hashtbl.fold
+        (fun uid tests acc ->
+          let test_list =
+            Hashtbl.fold
+              (fun test_id muts sub_acc -> (test_id, muts) :: sub_acc)
+              tests []
+          in
+          (uid, test_list) :: acc)
+        State.per_test_sym_mutations [];
+  }
 
-let restore result =
-  Hashtbl.clear State.per_test_results;
-  List.iter
-    (fun (uid, test_muts) ->
-      let test_table = Hashtbl.create 100 in
-      List.iter
-        (fun (tid, muts) -> Hashtbl.replace test_table tid muts)
-        test_muts;
-      Hashtbl.replace State.per_test_results uid test_table)
-    result.per_test_mutations
+let restore (_result : result) = ()
 
 module HandlerWithData :
   Instrumentation_core.Handler.S_with_data with type result = result = struct
@@ -547,18 +959,21 @@ module HandlerWithData :
   let restore = restore
 end
 
-let make cfg : (module Instrumentation_core.Handler.S) =
-  Instrumentation_static.Static.register
+(* Declare static analysis dependencies *)
+let static_dependencies () =
+  [
     (module Instrumentation_static.Premise_uid.Premise_uid
     : Instrumentation_static.Static.S);
+    (module Instrumentation_static.Mutator_analysis.Mutator_analysis
+    : Instrumentation_static.Static.S);
+  ]
+
+let make cfg : (module Instrumentation_core.Handler.S) =
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   (module M)
 
 let make_with_data cfg =
-  Instrumentation_static.Static.register
-    (module Instrumentation_static.Premise_uid.Premise_uid
-    : Instrumentation_static.Static.S);
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   ( (module HandlerWithData : Instrumentation_core.Handler.S_with_data
