@@ -38,9 +38,9 @@ let default =
 (* TODO: generalize *)
 let register_static_dependencies config =
   let deps =
-    (match config.node_coverage with
+    match config.node_coverage with
     | None -> []
-    | Some _ -> Node_coverage_il.static_dependencies ())
+    | Some _ -> Node_coverage_il.static_dependencies ()
   in
   (* Register all dependencies (idempotent register() handles deduplication) *)
   List.iter
