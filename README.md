@@ -21,46 +21,15 @@ ETH-SpecTec is a SpecTec implementation of the official Ethereum 2.0 Consensus S
 * Clone the repository with submodules:
   ```bash
   git clone --recursive https://github.com/GyeongMinDan/eth-spectec.git
-  cd eth-spectec
+  cd eth-spectec/spectec-core
   ```
   Or if you already cloned without `--recursive`:
   ```bash
   git submodule update --init --recursive
+  cd spectec-core
   ```
 
-* Configure sparse-checkout for consensus-specs submodule (to download only necessary files):
-  ```bash
-  cd consensus-specs
-  git sparse-checkout init --cone
-  git sparse-checkout set tests/core/pyspec specs/ configs/ presets/ pysetup/ sync/ .
-  cd ..
-  ```
- The directories `configs/`, `presets/`, `pysetup/`, and `sync/` are required for building.
-
-* Install `uv` (if you already got this, you can skip it):
-  ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
-  Or on macOS with Homebrew:
-  ```bash
-  brew install uv
-  ```
-
-* Build the Python specification files (required for mainnet.py, minimal.py):
-  ```bash
-  cd consensus-specs
-  make _pyspec
-  cd ..
-  ```
-  This generates the `mainnet.py` and `minimal.py` files needed by the Converter scripts.
-  
-  **Note:** `make _pyspec` runs inside the `consensus-specs/.venv` virtual environment (created by `uv sync`). The generated files are used by Converter scripts which run in your system Python environment. The virtual environment is only needed for building, not for running the Converter scripts.
-
-* Install Python dependencies:
-  ```bash
-  pip install -r requirements.txt
-  ```
-  This installs `remerkleable` which is required for SSZ serialization/deserialization.
+**For Differential Testing:** We recommend using Docker for a reproducible environment. See the [Docker Setup](#1-docker-setup) section below for instructions. All client builds, dependencies, and coverage tools are automatically handled by the Dockerfile.
 
 
 ### Building the Project
@@ -71,21 +40,9 @@ make exe
 
 This creates an executable `spectec-core` in the project root.
 
-## Testing Scripts
-
-### 1. init_beaconnode.sh
-
-**Environment:**
-- Tested on: Ubuntu 22.04 LTS (WSL2, x86_64)
-- Minimum requirement: Debian/Ubuntu-based Linux with `apt` package manager
-- Recommended: Ubuntu 22.04 LTS or later (OpenJDK 21 is required, which may require additional setup on Ubuntu 20.04)
-
-Sets up and builds all Ethereum 2.0 client implementations (Lighthouse, Prysm, Nimbus, Teku, Lodestar) for differential testing. This script automatically applies necessary code modifications and rebuilds the clients.
-
 **Usage:**
 ```bash
 cd spectec-core
-bash init_beaconnode.sh
 # print out the IL representation of a SpecTec spec
 ./spectec-core elab spec/*.spectec
 # print the SL representation of a SpecTec spec
@@ -111,8 +68,28 @@ make test
 
 **Note:** This script must be run from the `spectec-core` directory.
 
+
+## Testing Scripts
+
+### 1. Docker Setup
+
+**Environment:**
+- **Base Image:** Ubuntu 22.04 LTS
+- **Requirements:** Docker installed on your system
+- **Platform:** Linux (x86_64), macOS, or Windows with WSL2
+
+The Dockerfile provides a reproducible, isolated environment for building and testing all Ethereum 2.0 client implementations (Lighthouse, Prysm, Nimbus, Teku, Lodestar) with coverage instrumentation support.
+
 **What it does:**
-1. Installs dependencies (Rust, Java, Bazel, Node.js, etc.)
+1. Installs all required dependencies:
+   - Rust (stable + nightly with llvm-tools-preview)
+   - Go 1.24.2 (for Prysm)
+   - Java 21 (OpenJDK for Teku)
+   - Bazel 7.4.1 (for Prysm)
+   - Node.js 20 (for Lodestar)
+   - Nim 1.6.20 (for Nimbus)
+   - Python 3 with dependencies (including snappy for decompression)
+   - Coverage tools: lcov, go-bcov, llvm-profdata, JaCoCo, c8
 2. Clones and builds client implementations:
    - Lighthouse (v8.0.0)
    - Prysm (v7.0.0)
@@ -120,22 +97,25 @@ make test
    - Teku (25.11.0)
    - Lodestar (v1.36.0)
 3. Applies code modifications for differential testing compatibility:
-   - **Lighthouse**: 
-     - Comments out cache-related assertions (all_caches_built, indexed attestation cache)
-     - Adds state root verification (compares computed post-state root with block's state root)
-   - **Prysm**: 
-     - Adds pure Capella config as default network configuration
-     - Adds post-state saving functionality
-     - Adds state root verification (compares computed post-state root with block's state root)
-   - **Nimbus**: 
-     - Overrides fork epochs for pure Capella network (CAPELLA_FORK_EPOCH = 0)
-   - **Lodestar**: 
-     - Comments out `postState.commit()` calls
-4. Rebuilds clients after modifications
+   - **Lighthouse**: Comments out cache-related assertions, adds state root verification
+   - **Prysm**: Adds pure Capella config, post-state saving, state root verification
+   - **Nimbus**: Overrides fork epochs for pure Capella network
+   - **Lodestar**: Comments out `postState.commit()` calls
+4. Builds both base binaries and coverage-instrumented binaries
 
-**Note:** After running this script, all clients are ready for differential testing. You only need test cases (pre.ssz and blocks_*.ssz files) to run `diff_testing.py`.
+**Build Docker Images:**
 
-**Code Modifications:** See [CLIENT_CODE_MODIFICATIONS.md](CLIENT_CODE_MODIFICATIONS.md) for detailed information about the code changes applied to each client.
+```bash
+# Build base environment (clones and builds original clients)
+docker build -t eth2test:base --target base .
+
+# Build with coverage binaries (recommended for coverage testing)
+docker build -t eth2test:coverage --target coverage .
+```
+
+**Note:** The build process takes a significant amount of time (approximately 6000s on MacBook Pro 19) as it builds all clients from source. Docker layer caching will speed up subsequent builds if only code changes are made.
+
+**Note:** After building the Docker image, all clients are ready for differential testing. You only need test cases (pre.ssz and blocks_*.ssz files) to run `diff_testing.py`.
 
 ### 2. diff_testing.py
 
@@ -162,7 +142,46 @@ Performs differential testing across multiple Ethereum 2.0 clients (Lighthouse, 
   - Subsequent blocks use the previous block's postState as their pre state
   - Useful for testing chained state transitions across multiple blocks
 
-**Usage:**
+**Usage (Docker):**
+
+```bash
+# Basic usage with coverage (results saved to local ./results directory)
+docker run --rm -it \
+  -v "$(pwd)/results:/workspace/spectec-core/results" \
+  eth2test:coverage \
+  bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
+    --test-suite Converter/OfficialTestSuite/capella/sanity/blocks/pyspec_tests \
+    --test-type state-transition \
+    --workflow sequential \
+    --fork-version capella \
+    --output-base ./results/coverage_sanity_block_test \
+    --enable-coverage \
+    --cleanup-after-report'
+
+# Test suite mode (independent mode, default)
+docker run --rm -it \
+  -v "$(pwd)/results:/workspace/spectec-core/results" \
+  eth2test:coverage \
+  bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
+    --test-suite Converter/OfficialTestSuite/capella/sanity/slots/pyspec_tests \
+    --test-type sanity-slots \
+    --fork-version capella \
+    --output-base ./results/coverage_sanity_slot_test \
+    --enable-coverage'
+
+# Generate final accumulated coverage report (after running multiple test suites)
+docker run --rm -it \
+  -v "$(pwd)/results:/workspace/spectec-core/results" \
+  eth2test:coverage \
+  bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
+    --generate-final-coverage \
+    ./results/coverage_suite1 \
+    ./results/coverage_suite2 \
+    --final-output-dir ./results/final_coverage_report'
+```
+
+**Usage (Local - if clients are built locally):**
+
 ```bash
 # Test suite mode (independent mode, default)
 python diff_testing.py --test-suite Converter/OfficialTestSuite/random
@@ -182,8 +201,14 @@ python diff_testing.py <beaconstate_dir> <block_dir> <output_dir> --workflow seq
 
 **Options:**
 - `--test-suite <dir>`: Test suite directory (automatically finds all subdirectories containing `pre.ssz` or `pre.ssz_snappy` files)
+- `--test-type <type>`: Test type (`state-transition`, `sanity-slots`, `epoch-processing`, `operation`)
+- `--fork-version <version>`: Fork version (`capella` or `deneb`)
 - `--output-base <dir>`: (Optional) Base output directory (default: `test_suite_dir/client_results`)
 - `--workflow <mode>`: Test workflow mode (`independent` or `sequential`, default: `independent`)
+- `--enable-coverage`: Enable coverage measurement for all clients
+- `--cleanup-after-report`: Delete original coverage data files after generating reports
+- `--generate-final-coverage`: Generate accumulated coverage report from multiple test suite results
+- `--final-output-dir <dir>`: Output directory for final accumulated coverage report
 
 **Note:** When using `--test-suite` with `OfficialTestSuite` directories containing `.ssz_snappy` files, the script automatically:
 1. Finds all test case directories containing `pre.ssz_snappy`
@@ -198,17 +223,23 @@ python diff_testing.py <beaconstate_dir> <block_dir> <output_dir> --workflow seq
   - `Output_Time_*.csv`: Execution time for each client
   - `Output_Status_*.csv`: Status code for each client
   - `Differences_*.csv`: SSZ file differences between clients (core result showing where clients disagree)
+- Coverage reports (when `--enable-coverage` is used):
+  - Per-test-case coverage: `<output_dir>/<test_case>/<client>/report/`
+  - Accumulated coverage: `<output_dir>/total-node-coverage/<client>/report/`
+  - Final accumulated coverage: `<final_output_dir>/<client>/report/` (when using `--generate-final-coverage`)
 
 **Note:** 
 - SSZ file comparison across clients is always performed automatically
 - The `Differences_*.csv` file is the primary result showing where clients disagree on state transition results
-- **Teku behavior**: Teku creates empty SSZ files on failure. The script automatically removes these empty files to ensure accurate comparison results.
+- **Teku behavior**: Teku creates empty SSZ files on failure. The script automatically removes these empty files to ensure accurate comparison results
+- When using Docker, all output files are saved to the local `./results/` directory via volume mount
+- Coverage data files are automatically cleaned up when `--cleanup-after-report` is used
 
 **Prerequisites:**
-- Run `init_beaconnode.sh` first to build all clients
+- Build Docker image: `docker build -t eth2test:coverage --target coverage .`
 - Test cases with `pre.ssz`/`pre.ssz_snappy` and `blocks_*.ssz`/`blocks_*.ssz_snappy` files
 
-**Note:** This script requires the modified clients built by `init_beaconnode.sh`. The modifications ensure compatibility across different client implementations for differential testing.
+**Note:** This script requires the modified clients built by the Dockerfile. The modifications ensure compatibility across different client implementations for differential testing. The Docker environment provides a reproducible setup with all necessary dependencies and coverage tools pre-installed.
 
 ### License
 
