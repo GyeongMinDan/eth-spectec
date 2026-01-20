@@ -61,8 +61,8 @@ type sym_env = (string, sym_expr) Hashtbl.t
 type sym_mutation = {
   target_path : field_path option; (* None if unresolved *)
   suggestion : mutation_kind;
+  mutation_target : mutation_target; (* What aspect to mutate *)
   debug_info : string option;
-      (* Debug info about why mutation was generated or not *)
 }
 
 and mutation_kind =
@@ -291,7 +291,14 @@ let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
 (* Extract all field paths from a symbolic expression *)
 let rec extract_paths_from_sym_expr (sym : sym_expr) : field_path list =
   match sym with
-  | SVar _ -> [] (* Variables don't have paths directly *)
+  | SVar var_name ->
+      (* Check if it's an epoch-related variable *)
+      if
+        String.starts_with ~prefix:"epoch" var_name
+        || var_name = "current_epoch"
+        || String.ends_with ~suffix:"_epoch" var_name
+      then [ { source = State; steps = [ FieldAccess "SLOT" ] } ]
+      else [] (* Other variables don't have paths directly *)
   | SPath p -> [ p ]
   | SBinOp (_, _, s1, s2) ->
       extract_paths_from_sym_expr s1 @ extract_paths_from_sym_expr s2
@@ -427,6 +434,35 @@ let resolve_comparison_lhs (sym_env : sym_env) (lhs_exp : Il.exp) :
       let paths = extract_paths_from_sym_expr lhs_sym in
       match paths with p :: _ -> Some p | [] -> None)
 
+(* Over-approximate LHS resolution: returns a LIST of field paths.
+   Used when precise resolution fails. Expands function calls to their
+   input dependencies, and arithmetic expressions to their component paths. *)
+let resolve_comparison_lhs_overapprox (sym_env : sym_env) (lhs_exp : Il.exp) :
+    field_path list =
+  let lhs_sym = resolve_to_sym_expr sym_env lhs_exp in
+  match lhs_sym with
+  | SPath p -> [ p ] (* Precise: single path *)
+  | SCall (_func_name, args) ->
+      (* Extract paths from function arguments via sym_env resolution *)
+      (* The args are already sym_expr from the environment, so just extract paths *)
+      List.concat_map extract_paths_from_sym_expr args
+  | SBinOp (_, _, s1, s2) ->
+      (* Arithmetic: extract all paths from both operands *)
+      extract_paths_from_sym_expr s1 @ extract_paths_from_sym_expr s2
+  | SUnOp (_, _, s) -> extract_paths_from_sym_expr s
+  | SVar var_name ->
+      (* Unbound variable: check if it's epoch-related or loop index *)
+      if
+        String.starts_with ~prefix:"epoch" var_name
+        || var_name = "current_epoch"
+        || String.ends_with ~suffix:"_epoch" var_name
+      then [ { source = State; steps = [ FieldAccess "SLOT" ] } ]
+      else if var_name = "i" || String.starts_with ~prefix:"vid" var_name then
+        (* Loop index - will be handled by extracting from RHS *)
+        []
+      else []
+  | _ -> extract_paths_from_sym_expr lhs_sym
+
 (* Resolve RHS expression to symbolic expression *)
 let resolve_comparison_rhs (sym_env : sym_env) (rhs_exp : Il.exp) : sym_expr =
   resolve_to_sym_expr sym_env rhs_exp
@@ -434,44 +470,95 @@ let resolve_comparison_rhs (sym_env : sym_env) (rhs_exp : Il.exp) : sym_expr =
 (* Generate mutations for a function call RHS *)
 let handle_function_call_rhs (target_path : field_path) (func_name : string)
     (args : sym_expr list) (rhs_exp : Il.exp) : sym_mutation list =
-  match func_name with
-  | "ZERO_ROOT" when args = [] ->
-      (* ZERO_ROOT is a constant - suggest setting LHS to it *)
-      [
-        {
-          target_path = Some target_path;
-          suggestion = ToValue (SCall (func_name, args));
-          debug_info = None;
-        };
-      ]
-  | "hash_tree_root_beaconBlockHeader" ->
-      [
-        {
-          target_path = Some target_path;
-          suggestion =
-            Unresolved
-              (Printf.sprintf "RHS: complex hash function %s" func_name);
-          debug_info = Some (Il.Print.string_of_exp rhs_exp);
-        };
-      ]
-  | "get_randao_mix" | "compute_time_at_slot" ->
-      [
-        {
-          target_path = Some target_path;
-          suggestion =
-            Unresolved (Printf.sprintf "RHS: computed value from %s" func_name);
-          debug_info = Some (Il.Print.string_of_exp rhs_exp);
-        };
-      ]
-  | _ ->
-      [
-        {
-          target_path = Some target_path;
-          suggestion =
-            Unresolved (Printf.sprintf "RHS: function call %s" func_name);
-          debug_info = Some (Il.Print.string_of_exp rhs_exp);
-        };
-      ]
+  (* No-arg functions are constants *)
+  if args = [] then
+    [
+      {
+        target_path = Some target_path;
+        mutation_target = Value;
+        suggestion = ToValue (SCall (func_name, args));
+        debug_info = Some (Printf.sprintf "Constant: $%s()" func_name);
+      };
+    ]
+  else
+    match func_name with
+    | "ZERO_ROOT" ->
+        (* ZERO_ROOT is a constant even with args *)
+        [
+          {
+            target_path = Some target_path;
+            mutation_target = Value;
+            suggestion = ToValue (SCall (func_name, args));
+            debug_info = None;
+          };
+        ]
+    | "hash_tree_root_beaconBlockHeader" ->
+        [
+          {
+            target_path = Some target_path;
+            mutation_target = Value;
+            suggestion =
+              Unresolved
+                (Printf.sprintf "RHS: complex hash function %s" func_name);
+            debug_info = Some (Il.Print.string_of_exp rhs_exp);
+          };
+        ]
+    | "get_randao_mix" | "compute_time_at_slot" ->
+        (* Over-approximate: extract paths from arguments *)
+        let arg_paths = List.concat_map extract_paths_from_sym_expr args in
+        if arg_paths = [] then
+          [
+            {
+              target_path = Some target_path;
+              mutation_target = Value;
+              suggestion =
+                Unresolved
+                  (Printf.sprintf "RHS: computed value from %s" func_name);
+              debug_info = Some (Il.Print.string_of_exp rhs_exp);
+            };
+          ]
+        else
+          (* Generate mutations for argument paths *)
+          List.map
+            (fun arg_path ->
+              {
+                target_path = Some arg_path;
+                mutation_target = Value;
+                suggestion = ToValue (SUnknown "affects-rhs");
+                debug_info =
+                  Some (Printf.sprintf "From %s arg (affects RHS)" func_name);
+              })
+            arg_paths
+    | _ ->
+        (* Unknown function: over-approximate by extracting argument paths *)
+        let arg_paths = List.concat_map extract_paths_from_sym_expr args in
+        if arg_paths = [] then
+          [
+            {
+              target_path = Some target_path;
+              mutation_target = Value;
+              suggestion =
+                Unresolved (Printf.sprintf "RHS: function call %s" func_name);
+              debug_info = Some (Il.Print.string_of_exp rhs_exp);
+            };
+          ]
+        else
+          (* Return both target and argument paths *)
+          {
+            target_path = Some target_path;
+            mutation_target = Value;
+            suggestion = ToValue (SCall (func_name, args));
+            debug_info = Some (Printf.sprintf "RHS: $%s(...)" func_name);
+          }
+          :: List.map
+               (fun arg_path ->
+                 {
+                   mutation_target = Value;
+                   target_path = Some arg_path;
+                   suggestion = ToValue (SUnknown "affects-rhs");
+                   debug_info = Some (Printf.sprintf "From %s arg" func_name);
+                 })
+               arg_paths
 
 (* Generate mutations based on comparison operator and RHS *)
 let generate_mutations (target_path : field_path) (rhs_sym : sym_expr)
@@ -482,6 +569,7 @@ let generate_mutations (target_path : field_path) (rhs_sym : sym_expr)
       [
         {
           target_path = Some target_path;
+          mutation_target = Value;
           suggestion = ToValue (SConst v);
           debug_info = None;
         };
@@ -493,6 +581,7 @@ let generate_mutations (target_path : field_path) (rhs_sym : sym_expr)
           [
             {
               target_path = Some target_path;
+              mutation_target = Value;
               suggestion = ToValue rhs_sym;
               debug_info = None;
             };
@@ -501,6 +590,7 @@ let generate_mutations (target_path : field_path) (rhs_sym : sym_expr)
           [
             {
               target_path = Some target_path;
+              mutation_target = Value;
               suggestion = ToRelation (cmp_op, rhs_sym);
               debug_info = None;
             };
@@ -509,16 +599,37 @@ let generate_mutations (target_path : field_path) (rhs_sym : sym_expr)
       [
         {
           target_path = Some target_path;
+          mutation_target = Value;
           suggestion = Unresolved (Printf.sprintf "RHS: %s" reason);
           debug_info = Some (Il.Print.string_of_exp rhs_exp);
         };
       ]
   | SCall (func_name, args) ->
-      handle_function_call_rhs target_path func_name args rhs_exp
+      (* Special handling for length expressions *)
+      if func_name = "len" then
+        (* Extract the collection path from len argument *)
+        let collection_paths =
+          List.concat_map extract_paths_from_sym_expr args
+        in
+        if collection_paths = [] then
+          handle_function_call_rhs target_path func_name args rhs_exp
+        else
+          (* Mutating the collection affects its length *)
+          List.map
+            (fun coll_path ->
+              {
+                target_path = Some coll_path;
+                mutation_target = CollectionLength;
+                suggestion = ToValue (SUnknown "collection-length");
+                debug_info = Some "Mutate collection to change length";
+              })
+            collection_paths
+      else handle_function_call_rhs target_path func_name args rhs_exp
   | _ ->
       [
         {
           target_path = Some target_path;
+          mutation_target = CollectionLength;
           suggestion =
             Unresolved
               (Printf.sprintf "RHS type: %s" (string_of_sym_expr rhs_sym));
@@ -542,6 +653,7 @@ let handle_boolean_field (sym_env : sym_env) (exp : Il.exp) : sym_mutation list
       [
         {
           target_path = None;
+          mutation_target = Value;
           suggestion =
             Unresolved
               (Printf.sprintf "Boolean field LHS unresolved: %s"
@@ -554,6 +666,7 @@ let handle_boolean_field (sym_env : sym_env) (exp : Il.exp) : sym_mutation list
       [
         {
           target_path = Some target_path;
+          mutation_target = Value;
           suggestion = ToValue (SConst (Il.Value.Make.bool Il.Typ.bool false));
           debug_info =
             Some
@@ -561,37 +674,110 @@ let handle_boolean_field (sym_env : sym_env) (exp : Il.exp) : sym_mutation list
         };
       ]
 
-(* Extract symbolic mutation suggestions from a comparison expression.
-   Takes the raw Il.exp (should be CmpE after stripping bool wrappers). *)
 let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
     sym_mutation list =
   match exp.it with
   | Il.CmpE (op, _, lhs_exp, rhs_exp) -> (
-      (* Resolve LHS to field path *)
+      (* First try precise LHS resolution *)
       match resolve_comparison_lhs sym_env lhs_exp with
-      | None ->
-          (* LHS couldn't be resolved to a path *)
+      | Some target_path ->
+          (* Precise resolution succeeded *)
+          let rhs_sym = resolve_comparison_rhs sym_env rhs_exp in
+          let cmp_op = convert_cmpop op in
+          generate_mutations target_path rhs_sym cmp_op rhs_exp
+      | None -> (
+          (* Precise failed - try over-approximation *)
+          let overapprox_paths =
+            resolve_comparison_lhs_overapprox sym_env lhs_exp
+          in
+          match overapprox_paths with
+          | [] ->
+              (* Over-approximation also failed *)
+              [
+                {
+                  target_path = None;
+                  mutation_target = Value;
+                  suggestion =
+                    Unresolved
+                      (Printf.sprintf "LHS unresolved: %s"
+                         (Il.Print.string_of_exp lhs_exp));
+                  debug_info = Some (Il.Print.string_of_exp exp);
+                };
+              ]
+          | paths ->
+              (* Generate mutations for all over-approximated paths *)
+              let rhs_sym = resolve_comparison_rhs sym_env rhs_exp in
+              let cmp_op = convert_cmpop op in
+              List.concat_map
+                (fun target_path ->
+                  generate_mutations target_path rhs_sym cmp_op rhs_exp)
+                paths))
+  | Il.DotE _ | Il.IdxE _ -> handle_boolean_field sym_env exp
+  | Il.CallE (func_id, _, args) ->
+      (* Verification functions: expand to argument paths *)
+      let func_name = func_id.it in
+      let arg_paths =
+        List.concat_map
+          (fun arg ->
+            match arg.it with
+            | Il.ExpA e ->
+                let sym = resolve_to_sym_expr sym_env e in
+                extract_paths_from_sym_expr sym
+            | Il.DefA _ -> [])
+          args
+      in
+      if arg_paths = [] then
+        [
+          {
+            target_path = None;
+            mutation_target = Value;
+            suggestion =
+              Unresolved
+                (Printf.sprintf "Function %s with no resolvable args" func_name);
+            debug_info = Some (Il.Print.string_of_exp exp);
+          };
+        ]
+      else
+        (* Generate mutation for each argument path *)
+        List.map
+          (fun path ->
+            {
+              target_path = Some path;
+              mutation_target = Value;
+              suggestion = ToValue (SUnknown "verification-related");
+              debug_info = Some (Printf.sprintf "From %s arg" func_name);
+            })
+          arg_paths
+  | Il.VarE id -> (
+      (* Bare variable as boolean expression *)
+      let lhs_sym = resolve_to_sym_expr sym_env exp in
+      let paths = extract_paths_from_sym_expr lhs_sym in
+      match paths with
+      | [] ->
           [
             {
               target_path = None;
-              suggestion =
-                Unresolved
-                  (Printf.sprintf "LHS unresolved: %s"
-                     (Il.Print.string_of_exp lhs_exp));
-              debug_info = Some (Il.Print.string_of_exp exp);
+              mutation_target = Value;
+              suggestion = Unresolved (Printf.sprintf "Bool var: %s" id.it);
+              debug_info = None;
             };
           ]
-      | Some target_path ->
-          (* Resolve RHS and generate mutations *)
-          let rhs_sym = resolve_comparison_rhs sym_env rhs_exp in
-          let cmp_op = convert_cmpop op in
-          generate_mutations target_path rhs_sym cmp_op rhs_exp)
-  | Il.DotE _ | Il.IdxE _ -> handle_boolean_field sym_env exp
+      | _ ->
+          List.map
+            (fun path ->
+              {
+                target_path = Some path;
+                mutation_target = Value;
+                suggestion = ToValue (SUnknown "toggle-boolean");
+                debug_info = Some (Printf.sprintf "Bool var: %s" id.it);
+              })
+            paths)
   | _ ->
       (* Not a comparison expression or handled boolean field *)
       [
         {
           target_path = None;
+          mutation_target = Value;
           suggestion =
             Unresolved
               (Printf.sprintf "Not handled: %s" (Il.Print.string_of_exp exp));
@@ -718,11 +904,17 @@ end
 let () = lookup_sym_ref := State.lookup_sym
 
 (* Helper: Bind relation inputs based on static analysis results *)
-let bind_relation_inputs (input_info : Instrumentation_static.Mutator_analysis.relation_input_info) : unit =
-  let bind_state var = State.bind_sym var (SPath { source = State; steps = [] }) in
+let bind_relation_inputs
+    (input_info : Instrumentation_static.Mutator_analysis.relation_input_info) :
+    unit =
+  let bind_state var =
+    State.bind_sym var (SPath { source = State; steps = [] })
+  in
   let bind_block var pattern =
-    let path = match pattern with
-      | Instrumentation_static.Mutator_analysis.Custom p -> convert_ma_field_path p
+    let path =
+      match pattern with
+      | Instrumentation_static.Mutator_analysis.Custom p ->
+          convert_ma_field_path p
       | _ -> path_of_block_pattern pattern
     in
     State.bind_sym var (SPath path)
@@ -733,7 +925,7 @@ let bind_relation_inputs (input_info : Instrumentation_static.Mutator_analysis.r
       | state_var :: block_var :: _ ->
           bind_state state_var;
           bind_block block_var pattern
-      | [var] -> (
+      | [ var ] -> (
           (* Single input: use heuristic based on pattern type *)
           match pattern with
           | Instrumentation_static.Mutator_analysis.FullBlock
@@ -766,7 +958,9 @@ module M : Instrumentation_core.Handler.S = struct
     State.push_sym_frame ();
     (* Bind inputs using static analysis *)
     if is_whitelisted id then
-      match Instrumentation_static.Mutator_analysis.get_relation_input_info id with
+      match
+        Instrumentation_static.Mutator_analysis.get_relation_input_info id
+      with
       | Some input_info -> bind_relation_inputs input_info
       | None -> ()
     else if id = "State_transition" then
@@ -826,6 +1020,10 @@ module M : Instrumentation_core.Handler.S = struct
 
   let on_prem_enter ~prem ~at =
     State.premise_count := !State.premise_count + 1;
+    (* Progress indicator *)
+    if !State.premise_count mod 500 = 0 then
+      Format.eprintf "\r[Positive] %d premises, %d if-prems, %d skipped...%!"
+        !State.premise_count !State.if_prem_count !State.skipped_count;
 
     if State.in_helper_function () then ()
     else if not (is_whitelisted !State.current_relation) then ()
