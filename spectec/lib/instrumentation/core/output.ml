@@ -12,12 +12,17 @@
 type t =
   | Stdout
   | File of { path : string; mutable channel : out_channel option }
+  | Quiet
 
 let stdout = Stdout
 let file path = File { path; channel = None }
+let quiet = Quiet
 
 let formatter = function
   | Stdout -> Format.std_formatter
+  | Quiet ->
+      Format.make_formatter (fun _ _ _ -> ()) (fun () -> ())
+      (* No-op formatter *)
   | File f -> (
       match f.channel with
       | Some oc -> Format.formatter_of_out_channel oc
@@ -37,7 +42,7 @@ let formatter = function
           fmt)
 
 let close = function
-  | Stdout -> ()
+  | Stdout | Quiet -> ()
   | File f -> (
       match f.channel with
       | Some oc ->

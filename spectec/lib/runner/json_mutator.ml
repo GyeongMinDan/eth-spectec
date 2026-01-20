@@ -52,6 +52,10 @@ let rec get_field (json : t) (path : field_path) : t option =
   | _, [] -> Some json
   | _ -> None
 
+(* Get value at path for reporting - wrapper around get_field *)
+let get_value_at_path (json : t) (path : field_path) : t option =
+  get_field json path
+
 (* Set a field in JSON using a path *)
 let rec set_field (json : t) (path : field_path) (value : t) : t =
   match (json, path) with
@@ -148,7 +152,7 @@ let load_json (filename : string) : t =
 (* Save JSON to file *)
 let save_json (filename : string) (json : t) : unit =
   let channel = open_out filename in
-  to_channel channel json;
+  pretty_to_channel channel json;
   close_out channel
 
 (* Mutate JSON file and save to new location *)

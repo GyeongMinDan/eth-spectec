@@ -76,7 +76,8 @@ let config_flags =
           ~level_opt:
             (parse_named_level ~summary:Positive.Summary ~full:Positive.Full
                dep_pos_level) ~output:dep_pos_output
-          ~make_cfg:(fun ~level ~output -> Positive.{ level; output });
+          ~make_cfg:(fun ~level ~output ->
+            Positive.{ level; output; target_uids = None });
       dep_neg =
         make_config
           ~level_opt:

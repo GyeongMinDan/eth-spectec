@@ -287,17 +287,36 @@ module Make (Tgt : Runner.Target.S) = struct
            ~doc:
              "UID list of premise UIDs to generate tests for (if not provided, \
               shows uncovered)"
+       and premises_file =
+         flag "--premises-file" (optional string)
+           ~doc:
+             "FILE file containing premise UIDs (one per line, # for comments)"
        and list_only =
          flag "--list" no_arg
            ~doc:" only list uncovered premises, don't generate tests"
+       and verify =
+         flag "--verify" no_arg
+           ~doc:" verify that generated tests actually fail the target premise"
        in
        fun () ->
          let open Runner.Testgen in
          try
            (* Load checkpoint *)
-           let _checkpoint, coverage, dependency, path_condition =
+           let _checkpoint, coverage, _dependency, _path_condition =
              load_checkpoint checkpoint_file
            in
+
+           (* Restore premise UID mapping from checkpoint *)
+           (match coverage with
+           | Some cov ->
+               Instrumentation_static.Premise_uid.restore
+                 (cov.prem_to_uid, cov.uid_to_prem);
+               Format.printf "Restored %d premise UIDs from checkpoint\n%!"
+                 (List.length cov.prem_to_uid)
+           | None ->
+               Format.eprintf
+                 "Warning: No coverage data in checkpoint, UIDs may not match\n\
+                  %!");
 
            (* Get uncovered premises *)
            let uncovered = get_uncovered_premises coverage in
@@ -328,8 +347,16 @@ module Make (Tgt : Runner.Target.S) = struct
                uncovered)
            else
              (* Generate test cases *)
+             (* Merge UIDs from file and command line *)
+             let uids_from_file =
+               match premises_file with
+               | Some file -> Runner.Uid_parser.parse_uid_file file
+               | None -> []
+             in
+             let all_uids = premise_uids @ uids_from_file in
+
              let uids_to_generate =
-               match premise_uids with
+               match all_uids with
                | [] ->
                    (* If no UIDs specified, ask user or generate for all *)
                    Format.printf
@@ -357,27 +384,165 @@ module Make (Tgt : Runner.Target.S) = struct
              (* Create output directory *)
              (try Unix.mkdir output_path 0o755 with Unix.Unix_error _ -> ());
 
-             (* Generate test cases for each selected premise *)
+             (* Helper to lookup relation name/sig from premise region *)
+             let spec_files = collect_spec_files Tgt.spec_dir in
+             let spec_result =
+               let open Result in
+               let ( let* ) = bind in
+               let* spec = Runner.parse_spec_files spec_files in
+               Runner.elaborate spec
+             in
+             let spec_il = match spec_result with Ok s -> s | Error _ -> [] in
+             (* best effort *)
+
+             let _find_relation_for_uid uid =
+               match get_premise_info uid coverage with
+               | Some ({ key = region, _; _ }, _) ->
+                   (* Scan spec for this region *)
+                   let found = ref None in
+                   let open Common.Source in
+                   let open Lang.Il in
+                   List.iter
+                     (fun def ->
+                       match def.it with
+                       | RelD (id, sig_, _, rules) ->
+                           List.iter
+                             (fun rule ->
+                               let _, _, prems = rule.it in
+                               List.iter
+                                 (fun prem ->
+                                   if prem.at = region then
+                                     found := Some (id.it, sig_))
+                                 prems)
+                             rules
+                       | _ -> ())
+                     spec_il;
+                   !found
+               | None -> None
+             in
+
+             (* Helper to run positive analysis on a specific test case *)
+             let analyze_test_case test_id target_uids =
+               let open Instrumentation in
+               (* Construct paths *)
+               let pre_path = Filename.concat test_path test_id in
+               let test_dir_path = Filename.dirname pre_path in
+               let block_path = Filename.concat test_dir_path "block.json" in
+
+               let found = ref None in
+               List.iter
+                 (fun def ->
+                   let open Common.Source in
+                   match def.it with
+                   | Lang.Il.RelD (id, sig_, _, _)
+                     when id.it = "State_transition" ->
+                       found := Some sig_
+                   | _ -> ())
+                 spec_il;
+
+               match !found with
+               | None ->
+                   Format.printf
+                     "WARNING: State_transition relation not found in spec. \
+                      Cannot run analysis on %s.\n"
+                     test_id;
+                   None
+               | Some sig_ -> (
+                   match sig_.it with
+                   | _, args -> (
+                       if List.length args < 3 then None
+                       else
+                         let open Common.Source in
+                         let type_pre = List.nth args 0 in
+                         let type_block = List.nth args 1 in
+                         (* type_bool is arg 2 *)
+
+                         (* Parse Inputs *)
+                         let ctx_init = Interp.Eval_Il.Ctx.empty pre_path in
+                         let ctx =
+                           Interp.Eval_Il.Interp.load_spec ctx_init spec_il
+                         in
+                         let parse_file f t =
+                           try
+                             let json = Yojson.Safe.from_file f in
+                             Interface.JSON.Parse.json_to_value
+                               (Interp.Eval_Il.Ctx.tdenv_to_map ctx)
+                               t.it json
+                             |> Result.to_option
+                           with _ -> None
+                         in
+
+                         match
+                           ( parse_file pre_path type_pre,
+                             parse_file block_path type_block )
+                         with
+                         | Some val_pre, Some val_block ->
+                             (* Synthesize 3rd arg: true *)
+                             let val_bool =
+                               Lang.Il.Value.Make.bool Lang.Il.Typ.bool true
+                             in
+                             let values_input =
+                               [ val_pre; val_block; val_bool ]
+                             in
+
+                             (* Setup Positive Handler *)
+                             let handler, get_result =
+                               Dependency.Positive.make_with_data
+                                 {
+                                   level = Summary;
+                                   output = Quiet;
+                                   target_uids = Some target_uids;
+                                 }
+                             in
+
+                             Dispatcher.set_handlers
+                               [ (module (val handler) : Handler.S) ];
+                             Dispatcher.init ~spec:(Handler.IlSpec spec_il);
+                             Dispatcher.notify_test_start ~test_case_id:test_id;
+
+                             (* Run interpretation *)
+                             let _ =
+                               try
+                                 Runner.eval_il_run spec_il "State_transition"
+                                   values_input pre_path
+                               with _ ->
+                                 Result.error
+                                   (Runner.Error.IlInterpError
+                                      ( Common.Source.no_region,
+                                        "Analysis Exec failed" ))
+                             in
+
+                             Dispatcher.notify_test_end ~test_case_id:test_id;
+                             Dispatcher.finish ();
+                             Some (get_result ())
+                         | _ -> None))
+             in
+
+             (* Use test-case-centric generation *)
+             Format.printf "Starting test-case-centric generation...\n%!";
+             let results =
+               Runner.Testgen.generate_tests_by_test_case ~test_dir:test_path
+                 ~output_dir:output_path uids_to_generate coverage
+                 analyze_test_case
+             in
+
+             (* Print summary *)
+             Format.printf "\nGeneration complete:\n";
              List.iter
-               (fun uid ->
-                 try
-                   match
-                     generate_test_case ~test_dir:test_path
-                       ~output_dir:output_path uid coverage dependency
-                       path_condition None
-                   with
-                   | Some (pre_path, block_path) ->
-                       Format.printf "Generated test case for premise UID %d:\n"
-                         uid;
-                       Format.printf "  Pre: %s\n" pre_path;
-                       Format.printf "  Block: %s\n\n" block_path
-                   | None ->
-                       Format.printf
-                         "Skipped premise UID %d: no test cases available\n" uid
-                 with e ->
-                   Format.eprintf
-                     "Error generating test for premise UID %d: %s\n" uid
-                     (Printexc.to_string e))
-               uids_to_generate
+               (fun (test_id, premise_results) ->
+                 Format.printf "  Test case: %s\n" test_id;
+                 List.iter
+                   (fun (prem_uid, mutations) ->
+                     Format.printf "    Premise %d: %d mutations\n" prem_uid
+                       (List.length mutations))
+                   premise_results)
+               results;
+             Format.printf "\n";
+
+             (* Verification if requested *)
+             if verify then
+               Format.printf
+                 "Verification not yet implemented for test-case-centric mode\n\
+                  %!"
          with e -> Format.eprintf "Error: %s\n" (Printexc.to_string e))
 end

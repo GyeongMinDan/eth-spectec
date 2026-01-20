@@ -22,10 +22,19 @@ open Dep_common
 type level = Summary | Full
 
 (* Handler configuration *)
-type config = { level : level; output : Instrumentation_core.Output.t }
+type config = {
+  level : level;
+  output : Instrumentation_core.Output.t;
+  target_uids : int list option;
+      (* None = use whitelist, Some [] = all, Some [uids] = filter *)
+}
 
 let default_config =
-  { level = Summary; output = Instrumentation_core.Output.stdout }
+  {
+    level = Summary;
+    output = Instrumentation_core.Output.stdout;
+    target_uids = None;
+  }
 
 let config = ref default_config
 let fmt = ref Format.std_formatter
@@ -817,6 +826,17 @@ module State = struct
   let skipped_count = ref 0
   let func_depth = ref 0
 
+  (* Target UIDs for filtering - empty means no filtering (use whitelist) *)
+  let target_uids : (int, unit) Hashtbl.t = Hashtbl.create 16
+
+  let set_target_uids (uids : int list) =
+    Hashtbl.clear target_uids;
+    List.iter (fun uid -> Hashtbl.add target_uids uid ()) uids
+
+  let is_target_uid (uid : int) : bool =
+    (* If no target UIDs specified, fall back to whitelist behavior *)
+    Hashtbl.length target_uids = 0 || Hashtbl.mem target_uids uid
+
   let reset () =
     Hashtbl.clear sym_env;
     Hashtbl.clear relation_inputs;
@@ -1030,34 +1050,49 @@ module M : Instrumentation_core.Handler.S = struct
         !State.premise_count !State.if_prem_count !State.skipped_count;
 
     if State.in_helper_function () then ()
-    else if not (is_whitelisted !State.current_relation) then ()
+    else if not (is_if_prem prem) then ()
     else
-      let loc = string_of_region at in
-      if State.already_seen loc then
-        State.skipped_count := !State.skipped_count + 1
-      else if not (is_if_prem prem) then ()
-      else (
-        State.mark_seen loc;
-        State.if_prem_count := !State.if_prem_count + 1;
+      (* Get premise UID *)
+      let prem_key = Premise_uid.prem_key prem in
+      let uid = Premise_uid.assign_uid prem_key in
 
-        match prem.it with
-        | Il.IfPr exp ->
-            (* Strip negation and bool_eq wrappers *)
-            let exp1, _neg1 = strip_negation exp in
-            let exp2, _neg2 = strip_bool_eq exp1 in
-            (* Extract symbolic mutations directly from expression *)
-            let sym_mutations = extract_symbolic_mutations State.sym_env exp2 in
-            let prem_key = Premise_uid.prem_key prem in
-            let uid = Premise_uid.assign_uid prem_key in
-            State.add_per_test_sym_mutation uid sym_mutations
-        | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
-            let exp1, _neg1 = strip_negation exp in
-            let exp2, _neg2 = strip_bool_eq exp1 in
-            let sym_mutations = extract_symbolic_mutations State.sym_env exp2 in
-            let prem_key = Premise_uid.prem_key prem in
-            let uid = Premise_uid.assign_uid prem_key in
-            State.add_per_test_sym_mutation uid sym_mutations
-        | _ -> ())
+      (* Check if this UID is in our target list (or if using whitelist fallback) *)
+      let should_extract_mutations =
+        if Hashtbl.length State.target_uids = 0 then
+          (* No target UIDs specified - use whitelist *)
+          is_whitelisted !State.current_relation
+        else
+          (* Target UIDs specified - filter by UID *)
+          State.is_target_uid uid
+      in
+
+      if not should_extract_mutations then ()
+      else
+        let loc = string_of_region at in
+        if State.already_seen loc then
+          State.skipped_count := !State.skipped_count + 1
+        else (
+          State.mark_seen loc;
+          State.if_prem_count := !State.if_prem_count + 1;
+
+          match prem.it with
+          | Il.IfPr exp ->
+              (* Strip negation and bool_eq wrappers *)
+              let exp1, _neg1 = strip_negation exp in
+              let exp2, _neg2 = strip_bool_eq exp1 in
+              (* Extract symbolic mutations directly from expression *)
+              let sym_mutations =
+                extract_symbolic_mutations State.sym_env exp2
+              in
+              State.add_per_test_sym_mutation uid sym_mutations
+          | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
+              let exp1, _neg1 = strip_negation exp in
+              let exp2, _neg2 = strip_bool_eq exp1 in
+              let sym_mutations =
+                extract_symbolic_mutations State.sym_env exp2
+              in
+              State.add_per_test_sym_mutation uid sym_mutations
+          | _ -> ())
 
   let on_prem_exit ~prem ~at:_ ~success =
     if success then
@@ -1179,6 +1214,11 @@ let make cfg : (module Instrumentation_core.Handler.S) =
 let make_with_data cfg =
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
+  (* Initialize target UIDs if provided *)
+  (match cfg.target_uids with
+  | Some uids -> State.set_target_uids uids
+  | None -> Hashtbl.clear State.target_uids);
+  (* Clear to use whitelist *)
   ( (module HandlerWithData : Instrumentation_core.Handler.S_with_data
       with type result = result),
     get_result )

@@ -7,6 +7,7 @@ module Task = Task
 module Target = Target
 module Checkpoint = Checkpoint
 module Testgen = Testgen
+module Uid_parser = Uid_parser
 
 type 'a pipeline_result = ('a, Error.t) result
 

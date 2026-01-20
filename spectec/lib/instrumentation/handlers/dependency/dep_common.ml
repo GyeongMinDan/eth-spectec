@@ -177,7 +177,7 @@ let extract_relation_inputs (il_spec : Il.spec) :
     (fun def ->
       match def.it with
       | Il.RelD (id, _, input_hints, rules) ->
-          if id.it = "State_transition" && rules <> [] then
+          if rules <> [] then
             (* Get input expressions from first rule's notexp *)
             let rule = List.hd rules in
             let _, notexp, _ = rule.it in
