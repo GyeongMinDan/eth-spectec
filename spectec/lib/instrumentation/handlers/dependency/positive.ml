@@ -946,7 +946,11 @@ module M : Instrumentation_core.Handler.S = struct
     | Instrumentation_core.Handler.IlSpec il_spec ->
         let inputs = extract_relation_inputs il_spec in
         Hashtbl.iter
-          (fun k v -> Hashtbl.replace State.relation_inputs k v)
+          (fun k v ->
+            if k = "State_transition" then
+              Format.printf "[DEBUG Positive.init] Found inputs for %s: %s\n" k
+                (String.concat ", " v);
+            Hashtbl.replace State.relation_inputs k v)
           inputs
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
@@ -956,20 +960,20 @@ module M : Instrumentation_core.Handler.S = struct
   let on_rel_enter ~id ~at:_ ~values:_ =
     State.current_relation := id;
     State.push_sym_frame ();
-    (* Bind inputs using static analysis *)
-    if is_whitelisted id then
-      match
-        Instrumentation_static.Mutator_analysis.get_relation_input_info id
-      with
-      | Some input_info -> bind_relation_inputs input_info
-      | None -> ()
-    else if id = "State_transition" then
-      (* Fallback for State_transition if static analysis didn't capture it *)
-      match Hashtbl.find_opt State.relation_inputs id with
-      | Some (state_var :: block_var :: _) ->
-          State.bind_sym state_var (SPath { source = State; steps = [] });
-          State.bind_sym block_var (SPath { source = Block; steps = [] })
-      | _ -> ()
+    (* Bind inputs using static analysis for ALL relations *)
+    match
+      Instrumentation_static.Mutator_analysis.get_relation_input_info id
+    with
+    | Some input_info -> bind_relation_inputs input_info
+    | None ->
+        (* Fallback for State_transition if static analysis didn't capture it *)
+        if id = "State_transition" then
+          match Hashtbl.find_opt State.relation_inputs id with
+          | Some (state_var :: block_var :: _) ->
+              State.bind_sym state_var (SPath { source = State; steps = [] });
+              State.bind_sym block_var (SPath { source = Block; steps = [] })
+          | _ -> ()
+        else ()
 
   let on_rel_exit ~id:_ ~at:_ ~success =
     State.current_relation := "";
@@ -1035,6 +1039,7 @@ module M : Instrumentation_core.Handler.S = struct
       else (
         State.mark_seen loc;
         State.if_prem_count := !State.if_prem_count + 1;
+
         match prem.it with
         | Il.IfPr exp ->
             (* Strip negation and bool_eq wrappers *)
