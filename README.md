@@ -224,7 +224,7 @@ python diff_testing.py <beaconstate_dir> <block_dir> <output_dir> --workflow seq
   - `Output_Status_*.csv`: Status code for each client
   - `Differences_*.csv`: SSZ file differences between clients (core result showing where clients disagree)
 - Coverage reports (when `--enable-coverage` is used):
-  - Per-test-case coverage: `<output_dir>/<test_case>/<client>/report/`
+  - Per-test-case coverage: `<output_dir>/<test_case>/<client>/report/` # This feature is disabled in code.
   - Accumulated coverage: `<output_dir>/total-node-coverage/<client>/report/`
   - Final accumulated coverage: `<final_output_dir>/<client>/report/` (when using `--generate-final-coverage`)
 
