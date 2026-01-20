@@ -45,18 +45,119 @@ type frame = {
   mutable dependencies : FieldPathSet.t;
 }
 
+(* === Domain Knowledge: Ethereum Beacon Chain === *)
+
+(* Infer source from IL type - more accurate than variable name heuristics *)
+let source_of_type (typ : Il.typ') : input_source =
+  match typ with
+  | Il.VarT (id, _) -> (
+      match id.it with
+      | "beaconState" -> State
+      | "signedBeaconBlock" | "beaconBlock" | "beaconBlockBody"
+      | "executionPayload" | "syncAggregate" ->
+          Block
+      | _ -> Unknown)
+  | _ -> Unknown
+
+(* Convert block input pattern to field path *)
+let path_of_block_pattern
+    (pattern : Instrumentation_static.Mutator_analysis.block_input_pattern) :
+    field_path =
+  match pattern with
+  | Instrumentation_static.Mutator_analysis.FullBlock
+  | Instrumentation_static.Mutator_analysis.BlockMessage ->
+      { source = Block; steps = [] }
+  | Instrumentation_static.Mutator_analysis.BlockBody ->
+      { source = Block; steps = [ FieldAccess "BODY" ] }
+  | Instrumentation_static.Mutator_analysis.ExecutionPayload ->
+      {
+        source = Block;
+        steps = [ FieldAccess "BODY"; FieldAccess "EXECUTION_PAYLOAD" ];
+      }
+  | Instrumentation_static.Mutator_analysis.SyncAggregate ->
+      {
+        source = Block;
+        steps = [ FieldAccess "BODY"; FieldAccess "SYNC_AGGREGATE" ];
+      }
+  | Instrumentation_static.Mutator_analysis.Custom _path ->
+      (* Will use convert_ma_field_path at call site *)
+      { source = Unknown; steps = [] }
+
+(* Getter function dependencies: maps function name to fields it accesses.
+   When we see a call like $get_current_epoch(state), we resolve to the 
+   fields the function actually reads, not just "state".
+   Returns None for unknown functions (fall back to extracting arg paths). *)
+let getter_dependencies (func_name : string) : field_path list option =
+  match func_name with
+  (* Epoch computation functions depend on SLOT *)
+  | "get_current_epoch" | "get_previous_epoch" | "compute_epoch_at_slot" ->
+      Some [ { source = State; steps = [ FieldAccess "SLOT" ] } ]
+  (* Randao mix depends on RANDAO_MIXES and SLOT *)
+  | "get_randao_mix" ->
+      Some
+        [
+          { source = State; steps = [ FieldAccess "RANDAO_MIXES" ] };
+          { source = State; steps = [ FieldAccess "SLOT" ] };
+        ]
+  (* Block root depends on BLOCK_ROOTS and SLOT *)
+  | "get_block_root" | "get_block_root_at_slot" ->
+      Some
+        [
+          { source = State; steps = [ FieldAccess "BLOCK_ROOTS" ] };
+          { source = State; steps = [ FieldAccess "SLOT" ] };
+        ]
+  (* Proposer index depends on validators and slot *)
+  | "get_beacon_proposer_index" ->
+      Some
+        [
+          { source = State; steps = [ FieldAccess "VALIDATORS" ] };
+          { source = State; steps = [ FieldAccess "SLOT" ] };
+        ]
+  (* Active validators *)
+  | "get_active_validator_indices" ->
+      Some [ { source = State; steps = [ FieldAccess "VALIDATORS" ] } ]
+  (* Validator info *)
+  | "is_active_validator" | "is_slashable_validator" ->
+      None (* Keep extracting from args - they include specific validator *)
+  (* Unknown function - return None to extract from args *)
+  | _ -> None
+
 (* === Expression Resolution (Negative-specific: simpler over-approximation) === *)
+
+(* Helper: Check if a path is valid as an array index.
+   Paths with State/Block source aren't valid indices - they represent objects, not indices.
+   For example, state.SLOT shouldn't be used as an index in state.VALIDATORS[state.SLOT].
+   Valid indices are: Unknown paths (computed values like ?.vid) or Block paths that ARE indices. *)
+let is_valid_index_path (path : field_path) : bool =
+  match path.source with
+  | Unknown -> path.steps <> [] (* Unknown with steps is ok *)
+  | Block -> (
+      (* Block paths that end in index-like fields are valid *)
+      match List.rev path.steps with
+      | FieldAccess "PROPOSER_INDEX" :: _ -> true
+      | FieldAccess "VALIDATOR_INDEX" :: _ -> true
+      | _ -> false)
+  | State -> false (* State paths are not valid indices *)
 
 (* Resolve an expression to a field_path - simpler than positive analysis.
  * We only need to track fields involved, not full symbolic expressions.
  *)
 let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_path option =
   match exp.it with
-  (* Variables: look up in environment *)
+  (* Variables: look up in environment, fallback to type-based detection *)
   | Il.VarE id -> (
       match lookup_source env id.it with
       | Some path -> Some path
-      | None -> Some { source = Unknown; steps = [ FieldAccess id.it ] })
+      | None -> (
+          (* Use type-based detection for source *)
+          let source = source_of_type exp.note in
+          match source with
+          | State | Block ->
+              (* Variable IS the state/block, not a field of it *)
+              Some { source; steps = [] }
+          | Unknown ->
+              (* Unknown source, treat as field access *)
+              Some { source = Unknown; steps = [ FieldAccess id.it ] }))
   (* Field access: base.field *)
   | Il.DotE (base, atom) -> (
       match resolve_to_path env base with
@@ -293,16 +394,22 @@ let rec resolve_to_field_path_set (exp : Il.exp) : FieldPathSet.t =
   | Il.IdxE (base, idx) ->
       let base_set = resolve_to_field_path_set base in
       let idx_set = resolve_to_field_path_set idx in
+      (* Filter to only valid index paths *)
+      let valid_idx_set = FieldPathSet.filter is_valid_index_path idx_set in
       let result =
         FieldPathSet.fold
           (fun base_path acc ->
-            FieldPathSet.fold
-              (fun idx_path sub_acc ->
-                let new_path =
-                  append_step base_path (IndexAccess (PathRef idx_path))
-                in
-                FieldPathSet.add new_path sub_acc)
-              idx_set acc)
+            if FieldPathSet.is_empty valid_idx_set then
+              (* No valid index - just return base path with wildcard *)
+              FieldPathSet.add base_path acc
+            else
+              FieldPathSet.fold
+                (fun idx_path sub_acc ->
+                  let new_path =
+                    append_step base_path (IndexAccess (PathRef idx_path))
+                  in
+                  FieldPathSet.add new_path sub_acc)
+                valid_idx_set acc)
           base_set FieldPathSet.empty
       in
       (* If base_set was empty, try old resolution method as fallback *)
@@ -326,13 +433,29 @@ let rec resolve_to_field_path_set (exp : Il.exp) : FieldPathSet.t =
         (resolve_to_field_path_set lhs)
         (resolve_to_field_path_set rhs)
   | Il.LenE inner -> resolve_to_field_path_set inner
-  | Il.CallE (_, _, args) ->
-      List.fold_left
-        (fun acc arg ->
-          match arg.it with
-          | Il.ExpA e -> FieldPathSet.union acc (resolve_to_field_path_set e)
-          | Il.DefA _ -> acc)
-        FieldPathSet.empty args
+  | Il.CallE (func_id, _, args) -> (
+      (* Check if we know this function's dependencies *)
+      match getter_dependencies func_id.it with
+      | Some deps ->
+          (* Use known dependencies instead of extracting from args *)
+          List.fold_left
+            (fun acc p -> FieldPathSet.add p acc)
+            FieldPathSet.empty deps
+      | None ->
+          (* Unknown function - extract from arguments, but filter out bare roots *)
+          let arg_paths =
+            List.fold_left
+              (fun acc arg ->
+                match arg.it with
+                | Il.ExpA e ->
+                    FieldPathSet.union acc (resolve_to_field_path_set e)
+                | Il.DefA _ -> acc)
+              FieldPathSet.empty args
+          in
+          (* Filter out bare root paths (state/block with no fields) *)
+          FieldPathSet.filter
+            (fun p -> match p with { steps = []; _ } -> false | _ -> true)
+            arg_paths)
   | Il.MatchE (cond, _cases) -> resolve_to_field_path_set cond
   | _ -> FieldPathSet.empty
 
@@ -361,21 +484,39 @@ module M : Instrumentation_core.Handler.S = struct
     State.current_relation := id;
     State.push_frame ();
     bind_state_transition_inputs State.env State.relation_inputs id values;
-    (* Also bind state/block inputs to field_env *)
-    if id = "State_transition" then
-      match Hashtbl.find_opt State.relation_inputs id with
-      | Some input_vars -> (
-          match input_vars with
-          | state_var :: block_var :: _ ->
-              let state_path_set =
-                FieldPathSet.singleton { source = State; steps = [] }
-              in
-              let block_path_set =
-                FieldPathSet.singleton { source = Block; steps = [] }
-              in
-              State.bind_field_set state_var state_path_set;
-              State.bind_field_set block_var block_path_set
-          | _ -> ())
+    (* Bind state/block inputs using static analysis for all whitelisted relations *)
+    if is_whitelisted id then
+      match
+        Instrumentation_static.Mutator_analysis.get_relation_input_info id
+      with
+      | Some input_info -> (
+          let bind_state var =
+            State.bind_field_set var
+              (FieldPathSet.singleton { source = State; steps = [] })
+          in
+          let bind_block var pattern =
+            let path =
+              match pattern with
+              | Instrumentation_static.Mutator_analysis.Custom p ->
+                  convert_ma_field_path p
+              | _ -> path_of_block_pattern pattern
+            in
+            State.bind_field_set var (FieldPathSet.singleton path)
+          in
+          match input_info.block_pattern with
+          | Some pattern -> (
+              match input_info.input_var_names with
+              | state_var :: block_var :: _ ->
+                  bind_state state_var;
+                  bind_block block_var pattern
+              | [ var ] -> (
+                  match pattern with
+                  | Instrumentation_static.Mutator_analysis.FullBlock
+                  | Instrumentation_static.Mutator_analysis.BlockMessage ->
+                      bind_block var pattern
+                  | _ -> bind_state var)
+              | _ -> ())
+          | None -> List.iter bind_state input_info.input_var_names)
       | None -> ()
 
   let on_rel_exit ~id:_ ~at:_ ~success =
