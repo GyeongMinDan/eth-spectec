@@ -180,25 +180,6 @@ docker run --rm -it \
     --final-output-dir ./results/final_coverage_report'
 ```
 
-**Usage (Local - if clients are built locally):**
-
-```bash
-# Test suite mode (independent mode, default)
-python diff_testing.py --test-suite Converter/OfficialTestSuite/random
-
-# Test suite mode (sequential mode, chained execution)
-python diff_testing.py --test-suite Converter/OfficialTestSuite/random --workflow sequential
-
-# Test suite mode with custom output directory
-python diff_testing.py --test-suite Converter/OfficialTestSuite/random --output-base custom_client_results
-
-# Single directory mode (requires already-decompressed .ssz files)
-python diff_testing.py <beaconstate_dir> <block_dir> <output_dir>
-
-# Single directory mode with sequential workflow
-python diff_testing.py <beaconstate_dir> <block_dir> <output_dir> --workflow sequential
-```
-
 **Options:**
 - `--test-suite <dir>`: Test suite directory (automatically finds all subdirectories containing `pre.ssz` or `pre.ssz_snappy` files)
 - `--test-type <type>`: Test type (`state-transition`, `sanity-slots`, `epoch-processing`, `operation`)
