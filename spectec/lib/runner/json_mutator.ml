@@ -1,0 +1,163 @@
+(* JSON mutation utilities - Mutate JSON files based on field paths.
+
+   Handles nested field access (e.g., state.validators[0].balance) and
+   supports different mutation strategies. *)
+
+open Yojson.Safe
+
+type field_path = string list
+
+type mutation_strategy =
+  | SetValue of t (* Set to a specific value *)
+  | Increment of int (* Increment by amount *)
+  | Decrement of int (* Decrement by amount *)
+  | SetBoundary (* Set to boundary value - min/max *)
+  | AppendItem (* Append a default/duplicate item to list *)
+  | RemoveItem (* Remove the last item from list *)
+
+(* Parse field path string into list of components *)
+let parse_field_path (path_str : string) : field_path =
+  let parts = String.split_on_char '.' path_str in
+  List.map String.trim parts
+
+(* Navigate to a field in JSON using a path *)
+let rec get_field (json : t) (path : field_path) : t option =
+  match (json, path) with
+  | `Assoc fields, [ field_name ] -> (
+      match List.assoc_opt field_name fields with
+      | Some v -> Some v
+      | None -> None)
+  | `Assoc fields, field_name :: rest -> (
+      match List.assoc_opt field_name fields with
+      | Some nested -> get_field nested rest
+      | None -> None)
+  | `List items, [ idx_str ] -> (
+      (* Handle array indexing like "[0]" *)
+      try
+        let idx =
+          int_of_string (String.sub idx_str 1 (String.length idx_str - 2))
+        in
+        if idx >= 0 && idx < List.length items then Some (List.nth items idx)
+        else None
+      with _ -> None)
+  | `List items, idx_str :: rest -> (
+      try
+        let idx =
+          int_of_string (String.sub idx_str 1 (String.length idx_str - 2))
+        in
+        if idx >= 0 && idx < List.length items then
+          get_field (List.nth items idx) rest
+        else None
+      with _ -> None)
+  | _, [] -> Some json
+  | _ -> None
+
+(* Get value at path for reporting - wrapper around get_field *)
+let get_value_at_path (json : t) (path : field_path) : t option =
+  get_field json path
+
+(* Set a field in JSON using a path *)
+let rec set_field (json : t) (path : field_path) (value : t) : t =
+  match (json, path) with
+  | `Assoc fields, [ field_name ] ->
+      let updated_fields =
+        if List.mem_assoc field_name fields then
+          List.map
+            (fun (k, v) -> if k = field_name then (k, value) else (k, v))
+            fields
+        else (field_name, value) :: fields
+      in
+      `Assoc updated_fields
+  | `Assoc fields, field_name :: rest -> (
+      match List.assoc_opt field_name fields with
+      | Some nested ->
+          let updated_nested = set_field nested rest value in
+          let updated_fields =
+            List.map
+              (fun (k, v) ->
+                if k = field_name then (k, updated_nested) else (k, v))
+              fields
+          in
+          `Assoc updated_fields
+      | None ->
+          (* Create nested structure *)
+          let new_nested = set_field (`Assoc []) rest value in
+          `Assoc ((field_name, new_nested) :: fields))
+  | `List items, [ idx_str ] -> (
+      try
+        let idx =
+          int_of_string (String.sub idx_str 1 (String.length idx_str - 2))
+        in
+        if idx >= 0 && idx < List.length items then
+          let updated_items =
+            List.mapi (fun i v -> if i = idx then value else v) items
+          in
+          `List updated_items
+        else json
+      with _ -> json)
+  | `List items, idx_str :: rest -> (
+      try
+        let idx =
+          int_of_string (String.sub idx_str 1 (String.length idx_str - 2))
+        in
+        if idx >= 0 && idx < List.length items then
+          let updated_item = set_field (List.nth items idx) rest value in
+          let updated_items =
+            List.mapi (fun i v -> if i = idx then updated_item else v) items
+          in
+          `List updated_items
+        else json
+      with _ -> json)
+  | _, [] -> value
+  | _ -> json
+
+(* Apply mutation strategy to a JSON value *)
+let apply_mutation (json : t) (strategy : mutation_strategy) : t =
+  match (json, strategy) with
+  | `Int n, Increment amount -> `Int (n + amount)
+  | `Int n, Decrement amount -> `Int (n - amount)
+  | `Int _, SetBoundary -> `Int 0
+  | `Int _, SetValue v -> v
+  | `Float f, Increment amount -> `Float (f +. float_of_int amount)
+  | `Float f, Decrement amount -> `Float (f -. float_of_int amount)
+  | `Float _, SetValue v -> v
+  (* List mutations *)
+  | `List items, AppendItem ->
+      if items = [] then `List items (* Can't append to empty without schema *)
+      else
+        let last_item = List.nth items (List.length items - 1) in
+        `List (items @ [ last_item ])
+  | `List items, RemoveItem ->
+      if items = [] then `List []
+      else `List (List.rev (List.tl (List.rev items)))
+  | _, SetValue v -> v
+  | _ -> json
+
+(* Mutate a JSON file by applying mutations to specified field paths *)
+let mutate_json_file (json : t) (path : field_path)
+    (strategy : mutation_strategy) : t =
+  match get_field json path with
+  | Some field_value ->
+      let mutated_value = apply_mutation field_value strategy in
+      set_field json path mutated_value
+  | None -> json (* Path not found, return unchanged *)
+
+(* Load JSON from file *)
+let load_json (filename : string) : t =
+  let channel = open_in filename in
+  let json = from_channel channel in
+  close_in channel;
+  json
+
+(* Save JSON to file *)
+let save_json (filename : string) (json : t) : unit =
+  let channel = open_out filename in
+  pretty_to_channel channel json;
+  close_out channel
+
+(* Mutate JSON file and save to new location *)
+let mutate_and_save (input_file : string) (output_file : string)
+    (path : field_path) (strategy : mutation_strategy) : unit =
+  let json = load_json input_file in
+  let mutated = mutate_json_file json path strategy in
+  save_json output_file mutated

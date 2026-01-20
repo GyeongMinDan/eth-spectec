@@ -5,11 +5,13 @@ open Instrumentation
 (** Convert optional file path to Output destination *)
 let output_of = function None -> Output.stdout | Some path -> Output.file path
 
-(** Parse level from int option (1=Summary, 2=Full) *)
-let parse_level ~summary ~full = function
-  | Some 1 -> Some summary
-  | Some 2 -> Some full
-  | _ -> None
+(** Parse named level (summary|full) *)
+let parse_named_level ~summary ~full = function
+  | Some "summary" -> Some summary
+  | Some "full" -> Some full
+  | Some other ->
+      failwith ("Invalid level: " ^ other ^ " (expected: summary|full)")
+  | None -> None
 
 (** Build handler config from level option and output *)
 let make_config ~level_opt ~output ~make_cfg =
@@ -22,43 +24,64 @@ let config_flags =
   let open Core.Command.Let_syntax in
   let open Core.Command.Param in
   let%map trace_level =
-    flag "--trace" (optional int) ~doc:"LEVEL trace: 1=summary, 2=full"
+    flag "--trace.level" (optional string) ~doc:"LEVEL summary|full"
   and trace_output =
-    flag "--trace-output" (optional string) ~doc:"FILE output file for trace"
-  and profile = flag "--profile" no_arg ~doc:" enable profiling"
+    flag "--trace.output" (optional string) ~doc:"FILE output file for trace"
   and profile_output =
-    flag "--profile-output" (optional string)
+    flag "--profile.output" (optional string)
       ~doc:"FILE output file for profile"
   and branch_level =
-    flag "--branch-coverage" (optional int) ~doc:"LEVEL 1=summary, 2=full"
+    flag "--branch-coverage.level" (optional string) ~doc:"LEVEL summary|full"
   and branch_output =
-    flag "--branch-output" (optional string) ~doc:"FILE output file for branch"
+    flag "--branch-coverage.output" (optional string) ~doc:"FILE output file"
   and node_level =
-    flag "--node-coverage" (optional int) ~doc:"LEVEL 1=summary, 2=full"
+    flag "--node-coverage.level" (optional string) ~doc:"LEVEL summary|full"
   and node_output =
-    flag "--node-output" (optional string) ~doc:"FILE output file for node"
+    flag "--node-coverage.output" (optional string) ~doc:"FILE output file"
+  and dep_pos_level =
+    flag "--dep-pos.level" (optional string) ~doc:"LEVEL summary|full"
+  and dep_pos_output =
+    flag "--dep-pos.output" (optional string) ~doc:"FILE output file"
+  and dep_neg_level =
+    flag "--dep-neg.level" (optional string) ~doc:"LEVEL summary|full"
+  and dep_neg_output =
+    flag "--dep-neg.output" (optional string) ~doc:"FILE output file"
   in
   Config.
     {
       trace =
         make_config
           ~level_opt:
-            (parse_level ~summary:Trace.Summary ~full:Trace.Full trace_level)
-          ~output:trace_output ~make_cfg:(fun ~level ~output ->
-            Trace.{ level; output });
+            (parse_named_level ~summary:Trace.Summary ~full:Trace.Full
+               trace_level) ~output:trace_output
+          ~make_cfg:(fun ~level ~output -> Trace.{ level; output });
       profile =
-        (if profile then Some Profile.{ output = output_of profile_output }
+        (if Option.is_some profile_output then
+           Some Profile.{ output = output_of profile_output }
          else None);
       branch_coverage =
         make_config
           ~level_opt:
-            (parse_level ~summary:Branch_coverage.Summary
+            (parse_named_level ~summary:Branch_coverage.Summary
                ~full:Branch_coverage.Full branch_level) ~output:branch_output
           ~make_cfg:(fun ~level ~output -> Branch_coverage.{ level; output });
       node_coverage =
         make_config
           ~level_opt:
-            (parse_level ~summary:Node_coverage_il.Summary
+            (parse_named_level ~summary:Node_coverage_il.Summary
                ~full:Node_coverage_il.Full node_level) ~output:node_output
           ~make_cfg:(fun ~level ~output -> Node_coverage_il.{ level; output });
+      dep_pos =
+        make_config
+          ~level_opt:
+            (parse_named_level ~summary:Positive.Summary ~full:Positive.Full
+               dep_pos_level) ~output:dep_pos_output
+          ~make_cfg:(fun ~level ~output ->
+            Positive.{ level; output; target_uids = None });
+      dep_neg =
+        make_config
+          ~level_opt:
+            (parse_named_level ~summary:Negative.Summary ~full:Negative.Full
+               dep_neg_level) ~output:dep_neg_output
+          ~make_cfg:(fun ~level ~output -> Negative.{ level; output });
     }

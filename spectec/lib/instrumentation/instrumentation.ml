@@ -10,6 +10,11 @@
    Handler implementations (from instrumentation_handlers):
    - Branch_coverage, Node_coverage_il, Node_coverage_sl, Profile, Trace
 
+   Dependency analysis (from instrumentation_dependency):
+   - Dep_common: Shared types for dependency analysis
+   - Positive: Positive dependency (per-test mutation suggestions)
+   - Negative: Negative dependency (per-premise blacklists)
+
    Config module (local):
    - Config: Configuration type and handler factory
 *)
@@ -21,12 +26,19 @@ module Noop = Instrumentation_core.Noop
 module Output = Instrumentation_core.Output
 module Util = Instrumentation_core.Util
 
+(* Re-export static analysis modules *)
+module Static = Instrumentation_static.Static
+module Premise_uid = Instrumentation_static.Premise_uid
+
 (* Re-export handler implementations *)
 module Branch_coverage = Instrumentation_handlers.Branch_coverage
 module Node_coverage_il = Instrumentation_handlers.Node_coverage_il
 module Node_coverage_sl = Instrumentation_handlers.Node_coverage_sl
 module Profile = Instrumentation_handlers.Profile
 module Trace = Instrumentation_handlers.Trace
+
+(* Re-export dependency analysis modules *)
+module Dependency = Instrumentation_dependency
 
 (* Config is defined locally in this library *)
 module Config = Config

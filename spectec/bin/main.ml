@@ -200,7 +200,12 @@ let eth_command =
       ]
   in
   Core.Command.group ~summary:"Ethereum commands"
-    [ ("run", run_command); ("coverage", Eth_Cmd.make_coverage tasks) ]
+    [
+      ("run", run_command);
+      ("coverage", Eth_Cmd.make_coverage tasks);
+      ("checkpoint", Eth_Cmd.make_checkpoint ());
+      ("testgen", Eth_Cmd.make_testgen ());
+    ]
 
 let command =
   Core.Command.group ~summary:"SpecTec command line tools"

@@ -19,8 +19,22 @@ let set_handlers hs = handlers := hs
 (* Event dispatchers called from interpreters *)
 
 let init ~spec =
+  (* Initialize handlers *)
   if !handlers <> [] then
     List.iter (fun (module H : Handler.S) -> H.init ~spec) !handlers
+
+(* Test lifecycle events - called by runner for each test case *)
+let notify_test_start ~test_case_id =
+  if !handlers <> [] then
+    List.iter
+      (fun (module H : Handler.S) -> H.on_test_start ~test_case_id)
+      !handlers
+
+let notify_test_end ~test_case_id =
+  if !handlers <> [] then
+    List.iter
+      (fun (module H : Handler.S) -> H.on_test_end ~test_case_id)
+      !handlers
 
 let notify_rel_enter ~id ~at ~values =
   if !handlers <> [] then
@@ -83,6 +97,12 @@ let notify_prem_enter ~prem ~at =
   if !handlers <> [] then
     List.iter
       (fun (module H : Handler.S) -> H.on_prem_enter ~prem ~at)
+      !handlers
+
+let notify_prem_fields ~prem ~fields ~lookup ~at =
+  if !handlers <> [] then
+    List.iter
+      (fun (module H : Handler.S) -> H.on_prem_fields ~prem ~fields ~lookup ~at)
       !handlers
 
 let notify_prem_exit ~prem ~at ~success =

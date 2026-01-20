@@ -6,6 +6,8 @@
 
 module M : Handler.S = struct
   let init ~spec:_ = ()
+  let on_test_start ~test_case_id:_ = ()
+  let on_test_end ~test_case_id:_ = ()
   let on_rel_enter ~id:_ ~at:_ ~values:_ = ()
   let on_rel_exit ~id:_ ~at:_ ~success:_ = ()
   let on_rule_enter ~id:_ ~rule_id:_ ~at:_ = ()
@@ -18,12 +20,15 @@ module M : Handler.S = struct
   let on_iter_prem_exit ~at:_ = ()
   let on_prem_enter ~prem:_ ~at:_ = ()
   let on_prem_exit ~prem:_ ~at:_ ~success:_ = ()
+  let on_prem_fields ~prem:_ ~fields:_ ~lookup:_ ~at:_ = ()
   let on_instr ~instr:_ ~at:_ = ()
   let finish () = ()
 end
 
 (* Re-export for convenience *)
 let init = M.init
+let on_test_start = M.on_test_start
+let on_test_end = M.on_test_end
 let on_rel_enter = M.on_rel_enter
 let on_rel_exit = M.on_rel_exit
 let on_rule_enter = M.on_rule_enter
@@ -35,6 +40,7 @@ let on_clause_exit = M.on_clause_exit
 let on_iter_prem_enter = M.on_iter_prem_enter
 let on_iter_prem_exit = M.on_iter_prem_exit
 let on_prem_enter = M.on_prem_enter
+let on_prem_fields = M.on_prem_fields
 let on_prem_exit = M.on_prem_exit
 let on_instr = M.on_instr
 let finish = M.finish

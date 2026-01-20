@@ -9,6 +9,8 @@
   spectec.pass
   spectec.interp
   spectec.instrumentation
-  spectec.interface)
+  spectec.interface
+  yojson
+  str)
  (preprocess
   (pps ppx_let)))

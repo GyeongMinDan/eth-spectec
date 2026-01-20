@@ -6,6 +6,8 @@ module Error = Error
 module Task = Task
 module Target = Target
 module Checkpoint = Checkpoint
+module Testgen = Testgen
+module Uid_parser = Uid_parser
 
 type 'a pipeline_result = ('a, Error.t) result
 
@@ -86,7 +88,11 @@ let eval_sl_run spec_sl rid values_input filename_target :
 (* Single-run wrappers that set up handlers, init, run, and finish *)
 let eval_il ?(config = Instrumentation.Config.default) spec_il rid values_input
     filename_target : (Eval_Il.Ctx.t * Il.Value.t list) pipeline_result =
+  (* Initialize Static analysis *)
   let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation_static.Static.reset_all ();
+  Instrumentation_static.Static.init_all
+    (Instrumentation_static.Static.IlSpec spec_il);
   Instrumentation.Dispatcher.set_handlers handlers;
   Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec_il);
   let result = eval_il_run spec_il rid values_input filename_target in
@@ -96,60 +102,16 @@ let eval_il ?(config = Instrumentation.Config.default) spec_il rid values_input
 
 let eval_sl ?(config = Instrumentation.Config.default) spec_sl rid values_input
     filename_target : (Eval_Sl.Ctx.t * Il.Value.t list) pipeline_result =
+  (* Initialize Static analysis *)
   let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Static.reset_all ();
+  Instrumentation.Static.init_all (Instrumentation.Static.SlSpec spec_sl);
   Instrumentation.Dispatcher.set_handlers handlers;
   Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.SlSpec spec_sl);
   let result = eval_sl_run spec_sl rid values_input filename_target in
   Instrumentation.Dispatcher.finish ();
   Instrumentation.Config.close_outputs config;
   result
-
-(* Coverage suite runners - init once, run all files, finish once *)
-
-type suite_result = { passed : int; failed : int; total : int }
-type suite_input = (string * Il.Value.t list * string, Error.t) result
-
-(* General IL suite runner - takes a list of result-wrapped inputs *)
-let eval_il_suite ?(config = Instrumentation.Config.default) spec_il
-    (inputs : suite_input list) : suite_result =
-  let handlers = Instrumentation.Config.to_handlers config in
-  Instrumentation.Dispatcher.set_handlers handlers;
-  Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec_il);
-  let passed, failed =
-    List.fold_left
-      (fun (p, f) input ->
-        match input with
-        | Error _ -> (p, f + 1)
-        | Ok (rid, values, filename) -> (
-            let result = eval_il_run spec_il rid values filename in
-            match result with Ok _ -> (p + 1, f) | Error _ -> (p, f + 1)))
-      (0, 0) inputs
-  in
-  Instrumentation.Dispatcher.finish ();
-  Instrumentation.Config.close_outputs config;
-  { passed; failed; total = List.length inputs }
-
-(* General SL suite runner - takes a list of result-wrapped inputs *)
-let eval_sl_suite ?(config = Instrumentation.Config.default) spec_sl
-    (inputs : suite_input list) : suite_result =
-  let handlers = Instrumentation.Config.to_handlers config in
-  Instrumentation.Dispatcher.set_handlers handlers;
-  Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.SlSpec spec_sl);
-  let passed, failed =
-    List.fold_left
-      (fun (p, f) input ->
-        match input with
-        | Error _ -> (p, f + 1)
-        | Ok (rid, values, filename) -> (
-            let result = eval_sl_run spec_sl rid values filename in
-            match result with Ok _ -> (p + 1, f) | Error _ -> (p, f + 1)))
-      (0, 0) inputs
-  in
-  Instrumentation.Dispatcher.finish ();
-  Instrumentation.Config.close_outputs config;
-  { passed; failed; total = List.length inputs }
-
-(* --- T-spec-based runners --- *)
 
 (* Single-run with input spec - includes full init/finish lifecycle *)
 let eval_il_with_task (type input) (module T : Task.S with type input = input)
@@ -173,30 +135,6 @@ let eval_sl_with_task_run (type input)
     =
   let* relation, values = T.parse ~spec:spec_il input in
   eval_sl_run spec_sl relation values (T.source input)
-
-(* Suite run with input spec *)
-let eval_il_suite_with_task (type i) (module T : Task.S with type input = i)
-    ?(config = Instrumentation.Config.default) spec_il (inputs : i list) =
-  let suite_inputs =
-    List.map
-      (fun input ->
-        T.parse ~spec:spec_il input
-        |> Result.map (fun (rel, vals) -> (rel, vals, T.source input)))
-      inputs
-  in
-  eval_il_suite ~config spec_il suite_inputs
-
-let eval_sl_suite_with_task (type i) (module T : Task.S with type input = i)
-    ?(config = Instrumentation.Config.default) spec_il spec_sl (inputs : i list)
-    =
-  let suite_inputs =
-    List.map
-      (fun input ->
-        T.parse ~spec:spec_il input
-        |> Result.map (fun (rel, vals) -> (rel, vals, T.source input)))
-      inputs
-  in
-  eval_sl_suite ~config spec_sl suite_inputs
 
 (* --- Higher-level runners using expectation and test_outcome --- *)
 
@@ -223,19 +161,29 @@ let run_with_outcome (type i) (module T : Task.S with type input = i)
    For use in batch/coverage runs where init/finish is managed externally. *)
 let run_with_outcome_no_lifecycle (type i)
     (module T : Task.S with type input = i) ~sl_mode ~spec_il (input : i) =
+  let test_case_id = T.source input in
+  (* Notify handlers of test start *)
+  Instrumentation.Dispatcher.notify_test_start ~test_case_id;
   let result =
-    let handler = if sl_mode then Handlers.sl else Handlers.il in
-    handler (fun () ->
-        if sl_mode then
-          let spec_sl = structure spec_il in
-          let* _, values =
-            eval_sl_with_task_run (module T) spec_il spec_sl input
-          in
-          Ok values
-        else
-          let* _, values = eval_il_with_task_run (module T) spec_il input in
-          Ok values)
+    try
+      let handler = if sl_mode then Handlers.sl else Handlers.il in
+      handler (fun () ->
+          if sl_mode then
+            let spec_sl = structure spec_il in
+            let* _, values =
+              eval_sl_with_task_run (module T) spec_il spec_sl input
+            in
+            Ok values
+          else
+            let* _, values = eval_il_with_task_run (module T) spec_il input in
+            Ok values)
+    with e ->
+      (* Notify handlers of test end on exception *)
+      Instrumentation.Dispatcher.notify_test_end ~test_case_id;
+      raise e
   in
+  (* Notify handlers of test end after execution *)
+  Instrumentation.Dispatcher.notify_test_end ~test_case_id;
   Task.compute_outcome (T.expectation input) result
 
 (* Result for a single test in a suite *)
@@ -249,27 +197,39 @@ type 'i test_result = {
 let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il
     ?(verbose = false) (inputs : i list) =
+  (* Initialize instrumentation once for the entire suite run *)
+  let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Static.reset_all ();
+  Instrumentation.Static.init_all (Instrumentation.Static.IlSpec spec_il);
+  Instrumentation.Dispatcher.set_handlers handlers;
+  Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec_il);
   let total = List.length inputs in
-  List.mapi
-    (fun idx input ->
-      let source = T.source input in
-      if verbose then Format.printf "[%d/%d] %s... %!" (idx + 1) total source;
-      let outcome =
-        try run_with_outcome (module T) ~config ~sl_mode ~spec_il input
-        with exn ->
-          let error =
-            Error.IlInterpError (Common.Source.no_region, Printexc.to_string exn)
-          in
-          Task.compute_outcome (T.expectation input) (Error error)
-      in
-      (if verbose then
-         match outcome with
-         | Task.Pass _ -> Format.printf "PASS\n%!"
-         | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
-         | Task.Fail _ -> Format.printf "FAIL\n%!"
-         | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!");
-      { input; source; outcome })
-    inputs
+  let results =
+    List.mapi
+      (fun idx input ->
+        let source = T.source input in
+        if verbose then Format.printf "[%d/%d] %s... %!" (idx + 1) total source;
+        let outcome =
+          try run_with_outcome_no_lifecycle (module T) ~sl_mode ~spec_il input
+          with exception_value ->
+            let error =
+              Error.IlInterpError
+                (Common.Source.no_region, Printexc.to_string exception_value)
+            in
+            Task.compute_outcome (T.expectation input) (Error error)
+        in
+        (if verbose then
+           match outcome with
+           | Task.Pass _ -> Format.printf "PASS\n%!"
+           | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
+           | Task.Fail _ -> Format.printf "FAIL\n%!"
+           | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!");
+        { input; source; outcome })
+      inputs
+  in
+  Instrumentation.Dispatcher.finish ();
+  Instrumentation.Config.close_outputs config;
+  results
 
 (* Summary stats from suite results - tracks all four outcome types *)
 type suite_summary = {
@@ -302,11 +262,13 @@ type task_result = { task_name : string; summary : suite_summary }
 
 (* Run coverage across all input specs in a target with checkpoint support.
    Init/finish lifecycle is managed here - called once for the entire run. *)
-let run_target_coverage ?(config = Instrumentation.Config.default)
+let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
     ~(checkpoint_config : Checkpoint.config) ~verbose ~sl_mode ~spec_files
     spec_il tasks =
   (* Initialize instrumentation once for the entire coverage run *)
   let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Static.reset_all ();
+  Instrumentation.Static.init_all (Instrumentation.Static.IlSpec spec_il);
   Instrumentation.Dispatcher.set_handlers handlers;
   Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec_il);
 
@@ -314,15 +276,10 @@ let run_target_coverage ?(config = Instrumentation.Config.default)
   let loaded_checkpoint =
     match checkpoint_config.resume_from with
     | Some file -> (
-        let checkpoint = Checkpoint.load ~file in
-        match Checkpoint.verify_spec checkpoint ~spec_files with
-        | Ok () ->
-            if verbose then
-              Format.printf "Resuming from checkpoint: %s\n"
-                (Checkpoint.summary checkpoint);
-            Some checkpoint
-        | Error error_message ->
-            Format.printf "Checkpoint error: %s\n" error_message;
+        match Checkpoint.verify_and_load ~file ~spec_files ~verbose with
+        | Ok checkpoint -> Some checkpoint
+        | Error e ->
+            Format.printf "%s\n" (Error.string_of_error e);
             None)
     | None -> None
   in
@@ -331,30 +288,24 @@ let run_target_coverage ?(config = Instrumentation.Config.default)
   let all_completed_inputs = ref [] in
   (match loaded_checkpoint with
   | Some checkpoint ->
-      all_completed_inputs := checkpoint.Checkpoint.completed_inputs
+      all_completed_inputs := checkpoint.Checkpoint.completed_inputs;
+      Checkpoint.restore_coverage checkpoint
   | None -> ());
 
   let save_current_checkpoint () =
-    match checkpoint_config.output_file with
-    | Some file ->
-        let checkpoint =
-          Checkpoint.create ~spec_files ~completed_inputs:!all_completed_inputs
-            ~coverage:
-              {
-                branch = Some (Instrumentation.Branch_coverage.get_result ());
-                node_il = Some (Instrumentation.Node_coverage_il.get_result ());
-                node_sl = Some (Instrumentation.Node_coverage_sl.get_result ());
-              }
-        in
-        Checkpoint.save ~file checkpoint
-    | None -> ()
+    Checkpoint.save ~spec_files ~completed_inputs:!all_completed_inputs
+      ~output_file:checkpoint_config.output_file
   in
 
   let results =
     List.map
       (fun (Task.Pack (module T)) ->
         (* Each task discovers its own inputs *)
-        let all_inputs = T.collect () in
+        let all_inputs =
+          match test_dir with
+          | Some dir -> T.collect ~dir ()
+          | None -> T.collect ()
+        in
         let total_all = List.length all_inputs in
         (* Filter out completed inputs if resuming *)
         let inputs =
@@ -471,257 +422,3 @@ let parse_json filename_target input_type spec_il : Il.Value.t pipeline_result =
     Ok value_il
   in
   Handlers.il parse_json
-
-(* let print_json values *)
-
-let eval_il_eth ?(config = Instrumentation.Config.default) spec_il ~validate
-    pre_state block : (Eval_Il.Ctx.t * Il.Value.t list) pipeline_result =
-  let* beaconState_il = parse_json pre_state "beaconState" spec_il in
-  let* block_il = parse_json block "signedBeaconBlock" spec_il in
-  eval_il ~config spec_il "State_transition"
-    [ beaconState_il; block_il; Il.Value.bool validate ]
-    "runner_il"
-
-let eval_sl_eth ?(config = Instrumentation.Config.default) spec_sl ~validate
-    beaconState_il block_il : (Eval_Sl.Ctx.t * Il.Value.t list) pipeline_result
-    =
-  eval_sl ~config spec_sl "State_transition"
-    [ beaconState_il; block_il; Il.Value.bool validate ]
-    "runner_sl"
-
-(* --- ETH Test Suite Runner --- *)
-
-type eth_test_case = {
-  name : string;
-  pre_file : string;
-  block_file : string;
-  is_positive : bool;
-}
-
-(* Helper to check if a directory exists *)
-let dir_exists path = Sys.file_exists path && Sys.is_directory path
-
-(* Helper to check if a file exists *)
-let file_exists path = Sys.file_exists path && not (Sys.is_directory path)
-
-(* Discover and validate ETH test directory structure *)
-let discover_eth_tests (dir : string) : (eth_test_case list, Error.t) result =
-  let positive_dir = Filename.concat dir "positive" in
-  let negative_dir = Filename.concat dir "negative" in
-  (* Validate top-level structure *)
-  if not (dir_exists dir) then
-    Error
-      (Error.DirectoryError (Printf.sprintf "Directory does not exist: %s" dir))
-  else if (not (dir_exists positive_dir)) && not (dir_exists negative_dir) then
-    Error
-      (Error.DirectoryError
-         (Printf.sprintf
-            "Directory must contain 'positive' and/or 'negative' \
-             subdirectories: %s"
-            dir))
-  else
-    let collect_tests is_positive test_dir =
-      if not (dir_exists test_dir) then []
-      else
-        let subdirs =
-          Sys.readdir test_dir |> Array.to_list
-          |> List.filter (fun name ->
-                 dir_exists (Filename.concat test_dir name))
-          |> List.sort String.compare
-        in
-        List.filter_map
-          (fun name ->
-            let case_dir = Filename.concat test_dir name in
-            let pre_file = Filename.concat case_dir "pre.json" in
-            let block_file = Filename.concat case_dir "block.json" in
-            if file_exists pre_file && file_exists block_file then
-              Some { name; pre_file; block_file; is_positive }
-            else None)
-          subdirs
-    in
-    let positive_tests = collect_tests true positive_dir in
-    let negative_tests = collect_tests false negative_dir in
-    let all_tests = positive_tests @ negative_tests in
-    if all_tests = [] then
-      Error
-        (Error.DirectoryError
-           (Printf.sprintf "No valid test cases found in: %s" dir))
-    else Ok all_tests
-
-(* ETH test suite result tracking *)
-type eth_suite_result = {
-  passed : int;
-  failed : int;
-  total : int;
-  positive_passed : int;
-  positive_failed : int;
-  negative_passed : int;
-  negative_failed : int;
-}
-
-(* IL suite runner for ETH tests - accumulates coverage *)
-let eval_il_suite_eth ?(config = Instrumentation.Config.default) spec_il
-    (tests : eth_test_case list) : eth_suite_result =
-  let handlers = Instrumentation.Config.to_handlers config in
-  Instrumentation.Dispatcher.set_handlers handlers;
-  Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec_il);
-  let total = List.length tests in
-  let results =
-    List.mapi
-      (fun idx test ->
-        Printf.printf "[%d/%d] Running %s... " (idx + 1) total test.name;
-        flush stdout;
-        let pre_result = parse_json test.pre_file "beaconState" spec_il in
-        let block_result =
-          parse_json test.block_file "signedBeaconBlock" spec_il
-        in
-        match (pre_result, block_result) with
-        | Error e, _ ->
-            Printf.printf "FAIL (pre.json parse error)\n";
-            Printf.printf "    Error: %s\n" (Error.string_of_error e);
-            flush stdout;
-            (test.is_positive, false)
-        | _, Error e ->
-            Printf.printf "FAIL (block.json parse error)\n";
-            Printf.printf "    Error: %s\n" (Error.string_of_error e);
-            flush stdout;
-            (test.is_positive, false)
-        | Ok pre_state, Ok block ->
-            let run_result =
-              eval_il_run spec_il "State_transition"
-                [ pre_state; block; Il.Value.bool true ]
-                test.name
-            in
-            let success =
-              match (test.is_positive, run_result) with
-              | true, Ok _ ->
-                  Printf.printf "PASS (positive)\n";
-                  true
-              | true, Error e ->
-                  Printf.printf "FAIL (positive, unexpected error)\n";
-                  Printf.printf "    Error: %s\n" (Error.string_of_error e);
-                  false
-              | false, Error _ ->
-                  Printf.printf "PASS (negative, expected error)\n";
-                  true
-              | false, Ok _ ->
-                  Printf.printf
-                    "FAIL (negative, expected error but succeeded)\n";
-                  false
-            in
-            flush stdout;
-            (test.is_positive, success))
-      tests
-  in
-  (* Don't call finish here - let the CLI handle it for file output *)
-  let positive_passed =
-    List.length
-      (List.filter (fun (is_pos, success) -> is_pos && success) results)
-  in
-  let positive_failed =
-    List.length
-      (List.filter (fun (is_pos, success) -> is_pos && not success) results)
-  in
-  let negative_passed =
-    List.length
-      (List.filter (fun (is_pos, success) -> (not is_pos) && success) results)
-  in
-  let negative_failed =
-    List.length
-      (List.filter
-         (fun (is_pos, success) -> (not is_pos) && not success)
-         results)
-  in
-  {
-    passed = positive_passed + negative_passed;
-    failed = positive_failed + negative_failed;
-    total = List.length tests;
-    positive_passed;
-    positive_failed;
-    negative_passed;
-    negative_failed;
-  }
-
-(* SL suite runner for ETH tests - accumulates coverage *)
-let eval_sl_suite_eth ?(config = Instrumentation.Config.default) spec_sl spec_il
-    (tests : eth_test_case list) : eth_suite_result =
-  let handlers = Instrumentation.Config.to_handlers config in
-  Instrumentation.Dispatcher.set_handlers handlers;
-  Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.SlSpec spec_sl);
-  let total = List.length tests in
-  let results =
-    List.mapi
-      (fun idx test ->
-        Printf.printf "[%d/%d] Running %s... " (idx + 1) total test.name;
-        flush stdout;
-        (* Use spec_il for JSON parsing *)
-        let pre_result = parse_json test.pre_file "beaconState" spec_il in
-        let block_result =
-          parse_json test.block_file "signedBeaconBlock" spec_il
-        in
-        match (pre_result, block_result) with
-        | Error e, _ ->
-            Printf.printf "FAIL (pre.json parse error)\n";
-            Printf.printf "    Error: %s\n" (Error.string_of_error e);
-            flush stdout;
-            (test.is_positive, false)
-        | _, Error e ->
-            Printf.printf "FAIL (block.json parse error)\n";
-            Printf.printf "    Error: %s\n" (Error.string_of_error e);
-            flush stdout;
-            (test.is_positive, false)
-        | Ok pre_state, Ok block ->
-            let run_result =
-              eval_sl_run spec_sl "State_transition"
-                [ pre_state; block; Il.Value.bool true ]
-                test.name
-            in
-            let success =
-              match (test.is_positive, run_result) with
-              | true, Ok _ ->
-                  Printf.printf "PASS (positive)\n";
-                  true
-              | true, Error e ->
-                  Printf.printf "FAIL (positive, unexpected error)\n";
-                  Printf.printf "    Error: %s\n" (Error.string_of_error e);
-                  false
-              | false, Error _ ->
-                  Printf.printf "PASS (negative, expected error)\n";
-                  true
-              | false, Ok _ ->
-                  Printf.printf
-                    "FAIL (negative, expected error but succeeded)\n";
-                  false
-            in
-            flush stdout;
-            (test.is_positive, success))
-      tests
-  in
-  (* Don't call finish here - let the CLI handle it for file output *)
-  let positive_passed =
-    List.length
-      (List.filter (fun (is_pos, success) -> is_pos && success) results)
-  in
-  let positive_failed =
-    List.length
-      (List.filter (fun (is_pos, success) -> is_pos && not success) results)
-  in
-  let negative_passed =
-    List.length
-      (List.filter (fun (is_pos, success) -> (not is_pos) && success) results)
-  in
-  let negative_failed =
-    List.length
-      (List.filter
-         (fun (is_pos, success) -> (not is_pos) && not success)
-         results)
-  in
-  {
-    passed = positive_passed + negative_passed;
-    failed = positive_failed + negative_failed;
-    total = List.length tests;
-    positive_passed;
-    positive_failed;
-    negative_passed;
-    negative_failed;
-  }

@@ -46,8 +46,11 @@ end
 
 module M : Instrumentation_core.Handler.S = struct
   let init ~spec:_ = State.reset ()
+  let on_test_start = Instrumentation_core.Noop.on_test_start
+  let on_test_end = Instrumentation_core.Noop.on_test_end
   let on_instr = Instrumentation_core.Noop.on_instr
   let on_prem_exit = Instrumentation_core.Noop.on_prem_exit
+  let on_prem_fields = Instrumentation_core.Noop.on_prem_fields
   let finish = Instrumentation_core.Noop.finish
 
   let on_rel_enter ~id ~at:_ ~values =

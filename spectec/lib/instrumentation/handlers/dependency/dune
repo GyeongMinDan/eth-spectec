@@ -1,0 +1,9 @@
+; Dependency analysis library
+; Contains shared types (dep_common) and analysis handlers (positive, negative)
+
+(library
+ (name instrumentation_dependency)
+ (public_name spectec.instrumentation.dependency)
+ (preprocess
+  (pps ppx_let))
+ (libraries common lang instrumentation_core instrumentation_static))
