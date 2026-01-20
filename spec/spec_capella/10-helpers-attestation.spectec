@@ -214,7 +214,7 @@ def $next_sync_committee_indices_loop(
   -- if $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_h)[vid \ 32]) = uint64_random_byte
   -- if state.VALIDATORS[vid_candidate].EFFECTIVE_BALANCE = balance_effective
   ;; inserted overflow check
-  -- if $( balance_effective <= $MAX_RANDOM_BYTE / $UINT64_MAX )
+  -- if $( balance_effective <= $UINT64_MAX / $MAX_RANDOM_BYTE )
   -- if $( balance_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
   ;; procceed to next iteration
 
@@ -236,7 +236,7 @@ def $next_sync_committee_indices_loop(
   -- if $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_h)[vid \ 32]) = uint64_random_byte
   -- if state.VALIDATORS[vid_candidate].EFFECTIVE_BALANCE = balance_effective
   ;; inserted overflow check
-  -- if $( balance_effective <= $MAX_RANDOM_BYTE / $UINT64_MAX )
+  -- if $( balance_effective <= $UINT64_MAX / $MAX_RANDOM_BYTE )
   -- if $( balance_effective * $MAX_RANDOM_BYTE < $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
   ;; otherwise, proceed to next iteration without appending
 
