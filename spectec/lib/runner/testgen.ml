@@ -30,8 +30,8 @@ type field_path = string list (* e.g., ["state", "SLOT"] *)
 (* Mutation constraint - what field to mutate and to what values *)
 type mutation_constraint = {
   field_path : field_path;
-  target_values : Il.Value.t list;
-      (* Skeleton - user will fill in inference logic *)
+  strategies : Json_mutator.mutation_strategy list;
+      (* Strategies to try for this path *)
 }
 
 (* Premise information *)
@@ -181,6 +181,12 @@ let get_mutation_suggestions_for_premise (premise_uid : premise_uid)
           (* Collect all mutations across all test cases *)
           List.fold_left (fun acc (_, muts) -> acc @ muts) [] test_muts)
 
+(* Convert Il.Value.t to JSON value for mutation *)
+let value_to_json (v : Il.Value.t) : (Yojson.Safe.t, string) result =
+  match Interface.JSON.Print.value_to_json v with
+  | Ok json -> Ok json
+  | Error err -> Error (Interface.JSON.Print.string_of_error err)
+
 (* Infer mutation constraints from dependency analysis. *)
 let infer_mutation_constraints (premise_uid : premise_uid)
     (coverage : Instrumentation.Node_coverage_il.result option)
@@ -238,20 +244,32 @@ let infer_mutation_constraints (premise_uid : premise_uid)
               in
               if field_path = [] then None
               else
-                let target_values =
-                  match sym_mut.suggestion with
-                  | Pos.ToValue sym_expr ->
-                      (* Extract concrete values from symbolic expression *)
-                      extract_values_from_sym_expr sym_expr
-                  | Pos.ToRelation (_, sym_expr) ->
-                      (* For relations like <=, >=, we can extract values from the RHS *)
-                      extract_values_from_sym_expr sym_expr
-                  | Pos.Unresolved _ ->
-                      [] (* Shouldn't reach here due to match above *)
+                let strategies =
+                  match sym_mut.mutation_target with
+                  | Dep.CollectionLength ->
+                      (* For collection length, try both appending and removing items *)
+                      [ Json_mutator.AppendItem; Json_mutator.RemoveItem ]
+                  | Dep.Value ->
+                      (* For value mutations, extract concrete values and creating SetValue strategies *)
+                      let target_values =
+                        match sym_mut.suggestion with
+                        | Pos.ToValue sym_expr ->
+                            extract_values_from_sym_expr sym_expr
+                        | Pos.ToRelation (_, sym_expr) ->
+                            extract_values_from_sym_expr sym_expr
+                        | Pos.Unresolved _ -> []
+                      in
+                      List.map
+                        (fun v ->
+                          match value_to_json v with
+                          | Ok json -> Some (Json_mutator.SetValue json)
+                          | Error _ -> None)
+                        target_values
+                      |> List.filter_map (fun x -> x)
                 in
-                (* Only include if we have concrete values *)
-                if target_values = [] then None
-                else Some { field_path; target_values }))
+                (* Only include if we have strategies *)
+                if strategies = [] then None
+                else Some { field_path; strategies }))
     suggestions
 
 (* Check if a test case ID corresponds to a state transition test.
@@ -291,8 +309,8 @@ let get_test_cases_for_premise (premise_uid : premise_uid)
           match Hashtbl.find_opt key_to_test_cases key with
           | None -> []
           | Some test_cases ->
-              (* Filter to only state transition tests *)
-              List.filter is_state_transition_test test_cases))
+              (* Filter removed to allow all test cases *)
+              test_cases))
 
 (* Get premise information including test cases that covered it *)
 let get_premise_info (premise_uid : premise_uid)
@@ -323,12 +341,6 @@ let get_premise_info (premise_uid : premise_uid)
                 content = content_str;
               },
               test_cases ))
-
-(* Convert Il.Value.t to JSON value for mutation *)
-let value_to_json (v : Il.Value.t) : (Yojson.Safe.t, string) result =
-  match Interface.JSON.Print.value_to_json v with
-  | Ok json -> Ok json
-  | Error err -> Error (Interface.JSON.Print.string_of_error err)
 
 (* Check if a field path is blacklisted *)
 let is_blacklisted (path : field_path) (blacklist : field_path list) : bool =
@@ -373,25 +385,25 @@ let mutate_json_input ~(output_dir : string) (test_case_id : test_case_id)
             if is_blacklisted constraint_.field_path blacklisted then json_acc
               (* Skip blacklisted fields *)
             else
-              match constraint_.target_values with
+              match constraint_.strategies with
               | [] -> json_acc
-              | value :: _ -> (
-                  match value_to_json value with
-                  | Ok json_value ->
-                      Json_mutator.set_field json_acc constraint_.field_path
-                        json_value
-                  | Error _ -> json_acc (* Skip if conversion fails *)))
+              | strategy :: _ ->
+                  Json_mutator.mutate_json_file json_acc constraint_.field_path
+                    strategy)
           json constraints
       in
       let mutated_pre = apply_constraints pre in
       let mutated_block = apply_constraints block in
 
       (* Save mutated JSON files *)
+      let flat_test_id =
+        String.map (fun c -> if c = '/' then '_' else c) test_case_id
+      in
       let output_pre_path =
-        Filename.concat output_dir (Printf.sprintf "%s_pre.json" test_case_id)
+        Filename.concat output_dir (Printf.sprintf "%s_pre.json" flat_test_id)
       in
       let output_block_path =
-        Filename.concat output_dir (Printf.sprintf "%s_block.json" test_case_id)
+        Filename.concat output_dir (Printf.sprintf "%s_block.json" flat_test_id)
       in
       Json_mutator.save_json output_pre_path mutated_pre;
       Json_mutator.save_json output_block_path mutated_block;
@@ -449,15 +461,16 @@ let generate_test_case ~(test_dir : string) ~(output_dir : string)
     (premise_uid : premise_uid)
     (coverage : Instrumentation.Node_coverage_il.result option)
     (dependency : Instrumentation.Dependency.Positive.result option)
-    (path_condition : Instrumentation.Dependency.Negative.result option)
+    (_path_condition : Instrumentation.Dependency.Negative.result option)
     (base_test_case_id : test_case_id option) : (string * string) option =
   (* Get mutation constraints *)
   let constraints =
     infer_mutation_constraints premise_uid coverage dependency
   in
-  (* Get blacklisted fields from path condition *)
+  (* Negative analysis disabled as per plan *)
   let blacklisted =
-    get_blacklisted_fields premise_uid coverage path_condition
+    []
+    (* get_blacklisted_fields premise_uid coverage path_condition *)
   in
   (* Find a base test case to mutate *)
   let test_case_id =
@@ -471,7 +484,14 @@ let generate_test_case ~(test_dir : string) ~(output_dir : string)
 
   match test_case_id with
   | None -> None (* Skip when no test cases available *)
-  | Some test_id ->
+  | Some test_id_raw ->
+      (* Sanitize test_id: remove /pre.json suffix if present *)
+      let test_id =
+        if String.ends_with ~suffix:"/pre.json" test_id_raw then
+          String.sub test_id_raw 0 (String.length test_id_raw - 9)
+        else test_id_raw
+      in
+
       (* Construct paths to base test case JSON files *)
       let pre_path = Filename.concat test_dir (test_id ^ "/pre.json") in
       let block_path = Filename.concat test_dir (test_id ^ "/block.json") in

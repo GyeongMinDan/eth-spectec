@@ -12,6 +12,8 @@ type mutation_strategy =
   | Increment of int (* Increment by amount *)
   | Decrement of int (* Decrement by amount *)
   | SetBoundary (* Set to boundary value - min/max *)
+  | AppendItem (* Append a default/duplicate item to list *)
+  | RemoveItem (* Remove the last item from list *)
 
 (* Parse field path string into list of components *)
 let parse_field_path (path_str : string) : field_path =
@@ -115,6 +117,15 @@ let apply_mutation (json : t) (strategy : mutation_strategy) : t =
   | `Float f, Increment amount -> `Float (f +. float_of_int amount)
   | `Float f, Decrement amount -> `Float (f -. float_of_int amount)
   | `Float _, SetValue v -> v
+  (* List mutations *)
+  | `List items, AppendItem ->
+      if items = [] then `List items (* Can't append to empty without schema *)
+      else
+        let last_item = List.nth items (List.length items - 1) in
+        `List (items @ [ last_item ])
+  | `List items, RemoveItem ->
+      if items = [] then `List []
+      else `List (List.rev (List.tl (List.rev items)))
   | _, SetValue v -> v
   | _ -> json
 
