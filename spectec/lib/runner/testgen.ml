@@ -254,34 +254,45 @@ let infer_mutation_constraints (premise_uid : premise_uid)
   let constraints =
     List.filter_map
       (fun (sym_mut : Pos.sym_mutation) ->
-        (* Skip unresolved mutations - they're for debugging only *)
-        match sym_mut.suggestion with
-        | Pos.Unresolved reason ->
-            Format.printf "[DEBUG] Skipping unresolved mutation: %s\n%!" reason;
+        (* Helper to generate fallback strategies when specific values aren't known *)
+        let fallback_strategies =
+          [
+            Json_mutator.SetBoundary;
+            Json_mutator.Increment 1;
+            Json_mutator.Decrement 1;
+            Json_mutator.SetValue (`Int 0);
+            Json_mutator.SetValue (`Int 1);
+          ]
+        in
+
+        (* Convert target_path to string list *)
+        match sym_mut.target_path with
+        | None ->
+            Format.printf "[DEBUG] Skipping mutation with no target_path\n%!";
             None
-        | _ -> (
-            (* Convert target_path to string list *)
-            match sym_mut.target_path with
-            | None ->
-                Format.printf
-                  "[DEBUG] Skipping mutation with no target_path\n%!";
-                None (* Skip if target_path is unresolved *)
-            | Some target_path ->
-                let source_prefix =
-                  match target_path.Dep.source with
-                  | Dep.State -> [ "state" ]
-                  | Dep.Block -> [ "block" ]
-                  | Dep.Unknown -> []
-                in
-                let field_path =
-                  source_prefix @ steps_to_strings target_path.Dep.steps
-                in
-                if field_path = [] then (
-                  Format.printf
-                    "[DEBUG] Skipping mutation with empty field_path\n%!";
-                  None)
-                else
-                  let strategies =
+        | Some target_path ->
+            let source_prefix =
+              match target_path.Dep.source with
+              | Dep.State -> [ "state" ]
+              | Dep.Block -> [ "block" ]
+              | Dep.Unknown -> []
+            in
+            let field_path =
+              source_prefix @ steps_to_strings target_path.Dep.steps
+            in
+            if field_path = [] then (
+              Format.printf
+                "[DEBUG] Skipping mutation with empty field_path\n%!";
+              None)
+            else
+              let strategies =
+                match sym_mut.suggestion with
+                | Pos.Unresolved reason ->
+                    Format.printf
+                      "[DEBUG] Unresolved mutation (%s), using fallbacks\n%!"
+                      reason;
+                    fallback_strategies
+                | _ -> (
                     match sym_mut.mutation_target with
                     | Dep.CollectionLength ->
                         (* For collection length, try both appending and removing items *)
@@ -296,29 +307,31 @@ let infer_mutation_constraints (premise_uid : premise_uid)
                               extract_values_from_sym_expr sym_expr
                           | Pos.Unresolved _ -> []
                         in
-                        List.map
-                          (fun v ->
-                            match value_to_json v with
-                            | Ok json -> Some (Json_mutator.SetValue json)
-                            | Error _ -> None)
-                          target_values
-                        |> List.filter_map (fun x -> x)
-                  in
-                  (* Only include if we have strategies *)
-                  if strategies = [] then (
-                    Format.printf
-                      "[DEBUG] Skipping mutation with no strategies (field: %s)\n\
-                       %!"
-                      (String.concat "." field_path);
-                    None)
-                  else (
-                    Format.printf
-                      "[DEBUG] Created constraint for field %s with %d \
-                       strategies\n\
-                       %!"
-                      (String.concat "." field_path)
-                      (List.length strategies);
-                    Some { field_path; strategies })))
+                        let specific_strategies =
+                          List.map
+                            (fun v ->
+                              match value_to_json v with
+                              | Ok json -> Some (Json_mutator.SetValue json)
+                              | Error _ -> None)
+                            target_values
+                          |> List.filter_map (fun x -> x)
+                        in
+                        if specific_strategies = [] then fallback_strategies
+                        else specific_strategies)
+              in
+              (* Only include if we have strategies *)
+              if strategies = [] then (
+                Format.printf
+                  "[DEBUG] Skipping mutation with no strategies (field: %s)\n%!"
+                  (String.concat "." field_path);
+                None)
+              else (
+                Format.printf
+                  "[DEBUG] Created constraint for field %s with %d strategies\n\
+                   %!"
+                  (String.concat "." field_path)
+                  (List.length strategies);
+                Some { field_path; strategies }))
       suggestions
   in
   Format.printf
@@ -471,22 +484,24 @@ let mutate_json_input ~(output_dir : string) (test_case_id : test_case_id)
       (* Could not load files, return original paths *)
       (pre_json_path, block_json_path)
   | Some pre, Some block ->
-      (* Apply mutations, skipping blacklisted fields *)
-      let apply_constraints json =
+      (* Apply mutations, skipping blacklisted fields and respecting source file *)
+      let apply_constraints json target_source =
         List.fold_left
           (fun json_acc constraint_ ->
             if is_blacklisted constraint_.field_path blacklisted then json_acc
-              (* Skip blacklisted fields *)
             else
-              match constraint_.strategies with
-              | [] -> json_acc
-              | strategy :: _ ->
-                  Json_mutator.mutate_json_file json_acc constraint_.field_path
-                    strategy)
+              match constraint_.field_path with
+              | prefix :: rest when prefix = target_source -> (
+                  (* Path matches target source, apply mutation to rest of path *)
+                  match constraint_.strategies with
+                  | [] -> json_acc
+                  | strategy :: _ ->
+                      Json_mutator.mutate_json_file json_acc rest strategy)
+              | _ -> json_acc (* Constraint is for other file, skip *))
           json constraints
       in
-      let mutated_pre = apply_constraints pre in
-      let mutated_block = apply_constraints block in
+      let mutated_pre = apply_constraints pre "state" in
+      let mutated_block = apply_constraints block "block" in
 
       (* Save mutated JSON files *)
       let flat_test_id =

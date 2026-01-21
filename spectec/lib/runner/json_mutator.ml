@@ -83,6 +83,16 @@ let rec set_field (json : t) (path : field_path) (value : t) : t =
           (* Create nested structure *)
           let new_nested = set_field (`Assoc []) rest value in
           `Assoc ((field_name, new_nested) :: fields))
+  | `List items, [ "[...]" ] ->
+      (* Wildcard leaf: update all items to value *)
+      let updated_items = List.map (fun _ -> value) items in
+      `List updated_items
+  | `List items, "[...]" :: rest ->
+      (* Wildcard traversal: recurse on all items *)
+      let updated_items =
+        List.map (fun item -> set_field item rest value) items
+      in
+      `List updated_items
   | `List items, [ idx_str ] -> (
       try
         let idx =
