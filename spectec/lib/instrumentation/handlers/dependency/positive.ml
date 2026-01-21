@@ -939,23 +939,28 @@ let bind_relation_inputs
     in
     State.bind_sym var (SPath path)
   in
-  match input_info.block_pattern with
-  | Some pattern -> (
-      match input_info.input_var_names with
-      | state_var :: block_var :: _ ->
-          bind_state state_var;
-          bind_block block_var pattern
-      | [ var ] -> (
-          (* Single input: use heuristic based on pattern type *)
-          match pattern with
-          | Instrumentation_static.Mutator_analysis.FullBlock
-          | Instrumentation_static.Mutator_analysis.BlockMessage ->
-              bind_block var pattern
-          | _ -> bind_state var)
-      | _ -> ())
-  | None ->
-      (* No block pattern: all inputs are state *)
-      List.iter bind_state input_info.input_var_names
+  (* Iterate over inputs and bind based on type information *)
+  List.iter2
+    (fun var_name typ ->
+      match typ.it with
+      | Il.VarT ({ it = "beaconState"; _ }, _) -> bind_state var_name
+      | Il.VarT ({ it = "signedBeaconBlock"; _ }, _) ->
+          bind_block var_name Instrumentation_static.Mutator_analysis.FullBlock
+      | Il.VarT ({ it = "beaconBlock"; _ }, _) ->
+          bind_block var_name
+            Instrumentation_static.Mutator_analysis.BlockMessage
+      | Il.VarT ({ it = "beaconBlockBody"; _ }, _) ->
+          bind_block var_name Instrumentation_static.Mutator_analysis.BlockBody
+      | Il.VarT ({ it = "executionPayload"; _ }, _) ->
+          bind_block var_name
+            Instrumentation_static.Mutator_analysis.ExecutionPayload
+      | Il.VarT ({ it = "syncAggregate"; _ }, _) ->
+          bind_block var_name
+            Instrumentation_static.Mutator_analysis.SyncAggregate
+      | _ ->
+          (* Fallback: heuristic based on variable name *)
+          if is_state_var var_name then bind_state var_name else ())
+    input_info.input_var_names input_info.input_types
 
 (* === Handler Implementation === *)
 
@@ -1106,28 +1111,7 @@ module M : Instrumentation_core.Handler.S = struct
       | Il.IterPr ({ it = Il.LetPr ({ it = Il.VarE id; _ }, rhs); _ }, _) ->
           let sym = resolve_to_sym_expr State.sym_env rhs in
           Hashtbl.replace State.sym_env id.it sym
-      (* Handle rule premises with mutator detection *)
-      | Il.RulePr (id, (_, args)) -> (
-          match
-            Instrumentation_static.Mutator_analysis.get_mutator_info id.it
-          with
-          | Some mutator_info ->
-              (* Mutator: resolve first arg and create SUpdate *)
-              let base_sym =
-                match args with
-                | arg :: _ -> resolve_to_sym_expr State.sym_env arg
-                | [] -> SUnknown "no_args"
-              in
-              let converted_paths =
-                List.map convert_ma_field_path mutator_info.mutated_paths
-              in
-              let _result_sym = SUpdate (base_sym, converted_paths) in
-              (* Bind result to a synthetic variable if needed *)
-              (* For now, we don't bind rule results as they're not assigned to variables *)
-              ()
-          | None ->
-              (* Getter or unknown: treat as function call *)
-              ())
+      | Il.RulePr _ -> ()
       | _ -> ()
     else
       (* On failure, we don't accumulate dependencies or update bindings *)

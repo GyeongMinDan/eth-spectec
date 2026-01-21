@@ -395,6 +395,10 @@ module Make (Tgt : Runner.Target.S) = struct
              let spec_il = match spec_result with Ok s -> s | Error _ -> [] in
              (* best effort *)
 
+             (* Initialize static analysis for positive dependency handler *)
+             Instrumentation_static.Mutator_analysis.init
+               (Instrumentation_static.Static.IlSpec spec_il);
+
              let _find_relation_for_uid uid =
                match get_premise_info uid coverage with
                | Some ({ key = region, _; _ }, _) ->

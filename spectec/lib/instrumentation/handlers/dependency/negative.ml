@@ -587,39 +587,7 @@ module M : Instrumentation_core.Handler.S = struct
            match resolve_to_path State.env rhs with
            | Some path -> bind_source State.env id.it path
            | None -> ())
-       | Il.RulePr (id, (_, args)) -> (
-           (* Handle rule premises with mutator detection *)
-           match
-             Instrumentation_static.Mutator_analysis.get_mutator_info id.it
-           with
-           | Some mutator_info -> (
-               (* Mutator: extract mutated paths and bind to result variable *)
-               let converted_paths =
-                 List.map convert_ma_field_path mutator_info.mutated_paths
-               in
-               let path_set =
-                 List.fold_left
-                   (fun acc p -> FieldPathSet.add p acc)
-                   FieldPathSet.empty converted_paths
-               in
-               (* For mutators, the result is the first argument with mutations *)
-               match args with
-               | arg :: _ ->
-                   let arg_set = resolve_to_field_path_set arg in
-                   (* Union with mutated paths *)
-                   State.bind_field_set "_result"
-                     (FieldPathSet.union arg_set path_set)
-               | [] -> ())
-           | None ->
-               (* Getter: extract field paths from arguments *)
-               let arg_paths =
-                 List.fold_left
-                   (fun acc arg ->
-                     FieldPathSet.union acc (resolve_to_field_path_set arg))
-                   FieldPathSet.empty args
-               in
-               (* Bind result to union of argument paths *)
-               State.bind_field_set "_result" arg_paths)
+       | Il.RulePr _ -> ()
        | _ -> ());
     (* On if-premise exit, accumulate dependencies and record blacklist *)
     if success && is_if_prem prem then (
