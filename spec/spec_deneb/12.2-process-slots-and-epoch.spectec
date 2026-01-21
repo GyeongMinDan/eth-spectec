@@ -6,32 +6,32 @@ relation ProcessEpoch:
   beaconState ~> beaconState
   hint(input %0)
 
-rule ProcessEpoch/main:
+rule ProcessEpoch:
   state ~> state_11
   ;; Phase0 -> Altair
-  -- Process_justification_and_finalization:  state ~> state_0
+  -- ProcessJustificationAndFinalization:  state ~> state_0
   ;; Altair
   -- ProcessInactivityUpdates:              state_0           ~> state_1
   ;; Phase0 -> Altair
-  -- Process_rewards_and_penalties:           state_1           ~> state_2
+  -- ProcessRewardsAndPenalties:            state_1           ~> state_2
   ;; Phase0
-  -- Process_Registry_Updates:                state_2           ~> state_3
-  ;; Phase0 -> Altair
-  -- Process_slashings:                       state_3           ~> state_4
+  -- ProcessRegistryUpdates:                state_2           ~> state_3
+  ;; Phase0 -> Altair -> Bellatrix
+  -- ProcessSlashings:                       state_3           ~> state_4
   ;; Phase0
-  -- Process_eth1_data_reset:                 state_4           ~> state_5
+  -- ProcessEth1DataReset:                 state_4           ~> state_5
   ;; Phase0
-  -- Process_effective_balance_updates:       state_5           ~> state_6
+  -- ProcessEffectiveBalanceUpdates:       state_5           ~> state_6
   ;; Phase0
-  -- Process_slashings_reset:                 state_6           ~> state_7
+  -- ProcessSlashingsReset:                 state_6           ~> state_7
   ;; Phase0
-  -- Process_randao_mixes_reset:              state_7           ~> state_8
+  -- ProcessRandaoMixesReset:              state_7           ~> state_8
   ;; Capella
   -- ProcessHistoricalSummariesUpdate:     state_8           ~> state_9
   ;; Altair
-  -- Process_participation_flag_updates:      state_9           ~> state_10
+  -- ProcessParticipationFlagUpdates:      state_9           ~> state_10
   ;; Altair
-  -- Process_sync_committee_updates:          state_10          ~> state_11
+  -- ProcessSyncCommitteeUpdates:          state_10          ~> state_11
 
 ;;
 ;; process_slots
@@ -85,6 +85,6 @@ relation ProcessSlots:
 
 rule ProcessSlots:
   state slot_target ~> state_out
-  ;; assert: redundant
+  ;; assert: redundant check
   -- if $( state.SLOT < slot_target )
   -- ProcessSlots_loop: state slot_target ~> state_out

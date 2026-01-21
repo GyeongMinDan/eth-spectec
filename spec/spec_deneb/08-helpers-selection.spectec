@@ -2,174 +2,120 @@
 ;; helpers for shuffle/committee/proposer/seed
 ;; =======================================
 
-;; --------------------------------------------
-;; choose_index : nat_bit==1 이면 flip, 아니면 그대로
-;; --------------------------------------------
+;; [Custom | branch : apply_shuffle_round]
 dec $choose_index(uint64, uint64, nat) : uint64
-def $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_flip
-  -- if $(nat_bit = 1)
-def $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_index_in
+def $choose_index(i, uint64_flip, nat_bit) = uint64_flip
+  -- if nat_bit = 1
+def $choose_index(i, uint64_flip, nat_bit) = i
   -- otherwise
 
-
-;; --------------------------------------------
-;; attach_capture_round : round ∧ (seed, n) → (seed, n, round)
-;; (fold에서 캡처를 건네주기 위한 유틸)
-;; --------------------------------------------
-dec $attach_capture_round(uint64, (bytes32, uint64)) : (bytes32, uint64, uint64)
-def $attach_capture_round(uint64_r, (bytes32_s, uint64_n)) = (bytes32_s, uint64_n, uint64_r)
-
-
-;; --------------------------------------------
-;; apply_shuffle_round : (acc_index, (seed, n, round)) → acc_index'
-;;  - 한번의 반복문 사이클을 표현
-;;  >> 시프트 연산은 양의정수 uint64 범위 내에서 byte 값을 2**k로 나눈 몫을 사용하고 최하위 비트는 모듈러 2 연산을 사용하여 동일한 의미로 구현
-;;  bit = (byte // (2^k)) % 2  로 구현
-;; --------------------------------------------
+;; [Custom | loop : compute_shuffled_index]
+;;  instead of shifting, we use division and mod operations
+;;  bit = (byte // (2^k)) % 2
 dec $apply_shuffle_round(uint64, (bytes32, uint64, uint64)) : uint64
 
-def $apply_shuffle_round(uint64_index_in, (bytes32_seed, uint64_n, uint64_round)) = uint64_index_out
+def $apply_shuffle_round(i, (seed, i_count, uint64_round)) = i_out
   ;; 1 round_hash = hash(seed || uint8(round))
-  -- if $bytes32_to_bytes(bytes32_seed) = bytes_seed
-  -- if $(uint64_round \ 256) = nat_round8
-  -- if $uint8_to_bytes_le(nat_round8) = bytes_round8              ;; 1B, LE
-  -- if $concat_bytes(bytes_seed, bytes_round8) = bytes_msg_r
-  -- if $hash_<bytes>(bytes_msg_r) = bytes32_round_hash
-  ;; 2 pivot = bytes32_prefix8(round_hash) -> bytes8_to_uint64_le(...) % n
+  -- if $bytes32_to_bytes(seed) = bytes_seed
+  -- if $uint8_to_bytes_le($(uint64_round \ 256)) = bytes_round8              ;; 1B, LE
+  -- if $hash_<bytes>($concat_bytes(bytes_seed, bytes_round8)) = bytes32_round_hash
+  ;; pivot
   -- if $bytes32_prefix8(bytes32_round_hash) = bytes8_prefix        ;; Extract first 8B
   -- if $bytes8_to_uint64_le(bytes8_prefix) = uint64_pivot_raw      ;; Decode as LE
-  -- if $(uint64_pivot_raw \ uint64_n) = uint64_pivot
-  ;; 3 flip / position
-  -- if $(uint64_pivot + uint64_n) = uint64_sum
-  -- if $(uint64_sum - uint64_index_in) = uint64_tmp
-  -- if $(uint64_tmp \ uint64_n) = uint64_flip
-  -- if $max_uint64(uint64_index_in, uint64_flip) = uint64_position
+  -- if $(uint64_pivot_raw \ i_count) = uint64_pivot
+  ;; flip, position
+  -- if $((uint64_pivot + i_count - i) \ i_count) = uint64_flip
+  -- if $max_uint64(i, uint64_flip) = uint64_position
   ;; 4 source = hash(seed || uint8(round) || uint32(bucket))
-  -- if $(uint64_position / 256) = uint64_bucket
-  -- if $uint32_to_bytes_le(uint64_bucket) = bytes_bucket           ;; 4B, LE
-  -- if $concat_bytes(bytes_seed, bytes_round8) = bytes_seed_round
-  -- if $concat_bytes(bytes_seed_round, bytes_bucket) = bytes_msg_src
-  -- if $hash_<bytes>(bytes_msg_src) = bytes32_source
-  ;; 5 바이트/비트 좌표 (position % 256 → byte_index, k)
-  -- if $(uint64_position \ 256) = nat_pos_in_bucket              ;; 0..255
-  -- if $(nat_pos_in_bucket / 8) = nat_byte_index                 ;; 0..31
-  -- if $(nat_pos_in_bucket \ 8) = nat_k                          ;; 0..7
-  ;; 6 byte 선택 및 bit 추출:  bit = (byte >> k) & 1
-  -- if $bytes32_to_bytes1_list(bytes32_source) = bytes1_list_32*
-  -- if bytes1_list_32*[nat_byte_index] = bytes1_b
-  -- if $bytes1_to_uint64(bytes1_b) = uint64_byte                  ;; 0..255
-  -- if $shr_uint64(uint64_byte, nat_k) = uint64_q                 ;; byte >> k
-  -- if $and_uint64(uint64_q, 1) = uint64_bit                      ;; (byte >> k) & 1
-  -- if $(uint64_bit \ 2) = nat_bit                                ;; uint64_bit는 0 또는 1, nat_bit로 변환
-  ;; 7 스왑 여부 그리고 출력
-  -- if $choose_index(uint64_index_in, uint64_flip, nat_bit) = uint64_index_out 
+  -- if $uint32_to_bytes_le($(uint64_position / 256)) = bytes_bucket           ;; 4B, LE
+  -- if $hash_<bytes>($concat_bytes($concat_bytes(bytes_seed, bytes_round8), bytes_bucket)) = bytes32_source
+  ;; byte, bit
+  -- if $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_source)[(uint64_position \ 256) / 8]) 
+      = uint64_byte
+  -- if $($and_uint64($shr_uint64(uint64_byte, $(uint64_position \ 8)), 1) \ 2) 
+      = nat_bit ;;0 or 1
+  ;; index = flip if bit else index
+  -- if $choose_index(i, uint64_flip, nat_bit) = i_out 
 
 
-;; --------------------------------------------
-;; compute_shuffled_index : for-loop
-;;  - rounds = [0 .. SHUFFLE_ROUND_COUNT-1]
-;;  - 각 round에 (seed, n)을 캡처로 붙여서 fold
-;; --------------------------------------------
+;; [Phase0] compute_shuffled_index(uint64, uint64, Bytes32) -> uint64
+;;  - loop over rounds = [0 .. SHUFFLE_ROUND_COUNT-1]
 dec $compute_shuffled_index(uint64, uint64, bytes32) : uint64
 
-def $compute_shuffled_index(uint64_index, uint64_index_count, bytes32_seed) = uint64_index_out
-  ;; assert
-  -- if $(uint64_index < uint64_index_count)
-  -- if $range($SHUFFLE_ROUND_COUNT) = uint64_rounds*
-  -- if $(|uint64_rounds*|) = uint64_rounds_count
-  -- if uint64_rounds*[0] = uint64_round_first
-  -- if uint64_rounds*[uint64_rounds_count - 1] = uint64_round_last
-  ;; change map_list_2_
-  -- if ($attach_capture_round(uint64_rounds, (bytes32_seed, uint64_index_count)) = (bytes32_seed_c, uint64_n_c, uint64_round_c))*
+def $compute_shuffled_index(i, i_count, seed) = i_shuffled
+  -- if $range($SHUFFLE_ROUND_COUNT) = uint64_round*
+  -- if uint64_round*[0] = uint64_round_first
+  -- if uint64_round*[$SHUFFLE_ROUND_COUNT - 1] = uint64_round_last
   -- if $fold_<uint64, (bytes32, uint64, uint64)>(
          def $apply_shuffle_round,
-         uint64_index,
-         (bytes32_seed_c, uint64_n_c, uint64_round_c)*
-       ) = uint64_index_out
+         i,
+         (seed, i_count, uint64_round)*
+       ) = i_shuffled
 
 
-;; --------------------------------------------
-;; 내부 루프: i를 증가시키며 브레이크 조건이 만족될 때 candidate 반환
-;; while 문은 재귀로 처리함 -> 종료되지 않으면 그냥 재귀로 호출
-;; compute_proposer_index_loop(state, indices*, seed, total, i) : validatorIndex
-;; --------------------------------------------
+;; [Custom | loop : compute_proposer_index]
 dec $compute_proposer_index_loop(beaconState, validatorIndex*, bytes32, uint64, uint64) : validatorIndex
 
-;; break case: if effective_balance * 255 >= MAX_EFFECTIVE_BALANCE * random_byte
-def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, uint64_i)
-  = validatorIndex_candidate
-  ;; 1 후보자 선택: shuffled(i % total)
-  -- if $(uint64_i \ uint64_total) = uint64_mod
-  -- if $compute_shuffled_index(uint64_mod, uint64_total, bytes32_seed) = uint64_shuffled
-  -- if validatorIndex_indices*[uint64_shuffled] = validatorIndex_candidate
-  ;; 2 random_byte = hash(seed || uint64_to_bytes_le(i//32))[i%32]
-  -- if $(uint64_i / 32) = uint64_chunk
-  -- if $uint64_to_bytes_le(uint64_chunk) = bytes_chunk              ;; 8B, LE
-  ;; fix hash(bytes32 + bytes)
-  -- if $bytes32_to_bytes(bytes32_seed) = bytes_seed_bytes
-  -- if $concat_bytes(bytes_seed_bytes, bytes_chunk) = bytes_msg
-  -- if $hash_<bytes>(bytes_msg) = bytes32_h
-  -- if $(uint64_i \ 32) = nat_b                          ;; 0..31
-  -- if $bytes32_to_bytes1_list(bytes32_h) = bytes1_list_32*
-  -- if bytes1_list_32*[nat_b] = bytes1_rb                    ;; bytes1 값 하나 선택
-  -- if $bytes1_to_uint64(bytes1_rb) = uint64_random_byte
-  ;; 3 effective_balance 조회
-  -- if state_beaconState.VALIDATORS[validatorIndex_candidate] = validator_v
-  -- if gwei_effective = validator_v.EFFECTIVE_BALANCE
-  ;; 4 break 조건
-  -- if $( gwei_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
+;; break: if effective_balance * 255 >= MAX_EFFECTIVE_BALANCE * random_byte
+def $compute_proposer_index_loop(state, vid*, seed, uint64_total, i)
+  = vid_candidate
+  -- if vid*[$compute_shuffled_index($(i \ uint64_total), uint64_total, seed)]
+      = vid_candidate
+  -- if $hash_<bytes>($concat_bytes($bytes32_to_bytes(seed), $uint64_to_bytes_le($(i / 32)))) = bytes32_h
+  -- if $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_h)[i \ 32]) = uint64_random_byte
+  -- if state.VALIDATORS[vid_candidate].EFFECTIVE_BALANCE = balance_effective
+  ;; inserted overflow check
+  -- if $( balance_effective <= $UINT64_MAX / $MAX_RANDOM_BYTE )
+  ;; loop-break
+  -- if $( balance_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
 
-;; continue case: 위 조건 미충족 → i+1 로 재귀
-def $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, uint64_i)
+;; continue with i + 1 otherwise
+def $compute_proposer_index_loop(state, vid*, seed, uint64_total, i)
   = $compute_proposer_index_loop(
-      state_beaconState,
-      validatorIndex_indices*,
-      bytes32_seed,
+      state,
+      vid*,
+      seed,
       uint64_total,
-      $(uint64_i + 1)
+      $(i + 1)
     )
   -- otherwise
 
-;; --------------------------------------------
-;; compute_proposer_index(state, indices*, seed) : validatorIndex
-;; (원본 while 무한루프를 재귀로 표현)
-;; --------------------------------------------
+;; [Phase0] compute_proposer_index(BeaconState, Sequence[ValidatorIndex], Bytes32) : ValidatorIndex
 dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex
 
-def $compute_proposer_index(state_beaconState, validatorIndex_indices*, bytes32_seed) = validatorIndex_ret
-  -- if $( |validatorIndex_indices*| ) = uint64_total
+def $compute_proposer_index(state, vid*, seed)
+  = $compute_proposer_index_loop(state, vid*, seed, |vid*|, 0)
   ;; assert
-  -- if $( uint64_total > 0 )
-  -- if $compute_proposer_index_loop(state_beaconState, validatorIndex_indices*, bytes32_seed, uint64_total, 0) = validatorIndex_ret
+  -- if $( |vid*| > 0 )
 
-;; ------------------------------------------------------------
-;; get_seed
+;; [Phase0] get_seed(BeaconState, Epoch, DomainType) -> Bytes32
+
 ;; seed = hash( domain_type(4B) ++ uint_to_bytes(epoch)(8B LE) ++ mix(32B) )
-;; ------------------------------------------------------------
 dec $get_seed(beaconState, epoch, domainType) : bytes32
 
-def $get_seed(state, epoch, domainType) = bytes32_seed
-  -- if $(epoch + $EPOCHS_PER_HISTORICAL_VECTOR - $MIN_SEED_LOOKAHEAD - 1) = epoch_mix_source
-  -- if $get_randao_mix(state, epoch_mix_source) = bytes32_mix
-  -- if $bytes4_to_bytes(domainType) = bytes_domain
-  -- if $uint64_to_bytes_le(epoch) = bytes_epoch                                              ;; 8B, LE
-  -- if $bytes32_to_bytes(bytes32_mix) = bytes_mix
-  -- if $concat_bytes(bytes_domain, bytes_epoch) = bytes_dom_epoch
-  -- if $concat_bytes(bytes_dom_epoch, bytes_mix) = bytes_msg
-  -- if $hash_<bytes>(bytes_msg) = bytes32_seed
+def $get_seed(state, epoch, domainType) 
+  = $hash_<bytes>(
+      $concat_bytes(
+        $concat_bytes(
+          $bytes4_to_bytes(domainType),
+          $uint64_to_bytes_le(epoch)),
+        $bytes32_to_bytes(bytes32_mix)
+      )
+    )
+  -- if $get_randao_mix(
+          state, $(epoch + $EPOCHS_PER_HISTORICAL_VECTOR - $MIN_SEED_LOOKAHEAD - 1)
+        ) = bytes32_mix
 
-;; ------------------------------------------------------------
-;; get_beacon_proposer_index
-;; ------------------------------------------------------------
+;; [Phase0] get_beacon_proposer_index(BeaconState) -> ValidatorIndex
 dec $get_beacon_proposer_index(beaconState) : validatorIndex
 
-def $get_beacon_proposer_index(state) = validatorIndex_prop
+def $get_beacon_proposer_index(state)
+  = $compute_proposer_index(state, vid*, seed)
   -- if $get_current_epoch(state) = epoch_cur
-  -- if $get_seed(state, epoch_cur, $DOMAIN_BEACON_PROPOSER) = bytes32_seed_base
-  -- if $uint64_to_bytes_le(state.SLOT) = bytes_slot                                          ;; 8B, LE
-  ;; fix hash(bytes32 + bytes)
-  -- if $bytes32_to_bytes(bytes32_seed_base) = bytes_seed_bytes
-  -- if $concat_bytes(bytes_seed_bytes, bytes_slot) = bytes_msg
-  -- if $hash_<bytes>(bytes_msg) = bytes32_h
-  -- if $get_active_validator_indices(state, epoch_cur) = validatorIndex_indices*
-  -- if $compute_proposer_index(state, validatorIndex_indices*, bytes32_h) = validatorIndex_prop
+  -- if $hash_<bytes>(
+          $concat_bytes(
+            $bytes32_to_bytes($get_seed(state, epoch_cur, $DOMAIN_BEACON_PROPOSER)),
+            $uint64_to_bytes_le(state.SLOT)
+          )
+        ) = seed
+  -- if $get_active_validator_indices(state, epoch_cur) = vid*

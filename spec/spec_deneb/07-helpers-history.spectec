@@ -2,46 +2,38 @@
 ;; roots & randao mixes & inactivity helpers
 ;; =======================================
 
-;; ------------------------------------------------------------
-;; get_block_root_at_slot : (state, slot) -> root
-;; ------------------------------------------------------------
+;; [Phase0] get_block_root_at_slot(BeaconState, Slot) -> Root
 dec $get_block_root_at_slot(beaconState, slot) : root
 
-def $get_block_root_at_slot(state, slot) = root_ret
+def $get_block_root_at_slot(state, slot) = root
   ;; assert
   -- if $(slot < state.SLOT)
+  ;; assert
   -- if $(state.SLOT <= slot + $SLOTS_PER_HISTORICAL_ROOT)
-  -- if $(slot \ $SLOTS_PER_HISTORICAL_ROOT) = n_idx
-  -- if state.BLOCK_ROOTS[n_idx] = root_ret
+  -- if state.BLOCK_ROOTS[slot \ $SLOTS_PER_HISTORICAL_ROOT] = root
 
-;; ------------------------------------------------------------
-;; get_block_root : (state, epoch) -> root
-;; ------------------------------------------------------------
+;; [Phase0] get_block_root(BeaconState, Epoch) -> Root
 dec $get_block_root(beaconState, epoch) : root
 
-def $get_block_root(state, epoch) = $get_block_root_at_slot(state, slot)
-  -- if $compute_start_slot_at_epoch(epoch) = slot
+def $get_block_root(state, epoch)
+  = $get_block_root_at_slot(state, $compute_start_slot_at_epoch(epoch))
 
-;; ------------------------------------------------------------
-;; get_randao_mix : (state, epoch) -> bytes32
-;; ------------------------------------------------------------
+;; [Phase0] get_randao_mix(BeaconState, Epoch) -> Bytes32
 dec $get_randao_mix(beaconState, epoch) : bytes32
 
-def $get_randao_mix(state, epoch) = bytes32_mix
-  -- if $(epoch \ $EPOCHS_PER_HISTORICAL_VECTOR) = n
-  -- if state.RANDAO_MIXES[n] = bytes32_mix
+def $get_randao_mix(state, epoch)
+  = state.RANDAO_MIXES[epoch \ $EPOCHS_PER_HISTORICAL_VECTOR]
 
-
-;; ------------------------------------------------------------
-;; get_finality_delay : state -> uint64
-;; ------------------------------------------------------------
+;; [Phase0] get_finality_delay(BeaconState) -> uint64
 dec $get_finality_delay(beaconState) : uint64
-def $get_finality_delay(state) =
-  $( $get_previous_epoch(state) - state.FINALIZED_CHECKPOINT.EPOCH )
 
-;; ------------------------------------------------------------
-;; is_in_inactivity_leak : state -> bool
-;; ------------------------------------------------------------
+def $get_finality_delay(state)
+  = $( $get_previous_epoch(state) - state.FINALIZED_CHECKPOINT.EPOCH )
+  ;; inserted underflow check
+  -- if $( $get_previous_epoch(state) >= state.FINALIZED_CHECKPOINT.EPOCH )
+
+;; [Phase0] is_in_inactivity_leak(BeaconState) -> bool
 dec $is_in_inactivity_leak(beaconState) : boolean
-def $is_in_inactivity_leak(state) =
-  $( $get_finality_delay(state) > $MIN_EPOCHS_TO_INACTIVITY_PENALTY )
+
+def $is_in_inactivity_leak(state)
+  = $( $get_finality_delay(state) > $MIN_EPOCHS_TO_INACTIVITY_PENALTY )

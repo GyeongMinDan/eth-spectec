@@ -1,881 +1,469 @@
-;; =========================
-;; helper funcs in process_epoch 
-;; =========================
+;; === ProcessRewardsAndPenalties ===
 
-;; ========== helpers for this rule ==========
-;; (한 인덱스에 대해) 보상 → 패널티 적용
-dec $apply_one_delta(beaconState, (validatorIndex, gwei, gwei)) : beaconState
-def $apply_one_delta(state, (vid, reward, penalty)) = state_2
-  -- IncreaseBalance: state `[ vid ] `+ reward ~> state_1
-  -- DecreaseBalance: state_1 `[ vid ] `- penalty ~> state_2
+;; [Custom] loop helper for ProcessRewardsAndPenalties
+;; apply reward -> penalty for a single index
+relation ApplyRewardAndPenalty: 
+  beaconState `.BALANCES `[ validatorIndex ] `+ gwei `- gwei ~> beaconState
+  hint(input %0 %1 %2 %3)
 
-;; 한 세트의 (reward*, penalty*)를 모든 인덱스에 적용 (안쪽 for = fold 1회)
-dec $apply_one_round(beaconState, (validatorIndex*, gwei*, gwei*)) : beaconState
-def $apply_one_round(state, (vid*, reward*, penalty*)) = state_after
-  -- if $fold_<beaconState, (validatorIndex, gwei, gwei)>(
-         def $apply_one_delta,
-         state,
-         (vid, reward, penalty)*
-       ) = state_after
+rule ApplyRewardAndPenalty:
+  state `.BALANCES `[ vid ] `+ reward `- penalty ~> state_out
+  -- IncreaseBalance: state   `.BALANCES `[ vid ] `+ reward  ~> state_r
+  -- DecreaseBalance: state_r `.BALANCES `[ vid ] `- penalty ~> state_out
 
-;; 바깥 fold에서 항목을 받아 한 라운드 적용
-dec $apply_one_round_captured(beaconState, (validatorIndex*, (gwei*, gwei*))) : beaconState
-def $apply_one_round_captured(state, (vid*, (gwei_rr*, gwei_pp*))) =
-  $apply_one_round(state, (vid*, gwei_rr*, gwei_pp*))
+;; folder
+;; implicit: should fail on length mismatch
+;; apply reward -> penalty -> reward -> penalty -> ...
+relation ApplyRewardsAndPenalties:
+  beaconState `.BALANCES `[ validatorIndex* ] `+ gwei* `- gwei* ~> beaconState
+  hint(input %0 %1 %2 %3)
 
-;; ------------------------------------------------------------
-;; per-index inactivity score update
-;; ------------------------------------------------------------
+rule ApplyRewardsAndPenalties/nil:
+  state `.BALANCES `[ eps ] `+ eps `- eps ~> state
+
+rule ApplyRewardsAndPenalties/cons:
+  state `.BALANCES `[ vid_h :: vid_t* ] `+ (reward_h :: reward_t*) `- (penalty_h :: penalty_t*) ~> state_out
+  -- ApplyRewardAndPenalty: state `.BALANCES `[ vid_h ] `+ reward_h `- penalty_h ~> state_h
+  -- ApplyRewardsAndPenalties: state_h `.BALANCES `[ vid_t* ] `+ reward_t* `- penalty_t* ~> state_out
+
+;; folder
+;; implicit: should fail on length mismatch
+;; apply rewards and penalties for multiple validators
+relation ApplyRewardsAndPenalties_over_deltas:
+  beaconState `.BALANCES `[ validatorIndex* ] `+ gwei** `- gwei** ~>* beaconState
+  hint(input %0 %1 %2 %3)
+
+rule ApplyRewardsAndPenalties_over_deltas/nil:
+  state `.BALANCES `[ _ ] `+ eps `- eps ~>* state
+
+rule ApplyRewardsAndPenalties_over_deltas/cons:
+  state `.BALANCES `[ vid* ] `+ (reward* :: reward_t**) `- (penalty* :: penalty_t**) ~>* state_out
+  -- ApplyRewardsAndPenalties: state `.BALANCES `[ vid* ] `+ reward* `- penalty* ~> state_t
+  -- ApplyRewardsAndPenalties_over_deltas: state_t `.BALANCES `[ vid* ] `+ reward_t** `- penalty_t** ~>* state_out
+
+;; === ProcessInactivityUpdates ===
+
+;; [Custom]
+;; apply inactivity score update for a single index
 relation ApplyInactivity:
-  beaconState `[ validatorIndex ] ~> beaconState
+  beaconState `.INACTIVITY_SCORES `[ validatorIndex ] ~> beaconState
   hint(input %0 %1)
-dec $update_inactivity_one(beaconState, validatorIndex) : beaconState
 
-;; case A: index ∈ unslashed participating (prev epoch)
-rule ApplyInactivity/unslashed_participating_leak_free:
-  state `[ vid ] ~> state_updated
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
+rule ApplyInactivity/unslashed_participating_no_leak:
+  state `.INACTIVITY_SCORES `[ vid ]
+    ~> state[.INACTIVITY_SCORES[vid]
+              = $max_uint64($(state.INACTIVITY_SCORES[vid] - 1 - $INACTIVITY_SCORE_RECOVERY_RATE), 0)
+            ]
   ----
-  ;; branch
-  -- if ( vid <- vid_participating_prev* )
+  ;; branch 1 : true
+  -- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
+  ;; branch 2 : false
+  -- if ~ $is_in_inactivity_leak(state)
+  ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
-  -- if $min_uint64(1, uint64_s0) = uint64_dec1
-  -- if $(uint64_s0 - uint64_dec1) = uint64_s1
-  -- if state.INACTIVITY_SCORES[[vid] = uint64_s1] = uint64_scores_mid*
-  -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
-  ;; leak-free 추가 회복(감소)
-  -- if $is_in_inactivity_leak(state) = false
-  -- if state_mid.INACTIVITY_SCORES[vid] = uint64_s1_read
-  -- if $min_uint64($INACTIVITY_SCORE_RECOVERY_RATE, uint64_s1_read) = uint64_dec2
-  -- if $(uint64_s1_read - uint64_dec2) = uint64_s2
-  -- if state_updated = state_mid[.INACTIVITY_SCORES[vid] = uint64_s2]
 
 rule ApplyInactivity/unslashed_participating_leak:
-  state `[ vid ] ~> state_mid
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
+  state `.INACTIVITY_SCORES `[ vid ]
+    ~> state[.INACTIVITY_SCORES[vid]
+              = $max_uint64($(state.INACTIVITY_SCORES[vid] - 1), 0)
+            ]
   ----
-  ;; branch
-  -- if ( vid <- vid_participating_prev* )
+  ;; branch 1 : true
+  -- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
+  ;; branch 2 : true
+  -- if $is_in_inactivity_leak(state)
+  ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
-  -- if $min_uint64(1, uint64_s0) = uint64_dec1
-  -- if $(uint64_s0 - uint64_dec1) = uint64_s1
-  -- if $is_in_inactivity_leak(state) = true
-  -- if state.INACTIVITY_SCORES[[vid] = uint64_s1] = uint64_scores_mid*
-  -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
 
-;; case B: index ∉ unslashed participating (prev epoch)
-rule ApplyInactivity/inactive_leak_free:
-  state `[ vid ] ~> state_updated
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
+rule ApplyInactivity/inactive_no_leak:
+  state `.INACTIVITY_SCORES `[ vid ]
+    ~> state[.INACTIVITY_SCORES[vid]
+              = $max_uint64($(state.INACTIVITY_SCORES[vid] + n_leak_penalty), 0)
+            ]
   ----
-  ;; branch
-  -- if ~( vid <- vid_participating_prev* )
+  ;; branch 1 : false
+  -- if ~(vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state)))
+  ;; branch 2 : false
+  -- if ~ $is_in_inactivity_leak(state)
+  -- if n_leak_penalty = $($INACTIVITY_SCORE_BIAS - $INACTIVITY_SCORE_RECOVERY_RATE)
+  ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
-  -- if $(uint64_s0 + $INACTIVITY_SCORE_BIAS) = uint64_s1
-  -- if state.INACTIVITY_SCORES[[vid] = uint64_s1] = uint64_scores_mid*
-  -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
-  ;; leak-free 추가 회복(감소)
-  -- if $is_in_inactivity_leak(state) = false
-  -- if state_mid.INACTIVITY_SCORES[vid] = uint64_s1_read
-  -- if $min_uint64($INACTIVITY_SCORE_RECOVERY_RATE, uint64_s1_read) = uint64_dec2
-  -- if $(uint64_s1_read - uint64_dec2) = uint64_s2
-  -- if state_updated = state_mid[.INACTIVITY_SCORES[vid] = uint64_s2]
 
 rule ApplyInactivity/inactive_leak:
-  state `[ vid ] ~> state_mid
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev) = vid_participating_prev*
+  state `.INACTIVITY_SCORES `[ vid ]
+    ~> state[.INACTIVITY_SCORES[vid]
+              = $max_uint64($(state.INACTIVITY_SCORES[vid] + $INACTIVITY_SCORE_BIAS), 0)
+            ]
   ----
-  ;; branch
-  -- if ~( vid <- vid_participating_prev* )
+  ;; branch 1 : false
+  -- if ~(vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state)))
+  ;; branch 2 : true
+  -- if $is_in_inactivity_leak(state)
+  ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
-  -- if state.INACTIVITY_SCORES[vid] = uint64_s0
-  -- if $(uint64_s0 + $INACTIVITY_SCORE_BIAS) = uint64_s1
-  -- if state.INACTIVITY_SCORES[[vid] = uint64_s1] = uint64_scores_mid*
-  -- if $is_in_inactivity_leak(state) = true
-  -- if state_mid = state[.INACTIVITY_SCORES = uint64_scores_mid*]
 
-relation ApplyInactivities:
-  beaconState `[ validatorIndex* ] ~>* beaconState
+;; [Custom] folder
+relation ApplyInactivity_over_vids:
+  beaconState `.INACTIVITY_SCORES `[ validatorIndex* ] ~>* beaconState
   hint(input %0 %1)
 
-rule ApplyInactivities/nil:
-  state `[ eps ] ~>* state
+rule ApplyInactivity_over_vids/nil:
+  state `.INACTIVITY_SCORES `[ eps ] ~>* state
 
-rule ApplyInactivities/cons:
-  state `[ (vid_h :: vid_t*) ] ~>* state_updated
-  -- ApplyInactivity: state `[ vid_h ] ~> state_1
-  -- ApplyInactivities: state_1 `[ vid_t* ] ~>* state_updated
+rule ApplyInactivity_over_vids/cons:
+  state `.INACTIVITY_SCORES `[ (vid_h :: vid_t*) ] ~>* state_updated
+  -- ApplyInactivity: state `.INACTIVITY_SCORES `[ vid_h ] ~> state_1
+  -- ApplyInactivity_over_vids: state_1 `.INACTIVITY_SCORES `[ vid_t* ] ~>* state_updated
 
-;; --------------------------------------------
-;; predicate: (i, v)가 이번 epoch에 슬래시 벌점 집행 대상인가?
-;;  v.SLASHED = true  ∧  epoch + (EPOCHS_PER_SLASHINGS_VECTOR / 2) = v.WITHDRAWABLE_EPOCH
-;; --------------------------------------------
+;; === ProcessSlashings ===
+
+;; [Custom] filter predicate
+
 dec $is_due_slashing_en(enumerated_<validator>, epoch) : boolean
 
-def $is_due_slashing_en((i, validator), epoch_cur) = true
-  -- if $(validator.SLASHED = true)
-  -- if $( epoch_cur + ($EPOCHS_PER_SLASHINGS_VECTOR / 2) = validator.WITHDRAWABLE_EPOCH )
+def $is_due_slashing_en((_, validator), epoch) = true
+  -- if validator.SLASHED = true
+  -- if $( epoch + ($EPOCHS_PER_SLASHINGS_VECTOR / 2) = validator.WITHDRAWABLE_EPOCH )
 
-def $is_due_slashing_en((i, validator), epoch_cur) = false
+def $is_due_slashing_en((_, _), _) = false
   -- otherwise
 
+;; [Custom] folder for DecreaseBalance
+relation DecreaseBalances:
+  beaconState `.BALANCES `[ validatorIndex* ] `- gwei* ~> beaconState
+  hint(input %0 %1 %2)
 
-;; --------------------------------------------
-;; map: (i, v) ↦ (ValidatorIndex(i), penalty)
-;; capture: (gwei_adj_total_slash, gwei_total_active)
-;; penalty = ((v.EFFECTIVE_BALANCE / INC) * gwei_adj_total_slash / gwei_total_active) * INC
-;; --------------------------------------------
-dec $compute_slash_penalty_en((nat, validator), (gwei, gwei)) : (validatorIndex, gwei)
+rule DecreaseBalances/nil:
+  state `.BALANCES `[ eps ] `- eps ~> state
 
-def $compute_slash_penalty_en((i, validator), (gwei_adj_total_slash, gwei_total_active))
-  = (vid, penalty)
-  -- if vid = i                 ;; nat → validatorIndex
-  -- if $EFFECTIVE_BALANCE_INCREMENT = gwei_inc 
-  -- if $( validator.EFFECTIVE_BALANCE / gwei_inc ) = uint64_incs 
-  -- if $( uint64_incs * gwei_adj_total_slash ) = gwei_pen_num 
-  -- if $( gwei_pen_num / gwei_total_active ) = gwei_pen_div 
-  -- if $( gwei_pen_div * gwei_inc ) = penalty 
+rule DecreaseBalances/cons:
+  state `.BALANCES `[ (vid_h :: vid_t*) ] `- (penalty_h :: penalty_t*) ~> state_t
+  -- DecreaseBalance: state `.BALANCES `[ vid_h ] `- penalty_h ~> state_h
+  -- DecreaseBalances: state_h `.BALANCES `[ vid_t* ] `- penalty_t* ~> state_t
 
+;; === ProcessJustificationAndFinalization ===
 
-;; --------------------------------------------
-;; fold 함수: 한 건의 (vi, penalty)를 state에 적용
-;; --------------------------------------------
-dec $apply_one_decrease(beaconState, (validatorIndex, gwei)) : beaconState
-
-def $apply_one_decrease(state, (vid, penalty)) = state_out
-  -- DecreaseBalance: state `[ vid ] `- penalty ~> state_out
-
-;; ============================================================
+;; [Phase0]
 ;; weigh_justification_and_finalization
-;;   inputs: (state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt)
-;;   output: state_out
-;; 공통 기호:
-;;   epoch_prev = $get_previous_epoch(state)
-;;   epoch_cur  = $get_current_epoch(state)
-;;   checkpoint_old_prev   = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-;;   checkpoint_old_cur    = state.CURRENT_JUSTIFIED_CHECKPOINT
-;;   boolean_old_bits*  = state.JUSTIFICATION_BITS  (길이 ≥ 4 가정)
-;;   shift 후 기본형: base_bits* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
-;; 공통 보조 설명:
-;;  P := (gwei_prev_tgt * 3 >= gwei_total_active * 2)
-;;  C := (gwei_cur_tgt  * 3 >= gwei_total_active * 2)
-;;  boolean_old_bits*[0]=b0', [1]=b1', [2]=b2', [3]=b3'
-;;  boolean_bits_init*  = [ false, b0', b1', b2' ]
-;;  P 반영: boolean_bits_after_P* = boolean_bits_init*            (P=0)
-;;                        = boolean_bits_init*[[1] = true] (P=1)
-;;  C 반영: boolean_bits_final*   = boolean_bits_after_P*         (C=0)
-;;                        = boolean_bits_after_P*[[0] = true] (C=1)
-;;  JC 갱신 순서:
-;;   - PREVIOUS_JUSTIFIED_CHECKPOINT ← checkpoint_old_cur
-;;   - if P=1 and C=0: CURRENT_JUSTIFIED_CHECKPOINT ← (epoch_prev, root_prev)
-;;   - if C=1:         CURRENT_JUSTIFIED_CHECKPOINT ← (epoch_cur,  root_cur)
-;;   - if P=0 and C=0: CURRENT_JUSTIFIED_CHECKPOINT 변화 없음
-;;
-;;  Finalize 조건:
-;;   A: bits[1]&bits[2]&bits[3] = 1  ∧  checkpoint_old_prev.EPOCH + 3 = epoch_cur → FINALIZED = checkpoint_old_prev
-;;   B: bits[1]&bits[2]        = 1  ∧  checkpoint_old_prev.EPOCH + 2 = epoch_cur → FINALIZED = checkpoint_old_prev
-;;   C: bits[0]&bits[1]&bits[2] = 1 ∧  checkpoint_old_cur.EPOCH  + 2 = epoch_cur → FINALIZED = checkpoint_old_cur
-;;   D: bits[0]&bits[1]        = 1  ∧  checkpoint_old_cur.EPOCH  + 1 = epoch_cur → FINALIZED = checkpoint_old_cur
-;; ============================================================
-dec $weigh_justification_and_finalization(beaconState, gwei, gwei, gwei) : beaconState
+;;  mutates: .JUSTIFICATION_BITS, .FINALIZED_CHECKPOINT, .PREVIOUS_JUSTIFIED_CHECKPOINT, .CURRENT_JUSTIFIED_CHECKPOINT
 
-;; =========================
-;; P=0, C=0  →  A / B / None  (3개)
-;; =========================
+;; Note: both justification and finalization have three distinct semantic branches:
+;; justify/finalize current, justify/finalize previous, neither
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=0, C=0, Finalize A
+relation WeighJustificationAndFinalization:
+  beaconState
+    TOTAL gwei
+    PREV gwei
+    CUR gwei
+    ~> beaconState
+  hint(input %0 %1 %2 %3)
+
+;; === justify neither: two branches ===
+
+rule WeighJustificationAndFinalization/justify_neither_finalize_prev:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.FINALIZED_CHECKPOINT = checkpoint_prev]
+            [.JUSTIFICATION_BITS = bit*]
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false   ;; P=0
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = false   ;; C=0
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*
-  ;; update JC (prev ← checkpoint_old_cur; curr unchanged)
-  -- if state_pj = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_bits = state_pj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize A: bits[1]=1,bits[2]=1,bits[3]=1 & checkpoint_old_prev.EPOCH+3=epoch_cur
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if boolean_bits_final*[3] = true
-  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_prev]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
+  ;; branch 1: (false, false)
+  -- if ~ $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
+  -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          false,
+          state.JUSTIFICATION_BITS[0],
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
+  ----
+  ;; branch 2: true
+  -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     \/ (bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=0, C=0, Finalize B
+rule WeighJustificationAndFinalization/justify_neither_finalize_neither:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.JUSTIFICATION_BITS = bit*]
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = false
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*
-  -- if state_pj = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_bits = state_pj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize B
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_prev]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
+  ;; branch 1: (false, false)
+  -- if ~ $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
+  -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          false,
+          state.JUSTIFICATION_BITS[0],
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
+  ----
+  ;; branch 2: false
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     /\ ~(bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=0, C=0, None
+rule WeighJustificationAndFinalization/justify_prev_finalize_prev:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.CURRENT_JUSTIFIED_CHECKPOINT
+              = { EPOCH epoch_prev,
+                  ROOT $get_block_root(state, epoch_prev) }]
+            [.FINALIZED_CHECKPOINT = checkpoint_prev]
+            [.JUSTIFICATION_BITS = bit*]
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = false
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*
-  -- if state_pj = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_out = state_pj[.JUSTIFICATION_BITS = boolean_bits_final*]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
+  ;; branch 1: (true, false)
+  -- if $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
+  -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          false,
+          true,
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
+  ----
+  ;; branch 2: true
+  -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     \/ (bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
 
-
-;; =========================
-;; P=1, C=0  →  A / B / None  (3개)
-;; =========================
-
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=1, C=0, Finalize A
+rule WeighJustificationAndFinalization/justify_prev_finalize_neither:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.CURRENT_JUSTIFIED_CHECKPOINT
+              = { EPOCH epoch_prev,
+                  ROOT $get_block_root(state, epoch_prev) }]
+            [.JUSTIFICATION_BITS = bit*]
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true    ;; P=1
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = false   ;; C=0
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*
-  ;; JC 업데이트 (prev ← checkpoint_old_cur; curr ← (epoch_prev, root_prev))
-  -- if $get_block_root(state, epoch_prev) = root_prev
-  -- if checkpoint_prev = { EPOCH epoch_prev, ROOT root_prev }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_prev]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize A
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if boolean_bits_final*[3] = true
-  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_prev]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
+  ;; branch 1: (true, false)
+  -- if $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
+  -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          false,
+          true,
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
+  ----
+  ;; branch 2: false
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     /\ ~(bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=1, C=0, Finalize B
+rule WeighJustificationAndFinalization/justify_cur_finalize_cur:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.CURRENT_JUSTIFIED_CHECKPOINT
+              = { EPOCH epoch_cur,
+                  ROOT $get_block_root(state, epoch_cur) }]
+            [.FINALIZED_CHECKPOINT = checkpoint_cur]
+            [.JUSTIFICATION_BITS = bit*]
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = false
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*
-  -- if $get_block_root(state, epoch_prev) = root_prev
-  -- if checkpoint_prev = { EPOCH epoch_prev, ROOT root_prev }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_prev]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize B
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_prev]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
+  ;; branch 1: (_, true)
+  -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          true,
+          state.JUSTIFICATION_BITS[0]
+          \/ $(balance_prev_epoch_target * 3 >= balance_total_active * 2),
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
+  ----
+  ;; branch 2: (true, _)
+  -- if (bit*[0] /\ bit*[1] /\ bit*[2] /\ $(checkpoint_cur.EPOCH + 2) = $get_current_epoch(state))
+     \/ (bit*[0] /\ bit*[1] /\ $(checkpoint_cur.EPOCH + 1) = $get_current_epoch(state))
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=1, C=0, None
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = false
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*
-  -- if $get_block_root(state, epoch_prev) = root_prev
-  -- if checkpoint_prev = { EPOCH epoch_prev, ROOT root_prev }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_prev]
-  -- if state_out = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-
-
-;; =========================
-;; P=0, C=1  →  (A and C) (A and D) (B and C) (B and D) + A / B / C / D / None  (9개) 
-;; =========================
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
+rule WeighJustificationAndFinalization/justify_cur_finalize_prev:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.CURRENT_JUSTIFIED_CHECKPOINT
+              = { EPOCH epoch_cur,
+                  ROOT $get_block_root(state, epoch_cur) }]
+            [.FINALIZED_CHECKPOINT = checkpoint_prev]
+            [.JUSTIFICATION_BITS = bit*]
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false   ;; P=0
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true    ;; C=1
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC (C 경로)
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; A ∧ C 전제
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if boolean_bits_final*[3] = true
-  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)      ;; A
-  -- if boolean_bits_final*[0] = true
-  -- if $(checkpoint_old_cur.EPOCH + 2 = epoch_cur)       ;; C
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
+  ;; branch 1: (_, true)
+  -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          true,
+          state.JUSTIFICATION_BITS[0]
+          \/ $(balance_prev_epoch_target * 3 >= balance_total_active * 2),
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
+  ----
+  ;; branch 2: (false, true)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2] /\ $(checkpoint_cur.EPOCH + 2) = $get_current_epoch(state))
+     /\ ~(bit*[0] /\ bit*[1] /\ $(checkpoint_cur.EPOCH + 1) = $get_current_epoch(state))
+     /\ ((bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     \/  (bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state)))
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
+rule WeighJustificationAndFinalization/justify_cur_finalize_neither:
+  state
+    TOTAL balance_total_active
+    PREV balance_prev_epoch_target
+    CUR balance_current_epoch_target
+    ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
+            [.CURRENT_JUSTIFIED_CHECKPOINT
+              = { EPOCH epoch_cur,
+                  ROOT $get_block_root(state, epoch_cur) }]
+            [.JUSTIFICATION_BITS = bit*]
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false   ;; P=0
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true    ;; C=1
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC (C 경로)
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; A ∧ D 전제
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if boolean_bits_final*[3] = true
-  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)      ;; A
-  -- if boolean_bits_final*[0] = true
-  -- if $(checkpoint_old_cur.EPOCH + 1 = epoch_cur)       ;; D
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  ----
+  ;; inserted overflow check
+  -- if $(balance_total_active <= $UINT64_MAX / 2)
+  ;; branch 1: (_, true)
+  -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
+  -- if bit* = [
+          true,
+          state.JUSTIFICATION_BITS[0]
+          \/ $(balance_prev_epoch_target * 3 >= balance_total_active * 2),
+          state.JUSTIFICATION_BITS[1],
+          state.JUSTIFICATION_BITS[2]
+        ]
+  ----
+  ;; branch 2: (false, false)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2] /\ $(checkpoint_cur.EPOCH + 2) = $get_current_epoch(state))
+     /\ ~(bit*[0] /\ bit*[1] /\ $(checkpoint_cur.EPOCH + 1) = $get_current_epoch(state))
+     /\ ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
+     /\ ~(bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false   ;; P=0
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true    ;; C=1
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC (C 경로)
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; B ∧ C 전제
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)      ;; B
-  -- if boolean_bits_final*[0] = true
-  -- if $(checkpoint_old_cur.EPOCH + 2 = epoch_cur)       ;; C
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+;; === ProcessRegistryUpdates ===
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false   ;; P=0
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true    ;; C=1
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC (C 경로)
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; B ∧ D 전제
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)      ;; B
-  -- if boolean_bits_final*[0] = true
-  -- if $(checkpoint_old_cur.EPOCH + 1 = epoch_cur)       ;; D
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+relation ProcessEligibilityAndEjection:
+  beaconState `.VALIDATORS `[ validatorIndex ] ~> beaconState
+  hint(input %0 %1)
 
+rule ProcessEligibilityAndEjection/eligible_and_eject:
+  state `.VALIDATORS `[ vid ] ~> state_updated
+  -- if state.VALIDATORS[vid] = validator
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $is_eligible_for_activation_queue(validator)
+  -- if $is_active_validator(validator, epoch_cur)
+     /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE)
+  -- InitiateValidatorExit: 
+       state [.VALIDATORS[vid].ACTIVATION_ELIGIBILITY_EPOCH 
+              = $(epoch_cur + 1)]
+         `.VALIDATORS `[ vid ] ~> state_updated
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=0, C=1, Finalize A  (비트·에폭이 허용하면 가능)
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false   ;; P=0
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true    ;; C=1
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC 업데이트 (prev ← checkpoint_old_cur; curr ← (epoch_cur, root_cur))
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize A
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if boolean_bits_final*[3] = true
-  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_prev]
+rule ProcessEligibilityAndEjection/eligible:
+  state `.VALIDATORS `[ vid ] ~>
+    state [.VALIDATORS[vid].ACTIVATION_ELIGIBILITY_EPOCH 
+          = $(epoch_cur + 1)]
+  -- if state.VALIDATORS[vid] = validator
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if $is_eligible_for_activation_queue(validator)
+  -- if ~( $is_active_validator(validator, epoch_cur)
+        /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=0, C=1, Finalize B
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize B
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_prev]
+rule ProcessEligibilityAndEjection/eject:
+  state `.VALIDATORS `[ vid ] ~> state_updated
+  -- if state.VALIDATORS[vid] = validator
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if ~$is_eligible_for_activation_queue(validator)
+  -- if $is_active_validator(validator, epoch_cur)
+     /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE)
+  -- InitiateValidatorExit: 
+       state `.VALIDATORS `[ vid ] ~> state_updated
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=0, C=1, Finalize C
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC 업데이트 (prev ← checkpoint_old_cur; curr ← (epoch_cur, root_cur))
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize C
-  -- if boolean_bits_final*[0] = true
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if $(checkpoint_old_cur.EPOCH + 2 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+rule ProcessEligibilityAndEjection/skip:
+  state `.VALIDATORS `[ vid ] ~> state
+  -- if state.VALIDATORS[vid] = validator
+  -- if $get_current_epoch(state) = epoch_cur
+  -- if ~$is_eligible_for_activation_queue(validator)
+  -- if ~( $is_active_validator(validator, epoch_cur)
+        /\ $(validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=0, C=1, Finalize D
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize D
-  -- if boolean_bits_final*[0] = true
-  -- if boolean_bits_final*[1] = true
-  -- if $(checkpoint_old_cur.EPOCH + 1 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
+relation ProcessEligibilityAndEjection_over_vids:
+  beaconState `.VALIDATORS `[ validatorIndex* ] ~> beaconState
+  hint(input %0 %1)
 
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=0, C=1, None
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[0] = boolean_b0p
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_b0p, boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = false
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true
-  -- if boolean_bits_after_P* = boolean_bits_init*
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_out = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
+rule ProcessEligibilityAndEjection_over_vids/nil:
+  state `.VALIDATORS `[ eps ] ~> state
 
+rule ProcessEligibilityAndEjection_over_vids/cons:
+  state `.VALIDATORS `[ (vid_h :: vid_t*) ] ~> state_out
+  -- ProcessEligibilityAndEjection: state `.VALIDATORS `[ vid_h ] ~> state_h
+  -- ProcessEligibilityAndEjection_over_vids: state_h `.VALIDATORS `[ vid_t* ] ~> state_out
 
-;; =========================
-;; P=1, C=1  →  (A and C) (A and D) (B and C) (B and D) + A / B / C / D / None  (9개)
-;; =========================
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true     ;; P=1
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true     ;; C=1
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC (prev ← old_cur; curr ← (epoch_cur, root_cur))
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; A ∧ C 전제
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if boolean_bits_final*[3] = true
-  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)      ;; A
-  -- if boolean_bits_final*[0] = true
-  -- if $(checkpoint_old_cur.EPOCH + 2 = epoch_cur)       ;; C
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
-
-
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true     ;; P=1
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true     ;; C=1
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC (prev ← old_cur; curr ← (epoch_cur, root_cur))
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; A ∧ D 전제
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if boolean_bits_final*[3] = true
-  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)      ;; A
-  -- if boolean_bits_final*[0] = true
-  -- if $(checkpoint_old_cur.EPOCH + 1 = epoch_cur)       ;; D
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
-
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true     ;; P=1
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true     ;; C=1
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC (prev ← old_cur; curr ← (epoch_cur, root_cur))
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; B ∧ C 전제
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)      ;; B
-  -- if boolean_bits_final*[0] = true
-  -- if $(checkpoint_old_cur.EPOCH + 2 = epoch_cur)       ;; C
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
-
-
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_bits_init* = [ false, boolean_old_bits*[0], boolean_old_bits*[1], boolean_old_bits*[2] ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true     ;; P=1
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true     ;; C=1
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC (prev ← old_cur; curr ← (epoch_cur, root_cur))
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; B ∧ D 전제
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)      ;; B
-  -- if boolean_bits_final*[0] = true
-  -- if $(checkpoint_old_cur.EPOCH + 1 = epoch_cur)       ;; D
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
-
-
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=1, C=1, Finalize A
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_old_bits*[0], boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  ;; JC 업데이트 (prev ← checkpoint_old_cur; curr ← (epoch_cur, root_cur))  -- C가 최종 덮어씀
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize A
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if boolean_bits_final*[3] = true
-  -- if $(checkpoint_old_prev.EPOCH + 3 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_prev]
-
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=1, C=1, Finalize B
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_old_bits*[0], boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize B
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if $(checkpoint_old_prev.EPOCH + 2 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_prev]
-
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=1, C=1, Finalize C
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_old_bits*[0], boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize C
-  -- if boolean_bits_final*[0] = true
-  -- if boolean_bits_final*[1] = true
-  -- if boolean_bits_final*[2] = true
-  -- if $(checkpoint_old_cur.EPOCH + 2 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
-
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=1, C=1, Finalize D
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_old_bits*[0], boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_bits = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-  ;; Finalize D
-  -- if boolean_bits_final*[0] = true
-  -- if boolean_bits_final*[1] = true
-  -- if $(checkpoint_old_cur.EPOCH + 1 = epoch_cur)
-  -- if state_out = state_bits[.FINALIZED_CHECKPOINT = checkpoint_old_cur]
-
-def $weigh_justification_and_finalization(state, gwei_total_active, gwei_prev_tgt, gwei_cur_tgt) = state_out
-  ;; P=1, C=1, None
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if checkpoint_old_cur  = state.CURRENT_JUSTIFIED_CHECKPOINT
-  -- if boolean_old_bits* = state.JUSTIFICATION_BITS
-  -- if boolean_old_bits*[1] = boolean_b1p
-  -- if boolean_old_bits*[2] = boolean_b2p
-  -- if boolean_bits_init*   = [ false, boolean_old_bits*[0], boolean_b1p, boolean_b2p ]
-  -- if $(gwei_prev_tgt * 3 >= gwei_total_active * 2) = true
-  -- if $(gwei_cur_tgt  * 3 >= gwei_total_active * 2) = true
-  -- if boolean_bits_after_P* = boolean_bits_init*[[1] = true]
-  -- if boolean_bits_final*   = boolean_bits_after_P*[[0] = true]
-  -- if $get_block_root(state, epoch_cur) = root_cur
-  -- if checkpoint_cur = { EPOCH epoch_cur, ROOT root_cur }
-  -- if state_pj  = state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_old_cur]
-  -- if state_cj  = state_pj[.CURRENT_JUSTIFIED_CHECKPOINT  = checkpoint_cur]
-  -- if state_out = state_cj[.JUSTIFICATION_BITS = boolean_bits_final*]
-
-;; ============================================
-;; helpers for process_registry_updates (fixed)
-;; ============================================
-
-;; (i, v)가 activation 자격인가?  (state 캡처)
+;; filter predicate
 dec $is_eligible_activation_en((nat, validator), beaconState) : boolean
-def $is_eligible_activation_en((i, validator), state) =
-  $is_eligible_for_activation(state, validator)
+def $is_eligible_activation_en((_, validator), state)
+  = $is_eligible_for_activation(state, validator)
 
-;; (i, v) ↦ (v.ACTIVATION_ELIGIBILITY_EPOCH, ValidatorIndex(i))  (state 캡처 안 씀)
-dec $activation_key_en((nat, validator), beaconState) : (epoch, validatorIndex)
-def $activation_key_en((i, validator), state) = (epoch_key, vid)
-  -- if epoch_key = validator.ACTIVATION_ELIGIBILITY_EPOCH
-  -- if vid = i
-
-;; enumerate 결과 (n, vi)에서 n < limit ?
-dec $idx_lt_limit((nat, validatorIndex), uint64) : boolean
-def $idx_lt_limit((i, vid), uint64_lim) = true
-  -- if $(i < uint64_lim)
-def $idx_lt_limit((i, vid), uint64_lim) = false
-  -- otherwise
-
-;; set the activation epoch for a given validator
-relation SetActivation:
-  beaconState validatorIndex ~> beaconState
+;; [Custom]
+;; mutates: .VALIDATORS[].ACTIVATION_EPOCH
+relation ApplyActivation:
+  beaconState `.VALIDATORS `[ validatorIndex ] `.ACTIVATION_EPOCH ~> beaconState
   hint(input %0 %1)
 
-rule SetActivation:
-  state validatorIndex ~> state_out
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $compute_activation_exit_epoch(epoch_cur) = epoch_act
-  -- if $(validatorIndex < |state.VALIDATORS|)
-  -- if validator_new = state.VALIDATORS[validatorIndex][.ACTIVATION_EPOCH = epoch_act]
-  -- if state_out = state[.VALIDATORS[validatorIndex] = validator_new]
+rule ApplyActivation:
+  state `.VALIDATORS `[ vid ] `.ACTIVATION_EPOCH ~>
+    state[.VALIDATORS[vid].ACTIVATION_EPOCH
+          = $compute_activation_exit_epoch($get_current_epoch(state))]
 
-relation SetActivations:
-  beaconState validatorIndex* ~>* beaconState
+relation ApplyActivations:
+  beaconState 
+    `.VALIDATORS `[ validatorIndex* ] `.ACTIVATION_EPOCH
+    ~>* beaconState
   hint(input %0 %1)
 
-rule SetActivations/nil:
-  state eps ~>* state
+rule ApplyActivations/nil:
+  state `.VALIDATORS `[ eps ] `.ACTIVATION_EPOCH ~>* state
 
-rule SetActivations:
-  state (vid_h :: vid_t*) ~>* state_out
-  -- SetActivation: state vid_h ~> state'
-  -- SetActivations: state' vid_t* ~>* state_out
+rule ApplyActivations/cons:
+  state `.VALIDATORS `[(vid_h :: vid_t*)] `.ACTIVATION_EPOCH ~>* state_out
+  -- ApplyActivation:  state   `.VALIDATORS `[ vid_h ]  `.ACTIVATION_EPOCH ~>  state_h
+  -- ApplyActivations: state_h `.VALIDATORS `[ vid_t* ] `.ACTIVATION_EPOCH ~>* state_out
 
-;; (i, v) 한 쌍 처리: eligibility_epoch 설정 및 eject
-dec $process_registry_one(beaconState, (nat, validator)) : beaconState
-
-;; case 1: activation queue 자격 O + ejection 조건 O → eligibility_epoch 갱신 + eject
-def $process_registry_one(state, (i, validator)) = state_after
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $is_eligible_for_activation_queue(validator) = true
-  -- if epoch_elig = $(epoch_cur + 1)
-  -- if validator_set_elig = validator[.ACTIVATION_ELIGIBILITY_EPOCH = epoch_elig]
-  -- if state_elig = state[.VALIDATORS = state.VALIDATORS[[i] = validator_set_elig]]
-  -- if state_elig.VALIDATORS[i] = validator_read
-  -- if $is_active_validator(validator_read, epoch_cur) = true
-  -- if $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE)
-  -- if state_after = $initiate_validator_exit(state_elig, i)
-
-;; case 2: activation queue 자격 O + ejection 조건 X → eligibility_epoch 갱신만
-def $process_registry_one(state, (i, validator)) = state_after
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $is_eligible_for_activation_queue(validator) = true
-  -- if epoch_elig = $(epoch_cur + 1)
-  -- if validator_set_elig = validator[.ACTIVATION_ELIGIBILITY_EPOCH = epoch_elig]
-  -- if state_elig = state[.VALIDATORS = state.VALIDATORS[[i] = validator_set_elig]]
-  -- if state_elig.VALIDATORS[i] = validator_read
-  -- if ~( $is_active_validator(validator_read, epoch_cur) = true
-         /\ $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE) )
-  -- if state_after = state_elig
-
-;; case 3: 자격 X + eject 조건 O → eject만
-def $process_registry_one(state, (i, validator)) = state_after
-  -- if $get_current_epoch(state) = epoch_cur
-  -- if $is_eligible_for_activation_queue(validator) = false
-  -- if state_mid = state
-  -- if state_mid.VALIDATORS[i] = validator_read
-  -- if $is_active_validator(validator_read, epoch_cur) = true
-  -- if $(validator_read.EFFECTIVE_BALANCE <= $EJECTION_BALANCE) = true
-  -- if state_after = $initiate_validator_exit(state_mid, i)
-
-;; case 4: 그 외 → 변화 없음
-def $process_registry_one(state, (i, validator)) = state
-  -- otherwise

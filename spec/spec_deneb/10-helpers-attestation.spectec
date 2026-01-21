@@ -1,0 +1,282 @@
+;; [Phase0] compute_committee(Sequence[ValidatorIndex], Bytes32, uint64, uint64) : Sequence[ValidatorIndex]
+dec $compute_committee(validatorIndex*, bytes32, uint64, uint64) : validatorIndex*
+
+def $compute_committee(vid*, seed, i, count) = vid_committee*
+  -- if $( (|vid*| * i) / count ) = i_start
+  -- if $( (|vid*| * (i + 1)) / count ) = i_end
+  -- if $range($(i_end - i_start)) = n*
+  -- if $(n + i_start = i_range)*
+  -- if ($compute_shuffled_index(i_range, |vid*|, seed) = i_shuffled)*
+  -- if (vid*[i_shuffled] = vid_committee)*
+
+;; [Phase0] get_committee_count_per_slot(BeaconState, Epoch) -> uint64
+dec $get_committee_count_per_slot(beaconState, epoch) : uint64
+def $get_committee_count_per_slot(state, epoch) 
+  = $max_uint64(
+      1,
+      $min_uint64(
+        $MAX_COMMITTEES_PER_SLOT,
+        $( |$get_active_validator_indices(state, epoch)|
+           / $SLOTS_PER_EPOCH
+           / $TARGET_COMMITTEE_SIZE )
+      )
+    )
+
+;; [Phase0] get_beacon_committee(BeaconState, Slot, CommitteeIndex) -> Sequence[ValidatorIndex]
+dec $get_beacon_committee(beaconState, slot, committeeIndex) : validatorIndex*
+def $get_beacon_committee(state, slot, committeeIndex)
+  = $compute_committee(
+      $get_active_validator_indices(state, epoch),
+      $get_seed(state, epoch, $DOMAIN_BEACON_ATTESTER),
+      $( (slot \ $SLOTS_PER_EPOCH) * count_committees_per_slot + committeeIndex ),
+      $( count_committees_per_slot * $SLOTS_PER_EPOCH )
+    )
+  -- if $compute_epoch_at_slot(slot) = epoch
+  -- if $get_committee_count_per_slot(state, epoch) = count_committees_per_slot
+
+;; [Custom | filter : get_attesting_indices] aggregation_bits[i] = true
+dec $bit_is_one_at_index((nat, validatorIndex), boolean*) : bool
+
+def $bit_is_one_at_index((i, _), bit*)
+  = bit*[i]
+  ;; inserted guard
+  -- if $(i < |bit*|)
+
+;; [Phase0] get_attesting_indices(BeaconState, Attestation) -> Set[ValidatorIndex]
+dec $get_attesting_indices(beaconState, attestation) : validatorIndex*
+
+def $get_attesting_indices(state, attestation) = vid_set*
+  -- if $get_beacon_committee(
+         state,
+         attestation.DATA.SLOT,
+         attestation.DATA.INDEX
+       ) = vid_committee*
+  -- if $enumerate_<validatorIndex>(vid_committee*)
+       = (i, vid)*
+  -- if $filter_list_2_<(nat, validatorIndex), boolean*>(
+         (i, vid)*,
+         attestation.AGGREGATION_BITS,
+         def $bit_is_one_at_index
+       ) = (_, vid_attesting)*
+  -- if $to_set_<validatorIndex>(vid_attesting*) = vid_set*
+
+;; [Phase0] is_slashable_attestation_data(AttestationData, AttestationData) -> bool
+dec $is_slashable_attestation_data(attestationData, attestationData) : bool
+def $is_slashable_attestation_data(attestationData_1, attestationData_2) =
+  ( ( attestationData_1 =/= attestationData_2 )
+    /\ $( attestationData_1.TARGET.EPOCH = attestationData_2.TARGET.EPOCH ) ) ;;double vote
+  \/
+  ( $( attestationData_1.SOURCE.EPOCH < attestationData_2.SOURCE.EPOCH )
+    /\ $( attestationData_2.TARGET.EPOCH < attestationData_1.TARGET.EPOCH ) ) ;;surround vote
+
+;; [Phase0] is_valid_indexed_attestation(BeaconState, IndexedAttestation) -> bool
+dec $is_valid_indexed_attestation(beaconState, indexedAttestation) : boolean
+;; false: empty list
+def $is_valid_indexed_attestation(state, indexedAttestation) = false
+  -- if |indexedAttestation.ATTESTING_INDICES| = 0
+;; false: not sorted
+def $is_valid_indexed_attestation(state, indexedAttestation) = false
+  -- if $sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES))
+  =/= indexedAttestation.ATTESTING_INDICES
+;; otherwise
+def $is_valid_indexed_attestation(state, indexedAttestation)
+  = $bls_fast_aggregate_verify(blsPubkey*, root_signing, indexedAttestation.SIGNATURE)
+  -- if vid* = indexedAttestation.ATTESTING_INDICES
+  -- if $(|indexedAttestation.ATTESTING_INDICES| > 0)
+  -- if $sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES))
+      = indexedAttestation.ATTESTING_INDICES
+  -- if (state.VALIDATORS[vid].PUBKEY = blsPubkey)*
+  -- if $get_domain(state, $DOMAIN_BEACON_ATTESTER, indexedAttestation.DATA.TARGET.EPOCH) = domain
+  -- if $compute_signing_root_attestationData(indexedAttestation.DATA, domain) = root_signing
+
+;; [Custom]
+;;  modifies: .VALIDATORS[](.EXIT_EPOCH, .WITHDRAWABLE_EPOCH, .SLASHED) .SLASHINGS, .BALANCES
+relation SlashIfEligible:
+  beaconState SLASH`? `[ validatorIndex ] ~> beaconState `#SLASHED bool
+  hint(input %0 %1)
+
+rule SlashIfEligible/true:
+  state SLASH`? `[ vid ] ~> state_slashed `#SLASHED true
+  -- if $(vid < |state.VALIDATORS|)
+  -- if $is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))
+  -- SlashValidator: state SLASH `[ vid ] BY eps ~> state_slashed
+
+rule SlashIfEligible/false:
+  state SLASH`? `[ vid ] ~> state `#SLASHED false
+  -- if $(vid < |state.VALIDATORS|)
+  -- if ~$is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))
+
+;; folder for SlashIfEligible
+relation SlashIfEligible_over_validators:
+  beaconState SLASH`? `[ validatorIndex* ] ~> beaconState `#SLASHED bool
+  hint(input %0 %1)
+
+rule SlashIfEligible_over_validators/nil:
+  state SLASH`? `[ eps ] ~> state `#SLASHED false
+
+rule SlashIfEligible_over_validators/cons:
+  state SLASH`? `[ vid_h :: vid_t* ] ~> state_t `#SLASHED (bool_h \/ bool_t)
+  -- SlashIfEligible: state SLASH`? `[ vid_h ] ~> state_h `#SLASHED bool_h
+  -- SlashIfEligible_over_validators: state_h SLASH`? `[ vid_t* ] ~> state_t `#SLASHED bool_t
+
+;; [Custom | branch : get_attestation_participation_flag_indices]
+dec $source_flag_list(uint64) : nat*
+
+def $source_flag_list(uint64_inclusion_delay)
+  = [ $TIMELY_SOURCE_FLAG_INDEX ]
+  -- if $(uint64_inclusion_delay <= $integer_square_root($SLOTS_PER_EPOCH))
+def $source_flag_list(_) = eps
+  -- otherwise
+
+dec $target_flag_list(bool) : nat*
+
+def $target_flag_list(bool_matching_target) 
+  = [ $TIMELY_TARGET_FLAG_INDEX ]
+  ;; Removed in [Deneb]
+  ;;-- if $(uint64_inclusion_delay <= $SLOTS_PER_EPOCH)
+def $target_flag_list(_) = eps
+  -- otherwise
+dec $head_flag_list(bool, uint64) : nat*
+
+def $head_flag_list(bool_matching_head, uint64_inclusion_delay)
+  = [ $TIMELY_HEAD_FLAG_INDEX ]
+  -- if $(uint64_inclusion_delay = $MIN_ATTESTATION_INCLUSION_DELAY)
+def $head_flag_list(_, _) = eps
+  -- otherwise
+
+;; [Altair] get_attestation_participation_flag_indices(BeaconState, AttestationData, uint64) -> Sequence[int]
+dec $get_attestation_participation_flag_indices(beaconState, attestationData, uint64) : nat*
+
+def $get_attestation_participation_flag_indices(state, attestationData, uint64_inclusion_delay) = flag_indices*
+  ;; branch: if current, use current checkpoint
+  -- if attestationData.TARGET.EPOCH = $get_current_epoch(state)
+  -- if checkpoint_justified = state.CURRENT_JUSTIFIED_CHECKPOINT
+  ;; assert is_matching_source
+  -- if $(attestationData.SOURCE.EPOCH = checkpoint_justified.EPOCH)
+  -- if $(attestationData.SOURCE.ROOT = checkpoint_justified.ROOT)
+  ;; matching target
+  -- if $get_block_root(state, attestationData.TARGET.EPOCH) = root_target
+  -- if $(attestationData.TARGET.ROOT = root_target) = bool_target_root_matches
+  ;; matching head
+  -- if $get_block_root_at_slot(state, attestationData.SLOT) = root_head
+  -- if $(attestationData.BEACON_BLOCK_ROOT = root_head) = bool_head_root_matches
+  ;; build participation flags
+  -- if $source_flag_list(uint64_inclusion_delay) = flag_source*
+  ;; modified in [Deneb], removed inclusion_delay condition
+  -- if $target_flag_list(bool_target_root_matches) = flag_target*
+  -- if $head_flag_list(bool_target_root_matches /\ bool_head_root_matches, uint64_inclusion_delay) = flag_head*
+  ;; construct the flag list
+  -- if flag_indices* = flag_source* ++ flag_target* ++ flag_head*
+
+def $get_attestation_participation_flag_indices(state, attestationData, uint64_inclusion_delay) = flag_indices*
+  ;; branch: if not current, use previous checkpoint
+  -- if attestationData.TARGET.EPOCH =/= $get_current_epoch(state)
+  -- if checkpoint_justified = state.PREVIOUS_JUSTIFIED_CHECKPOINT
+  ;; assert is_matching_source
+  -- if $(attestationData.SOURCE.EPOCH = checkpoint_justified.EPOCH)
+  -- if $(attestationData.SOURCE.ROOT = checkpoint_justified.ROOT)
+  ;; matching target
+  -- if $get_block_root(state, attestationData.TARGET.EPOCH) = root_target
+  -- if $(attestationData.TARGET.ROOT = root_target) = bool_target_root_matches
+  ;; matching head
+  -- if $get_block_root_at_slot(state, attestationData.SLOT) = root_head
+  -- if $(attestationData.BEACON_BLOCK_ROOT = root_head) = bool_head_root_matches
+  ;; build participation flags
+  -- if $source_flag_list(uint64_inclusion_delay) = flag_source*
+  ;; modified in [Deneb], removed inclusion_delay condition
+  -- if $target_flag_list(bool_target_root_matches) = flag_target*
+  -- if $head_flag_list(bool_target_root_matches /\ bool_head_root_matches, uint64_inclusion_delay) = flag_head*
+  ;; construct the flag list
+  -- if flag_indices* = flag_source* ++ flag_target* ++ flag_head*
+
+;; [Phase0 | loop : get_next_sync_committee_indices]
+dec $next_sync_committee_indices_loop(
+  beaconState, validatorIndex*, bytes32, uint64, uint64, validatorIndex*
+) : validatorIndex*
+
+;; while loop termination: |sync_committee_indices| >= SYNC_COMMITTEE_SIZE
+def $next_sync_committee_indices_loop(_, _, _, _, _, vid_sync_committee*)
+  = vid_sync_committee*
+  -- if $(|vid_sync_committee*| >= $SYNC_COMMITTEE_SIZE)
+
+;; append if condition satisfied
+def $next_sync_committee_indices_loop(
+  state, vid_active*, seed, count_active, vid, vid_sync_committee*
+) = $next_sync_committee_indices_loop(
+      state,
+      vid_active*,
+      seed,
+      count_active,
+      $(vid + 1),
+      vid_sync_committee* ++ [vid_candidate] ;;append if condition holds
+    )
+  ;; branch-complete: loop condition
+  -- if $( |vid_sync_committee*| < $SYNC_COMMITTEE_SIZE )
+  -- if vid_active*[$compute_shuffled_index($(vid \ count_active), count_active, seed)] = vid_candidate
+  -- if $hash_<bytes>($concat_bytes($bytes32_to_bytes(seed), $uint_to_bytes($(vid / 32)))) = bytes32_h
+  -- if $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_h)[vid \ 32]) = uint64_random_byte
+  -- if state.VALIDATORS[vid_candidate].EFFECTIVE_BALANCE = balance_effective
+  ;; inserted overflow check
+  -- if $( balance_effective <= $UINT64_MAX / $MAX_RANDOM_BYTE )
+  -- if $( balance_effective * $MAX_RANDOM_BYTE >= $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
+  ;; procceed to next iteration
+
+;; continue if condition not satisfied
+def $next_sync_committee_indices_loop(
+  state, vid_active*, seed, count_active, vid, vid_sync_committee*
+) = $next_sync_committee_indices_loop(
+      state,
+      vid_active*,
+      seed,
+      count_active,
+      $(vid + 1),
+      vid_sync_committee*
+    )
+  ;; branch-complete: loop condition
+  -- if $( |vid_sync_committee*| < $SYNC_COMMITTEE_SIZE )
+  -- if vid_active*[$compute_shuffled_index($(vid \ count_active), count_active, seed)] = vid_candidate
+  -- if $hash_<bytes>($concat_bytes($bytes32_to_bytes(seed), $uint_to_bytes($(vid / 32)))) = bytes32_h
+  -- if $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_h)[vid \ 32]) = uint64_random_byte
+  -- if state.VALIDATORS[vid_candidate].EFFECTIVE_BALANCE = balance_effective
+  ;; inserted overflow check
+  -- if $( balance_effective <= $UINT64_MAX / $MAX_RANDOM_BYTE )
+  -- if $( balance_effective * $MAX_RANDOM_BYTE < $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
+  ;; otherwise, proceed to next iteration without appending
+
+
+;; [Phase0] get_next_sync_committee_indices(BeaconState) -> Sequence[ValidatorIndex]
+dec $get_next_sync_committee_indices(beaconState) : validatorIndex*
+
+def $get_next_sync_committee_indices(state) = vid_out*
+  -- if epoch_next = $( $get_current_epoch(state) + 1 )
+  -- if $get_active_validator_indices(state, epoch_next) = vid_active*
+  -- if |vid_active*| = count_active
+  -- if $get_seed(state, epoch_next, $DOMAIN_SYNC_COMMITTEE) = seed
+  -- if $next_sync_committee_indices_loop(
+         state,
+         vid_active*,
+         seed,
+         count_active,
+         0,
+         eps ;; empty list
+       ) = vid_out*
+
+;; [Phase0] get_next_sync_committee(BeaconState) -> SyncCommittee
+dec $get_next_sync_committee(beaconState) : syncCommittee
+
+def $get_next_sync_committee(state)
+  = { PUBKEYS          blsPubkey*,
+      AGGREGATE_PUBKEY blsPubkey_aggregate }
+  -- if $get_next_sync_committee_indices(state) = vid*
+  -- if (state.VALIDATORS[vid].PUBKEY = blsPubkey)*
+  -- if $eth_aggregate_pubkeys(blsPubkey*) = blsPubkey_aggregate
+
+
+;; [Phase0] get_indexed_attestation(BeaconState, Attestation) -> IndexedAttestation
+dec $get_indexed_attestation(beaconState, attestation) : indexedAttestation
+
+def $get_indexed_attestation(state, attestation)
+  = { ATTESTING_INDICES $sort_<validatorIndex>(vid_attesting*),
+      DATA               attestation.DATA,
+      SIGNATURE          attestation.SIGNATURE }
+  -- if $get_attesting_indices(state, attestation) = vid_attesting*

@@ -437,7 +437,7 @@ def $ZERO_ROOT = 0
 dec $MAX_RANDOM_BYTE : uint64
 def $MAX_RANDOM_BYTE = 255
 
-;; New in Deneb
+;; [Deneb]
 
 dec $VERSIONED_HASH_VERSION_KZG : bytes1
 def $VERSIONED_HASH_VERSION_KZG = 1  ;; 0x01

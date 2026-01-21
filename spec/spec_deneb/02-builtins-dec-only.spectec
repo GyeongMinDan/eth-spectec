@@ -1,6 +1,5 @@
 ;; =========================
 ;; builtins-decls.spectec
-;; (dec-only: 인터프리터/런타임 제공)
 ;; =========================
 
 ;; --- BLS cryptography ---
@@ -8,14 +7,14 @@ dec $bls_verify(blsPubkey, root, blsSignature) : boolean
 dec $bls_fast_aggregate_verify(blsPubkey*, root, blsSignature) : boolean
 dec $eth_aggregate_pubkeys(blsPubkey*) : blsPubkey
 
-;; --- hash ---
+;; hash
 dec $hash_<X>(X) : bytes32
 
 ;; Debug functions
 dec $debug_print_<X>(X) : X
 dec $debug_print_label_<X>(text, X) : X
 
-;; --- hash_tree_root 계열 ---
+;; --- hash_tree_root ---
 dec $hash_tree_root_beaconBlockHeader(beaconBlockHeader) : root
 dec $hash_tree_root_beaconBlockBody(beaconBlockBody) : root
 dec $hash_tree_root_depositData(depositData) : root
@@ -28,7 +27,7 @@ dec $hash_tree_root_roots(root*) : root
 dec $hash_tree_root_tx(bytes*) : root
 
 
-;; --- 서명 루트 계산 ---
+;; --- compute signing root ---
 dec $compute_signing_root_epoch(epoch, domain) : root
 dec $compute_signing_root_voluntary_exit(voluntaryExit, domain) : root
 dec $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain) : root
@@ -38,7 +37,7 @@ dec $compute_signing_root_depositMessage(depositMessage, domain) : root
 dec $compute_signing_root_block_root(bytes32, domain) : root
 dec $compute_signing_root_beaconBlock(beaconBlock, domain) : root
 
-;; --- 머클 검증 ---
+;; --- merkle validation ---
 dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
 
 
@@ -46,36 +45,30 @@ dec $is_valid_merkle_branch(bytes32, bytes32*, uint64, uint64, root) : boolean
 ;; --- 수치 유틸  ---
 dec $integer_square_root(uint64) : uint64
 
-;; --- 한 리스트 안에 겹치는 원소 개수 세기 ---
-;; X* = [1, 2, 3] -> count_occurrences_<1>(X*, 1) -> how many 1 in X* ??
-;; count occurrences of element in list
+;; count occurrences of X in X*
 dec $count_occurrences_<X>(X*, X) : nat
 
-;; --- 2의 제곱 연산 --- 
 ;; --- pow2(nat) -> 2 ^ nat --- 
 dec $pow2(nat) : nat
 
-;; 리스트 set 함수(리스트 내 중복 제거)
+;; dedup lists
 dec $to_set_<X>(X*) : X*
 
-;; 리스트 sum 함수
+;; sum over list
 dec $sum_<X>(X*) : X
 
-;; 리스트 값채우기
-;; repeat_<gwei>(gwei, 0) -> gwei가 0 인 리스트가 생성
+;; generate a list of X repeated nat times
 dec $repeat_<X>(X, nat) : X*
 
-;; 리스트 오름차순 정렬
+;; sort in ascending order
 dec $sort_<X>(X*) : X*       
 
-;; 리스트 교집합 (set.intersection)
-;; 단순 concat 이 아니라 중복되는 것은 제거하여 합침
+;; common elements in two lists
 dec $set_intersection_<X>(X*, X*) : X*
 
 ;; set_or_append_list : X* × nat × X → X*
 ;; if len(X*) == nat -> X*.append(X)
 ;; else X*[nat] = X
-;; 를 타입마다 변수에 명시를 하면 복잡해지므로 그냥 dec로...
 dec $set_or_append_list_<X>(X*, nat, X) : X*
 
 
@@ -86,7 +79,7 @@ dec $range(nat) : nat*
 dec $enumerate_<X>(X*) : enumerated_<X>*
 
 
-;; --- 바이트 유틸 ---
+;; --- byte utils ---
 dec $bytes_to_uint64(bytes32) : uint64
 dec $uint_to_bytes(uint) : bytes
 dec $xor(bytes32, bytes32) : bytes32
@@ -95,7 +88,8 @@ dec $get_first_byte(bytes32) : bytes1
 dec $strip_first_byte(bytes32) : bytes31
 dec $concat_domain(domainType, bytes28) : domain
 dec $make_withdrawal_credentials_eth1(executionAddress) : bytes32
-;; New in Deneb
+;; [Deneb]
+;; Used in kzg_commitment_to_versioned_hash
 dec $make_versioned_hash(bytes1, bytes31) : bytes32
 
 ;; Fixed-width Little-Endian encoders (for eth2spec compatibility)
@@ -109,26 +103,15 @@ dec $bytes8_to_uint64_le(bytes) : uint64
 dec $shr_uint64(uint64, nat) : uint64
 dec $and_uint64(uint64, uint64) : uint64
 
-;; --------------------------------------------
-;; bytes32 → 32개의 bytes1 리스트로 변환 (인덱싱용)
-;; --------------------------------------------
+;; type conversions
 dec $bytes32_to_bytes1_list(bytes32) : bytes1*
-
-;; --------------------------------------------
-;; bytes1 의 값을 uint64 로 바꾸는 것 (0~255 사이의 값)
-;; --------------------------------------------
-;; bytes1 -> uint64 
 dec $bytes1_to_uint64(bytes1) : uint64
 
-;; bytes 끼리 concat
 dec $concat_bytes(bytes, bytes) : bytes
 
-;; bytes32 -> 그냥 bytes로
 dec $bytes32_to_bytes(bytes32) : bytes
-
-;; bytes4 -> 그냥 bytes로
 dec $bytes4_to_bytes(bytes4) : bytes 
 
-;; bytes32 withdrawal_credentials → executionAddress(마지막 20B) 추출
-;; bytes32 X -> X[12:] -> 마지막 20B 추출
+;; bytes32 withdrawal_credentials → executionAddress
+;; bytes32 X -> X[12:] -> last 20 bytes
 dec $extract_execution_address(bytes32) : executionAddress

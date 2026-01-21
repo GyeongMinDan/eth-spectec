@@ -2,15 +2,11 @@
 ;; validator predicates & helpers
 ;; ================================
 
-;; ------------------------------------------------------------
-;; compute_activation_exit_epoch : epoch -> epoch
-;; ------------------------------------------------------------
+;; [Phase0] compute_activation_exit_epoch(Epoch) -> Epoch
 dec $compute_activation_exit_epoch(epoch) : epoch
 def $compute_activation_exit_epoch(epoch) = $(epoch + 1 + $MAX_SEED_LOOKAHEAD)
 
-;; ------------------------------------------------------------
-;; is_active_validator : (validator, epoch) -> bool
-;; ------------------------------------------------------------
+;; [Phase0] is_active_validator(Validator, Epoch) -> bool
 dec $is_active_validator(validator, epoch) : boolean
 
 def $is_active_validator(validator, epoch) = true
@@ -20,57 +16,43 @@ def $is_active_validator(validator, epoch) = true
 def $is_active_validator(validator, epoch) = false
   -- otherwise
 
-;; ------------------------------------------------------------
-;; is_eligible_for_activation_queue : validator -> bool
-;; ------------------------------------------------------------
+;; [Phase0] is_eligible_for_activation_queue(Validator) -> bool
 dec $is_eligible_for_activation_queue(validator) : boolean
 
 def $is_eligible_for_activation_queue(validator) = true
-  -- if $(validator.ACTIVATION_ELIGIBILITY_EPOCH = $FAR_FUTURE_EPOCH)
-  -- if $(validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)
+  -- if validator.ACTIVATION_ELIGIBILITY_EPOCH = $FAR_FUTURE_EPOCH
+  -- if validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE
 
 def $is_eligible_for_activation_queue(validator) = false
   -- otherwise
 
-;; ------------------------------------------------------------
-;; is_eligible_for_activation : (state, validator) -> bool
-;; ------------------------------------------------------------
+;; [Phase0] is_eligible_for_activation(BeaconState, Validator) -> bool
 dec $is_eligible_for_activation(beaconState, validator) : boolean
 
 def $is_eligible_for_activation(state, validator) = true
   -- if $(validator.ACTIVATION_ELIGIBILITY_EPOCH <= state.FINALIZED_CHECKPOINT.EPOCH)
-  -- if $(validator.ACTIVATION_EPOCH = $FAR_FUTURE_EPOCH)
+  -- if validator.ACTIVATION_EPOCH = $FAR_FUTURE_EPOCH
 
 def $is_eligible_for_activation(state, validator) = false
   -- otherwise
 
-;; ------------------------------------------------------------
-;; is_slashable_validator : (validator, epoch) -> bool
-;; ------------------------------------------------------------
+;; [Phase0] is_slashable_validator(Validator, Epoch) -> bool
 dec $is_slashable_validator(validator, epoch) : boolean
 
 def $is_slashable_validator(validator, epoch) = true
-  -- if $(validator.SLASHED = false)
+  -- if ~ validator.SLASHED
   -- if $(validator.ACTIVATION_EPOCH <= epoch)
   -- if $(epoch < validator.WITHDRAWABLE_EPOCH)
 
 def $is_slashable_validator(validator, epoch) = false
   -- otherwise
 
-;; ------------------------------------------------------------
-;; has_eth1_withdrawal_credential : validator -> bool
-;; ------------------------------------------------------------
+;; [Capella] has_eth1_withdrawal_credential(Validator) -> bool
 dec $has_eth1_withdrawal_credential(validator) : boolean
 
-def $has_eth1_withdrawal_credential(validator) = true
-  -- if $get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $ETH1_ADDRESS_WITHDRAWAL_PREFIX
+def $has_eth1_withdrawal_credential(validator) = ($get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $ETH1_ADDRESS_WITHDRAWAL_PREFIX)
 
-def $has_eth1_withdrawal_credential(validator) = false
-  -- otherwise
-
-;; ------------------------------------------------------------
-;; is_fully_withdrawable_validator : (validator, balance:gwei, epoch) -> bool
-;; ------------------------------------------------------------
+;; [Capella] is_fully_withdrawable_validator(Validator, Gwei, Epoch) -> bool
 dec $is_fully_withdrawable_validator(validator, gwei, epoch) : boolean
 
 def $is_fully_withdrawable_validator(validator, balance, epoch) = true
@@ -81,9 +63,7 @@ def $is_fully_withdrawable_validator(validator, balance, epoch) = true
 def $is_fully_withdrawable_validator(validator, balance, epoch) = false
   -- otherwise
 
-;; ------------------------------------------------------------
-;; is_partially_withdrawable_validator : (validator, balance:gwei) -> bool
-;; ------------------------------------------------------------
+;; [Capella] is_partially_withdrawable_validator(Validator, Gwei) -> bool
 dec $is_partially_withdrawable_validator(validator, gwei) : boolean
 
 def $is_partially_withdrawable_validator(validator, balance) = true
@@ -94,168 +74,140 @@ def $is_partially_withdrawable_validator(validator, balance) = true
 def $is_partially_withdrawable_validator(validator, balance) = false
   -- otherwise
 
-;; ------------------------------------------------------------
-;; get_active_validator_indices(beaconState, epoch) : validatorIndex*
-;; ------------------------------------------------------------
+;; [Custom]
 dec $is_active_validator_enumerated(enumerated_<validator>, epoch) : bool
-def $is_active_validator_enumerated((n, validator), epoch) = $is_active_validator(validator, epoch)
+def $is_active_validator_enumerated((_, validator), epoch) = $is_active_validator(validator, epoch)
 
+;; [Altair] get_active_validator_indices(BeaconState, Epoch) : ValidatorIndex*
 dec $get_active_validator_indices(beaconState, epoch) : validatorIndex*
-def $get_active_validator_indices(state, epoch) = n_active*
-  -- if state.VALIDATORS = validator*
-  -- if $enumerate_<validator>(validator*) = (n, validator)*
-  -- if $filter_list_2_<(nat, validator), epoch>(
-      (n, validator)*,
+def $get_active_validator_indices(state, epoch) = vid_active*
+  -- if $enumerate_<validator>(state.VALIDATORS) = (vid, validator)*
+  -- if $filter_list_2_<(validatorIndex, validator), epoch>(
+      (vid, validator)*,
       epoch,
       def $is_active_validator_enumerated
     )
-    = (n_active, validator_active)*
+    = (vid_active, _)*
 
-;; ------------------------------------------------------------
-;; get_validator_churn_limit
-;; ------------------------------------------------------------
+;; [Phase0] get_validator_churn_limit(BeaconState) -> uint64
 dec $get_validator_churn_limit(beaconState) : uint64
-def $get_validator_churn_limit(state_beaconState) = uint64_churn_limit
-  -- if $get_current_epoch(state_beaconState) = epoch_current
-  -- if $get_active_validator_indices(state_beaconState, epoch_current) = validatorIndex_active*
-  -- if $( |validatorIndex_active*| ) = uint64_len_active
-  -- if $(uint64_len_active / $CHURN_LIMIT_QUOTIENT) = uint64_quota
-  -- if $max_uint64($MIN_PER_EPOCH_CHURN_LIMIT, uint64_quota) = uint64_churn_limit
+def $get_validator_churn_limit(state)
+  = $max_uint64($MIN_PER_EPOCH_CHURN_LIMIT, $(|vid_active*| / $CHURN_LIMIT_QUOTIENT))
+  -- if $get_active_validator_indices(state, $get_current_epoch(state)) = vid_active*
 
-;; ------------------------------------------------------------
-;; get_index_for_new_validator
-;; ------------------------------------------------------------
-dec $get_index_for_new_validator(beaconState) : validatorIndex
-def $get_index_for_new_validator(state) =
-  $( |state.VALIDATORS| )
+;; [Altair] get_index_for_new_validator(BeaconState) : ValidatorIndex
+;; dec $get_index_for_new_validator(beaconState) : validatorIndex
+;; def $get_index_for_new_validator(state) = |state.VALIDATORS|
 
-;; ------------------------------------------------------------
-;; get_validator_from_deposit(pubkey, withdrawal_credentials, amount) : validator
-;; ------------------------------------------------------------
+;; [Phase0] get_validator_from_deposit(BLSPubkey, Bytes32, uint64) : validator
 dec $get_validator_from_deposit(blsPubkey, bytes32, uint64) : validator
 
-def $get_validator_from_deposit(blsPubkey_pk, bytes32_wc, uint64_amount) = validator_new
-  -- if $( uint64_amount \ $EFFECTIVE_BALANCE_INCREMENT ) = gwei_mod
-  -- if $( uint64_amount - gwei_mod ) = gwei_floor_inc
-  -- if $min_uint64(gwei_floor_inc, $MAX_EFFECTIVE_BALANCE) = gwei_effective
-  -- if validator_new =
-       { PUBKEY                       blsPubkey_pk,
-         WITHDRAWAL_CREDENTIALS       bytes32_wc,
-         EFFECTIVE_BALANCE            gwei_effective,
-         SLASHED                      false,
-         ACTIVATION_ELIGIBILITY_EPOCH $FAR_FUTURE_EPOCH,
-         ACTIVATION_EPOCH             $FAR_FUTURE_EPOCH,
-         EXIT_EPOCH                   $FAR_FUTURE_EPOCH,
-         WITHDRAWABLE_EPOCH           $FAR_FUTURE_EPOCH }
+def $get_validator_from_deposit(blsPubkey, bytes32_withdrawal, uint64_amount)
+  = { PUBKEY                       blsPubkey,
+      WITHDRAWAL_CREDENTIALS       bytes32_withdrawal,
+      EFFECTIVE_BALANCE            balance_effective,
+      SLASHED                      false,
+      ACTIVATION_ELIGIBILITY_EPOCH $FAR_FUTURE_EPOCH,
+      ACTIVATION_EPOCH             $FAR_FUTURE_EPOCH,
+      EXIT_EPOCH                   $FAR_FUTURE_EPOCH,
+      WITHDRAWABLE_EPOCH           $FAR_FUTURE_EPOCH }
+  -- if $min_uint64($(uint64_amount - uint64_amount \ $EFFECTIVE_BALANCE_INCREMENT), $MAX_EFFECTIVE_BALANCE) = balance_effective
 
-;; ------------------------------------------------------------
+;; [Phase0 -> Altair]
 ;; add_validator_to_registry(state, pubkey, withdrawal_credentials, amount) : beaconState
-;; ------------------------------------------------------------
+;;  mutates: VALIDATORS, BALANCES, PREVIOUS_EPOCH_PARTICIPATION, CURRENT_EPOCH_PARTICIPATION, INACTIVITY_SCORES
+relation AddValidatorToRegistry:
+  beaconState `.VALIDATORS `++ `{ blsPubkey bytes32 uint64 } ~> beaconState
+  hint(input %0 %1 %2 %3)
 
-dec $add_validator_to_registry(beaconState, blsPubkey, bytes32, uint64) : beaconState
-
-def $add_validator_to_registry(state_in, blsPubkey_pk, bytes32_wc, uint64_amount) = state_out
-  -- if $get_index_for_new_validator(state_in) = validatorIndex_idx
-  -- if $get_validator_from_deposit(blsPubkey_pk, bytes32_wc, uint64_amount) = validator_new
-  ;; 여기서부터 state의 내용이 업데이트
-  ;; validator 추가
-  -- if $set_or_append_list_<validator>(state_in.VALIDATORS, validatorIndex_idx, validator_new) = validator_list_updated*
-  -- if state_1 = state_in[.VALIDATORS = validator_list_updated*]
-  ;; balance 추가
-  -- if $set_or_append_list_<gwei>(state_1.BALANCES, validatorIndex_idx, uint64_amount) = balance_updated*
-  -- if state_2 = state_1[.BALANCES = balance_updated*]
-  ;; participationFlags 추가(previous)
-  -- if $set_or_append_list_<participationFlags>(state_2.PREVIOUS_EPOCH_PARTICIPATION, validatorIndex_idx, 0) = participationFlags_prev_updated*
-  -- if state_3 = state_2[.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_prev_updated*]
-  ;; participationFlags 추가(previous)
-  -- if $set_or_append_list_<participationFlags>(state_3.CURRENT_EPOCH_PARTICIPATION, validatorIndex_idx, 0) = participationFlags_cur_updated*
-  -- if state_4 = state_3[.CURRENT_EPOCH_PARTICIPATION = participationFlags_cur_updated*]
-  ;; inactivity_scores 추가
-  -- if $set_or_append_list_<uint64>(state_4.INACTIVITY_SCORES, validatorIndex_idx, 0) = uint64_inactivity_updated*
-  -- if state_out = state_4[.INACTIVITY_SCORES = uint64_inactivity_updated*]
+rule AddValidatorToRegistry:
+  state `.VALIDATORS `++ `{ blsPubkey bytes32_wc uint64_amount }
+  ~> state [.VALIDATORS = validator_updated*]
+          [.BALANCES = balance_updated*]
+          [.PREVIOUS_EPOCH_PARTICIPATION = participationFlags_prev_updated*]
+          [.CURRENT_EPOCH_PARTICIPATION = participationFlags_cur_updated*]
+          [.INACTIVITY_SCORES = uint64_inactivity_updated*]
+  ;; inlined: get_index_for_new_validator
+  -- if |state.VALIDATORS| = vid_new
+  -- if $get_validator_from_deposit(blsPubkey, bytes32_wc, uint64_amount) = validator
+  ;; update state
+  -- if $set_or_append_list_<validator>(state.VALIDATORS, vid_new, validator) = validator_updated*
+  -- if $set_or_append_list_<gwei>(state.BALANCES, vid_new, uint64_amount) = balance_updated*
+  -- if $set_or_append_list_<participationFlags>(state.PREVIOUS_EPOCH_PARTICIPATION, vid_new, 0) = participationFlags_prev_updated*
+  -- if $set_or_append_list_<participationFlags>(state.CURRENT_EPOCH_PARTICIPATION, vid_new, 0) = participationFlags_cur_updated*
+  -- if $set_or_append_list_<uint64>(state.INACTIVITY_SCORES, vid_new, 0) = uint64_inactivity_updated*
 
 
-;; --------------------------------------------
-;; eligible cond: active(v, prev) OR (v.SLASHED ∧ prev+1 < v.WITHDRAWABLE_EPOCH)
-;; almost same as get_active_validator_indices
-;; --------------------------------------------
+;; [Custom | filter helper : get_eligible_validator_indices]
 dec $is_eligible_validator_enumerated(enumerated_<validator>, epoch) : bool
-def $is_eligible_validator_enumerated((n, validator), epoch_prev) =
+def $is_eligible_validator_enumerated((_, validator), epoch_prev) =
   $is_active_validator(validator, epoch_prev)
   \/
-  ( $(validator.SLASHED = true) /\ $(epoch_prev + 1 < validator.WITHDRAWABLE_EPOCH) )
+  ( validator.SLASHED /\ $(epoch_prev + 1 < validator.WITHDRAWABLE_EPOCH) )
 
-;; --------------------------------------------
-;; get_eligible_validator_indices(state) : validatorIndex*
-;; --------------------------------------------
+;; [Phase0] get_eligible_validator_indices(BeaconState) -> Sequence[ValidatorIndex]
 dec $get_eligible_validator_indices(beaconState) : validatorIndex*
 
-def $get_eligible_validator_indices(state) = n_eligible*
+def $get_eligible_validator_indices(state) = vid_eligible*
   -- if $get_previous_epoch(state) = epoch_prev
-  -- if state.VALIDATORS = validator*
-  -- if $enumerate_<validator>(validator*) = (n, validator)*
-  -- if $filter_list_2_<(nat, validator), epoch>(
-       (n, validator)*,
+  -- if $enumerate_<validator>(state.VALIDATORS) = (vid, validator)*
+  -- if $filter_list_2_<(validatorIndex, validator), epoch>(
+       (vid, validator)*,
        epoch_prev,
        def $is_eligible_validator_enumerated
-     ) = (n_eligible, validator_eligible)*
+     ) = (vid_eligible, _)*
 
-;; --------------------------------------------
-;; helpers for filtering by flag / unslashed
-;; --------------------------------------------
-
-;; cond: has_flag?
+;; [Custom | filter helper : get_unslashed_participating_indices]
 dec $has_flag_for_index(validatorIndex, (participationFlags*, nat)) : bool
-def $has_flag_for_index(validatorIndex_vi, (participationFlags_list*, nat_flag))
-  = $has_flag(participationFlags_list*[validatorIndex_vi], nat_flag)
+def $has_flag_for_index(vid, (participationFlags_list*, nat_flag))
+  = $has_flag(participationFlags_list*[vid], nat_flag)
 
-;; cond: is validator unslashed?
+;; [Custom | filter helper : get_unslashed_participating_indices]
 dec $is_unslashed(validatorIndex, beaconState) : bool
-def $is_unslashed(validatorIndex_vi, state) = true
-  -- if $(validatorIndex_vi < |state.VALIDATORS|)
-  -- if state.VALIDATORS[validatorIndex_vi] = validator
+def $is_unslashed(vid, state) = true
+  -- if $(vid < |state.VALIDATORS|)
+  -- if state.VALIDATORS[vid] = validator
   -- if $(validator.SLASHED = false)
-def $is_unslashed(validatorIndex_vi, state) = false
+def $is_unslashed(vid, state) = false
   -- otherwise
 
-;; --------------------------------------------
-;; get_unslashed_participating_indices
-;; --------------------------------------------
+;; [Altair] get_unslashed_participating_indices(BeaconState, int, Epoch) -> Set[ValidatorIndex]
 dec $get_unslashed_participating_indices(beaconState, nat, epoch) : validatorIndex*
 ;; case 1: epoch == current
-def $get_unslashed_participating_indices(state, nat_flag_index, epoch_epoch) = validatorIndex_set*
-  -- if $get_current_epoch(state) = epoch_epoch
-  -- if $get_active_validator_indices(state, epoch_epoch) = validatorIndex_active*
-  -- if $filter_list_2_<validatorIndex, (participationFlags*, nat)>(
-         validatorIndex_active*,
-         (state.CURRENT_EPOCH_PARTICIPATION, nat_flag_index),
+def $get_unslashed_participating_indices(state, vid_flag, epoch) = $to_set_<validatorIndex>(vid_unslashed*)
+  ;; assert-branch
+  -- if $get_current_epoch(state) = epoch
+  -- if $get_active_validator_indices(state, epoch) = vid_active*
+  -- if $filter_list_2_<validatorIndex, (participationFlags*, validatorIndex)>(
+         vid_active*,
+         (state.CURRENT_EPOCH_PARTICIPATION, vid_flag),
          def $has_flag_for_index
-       ) = validatorIndex_participating*
+       ) = vid_participating*
   -- if $filter_list_2_<validatorIndex, beaconState>(
-         validatorIndex_participating*,
+         vid_participating*,
          state,
          def $is_unslashed
-       ) = validatorIndex_unslashed*
-  -- if $to_set_<validatorIndex>(validatorIndex_unslashed*) = validatorIndex_set*
+       ) = vid_unslashed*
 
 ;; case 2: epoch == previous
-def $get_unslashed_participating_indices(state, nat_flag_index, epoch_epoch) = validatorIndex_set*
-  -- if $get_previous_epoch(state) = epoch_epoch
-  -- if $get_active_validator_indices(state, epoch_epoch) = validatorIndex_active*
+def $get_unslashed_participating_indices(state, vid_flag, epoch) = $to_set_<validatorIndex>(vid_unslashed*)
+  ;; assert-branch
+  -- if $get_previous_epoch(state) = epoch
+  -- if $get_active_validator_indices(state, epoch) = vid_active*
   -- if $filter_list_2_<validatorIndex, (participationFlags*, nat)>(
-         validatorIndex_active*,
-         (state.PREVIOUS_EPOCH_PARTICIPATION, nat_flag_index),
+         vid_active*,
+         (state.PREVIOUS_EPOCH_PARTICIPATION, vid_flag),
          def $has_flag_for_index
-       ) = validatorIndex_participating*
+       ) = vid_participating*
   -- if $filter_list_2_<validatorIndex, beaconState>(
-         validatorIndex_participating*,
+         vid_participating*,
          state,
          def $is_unslashed
-       ) = validatorIndex_unslashed*
-  -- if $to_set_<validatorIndex>(validatorIndex_unslashed*) = validatorIndex_set*
+       ) = vid_unslashed*
 
-;; New helper in Deneb
+;; [Deneb] get_validator_activation_churn_limit(BeaconState) -> uint64
 dec $get_validator_activation_churn_limit(beaconState) : uint64
+
 def $get_validator_activation_churn_limit(state) = uint64_activation_churn_limit
   --if $get_validator_churn_limit(state) = uint64_churn_limit
   --if $min_uint64($MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT, uint64_churn_limit) = uint64_activation_churn_limit

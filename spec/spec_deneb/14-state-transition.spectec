@@ -1,30 +1,25 @@
-;;
 ;; state_transition(state, signed_block, validate_result) : beaconState
-;;
 
 relation State_transition:
   beaconState signedBeaconBlock boolean ~>* beaconState
   hint(input %0 %1 %2)
 
-;; -----------------------------
 ;; validate_result = true
-;; -----------------------------
 rule State_transition/validate:
-  state_0 signedBeaconBlock true ~>* state_2
+  state signedBeaconBlock true ~>* state_next
   -- if signedBeaconBlock.MESSAGE = beaconBlock
   ;; Process slots (including those with no blocks) since block
-  -- ProcessSlots: state_0 beaconBlock.SLOT ~> state_1
+  -- ProcessSlots: state beaconBlock.SLOT ~> state_cur
   ;; assert (if validate)
-  -- if $verify_block_signature(state_1, signedBeaconBlock)
-  -- ProcessBlock: state_1 beaconBlock ~>* state_2
+  -- if $verify_block_signature(state_cur, signedBeaconBlock)
+  -- ProcessBlock: state_cur beaconBlock ~>* state_next
   ;; assert (if validate)
-  -- if $(beaconBlock.STATE_ROOT = $hash_tree_root_beaconState(state_2))
+  -- if $(beaconBlock.STATE_ROOT = $hash_tree_root_beaconState(state_next))
 
-;; -----------------------------
 ;; validate_result = false
-;; -----------------------------
 rule State_transition/skip-validate:
-  state_0 signedBeaconBlock false ~>* state_2
+  state signedBeaconBlock false ~>* state_next
+  ;; assert
   -- if signedBeaconBlock.MESSAGE = beaconBlock
-  -- ProcessSlots: state_0 beaconBlock.SLOT ~> state_1
-  -- ProcessBlock: state_1 beaconBlock ~>* state_2
+  -- ProcessSlots: state beaconBlock.SLOT ~> state_cur
+  -- ProcessBlock: state_cur beaconBlock ~>* state_next

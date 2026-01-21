@@ -46,7 +46,11 @@ syntax executionAddress = bytes20
 syntax payloadId = bytes8
 syntax withdrawalIndex = uint64
 
-;; New in Deneb
+
+;; Semantic Types
+;; syntax delta = `+ gwei* `, `- gwei*
+
+;; [Deneb]
 syntax kzgCommitment = bytes48
 syntax versionedHash = bytes32
 syntax blobIndex = uint64
