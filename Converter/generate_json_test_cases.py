@@ -730,7 +730,11 @@ class JsonTestCaseGenerator:
                     if op_type == 'execution_payload':
                         execution_yaml = test_case_dir / "execution.yaml"
                         if execution_yaml.exists():
-                            # Convert execution.yaml to execution.json
+                            # Copy execution.yaml to work_dir (eth2specOperationResult.py reads it from operation_ssz_path.parent)
+                            execution_yaml_work = work_dir / "execution.yaml"
+                            shutil.copy(execution_yaml, execution_yaml_work)
+                            
+                            # Also convert execution.yaml to execution.json for output
                             # Format is simple: {execution_valid: true/false}
                             is_valid = True
                             with open(execution_yaml, 'r') as f:
