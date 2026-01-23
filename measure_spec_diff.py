@@ -7,10 +7,10 @@ Counts non-empty lines only (excludes blank lines and whitespace-only lines).
 from pathlib import Path
 
 def count_lines(filepath):
-    """Count non-empty lines in a file (excludes blank lines and whitespace-only lines)."""
+    """Count non-empty lines in a file (excludes blank lines, whitespace-only lines, and comments starting with ;;)."""
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
-            return sum(1 for line in f if line.strip())
+            return sum(1 for line in f if line.strip() and not line.strip().startswith(';;'))
     except Exception as e:
         print(f"Error reading {filepath}: {e}")
         return 0
