@@ -96,11 +96,7 @@ The Dockerfile provides a reproducible, isolated environment for building and te
    - Nimbus (v25.11.0)
    - Teku (25.11.0)
    - Lodestar (v1.36.0)
-3. Applies code modifications for differential testing compatibility:
-   - **Lighthouse**: Comments out cache-related assertions, adds state root verification
-   - **Prysm**: Adds pure Capella config, post-state saving, state root verification
-   - **Nimbus**: Overrides fork epochs for pure Capella network
-   - **Lodestar**: Comments out `postState.commit()` calls
+3. Applies code modifications for differential testing compatibility (see `modified_code/` directory for client-specific changes)
 4. Builds both base binaries and coverage-instrumented binaries
 
 **Build Docker Images:**
@@ -178,6 +174,21 @@ docker run --rm -it \
     ./results/coverage_suite1 \
     ./results/coverage_suite2 \
     --final-output-dir ./results/final_coverage_report'
+
+# TODO! : It can be changed.
+# To test spectec-generated test cases
+docker run --rm -it \
+  -v "$(pwd)/results:/workspace/spectec-core/results" \
+  -v "$(pwd)/spectec_generated_tests:/workspace/spectec-core/spectec_generated_tests" \
+  eth2test:coverage \
+  bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
+    --test-suite spectec_generated_tests \
+    --test-type state-transition \
+    --workflow independent \
+    --fork-version capella \
+    --output-base ./results/spectec_generated_coverage \
+    --enable-coverage \
+    --cleanup-after-report'
 ```
 
 **Options:**

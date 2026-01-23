@@ -30,12 +30,9 @@ def check_mismatch_cases(base_dir):
     """Find mismatch cases and crash cases in Output_Status_*.csv files"""
     mismatch_cases = []
     crash_cases = []
-    # Support for node_result_mutated_case_* or node_result_mutated_case_insight patterns
-    #pattern1 = os.path.join(base_dir, "node_result_mutated_case_*", "*", "Output_Status_*.csv")
-    #pattern2 = os.path.join(base_dir, "node_result_mutated_case_insight", "*", "Output_Status_*.csv")
-    pattern3 = os.path.join(base_dir, "coverage_operation_capella", "*", "Output_Status_*.csv")
-    #files = glob.glob(pattern1) + glob.glob(pattern2)
-    files = glob.glob(pattern3)
+    # Recursively search for all Output_Status_*.csv files in the base directory
+    pattern = os.path.join(base_dir, "**", "Output_Status_*.csv")
+    files = glob.glob(pattern, recursive=True)
     print(f"\n=== Checking Output_Status files (total {len(files)} files) ===\n")
     
     clients = ['Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']
@@ -103,36 +100,18 @@ def get_status_label(status_code):
     }
     return labels.get(status_code, f"UNKNOWN({status_code})")
 
-def format_json_file(input_path, output_path=None, indent=2):
-    """
-    Format JSON file nicely and save it
+def main(base_dir):
+    """Check mismatch cases in the specified directory"""
+    # Convert to absolute path
+    base_dir = os.path.abspath(base_dir)
     
-    Args:
-        input_path: Input JSON file path
-        output_path: Output JSON file path (if None, overwrites original file)
-        indent: Number of indentation spaces (default: 2)
-    """
-    try:
-        with open(input_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        if output_path is None:
-            output_path = input_path
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=indent)
-        
-        print(f"✓ JSON file formatting completed: {output_path}")
-        return True
-    except Exception as e:
-        print(f"✗ Error occurred ({input_path}): {e}")
-        return False
-
-def main():
-    base_dir = "/home/dan/eth2test/spectec-core"
+    if not os.path.isdir(base_dir):
+        print(f"Error: Directory does not exist: {base_dir}")
+        return
     
     print("=" * 80)
     print("Starting experiment results check")
+    print(f"Base directory: {base_dir}")
     print("=" * 80)
     
     # Check mismatch cases and crash cases
@@ -330,31 +309,17 @@ if __name__ == "__main__":
     
     # Check command line arguments
     if len(sys.argv) > 1:
-        # JSON file formatting mode
-        if sys.argv[1] == "--format-json" and len(sys.argv) > 2:
-            input_file = sys.argv[2]
-            output_file = sys.argv[3] if len(sys.argv) > 3 else None
-            indent = int(sys.argv[4]) if len(sys.argv) > 4 else 2
-            format_json_file(input_file, output_file, indent)
-        elif sys.argv[1] == "--format-json-dir" and len(sys.argv) > 2:
-            # Format all JSON files in directory
-            import glob
-            dir_path = sys.argv[2]
-            pattern = os.path.join(dir_path, "**", "*.json")
-            json_files = glob.glob(pattern, recursive=True)
-            indent = int(sys.argv[3]) if len(sys.argv) > 3 else 2
-            
-            print(f"Starting JSON file formatting: {len(json_files)} files")
-            success_count = 0
-            for json_file in json_files:
-                if format_json_file(json_file, None, indent):
-                    success_count += 1
-            print(f"\nCompleted: {success_count}/{len(json_files)} files formatted successfully")
-        else:
+        if sys.argv[1] in ["-h", "--help"]:
             print("Usage:")
-            print("  python check_results.py                    # Check mismatch cases and output JSON")
-            print("  python check_results.py --format-json <file> [output_file] [indent]  # Format JSON file")
-            print("  python check_results.py --format-json-dir <directory> [indent]     # Format all JSON files in directory")
+            print("  python check_results.py <directory>  # Check mismatch cases in specified directory")
+            print("")
+            print("This script searches for Output_Status_*.csv files recursively in the specified")
+            print("directory and finds mismatch cases (where not all clients have the same status).")
+        else:
+            # Treat first argument as directory path
+            main(sys.argv[1])
     else:
-        main()
+        print("Error: Directory path is required")
+        print("Usage: python check_results.py <directory>")
+        print("       python check_results.py --help  # Show usage information")
 
