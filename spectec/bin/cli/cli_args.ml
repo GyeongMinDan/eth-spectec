@@ -42,6 +42,12 @@ let config_flags =
     flag "--dep-pos.level" (optional string) ~doc:"LEVEL summary|full"
   and dep_pos_output =
     flag "--dep-pos.output" (optional string) ~doc:"FILE output file"
+  and dep_pos_targets =
+    flag "--dep-pos.targets" (listed int)
+      ~doc:"UIDS specific premise UIDs to analyze"
+  and dep_pos_targets_file =
+    flag "--dep-pos.targets-file" (optional string)
+      ~doc:"FILE file containing premise UIDs (one per line)"
   and dep_neg_level =
     flag "--dep-neg.level" (optional string) ~doc:"LEVEL summary|full"
   and dep_neg_output =
@@ -77,7 +83,19 @@ let config_flags =
             (parse_named_level ~summary:Positive.Summary ~full:Positive.Full
                dep_pos_level) ~output:dep_pos_output
           ~make_cfg:(fun ~level ~output ->
-            Positive.{ level; output; target_uids = None });
+            let file_uids =
+              match dep_pos_targets_file with
+              | Some file -> Runner.Uid_parser.parse_uid_file file
+              | None -> []
+            in
+            let all_targets = dep_pos_targets @ file_uids in
+            Positive.
+              {
+                level;
+                output;
+                target_uids =
+                  (if all_targets = [] then None else Some all_targets);
+              });
       dep_neg =
         make_config
           ~level_opt:

@@ -1193,6 +1193,9 @@ let static_dependencies () =
 let make cfg : (module Instrumentation_core.Handler.S) =
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
+  (match cfg.target_uids with
+  | Some uids -> State.set_target_uids uids
+  | None -> ());
   (module M)
 
 let make_with_data cfg =
