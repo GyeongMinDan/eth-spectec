@@ -168,10 +168,6 @@ rule WeighJustificationAndFinalization/justify_neither_finalize_prev:
     ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
             [.FINALIZED_CHECKPOINT = checkpoint_prev]
             [.JUSTIFICATION_BITS = bit*]
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
-  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
   ;; inserted overflow check
   -- if $(balance_total_active <= $UINT64_MAX / 2)
@@ -184,10 +180,13 @@ rule WeighJustificationAndFinalization/justify_neither_finalize_prev:
           state.JUSTIFICATION_BITS[1],
           state.JUSTIFICATION_BITS[2]
         ]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  -- if $get_current_epoch(state)  = epoch_cur
   ----
   ;; branch 2: true
-  -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
-     \/ (bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
+  -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ epoch_cur = $(checkpoint_prev.EPOCH + 3))
+     \/ (bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_prev.EPOCH + 2))
 
 rule WeighJustificationAndFinalization/justify_neither_finalize_neither:
   state
@@ -196,10 +195,6 @@ rule WeighJustificationAndFinalization/justify_neither_finalize_neither:
     CUR balance_current_epoch_target
     ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
             [.JUSTIFICATION_BITS = bit*]
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
-  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
   ;; inserted overflow check
   -- if $(balance_total_active <= $UINT64_MAX / 2)
@@ -212,10 +207,13 @@ rule WeighJustificationAndFinalization/justify_neither_finalize_neither:
           state.JUSTIFICATION_BITS[1],
           state.JUSTIFICATION_BITS[2]
         ]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  -- if $get_current_epoch(state)  = epoch_cur
   ----
   ;; branch 2: false
-  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
-     /\ ~(bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3] /\ epoch_cur = $(checkpoint_prev.EPOCH + 3))
+     /\ ~(bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_prev.EPOCH + 2))
 
 rule WeighJustificationAndFinalization/justify_prev_finalize_prev:
   state
@@ -228,10 +226,6 @@ rule WeighJustificationAndFinalization/justify_prev_finalize_prev:
                   ROOT $get_block_root(state, epoch_prev) }]
             [.FINALIZED_CHECKPOINT = checkpoint_prev]
             [.JUSTIFICATION_BITS = bit*]
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
-  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
   ;; inserted overflow check
   -- if $(balance_total_active <= $UINT64_MAX / 2)
@@ -244,10 +238,14 @@ rule WeighJustificationAndFinalization/justify_prev_finalize_prev:
           state.JUSTIFICATION_BITS[1],
           state.JUSTIFICATION_BITS[2]
         ]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_current_epoch(state)  = epoch_cur
   ----
   ;; branch 2: true
-  -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
-     \/ (bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
+  -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ epoch_cur = $(checkpoint_prev.EPOCH + 3))
+     \/ (bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_prev.EPOCH + 2))
 
 rule WeighJustificationAndFinalization/justify_prev_finalize_neither:
   state
@@ -259,10 +257,6 @@ rule WeighJustificationAndFinalization/justify_prev_finalize_neither:
               = { EPOCH epoch_prev,
                   ROOT $get_block_root(state, epoch_prev) }]
             [.JUSTIFICATION_BITS = bit*]
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
-  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
   ;; inserted overflow check
   -- if $(balance_total_active <= $UINT64_MAX / 2)
@@ -275,10 +269,14 @@ rule WeighJustificationAndFinalization/justify_prev_finalize_neither:
           state.JUSTIFICATION_BITS[1],
           state.JUSTIFICATION_BITS[2]
         ]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  -- if $get_previous_epoch(state) = epoch_prev
+  -- if $get_current_epoch(state)  = epoch_cur
   ----
   ;; branch 2: false
-  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
-     /\ ~(bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ epoch_cur = $(checkpoint_prev.EPOCH + 3))
+     /\ ~(bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_prev.EPOCH + 2))
 
 rule WeighJustificationAndFinalization/justify_cur_finalize_cur:
   state
@@ -291,10 +289,6 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_cur:
                   ROOT $get_block_root(state, epoch_cur) }]
             [.FINALIZED_CHECKPOINT = checkpoint_cur]
             [.JUSTIFICATION_BITS = bit*]
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
-  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
   ;; inserted overflow check
   -- if $(balance_total_active <= $UINT64_MAX / 2)
@@ -307,10 +301,13 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_cur:
           state.JUSTIFICATION_BITS[1],
           state.JUSTIFICATION_BITS[2]
         ]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  -- if $get_current_epoch(state)  = epoch_cur
   ----
   ;; branch 2: (true, _)
-  -- if (bit*[0] /\ bit*[1] /\ bit*[2] /\ $(checkpoint_cur.EPOCH + 2) = $get_current_epoch(state))
-     \/ (bit*[0] /\ bit*[1] /\ $(checkpoint_cur.EPOCH + 1) = $get_current_epoch(state))
+  -- if (bit*[0] /\ bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_cur.EPOCH + 2))
+     \/ (bit*[0] /\ bit*[1] /\ epoch_cur = $(checkpoint_cur.EPOCH + 1))
 
 rule WeighJustificationAndFinalization/justify_cur_finalize_prev:
   state
@@ -323,10 +320,6 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_prev:
                   ROOT $get_block_root(state, epoch_cur) }]
             [.FINALIZED_CHECKPOINT = checkpoint_prev]
             [.JUSTIFICATION_BITS = bit*]
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
-  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
   ;; inserted overflow check
   -- if $(balance_total_active <= $UINT64_MAX / 2)
@@ -339,12 +332,15 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_prev:
           state.JUSTIFICATION_BITS[1],
           state.JUSTIFICATION_BITS[2]
         ]
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  -- if $get_current_epoch(state)  = epoch_cur
   ----
   ;; branch 2: (false, true)
-  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2] /\ $(checkpoint_cur.EPOCH + 2) = $get_current_epoch(state))
-     /\ ~(bit*[0] /\ bit*[1] /\ $(checkpoint_cur.EPOCH + 1) = $get_current_epoch(state))
-     /\ ((bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
-     \/  (bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state)))
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_cur.EPOCH + 2))
+     /\ ~(bit*[0] /\ bit*[1] /\ epoch_cur = $(checkpoint_cur.EPOCH + 1))
+     /\ ((bit*[1] /\ bit*[2] /\ bit*[3]  /\ epoch_cur = $(checkpoint_prev.EPOCH + 3))
+     \/  (bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_prev.EPOCH + 2)))
 
 rule WeighJustificationAndFinalization/justify_cur_finalize_neither:
   state
@@ -356,10 +352,6 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_neither:
               = { EPOCH epoch_cur,
                   ROOT $get_block_root(state, epoch_cur) }]
             [.JUSTIFICATION_BITS = bit*]
-  -- if $get_previous_epoch(state) = epoch_prev
-  -- if $get_current_epoch(state)  = epoch_cur
-  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
-  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   ----
   ;; inserted overflow check
   -- if $(balance_total_active <= $UINT64_MAX / 2)
@@ -373,11 +365,14 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_neither:
           state.JUSTIFICATION_BITS[2]
         ]
   ----
+  -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
+  -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
+  -- if $get_current_epoch(state)  = epoch_cur
   ;; branch 2: (false, false)
-  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2] /\ $(checkpoint_cur.EPOCH + 2) = $get_current_epoch(state))
-     /\ ~(bit*[0] /\ bit*[1] /\ $(checkpoint_cur.EPOCH + 1) = $get_current_epoch(state))
-     /\ ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ $(checkpoint_prev.EPOCH + 3) = $get_current_epoch(state))
-     /\ ~(bit*[1] /\ bit*[2] /\ $(checkpoint_prev.EPOCH + 2) = $get_current_epoch(state))
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_cur.EPOCH + 2))
+     /\ ~(bit*[0] /\ bit*[1] /\ epoch_cur = $(checkpoint_cur.EPOCH + 1))
+     /\ ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ epoch_cur = $(checkpoint_prev.EPOCH + 3))
+     /\ ~(bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_prev.EPOCH + 2))
 
 ;; === ProcessRegistryUpdates ===
 
