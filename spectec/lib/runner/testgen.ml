@@ -21,11 +21,12 @@ open Common.Source
 module Il = Lang.Il
 module Checkpoint = Checkpoint
 module Instrumentation = Instrumentation
+module Dep = Instrumentation.Dependency.Dep_common
 
 (* Types *)
 type premise_uid = int
 type test_case_id = string
-type field_path = string list (* e.g., ["state", "SLOT"] *)
+type field_path = Instrumentation.Dependency.Dep_common.field_path
 
 (* Mutation constraint - what field to mutate and to what values *)
 type mutation_constraint = {
@@ -227,16 +228,6 @@ let infer_mutation_constraints (premise_uid : premise_uid)
   let module Pos = Instrumentation.Dependency.Positive in
   let module Dep = Instrumentation.Dependency.Dep_common in
   (* Helper to convert field_path to string list *)
-  let rec steps_to_strings steps =
-    match steps with
-    | [] -> []
-    | Dep.FieldAccess f :: rest -> f :: steps_to_strings rest
-    | Dep.IndexAccess (Dep.ConstInt i) :: rest ->
-        Printf.sprintf "[%d]" i :: steps_to_strings rest
-    | Dep.IndexAccess (Dep.PathRef _) :: rest ->
-        "[...]" :: steps_to_strings rest (* Dynamic index - placeholder *)
-  in
-
   (* Helper to extract concrete values from sym_expr *)
   let rec extract_values_from_sym_expr (sym : Pos.sym_expr) : Il.Value.t list =
     match sym with
@@ -271,67 +262,52 @@ let infer_mutation_constraints (premise_uid : premise_uid)
             Format.printf "[DEBUG] Skipping mutation with no target_path\n%!";
             None
         | Some target_path ->
-            let source_prefix =
-              match target_path.Dep.source with
-              | Dep.State -> [ "state" ]
-              | Dep.Block -> [ "block" ]
-              | Dep.Unknown -> []
+            let strategies =
+              match sym_mut.suggestion with
+              | Pos.Unresolved reason ->
+                  Format.printf
+                    "[DEBUG] Unresolved mutation (%s), using fallbacks\n%!"
+                    reason;
+                  fallback_strategies
+              | _ -> (
+                  match sym_mut.mutation_target with
+                  | Dep.CollectionLength ->
+                      (* For collection length, try both appending and removing items *)
+                      [ Json_mutator.AppendItem; Json_mutator.RemoveItem ]
+                  | Dep.Value ->
+                      (* For value mutations, extract concrete values and creating SetValue strategies *)
+                      let target_values =
+                        match sym_mut.suggestion with
+                        | Pos.ToValue sym_expr ->
+                            extract_values_from_sym_expr sym_expr
+                        | Pos.ToRelation (_, sym_expr) ->
+                            extract_values_from_sym_expr sym_expr
+                        | Pos.Unresolved _ -> []
+                      in
+                      let specific_strategies =
+                        List.map
+                          (fun v ->
+                            match value_to_json v with
+                            | Ok json -> Some (Json_mutator.SetValue json)
+                            | Error _ -> None)
+                          target_values
+                        |> List.filter_map (fun x -> x)
+                      in
+                      if specific_strategies = [] then fallback_strategies
+                      else specific_strategies)
             in
-            let field_path =
-              source_prefix @ steps_to_strings target_path.Dep.steps
-            in
-            if field_path = [] then (
+            (* Only include if we have strategies *)
+            if strategies = [] then (
               Format.printf
-                "[DEBUG] Skipping mutation with empty field_path\n%!";
+                "[DEBUG] Skipping mutation with no strategies (field: %s)\n%!"
+                (Dep.string_of_field_path target_path);
               None)
-            else
-              let strategies =
-                match sym_mut.suggestion with
-                | Pos.Unresolved reason ->
-                    Format.printf
-                      "[DEBUG] Unresolved mutation (%s), using fallbacks\n%!"
-                      reason;
-                    fallback_strategies
-                | _ -> (
-                    match sym_mut.mutation_target with
-                    | Dep.CollectionLength ->
-                        (* For collection length, try both appending and removing items *)
-                        [ Json_mutator.AppendItem; Json_mutator.RemoveItem ]
-                    | Dep.Value ->
-                        (* For value mutations, extract concrete values and creating SetValue strategies *)
-                        let target_values =
-                          match sym_mut.suggestion with
-                          | Pos.ToValue sym_expr ->
-                              extract_values_from_sym_expr sym_expr
-                          | Pos.ToRelation (_, sym_expr) ->
-                              extract_values_from_sym_expr sym_expr
-                          | Pos.Unresolved _ -> []
-                        in
-                        let specific_strategies =
-                          List.map
-                            (fun v ->
-                              match value_to_json v with
-                              | Ok json -> Some (Json_mutator.SetValue json)
-                              | Error _ -> None)
-                            target_values
-                          |> List.filter_map (fun x -> x)
-                        in
-                        if specific_strategies = [] then fallback_strategies
-                        else specific_strategies)
-              in
-              (* Only include if we have strategies *)
-              if strategies = [] then (
-                Format.printf
-                  "[DEBUG] Skipping mutation with no strategies (field: %s)\n%!"
-                  (String.concat "." field_path);
-                None)
-              else (
-                Format.printf
-                  "[DEBUG] Created constraint for field %s with %d strategies\n\
-                   %!"
-                  (String.concat "." field_path)
-                  (List.length strategies);
-                Some { field_path; strategies }))
+            else (
+              Format.printf
+                "[DEBUG] Created constraint for field %s with %d strategies\n%!"
+                (Dep.string_of_field_path target_path)
+                (List.length strategies);
+              Some { field_path = target_path; strategies }))
       suggestions
   in
   Format.printf
@@ -450,17 +426,9 @@ let get_premise_info (premise_uid : premise_uid)
 
 (* Check if a field path is blacklisted *)
 let is_blacklisted (path : field_path) (blacklist : field_path list) : bool =
-  (* Check if path starts with any blacklisted prefix *)
-  List.exists
-    (fun bl ->
-      let rec is_prefix p bl =
-        match (p, bl) with
-        | [], _ -> true (* Blacklist is a prefix *)
-        | _, [] -> false
-        | x :: xs, y :: ys -> x = y && is_prefix xs ys
-      in
-      is_prefix bl path)
-    blacklist
+  (* Check if path starts with any blacklisted prefix - logic simplified for structured paths if needed *)
+  (* For now, exact match or simple containment *)
+  List.mem path blacklist
 
 (* Mutate JSON input files based on mutation constraints.
    Returns paths to the mutated files (or originals if mutation failed). *)
@@ -490,13 +458,21 @@ let mutate_json_input ~(output_dir : string) (test_case_id : test_case_id)
           (fun json_acc constraint_ ->
             if is_blacklisted constraint_.field_path blacklisted then json_acc
             else
-              match constraint_.field_path with
-              | prefix :: rest when prefix = target_source -> (
+              match constraint_.field_path.source with
+              | Dep.State when target_source = "state" -> (
                   (* Path matches target source, apply mutation to rest of path *)
                   match constraint_.strategies with
                   | [] -> json_acc
                   | strategy :: _ ->
-                      Json_mutator.mutate_json_file json_acc rest strategy)
+                      Json_mutator.mutate_json_file json_acc
+                        constraint_.field_path strategy)
+              | Dep.Block when target_source = "block" -> (
+                  (* Path matches target source, apply mutation to rest of path *)
+                  match constraint_.strategies with
+                  | [] -> json_acc
+                  | strategy :: _ ->
+                      Json_mutator.mutate_json_file json_acc
+                        constraint_.field_path strategy)
               | _ -> json_acc (* Constraint is for other file, skip *))
           json constraints
       in
@@ -531,40 +507,8 @@ let get_blacklisted_fields (premise_uid : premise_uid)
       | None -> []
       | Some path_conditions ->
           (* Flatten all path conditions and convert field_paths to string lists *)
-          let module Dep = Instrumentation.Dependency.Dep_common in
-          let rec steps_to_strings steps =
-            match steps with
-            | [] -> []
-            | Dep.FieldAccess f :: rest -> f :: steps_to_strings rest
-            | Dep.IndexAccess (Dep.ConstInt i) :: rest ->
-                Printf.sprintf "[%d]" i :: steps_to_strings rest
-            | Dep.IndexAccess (Dep.PathRef _) :: rest ->
-                "[...]" :: steps_to_strings rest
-          in
-          List.flatten path_conditions
-          |> List.map (fun field_path ->
-                 let source_prefix =
-                   match field_path.Dep.source with
-                   | Dep.State -> [ "state" ]
-                   | Dep.Block -> [ "block" ]
-                   | Dep.Unknown -> []
-                 in
-                 source_prefix @ steps_to_strings field_path.Dep.steps)
-          |> List.filter (fun path -> path <> []))
+          List.flatten path_conditions)
 
-(* Generate test case for a selected premise.
-   
-   Parameters:
-   - premise_uid: The UID of the premise to target
-   - coverage: Coverage data for premise-to-test mapping
-   - dependency: Positive analysis results for mutation suggestions
-   - path_condition: Path condition results for blacklist
-   - base_test_case_id: Optional specific test case to use as base
-   - test_dir: Directory containing test case JSON files
-   - output_dir: Directory to write mutated files
-   
-   Returns: Some (mutated_pre_path, mutated_block_path) or None if no test cases
-*)
 (* Generate test case for a selected premise.
    
    Parameters:
@@ -661,7 +605,8 @@ let generate_test_case ~(test_dir : string) ~(output_dir : string)
                 (* Write to report *)
                 Printf.fprintf report_channel "Mutation ID: %s\n" mut_id;
                 Printf.fprintf report_channel "  Field Path: %s\n"
-                  (String.concat "." constraint_.field_path);
+                  (Instrumentation.Dependency.Dep_common.string_of_field_path
+                     constraint_.field_path);
                 Printf.fprintf report_channel "  Strategy: %s\n"
                   (match strategy with
                   | Json_mutator.SetValue _ -> "SetValue"
@@ -798,19 +743,21 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
                           (* Get source value before mutation *)
                           let source_value_str =
                             match
-                              ( constraint_.field_path,
+                              ( constraint_.field_path.source,
                                 pre_json_opt,
                                 block_json_opt )
                             with
-                            | "state" :: rest, Some pre_json, _ -> (
+                            | Dep.State, Some pre_json, _ -> (
                                 match
-                                  Json_mutator.get_value_at_path pre_json rest
+                                  Json_mutator.get_value_at_path pre_json
+                                    constraint_.field_path
                                 with
                                 | Some v -> Yojson.Safe.to_string v
                                 | None -> "<not found>")
-                            | "block" :: rest, _, Some block_json -> (
+                            | Dep.Block, _, Some block_json -> (
                                 match
-                                  Json_mutator.get_value_at_path block_json rest
+                                  Json_mutator.get_value_at_path block_json
+                                    constraint_.field_path
                                 with
                                 | Some v -> Yojson.Safe.to_string v
                                 | None -> "<not found>")
@@ -831,7 +778,8 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
                           Format.printf
                             "[DEBUG] Attempting mutation %s for field %s\n%!"
                             mut_id
-                            (String.concat "." constraint_.field_path);
+                            (Instrumentation.Dependency.Dep_common
+                             .string_of_field_path constraint_.field_path);
 
                           (* Mutate and save *)
                           let out_pre, out_block =
@@ -852,7 +800,8 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
 
                             (* Write to report *)
                             Printf.fprintf report_channel "  - Field: %s\n"
-                              (String.concat "." constraint_.field_path);
+                              (Instrumentation.Dependency.Dep_common
+                               .string_of_field_path constraint_.field_path);
                             Printf.fprintf report_channel "    From: %s\n"
                               source_value_str;
                             Printf.fprintf report_channel "    To: %s\n"

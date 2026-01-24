@@ -4,8 +4,10 @@
    supports different mutation strategies. *)
 
 open Yojson.Safe
+module Dep = Instrumentation.Dependency.Dep_common
 
-type field_path = string list
+type field_path = Dep.field_path
+type field_step = Dep.field_step
 
 type mutation_strategy =
   | SetValue of t (* Set to a specific value *)
@@ -15,51 +17,32 @@ type mutation_strategy =
   | AppendItem (* Append a default/duplicate item to list *)
   | RemoveItem (* Remove the last item from list *)
 
-(* Parse field path string into list of components *)
-let parse_field_path (path_str : string) : field_path =
-  let parts = String.split_on_char '.' path_str in
-  List.map String.trim parts
-
 (* Navigate to a field in JSON using a path *)
-let rec get_field (json : t) (path : field_path) : t option =
+let rec get_field (json : t) (path : field_step list) : t option =
   match (json, path) with
-  | `Assoc fields, [ field_name ] -> (
+  | `Assoc fields, Dep.FieldAccess field_name :: rest -> (
       match List.assoc_opt field_name fields with
-      | Some v -> Some v
+      | Some nested -> if rest = [] then Some nested else get_field nested rest
       | None -> None)
-  | `Assoc fields, field_name :: rest -> (
-      match List.assoc_opt field_name fields with
-      | Some nested -> get_field nested rest
-      | None -> None)
-  | `List items, [ idx_str ] -> (
-      (* Handle array indexing like "[0]" *)
-      try
-        let idx =
-          int_of_string (String.sub idx_str 1 (String.length idx_str - 2))
-        in
-        if idx >= 0 && idx < List.length items then Some (List.nth items idx)
-        else None
-      with _ -> None)
-  | `List items, idx_str :: rest -> (
-      try
-        let idx =
-          int_of_string (String.sub idx_str 1 (String.length idx_str - 2))
-        in
-        if idx >= 0 && idx < List.length items then
-          get_field (List.nth items idx) rest
-        else None
-      with _ -> None)
+  | `List items, Dep.IndexAccess idx :: rest -> (
+      match idx with
+      | Dep.ConstInt i ->
+          if i >= 0 && i < List.length items then
+            let item = List.nth items i in
+            if rest = [] then Some item else get_field item rest
+          else None
+      | Dep.PathRef _ -> None (* Cannot handle dynamic paths here yet *))
   | _, [] -> Some json
   | _ -> None
 
 (* Get value at path for reporting - wrapper around get_field *)
 let get_value_at_path (json : t) (path : field_path) : t option =
-  get_field json path
+  get_field json path.steps
 
 (* Set a field in JSON using a path *)
-let rec set_field (json : t) (path : field_path) (value : t) : t =
+let rec set_field (json : t) (path : field_step list) (value : t) : t =
   match (json, path) with
-  | `Assoc fields, [ field_name ] ->
+  | `Assoc fields, [ Dep.FieldAccess field_name ] ->
       let updated_fields =
         if List.mem_assoc field_name fields then
           List.map
@@ -68,7 +51,7 @@ let rec set_field (json : t) (path : field_path) (value : t) : t =
         else (field_name, value) :: fields
       in
       `Assoc updated_fields
-  | `Assoc fields, field_name :: rest -> (
+  | `Assoc fields, Dep.FieldAccess field_name :: rest -> (
       match List.assoc_opt field_name fields with
       | Some nested ->
           let updated_nested = set_field nested rest value in
@@ -83,41 +66,32 @@ let rec set_field (json : t) (path : field_path) (value : t) : t =
           (* Create nested structure *)
           let new_nested = set_field (`Assoc []) rest value in
           `Assoc ((field_name, new_nested) :: fields))
-  | `List items, [ "[...]" ] ->
-      (* Wildcard leaf: update all items to value *)
+  | `List items, [ Dep.IndexAccess (Dep.PathRef _) ] ->
+      (* Wildcard leaf: update all items to value - assuming PathRef here is used as wildcard/iterator *)
+      (* note: usage of PathRef as wildcard is a bit of an overload here, but fits the pattern *)
       let updated_items = List.map (fun _ -> value) items in
       `List updated_items
-  | `List items, "[...]" :: rest ->
+  | `List items, Dep.IndexAccess (Dep.PathRef _) :: rest ->
       (* Wildcard traversal: recurse on all items *)
       let updated_items =
         List.map (fun item -> set_field item rest value) items
       in
       `List updated_items
-  | `List items, [ idx_str ] -> (
-      try
-        let idx =
-          int_of_string (String.sub idx_str 1 (String.length idx_str - 2))
+  | `List items, [ Dep.IndexAccess (Dep.ConstInt i) ] ->
+      if i >= 0 && i < List.length items then
+        let updated_items =
+          List.mapi (fun idx v -> if idx = i then value else v) items
         in
-        if idx >= 0 && idx < List.length items then
-          let updated_items =
-            List.mapi (fun i v -> if i = idx then value else v) items
-          in
-          `List updated_items
-        else json
-      with _ -> json)
-  | `List items, idx_str :: rest -> (
-      try
-        let idx =
-          int_of_string (String.sub idx_str 1 (String.length idx_str - 2))
+        `List updated_items
+      else json
+  | `List items, Dep.IndexAccess (Dep.ConstInt i) :: rest ->
+      if i >= 0 && i < List.length items then
+        let updated_item = set_field (List.nth items i) rest value in
+        let updated_items =
+          List.mapi (fun idx v -> if idx = i then updated_item else v) items
         in
-        if idx >= 0 && idx < List.length items then
-          let updated_item = set_field (List.nth items idx) rest value in
-          let updated_items =
-            List.mapi (fun i v -> if i = idx then updated_item else v) items
-          in
-          `List updated_items
-        else json
-      with _ -> json)
+        `List updated_items
+      else json
   | _, [] -> value
   | _ -> json
 
@@ -146,10 +120,10 @@ let apply_mutation (json : t) (strategy : mutation_strategy) : t =
 (* Mutate a JSON file by applying mutations to specified field paths *)
 let mutate_json_file (json : t) (path : field_path)
     (strategy : mutation_strategy) : t =
-  match get_field json path with
+  match get_field json path.steps with
   | Some field_value ->
       let mutated_value = apply_mutation field_value strategy in
-      set_field json path mutated_value
+      set_field json path.steps mutated_value
   | None -> json (* Path not found, return unchanged *)
 
 (* Load JSON from file *)

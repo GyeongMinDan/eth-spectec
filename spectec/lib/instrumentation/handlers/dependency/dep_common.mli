@@ -13,26 +13,7 @@ and field_step = FieldAccess of string | IndexAccess of index_expr
 and field_path = { source : input_source; steps : field_step list }
 
 type mutation_target = Value | CollectionLength
-
-type concrete_hint =
-  | ToLiteral of Lang.Il.Value.t
-  | ToMax
-  | ToMin
-  | ToZero
-  | ToOne
-
 type binop = Add | Sub | Mul | Div | Mod
-
-type symbolic_hint =
-  | ToFieldValue of field_path
-  | ToFieldOffset of field_path * int
-  | ToBoundaryOf of field_path * [ `Above | `Below ]
-  | ToBinOp of field_path * binop * field_path
-
-type mutation_hint =
-  | Concrete of concrete_hint
-  | Symbolic of symbolic_hint
-  | Unresolved of string
 
 (* Source environment: maps variable names to their field paths *)
 type source_env = (string, field_path) Hashtbl.t

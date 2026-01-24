@@ -39,28 +39,8 @@ type mutation_target =
 
 (* === Mutation Suggestion Types === *)
 
-(* Concrete: Can be applied directly *)
-type concrete_hint =
-  | ToLiteral of Lang.Il.Value.t
-  | ToMax
-  | ToMin
-  | ToZero
-  | ToOne
-
 (* Binary operations between field paths *)
 type binop = Add | Sub | Mul | Div | Mod
-
-(* Symbolic: References another field's value *)
-type symbolic_hint =
-  | ToFieldValue of field_path (* Set equal to another field *)
-  | ToFieldOffset of field_path * int (* Set to field + offset *)
-  | ToBoundaryOf of field_path * [ `Above | `Below ]
-  | ToBinOp of field_path * binop * field_path (* field1 + field2 *)
-
-type mutation_hint =
-  | Concrete of concrete_hint
-  | Symbolic of symbolic_hint
-  | Unresolved of string (* Fallback for complex expressions *)
 
 (* Source environment: maps variable names to their field paths *)
 type source_env = (string, field_path) Hashtbl.t

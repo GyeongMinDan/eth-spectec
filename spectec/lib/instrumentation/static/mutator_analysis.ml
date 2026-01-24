@@ -10,9 +10,7 @@ type index_expr = ConstInt of int | PathRef of field_path
 and field_step = FieldAccess of string | IndexAccess of index_expr
 and field_path = { source : input_source; steps : field_step list }
 
-(* Helper to append a step to a field path *)
-let append_step (path : field_path) (step : field_step) : field_path =
-  { path with steps = path.steps @ [ step ] }
+(* Block input pattern - describes what part of block a relation takes *)
 
 (* Block input pattern - describes what part of block a relation takes *)
 type block_input_pattern =
@@ -42,46 +40,6 @@ module State = struct
 
   let reset () = Hashtbl.clear relation_inputs
 end
-
-(* === Whitelist Check === *)
-
-(* Relations to analyze - matches dep_common.ml *)
-let eth_whitelist =
-  [
-    (* Top-level *)
-    "State_transition";
-    (* Block Processing *)
-    "ProcessBlockHeader";
-    "ProcessWithdrawals";
-    "ProcessExecutionPayload";
-    "ProcessRandao";
-    "ProcessEth1Data";
-    "ProcessSyncAggregate";
-    (* Operations *)
-    "ProcessProposerSlashing";
-    "ProcessAttesterSlashing";
-    "ProcessAttestation";
-    "ProcessDeposit";
-    "ProcessVoluntaryExit";
-    "ProcessBlsToExecutionChange";
-    (* Slot *)
-    "ProcessSlot";
-    (* Epoch *)
-    "ProcessJustificationAndFinalization";
-    "ProcessInactivityUpdates";
-    "ProcessRewardsAndPenalties";
-    "ProcessRegistryUpdates";
-    "ProcessSlashings";
-    "ProcessEth1DataReset";
-    "ProcessEffectiveBalanceUpdates";
-    "ProcessSlashingsReset";
-    "ProcessRandaoMixesReset";
-    "ProcessHistoricalSummariesUpdate";
-    "ProcessParticipationFlagUpdates";
-    "ProcessSyncCommitteeUpdates";
-  ]
-
-let is_whitelisted (rel : string) : bool = List.mem rel eth_whitelist
 
 (* === Relation Input Extraction === *)
 
@@ -114,63 +72,53 @@ let rec detect_block_pattern (exp : Il.exp) : block_input_pattern option =
   | _ -> None
 
 (* Extract relation input information *)
-let extract_relation_input_info (id : string) (arg_types : Il.typ list)
+let extract_relation_input_info (_id : string) (arg_types : Il.typ list)
     (input_hints : int list) (rules : Il.rule list) : relation_input_info option
     =
-  if not (is_whitelisted id) then None
-  else if rules = [] then None
-  else
-    (* Get input expressions from first rule's notexp *)
-    let rule = List.hd rules in
-    let _, notexp, _ = rule.it in
-    let _, exps = notexp in
+  (* Get input expressions from first rule's notexp *)
+  let rule = List.hd rules in
+  let _, notexp, _ = rule.it in
+  let _, exps = notexp in
 
-    (* Combined extraction of expressions and types based on indices *)
-    let exps_input, types_input =
-      let indexed =
-        List.combine exps arg_types
-        |> List.mapi (fun idx (exp, typ) -> (idx, exp, typ))
-      in
-      let filtered =
-        List.filter (fun (idx, _, _) -> List.mem idx input_hints) indexed
-      in
-      ( List.map (fun (_, e, _) -> e) filtered,
-        List.map (fun (_, _, t) -> t) filtered )
+  (* Combined extraction of expressions and types based on indices *)
+  let exps_input, types_input =
+    let indexed =
+      List.combine exps arg_types
+      |> List.mapi (fun idx (exp, typ) -> (idx, exp, typ))
     in
-
-    (* Extract variable names and types, keeping them aligned *)
-    let input_vars, input_types =
-      List.combine exps_input types_input
-      |> List.filter_map (fun (exp, typ) ->
-             match extract_var_name exp with
-             | Some name -> Some (name, typ)
-             | None -> None)
-      |> List.split
+    let filtered =
+      List.filter (fun (idx, _, _) -> List.mem idx input_hints) indexed
     in
+    ( List.map (fun (_, e, _) -> e) filtered,
+      List.map (fun (_, _, t) -> t) filtered )
+  in
 
-    (* Detect block pattern from first block-like input *)
-    let block_pattern =
-      List.find_map
-        (fun exp ->
-          match detect_block_pattern exp with
-          | Some pattern -> Some pattern
-          | None -> None)
-        exps_input
-    in
-    Some
-      {
-        input_var_names = input_vars;
-        input_types;
-        input_positions = input_hints;
-        block_pattern;
-      }
+  (* Extract variable names and types, keeping them aligned *)
+  let input_vars, input_types =
+    List.combine exps_input types_input
+    |> List.filter_map (fun (exp, typ) ->
+           match extract_var_name exp with
+           | Some name -> Some (name, typ)
+           | None -> None)
+    |> List.split
+  in
 
-(* Analyze a relation to extract input info *)
-let analyze_relation (id : string) (arg_types : Il.typ list)
-    (input_hints : int list) (rules : Il.rule list) : unit =
-  match extract_relation_input_info id arg_types input_hints rules with
-  | Some input_info -> Hashtbl.replace State.relation_inputs id input_info
-  | None -> ()
+  (* Detect block pattern from first block-like input *)
+  let block_pattern =
+    List.find_map
+      (fun exp ->
+        match detect_block_pattern exp with
+        | Some pattern -> Some pattern
+        | None -> None)
+      exps_input
+  in
+  Some
+    {
+      input_var_names = input_vars;
+      input_types;
+      input_positions = input_hints;
+      block_pattern;
+    }
 
 (* === Static Analysis Interface === *)
 
@@ -181,9 +129,14 @@ let init spec =
       List.iter
         (fun def ->
           match def.it with
-          | Il.RelD (id, nottyp, input_hints, rules) ->
+          | Il.RelD (id, nottyp, input_hints, rules) -> (
               let _, arg_types = nottyp.it in
-              analyze_relation id.it arg_types input_hints rules
+              match
+                extract_relation_input_info id.it arg_types input_hints rules
+              with
+              | Some input_info ->
+                  Hashtbl.replace State.relation_inputs id.it input_info
+              | None -> ())
           (* We don't analyze functions (DecD) anymore as we only care about relation inputs *)
           | _ -> ())
         il_spec
