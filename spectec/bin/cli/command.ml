@@ -269,9 +269,11 @@ module Make (Tgt : Runner.Target.S) = struct
         ("Generate test cases targeting uncovered premises for " ^ Tgt.name)
       (let open Core.Command.Let_syntax in
        let open Core.Command.Param in
-       let%map checkpoint_file =
-         flag "--checkpoint" (required string)
-           ~doc:"FILE checkpoint file to load coverage and dependency data"
+       let%map coverage_file =
+         flag "--coverage" (required string)
+           ~doc:
+             "FILE coverage checkpoint file to load coverage and dependency \
+              data"
        and test_dir =
          flag "--test-dir" (optional string)
            ~doc:
@@ -297,13 +299,26 @@ module Make (Tgt : Runner.Target.S) = struct
        and verify =
          flag "--verify" no_arg
            ~doc:" verify that generated tests actually fail the target premise"
+       and testgen_checkpoint =
+         flag "--checkpoint" (optional string)
+           ~doc:"FILE save testgen progress to checkpoint file"
+       and testgen_resume =
+         flag "--resume" (optional string)
+           ~doc:"FILE resume testgen from checkpoint file"
+       and save_interval =
+         flag "--save-interval"
+           (optional_with_default 100 int)
+           ~doc:"N save testgen checkpoint every N tests (default: 100)"
+       and filter_seeds =
+         flag "--filter-seeds" (optional string)
+           ~doc:"TYPE only process seeds of TYPE (sanity|finality|random)"
        in
        fun () ->
          let open Runner.Testgen in
          try
-           (* Load checkpoint *)
+           (* Load coverage checkpoint *)
            let _checkpoint, coverage, _dependency, _path_condition =
-             load_checkpoint checkpoint_file
+             load_checkpoint coverage_file
            in
 
            (* Restore premise UID mapping from checkpoint *)
@@ -522,12 +537,13 @@ module Make (Tgt : Runner.Target.S) = struct
                          | _ -> None))
              in
 
-             (* Use test-case-centric generation *)
+             (* Use test-case-centric generation with checkpoint support *)
              Format.printf "Starting test-case-centric generation...\n%!";
              let results =
-               Runner.Testgen.generate_tests_by_test_case ~test_dir:test_path
-                 ~output_dir:output_path uids_to_generate coverage
-                 analyze_test_case
+               Runner.Testgen.generate_tests_with_checkpoint ~test_dir:test_path
+                 ~output_dir:output_path ~checkpoint_file:testgen_checkpoint
+                 ~resume_file:testgen_resume ~save_interval ~filter_seeds
+                 uids_to_generate coverage analyze_test_case
              in
 
              (* Print summary *)

@@ -648,6 +648,76 @@ let generate_test_cases ~(test_dir : string) ~(output_dir : string)
    
    Returns: (test_case_id * (premise_uid * mutation_info list) list) list
 *)
+(* === Checkpoint Support for Testgen === *)
+
+(* Load testgen checkpoint if resuming *)
+let load_testgen_checkpoint (file : string) : Testgen_data.t =
+  match Checkpoint.load_from_file ~file with
+  | Ok checkpoint -> (
+      match checkpoint.Checkpoint.coverage.testgen with
+      | Some data -> data
+      | None -> Testgen_data.empty)
+  | Error _ -> Testgen_data.empty
+
+(* Save testgen checkpoint *)
+let save_testgen_checkpoint ~(file : string option) ~(analyzed : string list)
+    ~(positive_result : Instrumentation.Dependency.Positive.result) : unit =
+  match file with
+  | None -> ()
+  | Some checkpoint_file ->
+      (* Create testgen data *)
+      let testgen_data =
+        Testgen_data.of_positive_result ~analyzed positive_result
+      in
+
+      (* Create coverage with testgen data *)
+      let coverage =
+        {
+          Checkpoint.branch = None;
+          node_il = None;
+          node_sl = None;
+          dependency = Some positive_result;
+          path_condition = None;
+          testgen = Some testgen_data;
+        }
+      in
+
+      (* Create checkpoint manually *)
+      let checkpoint =
+        {
+          Checkpoint.spec_hash = "";
+          (* Empty hash for testgen-only checkpoint *)
+          completed_inputs = analyzed;
+          coverage;
+          timestamp = Unix.gettimeofday ();
+        }
+      in
+
+      (* Save to file *)
+      Checkpoint.save_to_file ~file:checkpoint_file checkpoint;
+      Format.printf "Saved testgen checkpoint: %s (%d tests analyzed)\n%!"
+        checkpoint_file (List.length analyzed)
+
+(* Filter test cases by seed type *)
+let filter_by_seed_type (seed_filter : string option)
+    (test_ids : (string * 'a) list) : (string * 'a) list =
+  match seed_filter with
+  | None -> test_ids
+  | Some filter_type ->
+      List.filter
+        (fun (test_id, _) ->
+          let lower_id = String.lowercase_ascii test_id in
+          let lower_filter = String.lowercase_ascii filter_type in
+          try
+            let _ =
+              Str.search_forward (Str.regexp_string lower_filter) lower_id 0
+            in
+            true
+          with Not_found -> false)
+        test_ids
+
+(* === Test Generation === *)
+
 let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
     (premise_uids : premise_uid list)
     (coverage : Instrumentation.Node_coverage_il.result option)
@@ -820,3 +890,229 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
 
           if premise_results = [] then None else Some (test_id, premise_results))
     test_to_prems
+
+(* Generate tests with checkpoint support - resumable with progress tracking *)
+let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
+    ~(checkpoint_file : string option) ~(resume_file : string option)
+    ~(save_interval : int) ~(filter_seeds : string option)
+    (premise_uids : premise_uid list)
+    (coverage : Instrumentation.Node_coverage_il.result option)
+    (analyze_test_case :
+      test_case_id ->
+      premise_uid list ->
+      Instrumentation.Dependency.Positive.result option) :
+    (test_case_id * (premise_uid * (string * string * string) list) list) list =
+  (* Load checkpoint if resuming *)
+  let testgen_data =
+    match resume_file with
+    | Some file ->
+        Format.printf "Resuming from checkpoint: %s\n%!" file;
+        load_testgen_checkpoint file
+    | None -> Testgen_data.empty
+  in
+
+  (* Get test_id -> premise_uids mapping *)
+  let all_test_to_prems = get_test_to_premises premise_uids coverage in
+
+  (* Filter by seed type if requested *)
+  let filtered_test_to_prems =
+    filter_by_seed_type filter_seeds all_test_to_prems
+  in
+
+  (* Filter out already-analyzed tests *)
+  let test_ids = List.map fst filtered_test_to_prems in
+  let remaining_test_ids =
+    Testgen_data.filter_remaining testgen_data test_ids
+  in
+  let remaining_test_to_prems =
+    List.filter
+      (fun (test_id, _) -> List.mem test_id remaining_test_ids)
+      filtered_test_to_prems
+  in
+
+  Format.printf "Total tests: %d, Already analyzed: %d, Remaining: %d\n%!"
+    (List.length test_ids)
+    (List.length test_ids - List.length remaining_test_ids)
+    (List.length remaining_test_ids);
+
+  (* Track analyzed tests for checkpoint *)
+  let analyzed = ref (Testgen_data.analyzed_tests testgen_data) in
+
+  (* Calculate starting position for progress display *)
+  let already_completed =
+    List.length test_ids - List.length remaining_test_ids
+  in
+  let total_tests = List.length test_ids in
+
+  (* Process each test case with periodic checkpointing *)
+  let results =
+    List.mapi
+      (fun idx (test_id, prem_uids) ->
+        (* Show absolute progress: already_completed + current position *)
+        Format.printf "[%d/%d] Processing test case: %s\n%!"
+          (already_completed + idx + 1)
+          total_tests test_id;
+
+        (* Run analysis *)
+        let result_opt = analyze_test_case test_id prem_uids in
+
+        (* Track as analyzed *)
+        analyzed := test_id :: !analyzed;
+
+        (* Periodic checkpoint save *)
+        if (idx + 1) mod save_interval = 0 then (
+          Format.printf "Saving checkpoint at test %d/%d...\n%!" (idx + 1)
+            (List.length remaining_test_to_prems);
+          match result_opt with
+          | Some dep_result ->
+              save_testgen_checkpoint ~file:checkpoint_file ~analyzed:!analyzed
+                ~positive_result:dep_result;
+              Instrumentation.Dependency.Positive.clear_memory ()
+          | None -> ());
+
+        (* Generate mutations if analysis succeeded *)
+        match result_opt with
+        | None ->
+            Format.printf "  Skipped: analysis failed\n%!";
+            None
+        | Some dependency_result ->
+            let test_case_sanitized =
+              String.map (fun c -> if c = '/' then '_' else c) test_id
+            in
+            let test_case_output_dir =
+              Filename.concat output_dir test_case_sanitized
+            in
+            Unix.mkdir test_case_output_dir 0o755;
+
+            let pre_path = Filename.concat test_dir (test_id ^ "_pre.json") in
+            let block_path =
+              Filename.concat test_dir (test_id ^ "_block.json")
+            in
+
+            let pre_json_opt =
+              try Some (Json_mutator.load_json pre_path) with _ -> None
+            in
+            let block_json_opt =
+              try Some (Json_mutator.load_json block_path) with _ -> None
+            in
+
+            let report_path =
+              Filename.concat test_case_output_dir "report.txt"
+            in
+            let report_channel = open_out report_path in
+            Printf.fprintf report_channel "Test Case: %s\n\n" test_id;
+
+            let premise_results =
+              List.filter_map
+                (fun prem_uid ->
+                  let constraints =
+                    infer_mutation_constraints prem_uid coverage
+                      (Some dependency_result)
+                  in
+                  if constraints = [] then (
+                    Printf.fprintf report_channel
+                      "Premise UID %d: No mutations found\n\n" prem_uid;
+                    None)
+                  else (
+                    Printf.fprintf report_channel "Premise UID %d:\n" prem_uid;
+                    let generated_files = ref [] in
+                    List.iteri
+                      (fun c_idx constraint_ ->
+                        List.iteri
+                          (fun s_idx strategy ->
+                            let mut_id =
+                              Printf.sprintf "mut_prem%d_%d_%d" prem_uid c_idx
+                                s_idx
+                            in
+                            let single_constraint =
+                              { constraint_ with strategies = [ strategy ] }
+                            in
+
+                            let source_value_str =
+                              match
+                                ( constraint_.field_path.source,
+                                  pre_json_opt,
+                                  block_json_opt )
+                              with
+                              | Dep.State, Some pre_json, _ -> (
+                                  match
+                                    Json_mutator.get_value_at_path pre_json
+                                      constraint_.field_path
+                                  with
+                                  | Some v -> Yojson.Safe.to_string v
+                                  | None -> "<not found>")
+                              | Dep.Block, _, Some block_json -> (
+                                  match
+                                    Json_mutator.get_value_at_path block_json
+                                      constraint_.field_path
+                                  with
+                                  | Some v -> Yojson.Safe.to_string v
+                                  | None -> "<not found>")
+                              | _ -> "<unknown>"
+                            in
+
+                            let dest_value_str =
+                              match strategy with
+                              | Json_mutator.SetValue v ->
+                                  Yojson.Safe.to_string v
+                              | Json_mutator.Increment i ->
+                                  Printf.sprintf "+%d" i
+                              | Json_mutator.Decrement i ->
+                                  Printf.sprintf "-%d" i
+                              | Json_mutator.SetBoundary -> "<boundary>"
+                              | Json_mutator.AppendItem -> "<append>"
+                              | Json_mutator.RemoveItem -> "<remove>"
+                            in
+
+                            let out_pre, out_block =
+                              mutate_json_input ~output_dir:test_case_output_dir
+                                mut_id [ single_constraint ] [] pre_path
+                                block_path
+                            in
+
+                            if out_pre <> pre_path then (
+                              generated_files :=
+                                (mut_id, out_pre, out_block) :: !generated_files;
+
+                              Printf.fprintf report_channel "  - Field: %s\n"
+                                (Instrumentation.Dependency.Dep_common
+                                 .string_of_field_path constraint_.field_path);
+                              Printf.fprintf report_channel "    From: %s\n"
+                                source_value_str;
+                              Printf.fprintf report_channel "    To: %s\n"
+                                dest_value_str))
+                          constraint_.strategies)
+                      constraints;
+
+                    Printf.fprintf report_channel "\n";
+
+                    if !generated_files = [] then None
+                    else Some (prem_uid, List.rev !generated_files)))
+                prem_uids
+            in
+
+            close_out report_channel;
+            if premise_results = [] then None
+            else Some (test_id, premise_results))
+      remaining_test_to_prems
+    |> List.filter_map Fun.id
+  in
+
+  (* Final checkpoint save *)
+  (match checkpoint_file with
+  | Some _ when results <> [] -> (
+      Format.printf "Saving final checkpoint...\n%!";
+      (* Get last successful result for checkpoint *)
+      let last_dep_result =
+        List.find_map
+          (fun (test_id, _) -> analyze_test_case test_id premise_uids)
+          (List.rev remaining_test_to_prems)
+      in
+      match last_dep_result with
+      | Some dep_result ->
+          save_testgen_checkpoint ~file:checkpoint_file ~analyzed:!analyzed
+            ~positive_result:dep_result
+      | None -> ())
+  | _ -> ());
+
+  results

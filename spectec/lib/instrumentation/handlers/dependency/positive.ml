@@ -922,6 +922,12 @@ module State = struct
         | None -> []
       in
       Hashtbl.replace test_table test_id (existing @ mutations)
+
+  (* Clear checkpoint data after it's been saved - frees memory for long runs.
+     Per-test state (sym_env, seen_prems) is already cleared in on_test_end. *)
+  let clear_large_state () =
+    Hashtbl.clear per_test_sym_mutations;
+    Gc.compact () (* Force GC to reclaim memory *)
 end
 
 (* Initialize the lookup_sym_ref to point to State.lookup_sym *)
@@ -984,7 +990,14 @@ module M : Instrumentation_core.Handler.S = struct
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
   let on_test_start ~test_case_id = State.current_test_id := test_case_id
-  let on_test_end ~test_case_id:_ = State.current_test_id := ""
+
+  let on_test_end ~test_case_id:_ =
+    (* Clear per-test state to prevent corruption across different inputs *)
+    State.current_test_id := "";
+    Hashtbl.clear State.sym_env;
+    Hashtbl.clear State.seen_prems;
+    State.frames := []
+  (* Note: per_test_sym_mutations is preserved - it accumulates across tests *)
 
   let on_rel_enter ~id ~at:_ ~values:_ =
     State.current_relation := id;
@@ -1193,6 +1206,45 @@ let get_result () =
         State.per_test_sym_mutations [];
   }
 
+(* Merge two results - combines per_test_sym_mutations from both *)
+let merge_result (r1 : result) (r2 : result) : result =
+  let merged = Hashtbl.create 256 in
+  (* Add all from r1 *)
+  List.iter
+    (fun (uid, test_muts) ->
+      let tbl = Hashtbl.create 64 in
+      List.iter (fun (tid, muts) -> Hashtbl.replace tbl tid muts) test_muts;
+      Hashtbl.replace merged uid tbl)
+    r1.per_test_sym_mutations;
+  (* Merge in r2 *)
+  List.iter
+    (fun (uid, test_muts) ->
+      let tbl =
+        match Hashtbl.find_opt merged uid with
+        | Some t -> t
+        | None ->
+            let t = Hashtbl.create 64 in
+            Hashtbl.replace merged uid t;
+            t
+      in
+      List.iter
+        (fun (tid, muts) ->
+          let existing = Hashtbl.find_opt tbl tid |> Option.value ~default:[] in
+          Hashtbl.replace tbl tid (existing @ muts))
+        test_muts)
+    r2.per_test_sym_mutations;
+  (* Convert back to list format *)
+  {
+    per_test_sym_mutations =
+      Hashtbl.fold
+        (fun uid tbl acc ->
+          let test_list =
+            Hashtbl.fold (fun tid muts sub -> (tid, muts) :: sub) tbl []
+          in
+          (uid, test_list) :: acc)
+        merged [];
+  }
+
 let restore (_result : result) = ()
 
 module HandlerWithData :
@@ -1233,3 +1285,6 @@ let make_with_data cfg =
   ( (module HandlerWithData : Instrumentation_core.Handler.S_with_data
       with type result = result),
     get_result )
+
+(* Public function to clear large state - call after checkpoint save *)
+let clear_memory () = State.clear_large_state ()

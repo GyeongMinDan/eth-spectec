@@ -19,6 +19,7 @@ type coverage = {
   node_sl : Instrumentation.Node_coverage_sl.result option;
   dependency : Instrumentation.Dependency.Positive.result option;
   path_condition : Instrumentation.Dependency.Negative.result option;
+  testgen : Testgen_data.t option;
 }
 
 (* Main checkpoint type - saved/loaded state *)
@@ -164,6 +165,12 @@ let merge_coverage coverage1 coverage2 =
     | Some r, None | None, Some r -> Some r
     | None, None -> None
   in
+  let testgen =
+    match (coverage1.testgen, coverage2.testgen) with
+    | Some t1, Some t2 -> Some (Testgen_data.merge t1 t2)
+    | Some t, None | None, Some t -> Some t
+    | None, None -> None
+  in
   {
     branch = coverage1.branch;
     (* TODO: merge branch coverage *)
@@ -174,6 +181,7 @@ let merge_coverage coverage1 coverage2 =
     (* TODO: merge dependency coverage *)
     path_condition = coverage1.path_condition;
     (* TODO: merge path condition coverage *)
+    testgen;
   }
 
 (* Merge two checkpoints into a new checkpoint.
@@ -224,6 +232,8 @@ let snapshot_coverage () =
     node_sl = Some (Instrumentation.Node_coverage_sl.get_result ());
     dependency = Some (Instrumentation.Dependency.Positive.get_result ());
     path_condition = Some (Instrumentation.Dependency.Negative.get_result ());
+    testgen = None;
+    (* Testgen data is managed separately *)
   }
 
 (* Restore coverage state from checkpoint into instrumentation handlers.
