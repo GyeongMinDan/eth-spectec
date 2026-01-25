@@ -807,6 +807,9 @@ module State = struct
   (* Already-analyzed premises (by location string) *)
   let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
 
+  (* Track visited UIDs to distinguish "not covered" from "no mutations" *)
+  let seen_uids : (int, unit) Hashtbl.t = Hashtbl.create 1000
+
   (* Current context *)
   let current_relation : string ref = ref ""
   let current_rule : string ref = ref ""
@@ -841,6 +844,7 @@ module State = struct
     Hashtbl.clear sym_env;
     Hashtbl.clear relation_inputs;
     Hashtbl.clear seen_prems;
+    Hashtbl.clear seen_uids;
     current_relation := "";
     current_rule := "";
     current_test_id := "";
@@ -1061,6 +1065,9 @@ module M : Instrumentation_core.Handler.S = struct
       let prem_key = Premise_uid.prem_key prem in
       let uid = Premise_uid.assign_uid prem_key in
 
+      (* Mark UID as seen for coverage tracking *)
+      Hashtbl.replace State.seen_uids uid ();
+
       (* Check if this UID is in our target list (or if using whitelist fallback) *)
       let should_extract_mutations =
         if Hashtbl.length State.target_uids = 0 then
@@ -1123,11 +1130,23 @@ module M : Instrumentation_core.Handler.S = struct
   let finish () =
     Format.fprintf !fmt "\n=== Symbolic Mutations ===\n\n";
     (* Print symbolic mutations organized by premise UID *)
-    let entries =
+    (* Collect entries from mutations *)
+    let mutation_entries =
       Hashtbl.fold
         (fun uid tests acc -> (uid, tests) :: acc)
         State.per_test_sym_mutations []
     in
+
+    (* Collect entries from target UIDs that have no mutations *)
+    let missing_target_entries =
+      Hashtbl.fold
+        (fun uid _ acc ->
+          if Hashtbl.mem State.per_test_sym_mutations uid then acc
+          else (uid, Hashtbl.create 0) :: acc)
+        State.target_uids []
+    in
+
+    let entries = mutation_entries @ missing_target_entries in
     let sorted =
       List.sort (fun (uid1, _) (uid2, _) -> compare uid1 uid2) entries
     in
@@ -1136,14 +1155,19 @@ module M : Instrumentation_core.Handler.S = struct
       List.iter
         (fun (uid, tests) ->
           Format.fprintf !fmt "premise %d:\n" uid;
-          Hashtbl.iter
-            (fun test_id muts ->
-              Format.fprintf !fmt "  test %s:\n" test_id;
-              List.iter
-                (fun mut ->
-                  Format.fprintf !fmt "    %s\n" (string_of_sym_mutation mut))
-                muts)
-            tests;
+          if Hashtbl.length tests = 0 then
+            if Hashtbl.mem State.seen_uids uid then
+              Format.fprintf !fmt "  (analyzed but no mutations found)\n"
+            else Format.fprintf !fmt "  (not covered)\n"
+          else
+            Hashtbl.iter
+              (fun test_id muts ->
+                Format.fprintf !fmt "  test %s:\n" test_id;
+                List.iter
+                  (fun mut ->
+                    Format.fprintf !fmt "    %s\n" (string_of_sym_mutation mut))
+                  muts)
+              tests;
           Format.fprintf !fmt "\n")
         sorted;
     Format.pp_print_flush !fmt ()
