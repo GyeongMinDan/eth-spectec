@@ -558,9 +558,23 @@ let generate_test_case ~(test_dir : string) ~(output_dir : string)
         else test_id_raw
       in
 
-      (* Construct paths to base test case JSON files *)
-      let pre_path = Filename.concat test_dir (test_id ^ "/pre.json") in
-      let block_path = Filename.concat test_dir (test_id ^ "/block.json") in
+      (* test_id is the full path like "eth-tests-sanity/.../pre.json"
+         We need to construct paths to pre.json and block.json *)
+      let base_path =
+        if Filename.check_suffix test_id ".json" then
+          Filename.chop_extension test_id
+        else test_id
+      in
+      let base_path =
+        if Filename.check_suffix base_path "_pre" then
+          Filename.chop_suffix base_path "_pre"
+        else if Filename.check_suffix base_path "_block" then
+          Filename.chop_suffix base_path "_block"
+        else base_path
+      in
+
+      let pre_path = Filename.concat test_dir (base_path ^ "_pre.json") in
+      let block_path = Filename.concat test_dir (base_path ^ "_block.json") in
 
       (* Create premise-specific output directory *)
       let premise_output_dir =
@@ -895,7 +909,7 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
 let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
     ~(checkpoint_file : string option) ~(resume_file : string option)
     ~(save_interval : int) ~(filter_seeds : string option)
-    (premise_uids : premise_uid list)
+    ~(select_minimal : bool) (premise_uids : premise_uid list)
     (coverage : Instrumentation.Node_coverage_il.result option)
     (analyze_test_case :
       test_case_id ->
@@ -919,15 +933,48 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
     filter_by_seed_type filter_seeds all_test_to_prems
   in
 
+  (* Apply minimal selection if requested *)
+  let test_to_prems =
+    if select_minimal then (
+      Format.printf "Selecting minimal set of tests (greedy set cover)...\n%!";
+      (* Build premise -> tests and test -> prems hashtables *)
+      let prem_to_tests = Hashtbl.create 256 in
+      let test_to_prems_tbl = Hashtbl.create 256 in
+      List.iter
+        (fun (test_id, prems) ->
+          Hashtbl.replace test_to_prems_tbl test_id prems;
+          List.iter
+            (fun prem ->
+              let existing =
+                Hashtbl.find_opt prem_to_tests prem |> Option.value ~default:[]
+              in
+              if not (List.mem test_id existing) then
+                Hashtbl.replace prem_to_tests prem (test_id :: existing))
+            prems)
+        filtered_test_to_prems;
+      (* Run greedy set cover *)
+      let selected =
+        Source_selector.select_minimal_tests premise_uids prem_to_tests
+          test_to_prems_tbl
+      in
+      Format.printf
+        "Selected %d tests (from %d candidates) covering %d premises\n%!"
+        (List.length selected)
+        (List.length filtered_test_to_prems)
+        (List.length premise_uids);
+      selected)
+    else filtered_test_to_prems
+  in
+
   (* Filter out already-analyzed tests *)
-  let test_ids = List.map fst filtered_test_to_prems in
+  let test_ids = List.map fst test_to_prems in
   let remaining_test_ids =
     Testgen_data.filter_remaining testgen_data test_ids
   in
   let remaining_test_to_prems =
     List.filter
       (fun (test_id, _) -> List.mem test_id remaining_test_ids)
-      filtered_test_to_prems
+      test_to_prems
   in
 
   Format.printf "Total tests: %d, Already analyzed: %d, Remaining: %d\n%!"
@@ -984,16 +1031,43 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
             in
             Unix.mkdir test_case_output_dir 0o755;
 
-            let pre_path = Filename.concat test_dir (test_id ^ "_pre.json") in
+            (* test_id is like "eth-tests-sanity/.../full_random_operations_3/pre.json"
+               The actual files are pre.json and block.json in the same directory.
+               We need to replace /pre.json with /pre.json or /block.json *)
+            let pre_path = Filename.concat test_dir test_id in
             let block_path =
-              Filename.concat test_dir (test_id ^ "_block.json")
+              if Filename.check_suffix test_id "/pre.json" then
+                Filename.concat test_dir
+                  (Filename.chop_suffix test_id "/pre.json" ^ "/block.json")
+              else if Filename.check_suffix test_id "/block.json" then
+                Filename.concat test_dir
+                  (Filename.chop_suffix test_id "/block.json" ^ "/pre.json")
+              else
+                (* Fallback: assume test_id is the directory, append /block.json *)
+                Filename.concat test_dir (test_id ^ "/block.json")
             in
 
+            Format.printf "[DEBUG] test_id: %s\n%!" test_id;
+            Format.printf "[DEBUG] pre_path: %s\n%!" pre_path;
+            Format.printf "[DEBUG] block_path: %s\n%!" block_path;
+            Format.printf "[DEBUG] pre_path exists: %b\n%!"
+              (Sys.file_exists pre_path);
+            Format.printf "[DEBUG] block_path exists: %b\n%!"
+              (Sys.file_exists block_path);
+
             let pre_json_opt =
-              try Some (Json_mutator.load_json pre_path) with _ -> None
+              try Some (Json_mutator.load_json pre_path)
+              with e ->
+                Format.printf "[DEBUG] Failed to load pre_path: %s\n%!"
+                  (Printexc.to_string e);
+                None
             in
             let block_json_opt =
-              try Some (Json_mutator.load_json block_path) with _ -> None
+              try Some (Json_mutator.load_json block_path)
+              with e ->
+                Format.printf "[DEBUG] Failed to load block_path: %s\n%!"
+                  (Printexc.to_string e);
+                None
             in
 
             let report_path =

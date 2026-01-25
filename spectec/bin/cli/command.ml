@@ -312,6 +312,11 @@ module Make (Tgt : Runner.Target.S) = struct
        and filter_seeds =
          flag "--filter-seeds" (optional string)
            ~doc:"TYPE only process seeds of TYPE (sanity|finality|random)"
+       and select_minimal =
+         flag "--select-minimal" no_arg
+           ~doc:
+             " select minimal set of tests covering all premises (greedy set \
+              cover)"
        in
        fun () ->
          let open Runner.Testgen in
@@ -543,7 +548,7 @@ module Make (Tgt : Runner.Target.S) = struct
                Runner.Testgen.generate_tests_with_checkpoint ~test_dir:test_path
                  ~output_dir:output_path ~checkpoint_file:testgen_checkpoint
                  ~resume_file:testgen_resume ~save_interval ~filter_seeds
-                 uids_to_generate coverage analyze_test_case
+                 ~select_minimal uids_to_generate coverage analyze_test_case
              in
 
              (* Print summary *)
