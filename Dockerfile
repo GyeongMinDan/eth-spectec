@@ -2,6 +2,13 @@
 # SpecTrum Docker Image Build script
 # ============================================
 
+ARG UBUNTU_VERSION=22.04
+FROM ubuntu:${UBUNTU_VERSION} AS base
+
+# Avoid interactive prompts during package installation
+ARG DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
+
 # Set working directory
 WORKDIR /workspace
 
