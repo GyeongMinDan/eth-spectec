@@ -35,6 +35,7 @@ RUN apt-get update && \
         python3-dev \
         libssl-dev \
         libsnappy-dev \
+        libgmp-dev \
         lcov \
         git-lfs \
         apt-transport-https \
@@ -129,7 +130,7 @@ RUN apt-get update && \
 RUN opam init --disable-sandboxing -y && \
     opam switch create 5.1.0 && \
     eval $(opam env) && \
-    opam install -y dune.3.16.1 bignum.v0.17.0 menhir.20240715 core.v0.17.1 core_unix.v0.17.0 bisect_ppx.2.8.3 yojson digestif bls12-381 bls12-381-signature
+    opam install -y dune bignum menhir core core_unix bisect_ppx yojson digestif bls12-381 bls12-381-signature
 
 ENV OPAM_SWITCH_PREFIX="/root/.opam/5.1.0"
 ENV CAML_LD_LIBRARY_PATH="/root/.opam/5.1.0/lib/stublibs:/root/.opam/default/lib/stublibs"
@@ -151,14 +152,18 @@ RUN git sparse-checkout init --cone && \
     git sparse-checkout set tests/core/pyspec specs/ configs/ presets/ pysetup/ sync/ .
 
 # Install uv (Python package manager for eth2spec)
-# Note: PATH already includes /root/.cargo/bin from Rust installation
+# uv install script may install to ~/.cargo/bin (already in PATH from Rust) or ~/.local/bin
 WORKDIR /workspace/spectec-core
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
+# Add /root/.local/bin to PATH (uv may install here if not in .cargo/bin)
+# Note: /root/.cargo/bin is already in PATH from Rust installation (line 57)
+ENV PATH="/root/.local/bin:${PATH}"
+
 # Build Python specification files (mainnet.py, minimal.py)
+# Note: make _pyspec automatically runs uv sync first (see Makefile _pyspec: _sync dependency)
 WORKDIR /workspace/spectec-core/consensus-specs
-RUN uv sync && \
-    uv run make _pyspec
+RUN make _pyspec
 
 # Install Python dependencies (including snappy for decompression)
 WORKDIR /workspace/spectec-core

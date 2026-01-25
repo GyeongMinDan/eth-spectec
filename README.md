@@ -129,54 +129,88 @@ Performs differential testing across multiple Ethereum 2.0 clients (Lighthouse, 
 
 **Usage (Docker):**
 
-TODO : have to update the usage command
+All operations run entirely inside the Docker container.
 
-**Options:**
-- `--test-suite <dir>`: Test suite directory (automatically finds all subdirectories containing `pre.ssz` or `pre.ssz_snappy` files)
-- `--test-type <type>`: Test type (`state-transition`, `sanity-slots`, `epoch-processing`, `operation`)
-- `--fork-version <version>`: Fork version (`capella` or `deneb`)
-- `--output-base <dir>`: (Optional) Base output directory (default: `test_suite_dir/client_results`)
-- `--workflow <mode>`: Test workflow mode (`independent` or `sequential`, default: `independent`)
-- `--enable-coverage`: Enable coverage measurement for all clients
-- `--cleanup-after-report`: Delete original coverage data files after generating reports
-- `--generate-final-coverage`: Generate accumulated coverage report from multiple test suite results
-- `--final-output-dir <dir>`: Output directory for final accumulated coverage report
+**1. Run diff_testing.py (Differential Testing):**
 
-**Note:** When using `--test-suite` with `OfficialTestSuite` directories containing `.ssz_snappy` files, the script automatically:
-1. Finds all test case directories containing `pre.ssz_snappy`
-2. Decompresses `pre.ssz_snappy` and `blocks_*.ssz_snappy` files to `.ssz`
-3. Runs differential testing on all clients
-4. Compares results and generates reports
+Execute differential testing with all client implementations. All clients receive the same input and produce state-transition results and coverage data.
 
-**Output:**
-- Client output directories: `<output_dir>/<client_name>/output/poststate_*.ssz`
-- Markdown report: `<output_dir>/report_eth2diff_*.md`
-- CSV files:
-  - `Output_Time_*.csv`: Execution time for each client
-  - `Output_Status_*.csv`: Status code for each client
-  - `Differences_*.csv`: SSZ file differences between clients (core result showing where clients disagree)
-- Coverage reports (when `--enable-coverage` is used):
-  - Per-test-case coverage: `<output_dir>/<test_case>/<client>/report/` # This feature is disabled in code.
-  - Accumulated coverage: `<output_dir>/total-node-coverage/<client>/report/`
-  - Final accumulated coverage: `<final_output_dir>/<client>/report/` (when using `--generate-final-coverage`)
+```bash
+# Interactive shell - all operations run inside container
+docker run -it --name eth2test-workspace eth2test:coverage
 
-**Note:** 
-- SSZ file comparison across clients is always performed automatically
-- The `Differences_*.csv` file is the primary result showing where clients disagree on state transition results
-- **Teku behavior**: Teku creates empty SSZ files on failure. The script automatically removes these empty files to ensure accurate comparison results
+# Inside the container:
+cd /workspace/spectec-core
 
-# HAVE TO FIX THIS PHRASE.
-- When using Docker, all output files are saved to the local `./results/` directory via volume mount
-# HAVE TO FIX THIS PHRASE.
+# Run differential testing with coverage (state-transition, sequential workflow)
+python3 diff_testing.py \
+  --test-suite Converter/OfficialTestSuite/capella/sanity/blocks/pyspec_tests \
+  --test-type state-transition \
+  --workflow sequential \
+  --fork-version capella \
+  --output-base ./results/coverage_sanity_block_test \
+  --enable-coverage \
+  --cleanup-after-report
 
-- Coverage data files are automatically cleaned up when `--cleanup-after-report` is used
+# Run differential testing with coverage (state-transition, sequential workflow)
+python3 diff_testing.py \
+  --test-suite Converter/OfficialTestSuite/capella/random/random/pyspec_tests \
+  --test-type state-transition \
+  --workflow sequential \
+  --fork-version capella \
+  --output-base ./results/coverage_random_test \
+  --enable-coverage \
+  --cleanup-after-report
 
-**Prerequisites:**
-- Build Docker image: `docker build -t eth2test:coverage --target coverage .`
-- Test cases with `pre.ssz`/`pre.ssz_snappy` and `blocks_*.ssz`/`blocks_*.ssz_snappy` files
+# Generate accumulated coverage report (after running multiple test suites)
+python3 diff_testing.py \
+  --generate-final-coverage \
+  ./results/coverage_sanity_block_test \
+  ./results/coverage_random_test \
+  --final-output-dir ./results/accumulated_coverage_report
+```
 
-**Note:** This script requires the modified clients built by the Dockerfile. The modifications ensure compatibility across different client implementations for differential testing. The Docker environment provides a reproducible setup with all necessary dependencies and coverage tools pre-installed.
+**2. Process results with analysis scripts:**
+
+All results are stored in `/workspace/spectec-core/results/` inside the container. You can process them using the analysis scripts:
+
+```bash
+# Inside the container (continue from step 1):
+cd /workspace/spectec-core
+
+# Generate coverage figures
+python3 make_coverage_figure.py \
+  --input-dir ./results/accumulated_coverage_report \
+  --output-dir ./results/coverage_figures
+
+# Check results for mismatches
+python3 check_results.py ./results/coverage_sanity_block_test
+```
+
+# TODO : Have to add spectec related command
+**3. Use spectec-core executable :**
+```bash
+# Inside the container:
+cd /workspace/spectec-core
+
+# Print IL representation
+./spectec-core elab spec/*.spectec
+
+# Run tests
+make test
+```
+
+**4. Run Converter scripts (eth2spec integration):**
+
+```bash
+# Inside the container:
+cd /workspace/spectec-core
+
+# Make the spectec inputs (Example)
+python3 Converter/generate_json_test_cases.py   Converter/OfficialTestSuite/capella/sanity/blocks/pyspec_tests   --fork capella  --output-dir eth-tests   -v
+```
+
 
 ### License
 
-ETH-SpecTec is released under the [Apache 2.0 license](LICENSE).
+SpecTrum is released under the [Apache 2.0 license](LICENSE).
