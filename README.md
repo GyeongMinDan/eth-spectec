@@ -2,6 +2,9 @@
 
 ETH-SpecTec is a SpecTec implementation of the official Ethereum 2.0 Consensus Spec. It extends [SpecTec-Core](https://github.com/kaist-plrg/spectec-core) with support for large byte values, and includes python scripts for conversion as well as a diff-testing framework for Ethereum 2.0 clients.
 
+# TEMP (TODO : Have to fix)
+See the [Docker Setup](#1-docker-setup) section below for instructions. All subjects are automatically handled by the Dockerfile.
+
 ### Installation
 
 * Install `opam` version 2.0.5 or higher.
@@ -17,20 +20,6 @@ ETH-SpecTec is a SpecTec implementation of the official Ethereum 2.0 Consensus S
   eval $(opam env)
   opam install dune bignum menhir core core_unix bisect_ppx yojson digestif bls12-381 bls12-381-signature
   ```
-
-* Clone the repository with submodules:
-  ```bash
-  git clone --recursive https://github.com/GyeongMinDan/eth-spectec.git
-  cd eth-spectec
-  ```
-  Or if you already cloned without `--recursive`:
-  ```bash
-  git submodule update --init --recursive
-  ```
-
-  **Note:** For **local development**, you only need the `spectec-core` executable built with `make exe`. The `testing_clients/` directory is not required and is only created automatically during Docker builds for differential testing.
-
-**For Differential Testing:** We recommend using Docker for a reproducible environment. See the [Docker Setup](#1-docker-setup) section below for instructions. All client builds, dependencies, and coverage tools are automatically handled by the Dockerfile.
 
 
 ### Building the Project
@@ -140,56 +129,7 @@ Performs differential testing across multiple Ethereum 2.0 clients (Lighthouse, 
 
 **Usage (Docker):**
 
-```bash
-# Basic usage with coverage (results saved to local ./results directory)
-docker run --rm -it \
-  -v "$(pwd)/results:/workspace/spectec-core/results" \
-  eth2test:coverage \
-  bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
-    --test-suite Converter/OfficialTestSuite/capella/sanity/blocks/pyspec_tests \
-    --test-type state-transition \
-    --workflow sequential \
-    --fork-version capella \
-    --output-base ./results/coverage_sanity_block_test \
-    --enable-coverage \
-    --cleanup-after-report'
-
-# Test suite mode (independent mode, default)
-docker run --rm -it \
-  -v "$(pwd)/results:/workspace/spectec-core/results" \
-  eth2test:coverage \
-  bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
-    --test-suite Converter/OfficialTestSuite/capella/sanity/slots/pyspec_tests \
-    --test-type sanity-slots \
-    --fork-version capella \
-    --output-base ./results/coverage_sanity_slot_test \
-    --enable-coverage'
-
-# Generate final accumulated coverage report (after running multiple test suites)
-docker run --rm -it \
-  -v "$(pwd)/results:/workspace/spectec-core/results" \
-  eth2test:coverage \
-  bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
-    --generate-final-coverage \
-    ./results/coverage_suite1 \
-    ./results/coverage_suite2 \
-    --final-output-dir ./results/final_coverage_report'
-
-# TODO! : It can be changed.
-# To test spectec-generated test cases
-docker run --rm -it \
-  -v "$(pwd)/results:/workspace/spectec-core/results" \
-  -v "$(pwd)/spectec_generated_tests:/workspace/spectec-core/spectec_generated_tests" \
-  eth2test:coverage \
-  bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
-    --test-suite spectec_generated_tests \
-    --test-type state-transition \
-    --workflow independent \
-    --fork-version capella \
-    --output-base ./results/spectec_generated_coverage \
-    --enable-coverage \
-    --cleanup-after-report'
-```
+TODO : have to update the usage command
 
 **Options:**
 - `--test-suite <dir>`: Test suite directory (automatically finds all subdirectories containing `pre.ssz` or `pre.ssz_snappy` files)
@@ -224,7 +164,11 @@ docker run --rm -it \
 - SSZ file comparison across clients is always performed automatically
 - The `Differences_*.csv` file is the primary result showing where clients disagree on state transition results
 - **Teku behavior**: Teku creates empty SSZ files on failure. The script automatically removes these empty files to ensure accurate comparison results
+
+# HAVE TO FIX THIS PHRASE.
 - When using Docker, all output files are saved to the local `./results/` directory via volume mount
+# HAVE TO FIX THIS PHRASE.
+
 - Coverage data files are automatically cleaned up when `--cleanup-after-report` is used
 
 **Prerequisites:**

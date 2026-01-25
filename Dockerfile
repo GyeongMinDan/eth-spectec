@@ -1,91 +1,6 @@
 # ============================================
-# Ethereum 2.0 Differential Testing Environment
+# SpecTrum Docker Image Build script
 # ============================================
-# This Dockerfile builds all Ethereum 2.0 clients (Prysm, Lighthouse, Teku, Nimbus, Lodestar)
-# with modified code for differential testing and coverage instrumentation support.
-#
-# ============================================
-# Step 1: Clone the repository
-# ============================================
-#   git clone --recursive https://github.com/GyeongMinDan/eth-spectec.git
-#   cd eth-spectec
-#
-#   Or if you already cloned without --recursive:
-#   git submodule update --init --recursive
-#
-# ============================================
-# Step 2: Build Docker image with coverage binaries
-# ============================================
-#   # Build base environment (clones and builds original clients)
-#   docker build -t eth2test:base --target base .
-#
-#   # Build with coverage binaries (recommended for coverage testing)
-#   docker build -t eth2test:coverage --target coverage .
-#
-#   Note: This will take a long time (6000s in macbook pre 19) as it builds all clients.
-#
-# ============================================
-# Step 3: Run diff_testing.py with coverage
-# ============================================
-#   # Basic usage (results saved to local ./results directory)
-#   docker run --rm -it \
-#     -v "$(pwd)/results:/workspace/spectec-core/results" \
-#     eth2test:coverage \
-#     bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
-#       --test-suite Converter/OfficialTestSuite/capella/sanity/blocks/pyspec_tests \
-#       --test-type state-transition \
-#       --workflow sequential \
-#       --fork-version capella \
-#       --output-base ./results/coverage_sanity_block_test \
-#       --enable-coverage \
-#       --cleanup-after-report'
-#
-#   # Example with different test suite
-#   docker run --rm -it \
-#     -v "$(pwd)/results:/workspace/spectec-core/results" \
-#     eth2test:coverage \
-#     bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
-#       --test-suite Converter/OfficialTestSuite/capella/sanity/slots/pyspec_tests \
-#       --test-type sanity-slots \
-#       --fork-version capella \
-#       --output-base ./results/coverage_sanity_slot_test \
-#       --enable-coverage \
-#       --cleanup-after-report'
-#
-#   Important Notes:
-#   - Do NOT mount the entire project directory (e.g., -v "$(pwd):/workspace/spectec-core")
-#     This will hide the testing_clients/ binaries built inside the Docker image.
-#   - Only mount the results directory to save output files.
-#   - All test cases and binaries are already inside the Docker image.
-#
-# ============================================
-# Step 4: Generate final accumulated coverage report (optional)
-# ============================================
-#   # After running multiple test suites, generate a combined coverage report
-#   docker run --rm -it \
-#     -v "$(pwd)/results:/workspace/spectec-core/results" \
-#     eth2test:coverage \
-#     bash -lc 'cd /workspace/spectec-core && python3 diff_testing.py \
-#       --generate-final-coverage \
-#       ./results/coverage_suite1 \
-#       ./results/coverage_suite2 \
-#       --final-output-dir ./results/final_coverage_report'
-#
-# ============================================
-# Output Files Location
-# ============================================
-#   All output files will be saved to: ./results/ (local directory)
-#   - Client outputs: ./results/<test_name>/<client>/output/
-#   - Coverage data: ./results/<test_name>/<client>/cov_output_*/
-#   - Reports: ./results/<test_name>/report_*.md
-#   - CSV logs: ./results/<test_name>/*.csv
-
-ARG UBUNTU_VERSION=22.04
-FROM ubuntu:${UBUNTU_VERSION} AS base
-
-# Avoid interactive prompts during package installation
-ARG DEBIAN_FRONTEND=noninteractive
-ENV DEBIAN_FRONTEND=noninteractive
 
 # Set working directory
 WORKDIR /workspace
@@ -194,13 +109,58 @@ RUN wget -q https://nim-lang.org/download/nim-${NIM_VERSION}-linux_x64.tar.xz &&
 ENV PATH="/opt/nim/bin:${PATH}"
 
 # ============================================
+# Stage 7.5: Install OCaml and opam (for Spectec)
+# ============================================
+RUN apt-get update && \
+    apt-get install -y \
+        opam \
+        m4 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Initialize opam and create OCaml switch
+RUN opam init --disable-sandboxing -y && \
+    opam switch create 5.1.0 && \
+    eval $(opam env) && \
+    opam install -y dune.3.16.1 bignum.v0.17.0 menhir.20240715 core.v0.17.1 core_unix.v0.17.0 bisect_ppx.2.8.3 yojson digestif bls12-381 bls12-381-signature
+
+ENV OPAM_SWITCH_PREFIX="/root/.opam/5.1.0"
+ENV CAML_LD_LIBRARY_PATH="/root/.opam/5.1.0/lib/stublibs:/root/.opam/default/lib/stublibs"
+ENV OCAML_TOPLEVEL_PATH="/root/.opam/5.1.0/lib/toplevel"
+ENV PATH="/root/.opam/5.1.0/bin:/root/.opam/default/bin:${PATH}"
+
+# ============================================
 # Stage 8: Copy project files and install Python dependencies
 # ============================================
 COPY . /workspace/spectec-core
 WORKDIR /workspace/spectec-core
 
+# Initialize git submodules (consensus-specs, consensus-spec-tests)
+RUN git submodule update --init --recursive
+
+# Configure sparse-checkout for consensus-specs (required for eth2spec)
+WORKDIR /workspace/spectec-core/consensus-specs
+RUN git sparse-checkout init --cone && \
+    git sparse-checkout set tests/core/pyspec specs/ configs/ presets/ pysetup/ sync/ .
+
+# Install uv (Python package manager for eth2spec)
+# Note: PATH already includes /root/.cargo/bin from Rust installation
+WORKDIR /workspace/spectec-core
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Build Python specification files (mainnet.py, minimal.py)
+WORKDIR /workspace/spectec-core/consensus-specs
+RUN uv sync && \
+    uv run make _pyspec
+
 # Install Python dependencies (including snappy for decompression)
+WORKDIR /workspace/spectec-core
 RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Build spectec-core executable
+WORKDIR /workspace/spectec-core
+RUN eval $(opam env) && \
+    make exe
 
 # Create testing_clients directory
 RUN mkdir -p testing_clients
@@ -346,6 +306,8 @@ RUN test -f transition.js || test -f transition || echo "Warning: Lodestar trans
 # ============================================
 # Stage 12: Coverage build stage
 # ============================================
+# Note: This stage inherits from base, so spectec-core executable,
+# consensus-specs (eth2spec), and all other dependencies are already available.
 FROM base AS coverage
 
 WORKDIR /workspace/spectec-core
