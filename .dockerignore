@@ -26,8 +26,8 @@ testing_clients/
 *.swo
 *~
 
-# Ignore git files (optional - might want to keep .git)
-.git/
+# Ignore git files (but keep .git for submodule initialization)
+# .git/ is needed for git submodule update --init --recursive
 .gitignore
 
 # Ignore other temporary files
