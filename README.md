@@ -21,12 +21,11 @@ ETH-SpecTec is a SpecTec implementation of the official Ethereum 2.0 Consensus S
 * Clone the repository with submodules:
   ```bash
   git clone --recursive https://github.com/GyeongMinDan/eth-spectec.git
-  cd eth-spectec/spectec-core
+  cd eth-spectec
   ```
   Or if you already cloned without `--recursive`:
   ```bash
   git submodule update --init --recursive
-  cd spectec-core
   ```
 
   **Note:** For **local development**, you only need the `spectec-core` executable built with `make exe`. The `testing_clients/` directory is not required and is only created automatically during Docker builds for differential testing.
@@ -67,7 +66,7 @@ make test
 - Checks parsing, elaboration and structuring using the `examples/p4-concrete` spec corpus.
 - Checks IL/SL interpreter coupled with the P4 parser using `tests/interp/p4-tests` files.
 
-**Note:** This script must be run from the `spectec-core` directory.
+**Note:** This script must be run from the project root directory (where `Makefile` is located).
 
 
 ## Testing Scripts
