@@ -54,8 +54,8 @@ end)
 
 (* Symbolic expression - tracks structure, not values *)
 type sym_expr =
-  | SVar of string (* Variable reference *)
-  | SPath of field_path (* Resolved field path *)
+  | SVar of string * Il.Value.t option (* Variable reference + value *)
+  | SPath of field_path * Il.Value.t option (* Resolved field path + value *)
   | SBinOp of Il.binop * Il.optyp * sym_expr * sym_expr (* A + B, A - B, etc. *)
   | SUnOp of Il.unop * Il.optyp * sym_expr (* -A, !A *)
   | SConst of Il.Value.t (* Constant value *)
@@ -145,7 +145,9 @@ let rec resolve_to_field_path (sym_env : sym_env) (exp : Il.exp) :
   (* Variables: look up using frame-aware lookup for SPath *)
   | Il.VarE id -> (
       match lookup id.it with
-      | Some (SPath path) -> Some path
+      | Some (SPath (path, _)) -> Some path
+      | Some (SVar (name, _)) ->
+          Some { source = Unknown; steps = [ FieldAccess name ] }
       | Some _ -> None (* Has sym_expr but not a path *)
       | None ->
           (* Use centralized domain knowledge for state variables *)
@@ -206,9 +208,76 @@ let is_constant_exp (exp : Il.exp) : Il.Value.t option =
       match exp.note with
       | Il.NumT typ -> Some (Il.Value.Make.num (Il.NumT typ) n)
       | _ -> Some (Il.Value.Make.num Il.Typ.nat n))
-  | Il.BoolE b -> Some (Il.Value.Make.bool Il.Typ.bool b)
   | Il.TextE s -> Some (Il.Value.Make.text Il.Typ.text s)
   | _ -> None
+
+(* Extract field value from a struct value *)
+let resolve_field_value (v : Il.Value.t) (field : string) : Il.Value.t option =
+  try
+    let fields = Il.Value.get_struct v in
+    let _, value =
+      List.find
+        (fun (a, _) ->
+          String.lowercase_ascii (Lang.Xl.Atom.string_of_atom a.it)
+          = String.lowercase_ascii field)
+        fields
+    in
+    Some value
+  with _ -> None
+
+(* Extract index value from a list value *)
+let resolve_index_value (v : Il.Value.t) (idx : int) : Il.Value.t option =
+  try
+    let list = Il.Value.get_list v in
+    Some (List.nth list idx)
+  with _ -> None
+
+(* Evaluate numeric binary operations *)
+let eval_binop (op : Il.binop) (v1 : Il.Value.t) (v2 : Il.Value.t) :
+    Il.Value.t option =
+  let open Il in
+  match (v1.it, v2.it) with
+  | NumV n1, NumV n2 -> (
+      match op with
+      | `AddOp ->
+          Some (Value.Make.num v1.note.typ (Lang.Xl.Num.bin `AddOp n1 n2))
+      | `SubOp ->
+          Some (Value.Make.num v1.note.typ (Lang.Xl.Num.bin `SubOp n1 n2))
+      | `MulOp ->
+          Some (Value.Make.num v1.note.typ (Lang.Xl.Num.bin `MulOp n1 n2))
+      | `DivOp ->
+          Some (Value.Make.num v1.note.typ (Lang.Xl.Num.bin `DivOp n1 n2))
+      | `ModOp ->
+          Some (Value.Make.num v1.note.typ (Lang.Xl.Num.bin `ModOp n1 n2))
+      | `PowOp ->
+          Some (Value.Make.num v1.note.typ (Lang.Xl.Num.bin `PowOp n1 n2))
+      | _ -> None)
+  | _ -> None
+
+(* Evaluate numeric unary operations *)
+let eval_unop (op : Il.unop) (v : Il.Value.t) : Il.Value.t option =
+  let open Il in
+  match v.it with
+  | NumV n -> (
+      match op with
+      | `PlusOp -> Some (Value.Make.num v.note.typ (Lang.Xl.Num.un `PlusOp n))
+      | `MinusOp -> Some (Value.Make.num v.note.typ (Lang.Xl.Num.un `MinusOp n))
+      | _ -> None)
+  | _ -> None
+
+(* Evaluate symbolic expression to concrete value recursively. *)
+let rec eval_sym_expr (sym : sym_expr) : Il.Value.t option =
+  match sym with
+  | SConst v -> Some v
+  | SBinOp (op, _, s1, s2) -> (
+      match (eval_sym_expr s1, eval_sym_expr s2) with
+      | Some v1, Some v2 -> eval_binop op v1 v2
+      | _ -> None)
+  | SUnOp (op, _, s) -> (
+      match eval_sym_expr s with Some v -> eval_unop op v | None -> None)
+  | SPath (_, v_opt) -> v_opt (* Use tracked runtime value if available *)
+  | SVar (_, v_opt) -> v_opt
+  | SCall _ | SUpdate _ | SUnknown _ -> None
 
 (* Resolve expression to symbolic expression *)
 let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
@@ -217,36 +286,85 @@ let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
   match exp.it with
   (* Variable lookup *)
   | Il.VarE id -> (
-      match lookup id.it with Some sym -> sym | None -> SVar id.it)
+      match lookup id.it with Some sym -> sym | None -> SVar (id.it, None))
   (* Field paths - handle DotE and IdxE recursively *)
   | Il.DotE (base, atom) -> (
       let base_sym = resolve_to_sym_expr sym_env base in
       match base_sym with
-      | SPath base_path ->
-          SPath
-            (append_step base_path
-               (FieldAccess (Lang.Xl.Atom.string_of_atom atom.it)))
+      | SPath (base_path, base_val_opt) ->
+          let field_name = Lang.Xl.Atom.string_of_atom atom.it in
+          (* Try to extract field value if base has value *)
+          let val_opt =
+            match base_val_opt with
+            | Some v -> resolve_field_value v field_name
+            | None -> None
+          in
+          SPath (append_step base_path (FieldAccess field_name), val_opt)
       | _ -> (
           (* Fallback to direct resolution *)
           match resolve_to_field_path sym_env exp with
-          | Some path -> SPath path
+          | Some path -> SPath (path, None)
           | None -> SUnknown "complex_path"))
   | Il.IdxE (base, idx) -> (
       let base_sym = resolve_to_sym_expr sym_env base in
       let idx_sym = resolve_to_sym_expr sym_env idx in
       match (base_sym, idx_sym) with
-      | SPath base_path, SPath idx_path ->
-          SPath (append_step base_path (IndexAccess (PathRef idx_path)))
-      | SPath _base_path, SConst _v -> (
-          (* For now, we can't easily extract numeric index from Il.Value.t *)
-          (* Fallback to direct resolution *)
-          match resolve_to_field_path sym_env exp with
-          | Some path -> SPath path
-          | None -> SUnknown "complex_path")
+      | SPath (base_path, base_val_opt), SPath (idx_path, _) ->
+          (* Dynamic index - we likely can't resolve value unless we know index value *)
+          (* But we have idx_sym, maybe it has a value? *)
+          let val_opt =
+            match (base_val_opt, eval_sym_expr idx_sym) with
+            | Some v_base, Some v_idx -> (
+                match v_idx.it with
+                | Il.NumV (`Nat n) ->
+                    resolve_index_value v_base (Bigint.to_int_exn n)
+                | _ -> None)
+            | _ -> None
+          in
+          SPath (append_step base_path (IndexAccess (PathRef idx_path)), val_opt)
+      | SPath (base_path, base_val_opt), SVar (idx_name, idx_val_opt) ->
+          (* Symbolic index from variable SVar *)
+          let val_opt =
+            match (base_val_opt, idx_val_opt) with
+            | Some v_base, Some v_idx -> (
+                match v_idx.it with
+                | Il.NumV (`Nat n) ->
+                    resolve_index_value v_base (Bigint.to_int_exn n)
+                | _ -> None)
+            | _ -> None
+          in
+          let idx_path =
+            { source = Unknown; steps = [ FieldAccess idx_name ] }
+          in
+          SPath (append_step base_path (IndexAccess (PathRef idx_path)), val_opt)
+      | SPath (base_path, base_val_opt), SConst v_idx -> (
+          (* Constant index from expression *)
+          let val_opt =
+            match base_val_opt with
+            | Some v_base -> (
+                match v_idx.it with
+                | Il.NumV (`Nat n) ->
+                    resolve_index_value v_base (Bigint.to_int_exn n)
+                | _ -> None)
+            | None -> None
+          in
+          (* Note: path logic for SConst index is complex inside resolve_to_field_path *)
+          (* But here we construct SPath. SPath usually expects PathRef for index step? *)
+          (* Or ConstInt. append_step takes field_step. field_step takes index_expr. *)
+          (* index_expr has ConstInt. *)
+          let idx_step =
+            match v_idx.it with
+            | Il.NumV (`Nat n) -> Some (ConstInt (Bigint.to_int_exn n))
+            | _ -> None
+          in
+          match idx_step with
+          | Some step ->
+              SPath (append_step base_path (IndexAccess step), val_opt)
+          | None -> SUnknown "invalid_index")
       | _ -> (
           (* Fallback to direct resolution *)
           match resolve_to_field_path sym_env exp with
-          | Some path -> SPath path
+          | Some path -> SPath (path, None)
           | None -> SUnknown "complex_path"))
   (* Constants *)
   | Il.NumE _ | Il.BoolE _ | Il.TextE _ -> (
@@ -282,7 +400,7 @@ let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
       if func_name = "get_current_epoch" || func_name = "$get_current_epoch"
       then
         (* This returns a computed epoch value - treat as a symbolic variable for now *)
-        SVar "current_epoch"
+        SVar ("current_epoch", None)
       else SCall (func_name, sym_args)
   (* Unwrap wrappers *)
   | Il.SubE (e, _) | Il.UpCastE (_, e) | Il.DownCastE (_, e) | Il.IterE (e, _)
@@ -295,15 +413,15 @@ let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
 (* Extract all field paths from a symbolic expression *)
 let rec extract_paths_from_sym_expr (sym : sym_expr) : field_path list =
   match sym with
-  | SVar var_name ->
+  | SVar (var_name, _) ->
       (* Check if it's an epoch-related variable *)
       if
         String.starts_with ~prefix:"epoch" var_name
         || var_name = "current_epoch"
         || String.ends_with ~suffix:"_epoch" var_name
       then [ { source = State; steps = [ FieldAccess "SLOT" ] } ]
-      else [] (* Other variables don't have paths directly *)
-  | SPath p -> [ p ]
+      else [ { source = Unknown; steps = [ FieldAccess var_name ] } ]
+  | SPath (p, _) -> [ p ]
   | SBinOp (_, _, s1, s2) ->
       extract_paths_from_sym_expr s1 @ extract_paths_from_sym_expr s2
   | SUnOp (_, _, s) -> extract_paths_from_sym_expr s
@@ -357,8 +475,14 @@ let string_of_cmp_op = function
 (* String formatting for symbolic expressions *)
 let rec string_of_sym_expr (sym : sym_expr) : string =
   match sym with
-  | SVar id -> id
-  | SPath path -> string_of_field_path path
+  | SVar (id, None) -> id
+  | SVar (id, Some v) ->
+      Printf.sprintf "%s(=%s)" id (Il.Print.string_of_value v)
+  | SPath (path, None) -> string_of_field_path path
+  | SPath (path, Some v) ->
+      Printf.sprintf "%s(=%s)"
+        (string_of_field_path path)
+        (Il.Print.string_of_value v)
   | SBinOp (op, _, s1, s2) ->
       Printf.sprintf "(%s %s %s)" (string_of_sym_expr s1)
         (Il.Print.string_of_binop op)
@@ -406,34 +530,60 @@ let invert_cmp_op = function
   | Gt -> Lt
   | Ge -> Le
 
-(* Evaluate symbolic expression to concrete value.
-   Returns None if evaluation fails (depends on runtime values). *)
-let eval_sym_expr (sym : sym_expr) : Il.Value.t option =
-  match sym with
-  | SConst v -> Some v
-  | SPath _ -> None (* Runtime value, can't evaluate statically *)
-  | SVar _ -> None
-  | SBinOp _ | SUnOp _ | SCall _ | SUpdate _ | SUnknown _ -> None
-(* Future: integrate with interpreter context to evaluate more cases *)
-
 (* Algebraically rearrange comparison to isolate target_path on LHS.
    For A < B + C with target=B, returns (B, >, A - C).
    Returns None if target_path not found or rearrangement not possible. *)
 let algebraic_rearrange (lhs_sym : sym_expr) (rhs_sym : sym_expr) (op : cmp_op)
     (target_path : field_path) : (cmp_op * sym_expr) option =
   (* Check if target_path appears in lhs_sym *)
-  let in_lhs = List.mem target_path (extract_paths_from_sym_expr lhs_sym) in
-  let in_rhs = List.mem target_path (extract_paths_from_sym_expr rhs_sym) in
+  let paths_lhs = extract_paths_from_sym_expr lhs_sym in
+  let paths_rhs = extract_paths_from_sym_expr rhs_sym in
+  let in_lhs = List.mem target_path paths_lhs in
+  let in_rhs = List.mem target_path paths_rhs in
 
   match (in_lhs, in_rhs) with
-  | true, false ->
-      (* Target is on LHS: A < RHS → A < RHS *)
-      if lhs_sym = SPath target_path then Some (op, rhs_sym)
-      else None (* Complex LHS like A+B, can't isolate yet *)
+  | true, false -> (
+      if
+        (* Target is on LHS *)
+        lhs_sym = SPath (target_path, None)
+        || lhs_sym = SPath (target_path, eval_sym_expr lhs_sym)
+      then Some (op, rhs_sym)
+      (* Note: equality on SPath might fail if values differ? Should check path only *)
+        else
+        match lhs_sym with
+        | SPath (p, _) when p = target_path -> Some (op, rhs_sym)
+        | _ -> (
+            (* Try to isolate target from simple arithmetic: A + C, A - C, C + A *)
+            match lhs_sym with
+            | SBinOp (`AddOp, _, s1, s2) ->
+                if match s1 with SPath (p, _) -> p = target_path | _ -> false
+                then
+                  (* A + C < B  =>  A < B - C *)
+                  Some (op, SBinOp (`SubOp, `IntT, rhs_sym, s2))
+                else if
+                  match s2 with SPath (p, _) -> p = target_path | _ -> false
+                then
+                  (* C + A < B  =>  A < B - C *)
+                  Some (op, SBinOp (`SubOp, `IntT, rhs_sym, s1))
+                else None
+            | SBinOp (`SubOp, _, s1, s2) ->
+                if match s1 with SPath (p, _) -> p = target_path | _ -> false
+                then
+                  (* A - C < B  =>  A < B + C *)
+                  Some (op, SBinOp (`AddOp, `IntT, rhs_sym, s2))
+                else if
+                  match s2 with SPath (p, _) -> p = target_path | _ -> false
+                then
+                  (* C - A < B  =>  -A < B - C  =>  A > C - B *)
+                  (* Note: Inverting op! *)
+                  Some (invert_cmp_op op, SBinOp (`SubOp, `IntT, s1, rhs_sym))
+                else None
+            | _ -> None))
   | false, true ->
       (* Target is on RHS: LHS < B → B > LHS *)
-      if rhs_sym = SPath target_path then Some (invert_cmp_op op, lhs_sym)
-      else None (* Complex RHS, can't isolate yet *)
+      if match rhs_sym with SPath (p, _) -> p = target_path | _ -> false then
+        Some (invert_cmp_op op, lhs_sym)
+      else None (* Isolate from RHS arithmetic not implemented yet *)
   | _ -> None (* Target in both sides or neither *)
 
 let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
@@ -483,6 +633,37 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
       List.map
         (fun path -> { target_path = Some path; suggestion = Unknown None })
         arg_paths
+  | Il.MatchE (exp_match, pat) -> (
+      match pat with
+      | Il.ListP `Nil ->
+          (* matches [] => len == 0 *)
+          let paths =
+            extract_paths_from_sym_expr (resolve_to_sym_expr sym_env exp_match)
+          in
+          List.map
+            (fun path ->
+              {
+                target_path = Some path;
+                suggestion =
+                  ToLength
+                    (Eq, Il.Value.Make.num Il.Typ.nat (`Nat (Bigint.of_int 0)));
+              })
+            paths
+      | Il.ListP `Cons ->
+          (* matches _::_ => len > 0 *)
+          let paths =
+            extract_paths_from_sym_expr (resolve_to_sym_expr sym_env exp_match)
+          in
+          List.map
+            (fun path ->
+              {
+                target_path = Some path;
+                suggestion =
+                  ToLength
+                    (Gt, Il.Value.Make.num Il.Typ.nat (`Nat (Bigint.of_int 0)));
+              })
+            paths
+      | _ -> [])
   | _ ->
       (* Boolean field or other: try to extract paths *)
       let paths =
@@ -631,44 +812,49 @@ end
 (* Initialize the lookup_sym_ref to point to State.lookup_sym *)
 let () = lookup_sym_ref := State.lookup_sym
 
-(* Helper: Bind relation inputs based on static analysis results *)
+(* Helper: Bind relation inputs based on static analysis results and runtime values *)
 let bind_relation_inputs
-    (input_info : Instrumentation_static.Mutator_analysis.relation_input_info) :
-    unit =
-  let bind_state var =
-    State.bind_sym var (SPath { source = State; steps = [] })
+    (input_info : Instrumentation_static.Mutator_analysis.relation_input_info)
+    (values : Il.Value.t list) : unit =
+  let bind_state var value =
+    State.bind_sym var (SPath ({ source = State; steps = [] }, Some value))
   in
-  let bind_block var pattern =
+  let bind_block var pattern value =
     let path =
       match pattern with
       | Instrumentation_static.Mutator_analysis.Custom p ->
           convert_ma_field_path p
       | _ -> path_of_block_pattern pattern
     in
-    State.bind_sym var (SPath path)
+    State.bind_sym var (SPath (path, Some value))
   in
   (* Iterate over inputs and bind based on type information *)
-  List.iter2
-    (fun var_name typ ->
-      match typ.it with
-      | Il.VarT ({ it = "beaconState"; _ }, _) -> bind_state var_name
-      | Il.VarT ({ it = "signedBeaconBlock"; _ }, _) ->
-          bind_block var_name Instrumentation_static.Mutator_analysis.FullBlock
-      | Il.VarT ({ it = "beaconBlock"; _ }, _) ->
-          bind_block var_name
-            Instrumentation_static.Mutator_analysis.BlockMessage
-      | Il.VarT ({ it = "beaconBlockBody"; _ }, _) ->
-          bind_block var_name Instrumentation_static.Mutator_analysis.BlockBody
-      | Il.VarT ({ it = "executionPayload"; _ }, _) ->
-          bind_block var_name
-            Instrumentation_static.Mutator_analysis.ExecutionPayload
-      | Il.VarT ({ it = "syncAggregate"; _ }, _) ->
-          bind_block var_name
-            Instrumentation_static.Mutator_analysis.SyncAggregate
-      | _ ->
-          (* Fallback: heuristic based on variable name *)
-          if is_state_var var_name then bind_state var_name else ())
-    input_info.input_var_names input_info.input_types
+  (* Combine names, types, and values safely *)
+  let rec bind_inputs names types vals =
+    match (names, types, vals) with
+    | name :: ns, typ :: ts, v :: vs ->
+        (match typ.it with
+        | Il.VarT ({ it = "beaconState"; _ }, _) -> bind_state name v
+        | Il.VarT ({ it = "signedBeaconBlock"; _ }, _) ->
+            bind_block name Instrumentation_static.Mutator_analysis.FullBlock v
+        | Il.VarT ({ it = "beaconBlock"; _ }, _) ->
+            bind_block name Instrumentation_static.Mutator_analysis.BlockMessage
+              v
+        | Il.VarT ({ it = "beaconBlockBody"; _ }, _) ->
+            bind_block name Instrumentation_static.Mutator_analysis.BlockBody v
+        | Il.VarT ({ it = "executionPayload"; _ }, _) ->
+            bind_block name
+              Instrumentation_static.Mutator_analysis.ExecutionPayload v
+        | Il.VarT ({ it = "syncAggregate"; _ }, _) ->
+            bind_block name
+              Instrumentation_static.Mutator_analysis.SyncAggregate v
+        | _ ->
+            (* Fallback: heuristic based on variable name *)
+            if is_state_var name then bind_state name v else ());
+        bind_inputs ns ts vs
+    | _ -> ()
+  in
+  bind_inputs input_info.input_var_names input_info.input_types values
 
 (* === Handler Implementation === *)
 
@@ -697,20 +883,30 @@ module M : Instrumentation_core.Handler.S = struct
     State.frames := []
   (* Note: per_test_sym_mutations is preserved - it accumulates across tests *)
 
-  let on_rel_enter ~id ~at:_ ~values:_ =
+  let on_rel_enter ~id ~at:_ ~values =
     State.current_relation := id;
     (* Bind inputs using static analysis for ALL relations *)
     match
       Instrumentation_static.Mutator_analysis.get_relation_input_info id
     with
-    | Some input_info -> bind_relation_inputs input_info
+    | Some input_info -> bind_relation_inputs input_info values
     | None ->
         (* Fallback for State_transition if static analysis didn't capture it *)
         if id = "State_transition" then
           match Hashtbl.find_opt State.relation_inputs id with
-          | Some (state_var :: block_var :: _) ->
-              State.bind_sym state_var (SPath { source = State; steps = [] });
-              State.bind_sym block_var (SPath { source = Block; steps = [] })
+          | Some (state_var :: block_var :: _) -> (
+              (* Heuristic: assume first two values are state and block if available *)
+              match values with
+              | v_state :: v_block :: _ ->
+                  State.bind_sym state_var
+                    (SPath ({ source = State; steps = [] }, Some v_state));
+                  State.bind_sym block_var
+                    (SPath ({ source = Block; steps = [] }, Some v_block))
+              | _ ->
+                  State.bind_sym state_var
+                    (SPath ({ source = State; steps = [] }, None));
+                  State.bind_sym block_var
+                    (SPath ({ source = Block; steps = [] }, None)))
           | _ -> ()
         else ()
 
@@ -747,7 +943,7 @@ module M : Instrumentation_core.Handler.S = struct
           (fun (id, _typ, _) ->
             (* For now, treat iteration variables as unknown symbolic values *)
             (* In the future, we could be more specific about their ranges/types *)
-            Hashtbl.replace State.sym_env id.it (SVar id.it))
+            Hashtbl.replace State.sym_env id.it (SVar (id.it, None)))
           vars
     | _ -> ()
 
