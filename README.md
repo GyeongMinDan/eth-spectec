@@ -29,6 +29,8 @@ ETH-SpecTec is a SpecTec implementation of the official Ethereum 2.0 Consensus S
   cd spectec-core
   ```
 
+  **Note:** For **local development**, you only need the `spectec-core` executable built with `make exe`. The `testing_clients/` directory is not required and is only created automatically during Docker builds for differential testing.
+
 **For Differential Testing:** We recommend using Docker for a reproducible environment. See the [Docker Setup](#1-docker-setup) section below for instructions. All client builds, dependencies, and coverage tools are automatically handled by the Dockerfile.
 
 
@@ -42,7 +44,6 @@ This creates an executable `spectec-core` in the project root.
 
 **Usage:**
 ```bash
-cd spectec-core
 # print out the IL representation of a SpecTec spec
 ./spectec-core elab spec/*.spectec
 # print the SL representation of a SpecTec spec

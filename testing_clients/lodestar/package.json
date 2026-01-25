@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "@lodestar/state-transition": "^1.36.0"
-  },
-  "type": "module"
-}
