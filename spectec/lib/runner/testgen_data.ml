@@ -4,19 +4,18 @@
    checkpoints, enabling resumable test generation without re-running analysis. *)
 
 open Instrumentation.Dependency
+module Il = Lang.Il
 
 (* Serialized mutation suggestion - simplified for marshaling *)
 type mutation_suggestion_serial =
-  | ToValueSerial of string (* Serialized symbolic expression *)
-  | ToRelationSerial of
-      Dep_common.field_path * string (* field_path, serialized sym_expr *)
-  | UnresolvedSerial of string (* Reason *)
+  | ToConstSerial of string * string (* op, value *)
+  | ToLengthSerial of string * string (* op, value *)
+  | UnknownSerial of string option (* type string *)
 
 (* Serialized mutation - can be marshaled *)
 type mutation_serial = {
   target_path : Dep_common.field_path option;
   suggestion : mutation_suggestion_serial;
-  mutation_target : Dep_common.mutation_target;
   debug_info : string option;
 }
 [@@warning "-69"]
@@ -44,19 +43,17 @@ let filter_remaining (data : t) (all_tests : string list) : string list =
 (* Convert Positive.sym_mutation to serializable form *)
 let serialize_mutation (mut : Positive.sym_mutation) : mutation_serial =
   let serialize_suggestion = function
-    | Positive.ToValue sym_expr ->
-        ToValueSerial (Positive.string_of_sym_expr sym_expr)
-    | Positive.ToRelation (_op, sym_expr) ->
-        (* For now, just serialize the sym_expr string *)
-        let path = { Dep_common.source = Dep_common.Unknown; steps = [] } in
-        ToRelationSerial (path, Positive.string_of_sym_expr sym_expr)
-    | Positive.Unresolved reason -> UnresolvedSerial reason
+    | Positive.ToConst (op, v) ->
+        ToConstSerial (Positive.string_of_cmp_op op, Il.Print.string_of_value v)
+    | Positive.ToLength (op, v) ->
+        ToLengthSerial (Positive.string_of_cmp_op op, Il.Print.string_of_value v)
+    | Positive.Unknown typ ->
+        UnknownSerial (Option.map Il.Print.string_of_typ typ)
   in
   {
     target_path = mut.target_path;
     suggestion = serialize_suggestion mut.suggestion;
-    mutation_target = mut.mutation_target;
-    debug_info = mut.debug_info;
+    debug_info = None;
   }
 
 (* Convert from Positive.result to serializable form *)

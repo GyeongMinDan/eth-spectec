@@ -228,20 +228,6 @@ let infer_mutation_constraints (premise_uid : premise_uid)
   let module Pos = Instrumentation.Dependency.Positive in
   let module Dep = Instrumentation.Dependency.Dep_common in
   (* Helper to convert field_path to string list *)
-  (* Helper to extract concrete values from sym_expr *)
-  let rec extract_values_from_sym_expr (sym : Pos.sym_expr) : Il.Value.t list =
-    match sym with
-    | Pos.SConst v -> [ v ]
-    | Pos.SPath _ -> [] (* Field path - would need runtime resolution *)
-    | Pos.SVar _ -> [] (* Variable - would need runtime resolution *)
-    | Pos.SBinOp (_, _, s1, s2) ->
-        extract_values_from_sym_expr s1 @ extract_values_from_sym_expr s2
-    | Pos.SUnOp (_, _, s) -> extract_values_from_sym_expr s
-    | Pos.SUpdate (s, _) -> extract_values_from_sym_expr s
-    | Pos.SCall _ -> [] (* Function call - would need runtime resolution *)
-    | Pos.SUnknown _ -> []
-  in
-
   let constraints =
     List.filter_map
       (fun (sym_mut : Pos.sym_mutation) ->
@@ -264,37 +250,17 @@ let infer_mutation_constraints (premise_uid : premise_uid)
         | Some target_path ->
             let strategies =
               match sym_mut.suggestion with
-              | Pos.Unresolved reason ->
-                  Format.printf
-                    "[DEBUG] Unresolved mutation (%s), using fallbacks\n%!"
-                    reason;
+              | Pos.ToConst (_op, value) -> (
+                  (* Generate value satisfying constraint *)
+                  match value_to_json value with
+                  | Ok json -> [ Json_mutator.SetValue json ]
+                  | Error _ -> fallback_strategies)
+              | Pos.ToLength (_op, _value) ->
+                  (* Adjust collection size *)
+                  [ Json_mutator.AppendItem; Json_mutator.RemoveItem ]
+              | Pos.Unknown _typ ->
+                  (* Generate type-aware boundary values *)
                   fallback_strategies
-              | _ -> (
-                  match sym_mut.mutation_target with
-                  | Dep.CollectionLength ->
-                      (* For collection length, try both appending and removing items *)
-                      [ Json_mutator.AppendItem; Json_mutator.RemoveItem ]
-                  | Dep.Value ->
-                      (* For value mutations, extract concrete values and creating SetValue strategies *)
-                      let target_values =
-                        match sym_mut.suggestion with
-                        | Pos.ToValue sym_expr ->
-                            extract_values_from_sym_expr sym_expr
-                        | Pos.ToRelation (_, sym_expr) ->
-                            extract_values_from_sym_expr sym_expr
-                        | Pos.Unresolved _ -> []
-                      in
-                      let specific_strategies =
-                        List.map
-                          (fun v ->
-                            match value_to_json v with
-                            | Ok json -> Some (Json_mutator.SetValue json)
-                            | Error _ -> None)
-                          target_values
-                        |> List.filter_map (fun x -> x)
-                      in
-                      if specific_strategies = [] then fallback_strategies
-                      else specific_strategies)
             in
             (* Only include if we have strategies *)
             if strategies = [] then (

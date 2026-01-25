@@ -32,11 +32,6 @@ and field_step =
 (* Complete path to a mutable location *)
 and field_path = { source : input_source; steps : field_step list }
 
-(* What aspect of the location to mutate *)
-type mutation_target =
-  | Value (* Set the value *)
-  | CollectionLength (* Add/remove elements *)
-
 (* === Mutation Suggestion Types === *)
 
 (* Binary operations between field paths *)
