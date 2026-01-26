@@ -62,3 +62,34 @@ let collect_tests_from_dir ~base_dir ~file_checker ?(filter = All) () =
             if include_test then Some (files, expect) else None
         | None -> None)
       subdirs
+
+(* Helper to collect tests recursively:
+   walks all subdirectories and returns any directory that passes file_checker. *)
+let collect_tests_from_dir_recursive ~base_dir ~file_checker ?(filter = All) ()
+    =
+  let rec collect_dirs dir acc =
+    let acc =
+      match file_checker dir with
+      | Some files ->
+          let error_file = Filename.concat dir "error.txt" in
+          let expect =
+            if file_exists error_file then Runner.Task.Negative
+            else Runner.Task.Positive
+          in
+          let include_test =
+            match filter with
+            | All -> true
+            | PositiveOnly -> expect = Runner.Task.Positive
+            | NegativeOnly -> expect = Runner.Task.Negative
+          in
+          if include_test then (files, expect) :: acc else acc
+      | None -> acc
+    in
+    let subdirs =
+      Sys.readdir dir |> Array.to_list
+      |> List.map (Filename.concat dir)
+      |> List.filter dir_exists
+    in
+    List.fold_left (fun acc sub -> collect_dirs sub acc) acc subdirs
+  in
+  if not (dir_exists base_dir) then [] else collect_dirs base_dir [] |> List.rev

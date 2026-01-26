@@ -1347,6 +1347,7 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
 
   (* Track analyzed tests for checkpoint *)
   let analyzed = ref (Testgen_data.analyzed_tests testgen_data) in
+  let last_dep_result = ref None in
 
   (* Calculate starting position for progress display *)
   let already_completed =
@@ -1365,6 +1366,9 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
 
         (* Run analysis *)
         let result_opt = analyze_test_case test_id prem_uids in
+        (match result_opt with
+        | Some dep_result -> last_dep_result := Some dep_result
+        | None -> ());
 
         (* Track as analyzed *)
         analyzed := test_id :: !analyzed;
@@ -1576,13 +1580,7 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
   (match checkpoint_file with
   | Some _ when results <> [] -> (
       Format.printf "Saving final checkpoint...\n%!";
-      (* Get last successful result for checkpoint *)
-      let last_dep_result =
-        List.find_map
-          (fun (test_id, _) -> analyze_test_case test_id premise_uids)
-          (List.rev remaining_test_to_prems)
-      in
-      match last_dep_result with
+      match !last_dep_result with
       | Some dep_result ->
           save_testgen_checkpoint ~file:checkpoint_file ~analyzed:!analyzed
             ~positive_result:dep_result

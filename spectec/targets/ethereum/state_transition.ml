@@ -12,7 +12,7 @@ let collect_block_tests ?dir () =
       Some (pre_file, block_file)
     else None
   in
-  collect_tests_from_dir ~base_dir ~file_checker ()
+  collect_tests_from_dir_recursive ~base_dir ~file_checker ()
 
 (* State Transition task - full block processing *)
 module StateTransition = struct
@@ -32,11 +32,21 @@ module StateTransition = struct
   let collect ?dir () =
     let root = Option.value dir ~default:test_base_dir in
     let categories = [ "finality"; "sanity/blocks"; "random" ] in
-    List.concat_map
-      (fun sub ->
-        let sub_dir = Filename.concat root sub in
-        if dir_exists sub_dir then collect_block_tests ~dir:sub_dir () else [])
-      categories
+    let existing_categories =
+      List.filter (fun sub -> dir_exists (Filename.concat root sub)) categories
+    in
+    let collected =
+      if existing_categories <> [] then
+        List.concat_map
+          (fun sub ->
+            let sub_dir = Filename.concat root sub in
+            collect_block_tests ~dir:sub_dir ())
+          existing_categories
+      else
+        (* Fallback: recursively scan the root for any pre.json/block.json pairs *)
+        collect_block_tests ~dir:root ()
+    in
+    collected
     |> List.map (fun ((pre_file, block_file), expect) ->
            { pre_file; block_file; expect })
 
