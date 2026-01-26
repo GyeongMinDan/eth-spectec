@@ -64,7 +64,7 @@ type sym_mutation = {
 }
 
 (* Frame for tracking sym_env bindings in scope *)
-type pos_frame = { local_env : sym_env }
+type pos_frame = { local_env : sym_env; is_barrier : bool }
 
 (* === Handler State === *)
 module State = struct
@@ -89,6 +89,9 @@ module State = struct
 
   (* Frame stack for sym_env backtracking *)
   let frames : pos_frame list ref = ref []
+
+  (* Pending symbolic arguments for the next relation entry (Call Graph) *)
+  let pending_call_args : Il.exp list option ref = ref None
 
   (* Per-test symbolic mutations: premise_uid -> test_id -> sym_mutation list *)
   let per_test_sym_mutations :
@@ -126,20 +129,24 @@ module State = struct
     current_relation := "";
     current_rule := "";
     current_test_id := "";
+    current_test_id := "";
     frames := [];
+    pending_call_args := None;
     Hashtbl.clear per_test_sym_mutations;
     premise_count := 0;
     if_prem_count := 0;
-    skipped_count := 0;
-    func_depth := 0
+    skipped_count := 0
 
-  let in_helper_function () = !func_depth > 0
   let already_seen loc = Hashtbl.mem seen_prems loc
   let mark_seen loc = Hashtbl.replace seen_prems loc ()
 
   (* Frame management for sym_env backtracking *)
   let push_sym_frame () =
-    let new_frame = { local_env = Hashtbl.create 20 } in
+    let new_frame = { local_env = Hashtbl.create 20; is_barrier = false } in
+    frames := new_frame :: !frames
+
+  let push_call_frame () =
+    let new_frame = { local_env = Hashtbl.create 20; is_barrier = true } in
     frames := new_frame :: !frames
 
   let pop_sym_frame_success () =
@@ -169,7 +176,7 @@ module State = struct
       | frame :: rest -> (
           match Hashtbl.find_opt frame.local_env id with
           | Some v -> Some v
-          | None -> check_frames rest)
+          | None -> if frame.is_barrier then None else check_frames rest)
     in
     check_frames !frames
 
@@ -228,30 +235,6 @@ let is_block_type (t : Il.typ') : bool =
   match t with
   | Il.VarT (id, _) -> String.lowercase_ascii id.it = "signedbeaconblock"
   | _ -> false
-
-(* Convert block input pattern to field path (used in on_rel_enter) *)
-let path_of_block_pattern
-    (pattern : Instrumentation_static.Mutator_analysis.block_input_pattern) :
-    field_path =
-  match pattern with
-  | Instrumentation_static.Mutator_analysis.FullBlock
-  | Instrumentation_static.Mutator_analysis.BlockMessage ->
-      { source = Block; steps = [] }
-  | Instrumentation_static.Mutator_analysis.BlockBody ->
-      { source = Block; steps = [ FieldAccess "BODY" ] }
-  | Instrumentation_static.Mutator_analysis.ExecutionPayload ->
-      {
-        source = Block;
-        steps = [ FieldAccess "BODY"; FieldAccess "EXECUTION_PAYLOAD" ];
-      }
-  | Instrumentation_static.Mutator_analysis.SyncAggregate ->
-      {
-        source = Block;
-        steps = [ FieldAccess "BODY"; FieldAccess "SYNC_AGGREGATE" ];
-      }
-  | Instrumentation_static.Mutator_analysis.Custom _path ->
-      (* Defer to actual converter - will be defined later *)
-      { source = Unknown; steps = [] }
 
 (* === Expression Resolution (Positive-specific: detailed symbolic tracking) === *)
 
@@ -348,6 +331,17 @@ and resolve_to_field_path_with_visited (sym_env : sym_env) (exp : Il.exp)
   | Il.OptE None -> None
   | Il.UpdE (inner, _, _) ->
       resolve_to_field_path_with_visited sym_env inner visited
+  | Il.CallE (id, _, args) ->
+      (* Special handling for filter_list_: approximate to first argument *)
+      if
+        String.starts_with ~prefix:"filter_list_" id.it
+        || String.starts_with ~prefix:"filter_list_2" id.it
+      then
+        match args with
+        | { it = Il.ExpA e; _ } :: _ ->
+            resolve_to_field_path_with_visited sym_env e visited
+        | _ -> None
+      else None
   (* Everything else: can't represent as mutable path *)
   | _ -> None
 
@@ -531,31 +525,6 @@ let rec extract_paths_from_exp (sym_env : sym_env) (exp : Il.exp) :
       | Il.BoolE _ | Il.NumE _ | Il.TextE _ ->
           [])
 
-(* Convert Mutator_analysis.field_path to Dep_common.field_path *)
-let rec convert_ma_index_expr
-    (idx : Instrumentation_static.Mutator_analysis.index_expr) : index_expr =
-  match idx with
-  | Instrumentation_static.Mutator_analysis.ConstInt i -> ConstInt i
-  | Instrumentation_static.Mutator_analysis.PathRef p ->
-      PathRef (convert_ma_field_path p)
-
-and convert_ma_field_step
-    (step : Instrumentation_static.Mutator_analysis.field_step) : field_step =
-  match step with
-  | Instrumentation_static.Mutator_analysis.FieldAccess s -> FieldAccess s
-  | Instrumentation_static.Mutator_analysis.IndexAccess idx ->
-      IndexAccess (convert_ma_index_expr idx)
-
-and convert_ma_field_path
-    (path : Instrumentation_static.Mutator_analysis.field_path) : field_path =
-  let source =
-    match path.source with
-    | Instrumentation_static.Mutator_analysis.State -> State
-    | Instrumentation_static.Mutator_analysis.Block -> Block
-    | Instrumentation_static.Mutator_analysis.Unknown -> Unknown
-  in
-  { source; steps = List.map convert_ma_field_step path.steps }
-
 (* Check if premise is an if-premise *)
 let rec is_if_prem (prem : Il.prem) : bool =
   match prem.it with
@@ -688,6 +657,27 @@ let algebraic_rearrange (lhs_exp : Il.exp) (rhs_exp : Il.exp) (op : Il.cmpop)
           | _ -> None))
   | _ -> None (* Target in both sides or neither *)
 
+(* Helper: Deduplicate repeated fields like MESSAGE.MESSAGE *)
+let deduplicate_path (path : field_path) : field_path =
+  let rec dedup_steps steps =
+    match steps with
+    | FieldAccess s1
+      :: FieldAccess s2
+      :: FieldAccess s3
+      :: FieldAccess s4
+      :: rest
+      when s1 = s2 && s2 = s3 && s3 = s4 ->
+        dedup_steps (FieldAccess s1 :: rest)
+    | FieldAccess s1 :: FieldAccess s2 :: FieldAccess s3 :: rest
+      when s1 = s2 && s2 = s3 ->
+        dedup_steps (FieldAccess s1 :: rest)
+    | FieldAccess s1 :: FieldAccess s2 :: rest when s1 = s2 ->
+        dedup_steps (FieldAccess s1 :: rest)
+    | step :: rest -> step :: dedup_steps rest
+    | [] -> []
+  in
+  { path with steps = dedup_steps path.steps }
+
 let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
     sym_mutation list =
   match exp.it with
@@ -699,7 +689,7 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
       (* Extract all paths from both sides *)
       let lhs_paths = extract_paths_from_exp sym_env lhs_sym in
       let rhs_paths = extract_paths_from_exp sym_env rhs_sym in
-      let all_paths = lhs_paths @ rhs_paths in
+      let all_paths = lhs_paths @ rhs_paths |> List.map deduplicate_path in
 
       (* For each path, try to rearrange and evaluate *)
       List.filter_map
@@ -801,100 +791,86 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
 (* Initialize the lookup_sym_ref to point to State.lookup_sym *)
 let () = lookup_sym_ref := State.lookup_sym
 
-(* Reconstruct Il.exp from field_path to bind in sym_env *)
-let rec exp_of_path (p : field_path) : Il.exp =
-  let base =
-    match p.source with
-    | State ->
-        {
-          it = Il.VarE ("state" $ no_region);
-          at = no_region;
-          note = Il.Typ.bool;
-        }
-    | Block ->
-        {
-          it = Il.VarE ("block" $ no_region);
-          at = no_region;
-          note = Il.Typ.bool;
-        }
-    | Local s ->
-        { it = Il.VarE (s $ no_region); at = no_region; note = Il.Typ.bool }
-    | Unknown ->
-        { it = Il.VarE ("?" $ no_region); at = no_region; note = Il.Typ.bool }
-  in
-  List.fold_left
-    (fun acc step ->
-      match step with
-      | FieldAccess f ->
+(* Helper: Bind relation inputs based on runtime types and State.relation_inputs *)
+let bind_relation_inputs (rel_id : string) (values : Il.Value.t list) : unit =
+  (* Look up input names from static analysis (collected in init) *)
+  match Hashtbl.find_opt State.relation_inputs rel_id with
+  | None -> () (* No input info available *)
+  | Some input_names ->
+      let bind_state var val_note =
+        State.bind_sym var
           {
-            it = Il.DotE (acc, Lang.Xl.Atom.Atom f $ no_region);
+            it = Il.VarE ("state" $ no_region);
             at = no_region;
-            note = Il.Typ.bool;
+            note = val_note.Il.typ;
           }
-      | IndexAccess (ConstInt i) ->
-          let idx =
-            {
-              it = Il.NumE (`Nat (Bigint.of_int i));
-              at = no_region;
-              note = Il.Typ.int;
-            }
-          in
-          { it = Il.IdxE (acc, idx); at = no_region; note = Il.Typ.bool }
-      | IndexAccess (PathRef p') ->
-          let idx_exp = exp_of_path p' in
-          { it = Il.IdxE (acc, idx_exp); at = no_region; note = Il.Typ.bool })
-    base p.steps
+      in
+      let bind_block var val_note =
+        State.bind_sym var
+          {
+            it = Il.VarE ("block" $ no_region);
+            at = no_region;
+            note = val_note.Il.typ;
+          }
+      in
+      (* Zip names and values *)
+      let rec bind_loop names vals call_args =
+        match (names, vals, call_args) with
+        | n :: ns, v :: vs, arg_opt :: args_rest ->
+            (* Dynamic Binding Strategy:
+               1. If we have a symbolic argument from the caller, bind it directly! *)
+            (match arg_opt with
+            | Some sym_arg ->
+                Format.eprintf "[DEBUG] Binding input %s from call arg: %s\n" n
+                  (string_of_sym_expr sym_arg);
+                State.bind_sym n sym_arg
+            | None ->
+                (* 2. Fallback: Type-based heuristic *)
+                let type_name =
+                  match v.note.Il.typ with
+                  | Il.VarT (id, _) -> String.lowercase_ascii id.it
+                  | _ -> ""
+                in
+                if type_name = "beaconstate" then (
+                  Format.eprintf "[DEBUG] Binding input %s to State\n" n;
+                  bind_state n v.note)
+                else if type_name = "signedbeaconblock" then (
+                  Format.eprintf "[DEBUG] Binding input %s to Block\n" n;
+                  bind_block n v.note)
+                else (
+                  Format.eprintf "[DEBUG] Binding input %s to Local\n" n;
+                  (* Bind as simple local variable *)
+                  (* Use runtime type for local variable ensures it can be resolved as Block/State if needed *)
+                  State.bind_sym n
+                    {
+                      it = Il.VarE (n $ no_region);
+                      at = no_region;
+                      note = v.note.Il.typ;
+                    }));
+            bind_loop ns vs args_rest
+        | _ -> () (* Mismatch length or done *)
+      in
 
-(* Helper: Bind relation inputs based on static analysis results and runtime values *)
-let bind_relation_inputs
-    (input_info : Instrumentation_static.Mutator_analysis.relation_input_info)
-    (values : Il.Value.t list) : unit =
-  let bind_state var _value =
-    State.bind_sym var
-      { it = Il.VarE ("state" $ no_region); at = no_region; note = Il.Typ.bool }
-  in
-  let bind_block var pattern _value =
-    let path =
-      match pattern with
-      | Instrumentation_static.Mutator_analysis.Custom p ->
-          convert_ma_field_path p
-      | _ -> path_of_block_pattern pattern
-    in
-    (* Reconstruct expression from path to preserve depth *)
-    let exp = exp_of_path path in
-    State.bind_sym var exp
-  in
-  (* Iterate over inputs and bind based on type information *)
-  (* Combine names, types, and values safely *)
-  let rec bind_inputs names types vals =
-    match (names, types, vals) with
-    | name :: ns, typ :: ts, v :: vs ->
-        (match typ.it with
-        | Il.VarT ({ it = "beaconState"; _ }, _) -> bind_state name v
-        | Il.VarT ({ it = "signedBeaconBlock"; _ }, _) ->
-            bind_block name Instrumentation_static.Mutator_analysis.FullBlock v
-        | Il.VarT ({ it = "beaconBlock"; _ }, _) ->
-            bind_block name Instrumentation_static.Mutator_analysis.BlockMessage
-              v
-        | Il.VarT ({ it = "beaconBlockBody"; _ }, _) ->
-            bind_block name Instrumentation_static.Mutator_analysis.BlockBody v
-        | Il.VarT ({ it = "executionPayload"; _ }, _) ->
-            bind_block name
-              Instrumentation_static.Mutator_analysis.ExecutionPayload v
-        | Il.VarT ({ it = "syncAggregate"; _ }, _) ->
-            bind_block name
-              Instrumentation_static.Mutator_analysis.SyncAggregate v
-        | _ ->
-            (* Fallback: heuristic based on variable type *)
-            if is_state_type v.note.Il.typ then bind_state name v
-            else if is_block_type v.note.Il.typ then
-              bind_block name Instrumentation_static.Mutator_analysis.FullBlock
-                v
-            else ());
-        bind_inputs ns ts vs
-    | _ -> ()
-  in
-  bind_inputs input_info.input_var_names input_info.input_types values
+      (* Prepare arguments list matching input names *)
+      let effective_call_args =
+        match !State.pending_call_args with
+        | Some args ->
+            (* Consume pending args *)
+            let args_padded =
+              if List.length args >= List.length input_names then
+                List.map (fun a -> Some a) args
+              else
+                List.map (fun a -> Some a) args
+                @ List.init
+                    (List.length input_names - List.length args)
+                    (fun _ -> None)
+            in
+            State.pending_call_args := None;
+            args_padded
+        | None -> List.init (List.length input_names) (fun _ -> None)
+      in
+
+      bind_loop input_names values effective_call_args
 
 (* === Handler Implementation === *)
 
@@ -925,52 +901,18 @@ module M : Instrumentation_core.Handler.S = struct
 
   let on_rel_enter ~id ~at:_ ~values =
     State.current_relation := id;
-    (* Bind inputs using static analysis for ALL relations *)
-    match
-      Instrumentation_static.Mutator_analysis.get_relation_input_info id
-    with
-    | Some input_info -> bind_relation_inputs input_info values
-    | None -> (
-        if
-          (* Fallback for State_transition if static analysis didn't capture it *)
-          id = "State_transition"
-        then
-          match Hashtbl.find_opt State.relation_inputs id with
-          | Some (state_var :: block_var :: _) ->
-              State.bind_sym state_var
-                {
-                  it = Il.VarE ("state" $ no_region);
-                  at = no_region;
-                  note = Il.Typ.bool;
-                };
-              State.bind_sym block_var
-                {
-                  it = Il.VarE ("block" $ no_region);
-                  at = no_region;
-                  note = Il.Typ.bool;
-                }
-          | _ -> ()
-        else if String.starts_with ~prefix:"Process" id then
-          (* Fallback for Process* and Get* relations (helpers): check first arg *)
-          match values with
-          | _v_state :: _ ->
-              Format.eprintf "[DEBUG] Fallback binding state for %s\n" id;
-              (* Heurostic: if it's implicitly a state object, bind it *)
-              State.bind_sym "state"
-                {
-                  it = Il.VarE ("state" $ no_region);
-                  at = no_region;
-                  note = Il.Typ.bool;
-                }
-          | _ -> ())
+    State.push_call_frame ();
+    (* Bind inputs using types and relation input names *)
+    bind_relation_inputs id values
 
-  let on_rel_exit ~id:_ ~at:_ ~success:_ =
+  let on_rel_exit ~id:_ ~at:_ ~success =
+    if success then State.pop_sym_frame_success ()
+    else State.pop_sym_frame_failure ();
     State.current_relation := "";
     State.current_rule := ""
 
   let on_rule_enter ~id:_ ~rule_id ~at:_ =
     State.current_rule := rule_id;
-
     State.push_sym_frame ()
 
   let on_rule_exit ~id:_ ~rule_id:_ ~at:_ ~success =
@@ -978,17 +920,25 @@ module M : Instrumentation_core.Handler.S = struct
     else State.pop_sym_frame_failure ();
     State.current_rule := ""
 
-  let on_func_enter ~id:_ ~at:_ ~values:_ =
-    State.func_depth := !State.func_depth + 1
-
-  let on_func_exit ~id:_ ~at:_ = State.func_depth := !State.func_depth - 1
+  let on_func_enter = Instrumentation_core.Noop.on_func_enter
+  let on_func_exit = Instrumentation_core.Noop.on_func_exit
   let on_clause_enter ~id:_ ~clause_idx:_ ~at:_ = State.push_sym_frame ()
 
   let on_clause_exit ~id:_ ~clause_idx:_ ~at:_ ~success =
     if success then State.pop_sym_frame_success ()
     else State.pop_sym_frame_failure ()
 
-  let on_iter_prem_enter = Instrumentation_core.Noop.on_iter_prem_enter
+  let on_iter_prem_enter ~prem ~at:_ =
+    (* Bind iteration variables to symbolic environment *)
+    match prem.it with
+    | Il.IterPr (_, (_iter, vars)) ->
+        List.iter
+          (fun (id, typ, _) ->
+            State.bind_sym id.it
+              { it = Il.VarE id; at = no_region; note = typ.it })
+          vars
+    | _ -> ()
+
   let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
   let on_instr = Instrumentation_core.Noop.on_instr
 
@@ -1001,7 +951,23 @@ module M : Instrumentation_core.Handler.S = struct
       Format.eprintf "\r[Positive] %d premises, %d if-prems, %d skipped...%!"
         !State.premise_count !State.if_prem_count !State.skipped_count;
 
-    if not (is_if_prem prem) then ()
+    if not (is_if_prem prem) then
+      match prem.it with
+      | Il.RulePr (id, (_, args)) ->
+          (* It's a relation call! Resolve arguments in CURRENT environment context *)
+          (* and save them for the upcoming on_rel_enter *)
+          Format.eprintf "[DEBUG] on_prem_enter RulePr %s\n" id.it;
+          let resolved_args =
+            List.map
+              (fun arg ->
+                let expanded = expand_vars State.sym_env arg in
+                Format.eprintf "  Arg: %s -> %s\n" (string_of_sym_expr arg)
+                  (string_of_sym_expr expanded);
+                expanded)
+              args
+          in
+          State.pending_call_args := Some resolved_args
+      | _ -> ()
     else
       (* Get premise UID *)
       let prem_key = Premise_uid.prem_key prem in
@@ -1055,11 +1021,11 @@ module M : Instrumentation_core.Handler.S = struct
       (* Bind symbolic expression for let premises *)
       | Il.LetPr ({ it = Il.VarE id; _ }, rhs) ->
           let sym = expand_vars State.sym_env rhs in
-          Hashtbl.replace State.sym_env id.it sym
+          State.bind_sym id.it sym
       (* Handle IterPr(LetPr) - nested let bindings in iterations *)
       | Il.IterPr ({ it = Il.LetPr ({ it = Il.VarE id; _ }, rhs); _ }, _) ->
           let sym = expand_vars State.sym_env rhs in
-          Hashtbl.replace State.sym_env id.it sym
+          State.bind_sym id.it sym
       | Il.RulePr _ -> ()
       | _ -> ()
     else
