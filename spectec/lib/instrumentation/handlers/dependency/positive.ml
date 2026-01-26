@@ -275,6 +275,16 @@ let rec eval_sym_expr (sym : sym_expr) : Il.Value.t option =
       | _ -> None)
   | SUnOp (op, _, s) -> (
       match eval_sym_expr s with Some v -> eval_unop op v | None -> None)
+  | SCall ("len", [ s ]) -> (
+      match eval_sym_expr s with
+      | Some v -> (
+          try
+            let l = Il.Value.get_list v in
+            Some
+              (Il.Value.Make.num Il.Typ.nat
+                 (`Nat (Bigint.of_int (List.length l))))
+          with _ -> None)
+      | None -> None)
   | SPath (_, v_opt) -> v_opt (* Use tracked runtime value if available *)
   | SVar (_, v_opt) -> v_opt
   | SCall _ | SUpdate _ | SUnknown _ -> None
@@ -397,10 +407,61 @@ let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
           args
       in
       (* Handle special functions that return computed values we can track *)
-      if func_name = "get_current_epoch" || func_name = "$get_current_epoch"
+      if
+        String.starts_with ~prefix:"filter_list_" func_name
+        || String.starts_with ~prefix:"filter_list_2_" func_name
       then
-        (* This returns a computed epoch value - treat as a symbolic variable for now *)
+        (* Over-approximate filtered list to the original list (first argument) *)
+        match sym_args with
+        | arg :: _ -> arg
+        | [] -> SCall (func_name, sym_args)
+      else if
+        func_name = "get_current_epoch"
+        || func_name = "$get_current_epoch"
+        || func_name = "compute_epoch_at_slot"
+        || func_name = "$compute_epoch_at_slot"
+      then
+        (* Maps to generic epoch variable *)
         SVar ("current_epoch", None)
+      else if
+        func_name = "compute_time_at_slot"
+        || func_name = "$compute_time_at_slot"
+      then
+        (* compute_time_at_slot(state, slot) = GENESIS_TIME + slot * SECONDS_PER_SLOT *)
+        (* Assuming args are [state; slot] *)
+        match sym_args with
+        | [ _; slot_sym ] ->
+            (* Try to find GENESIS_TIME in state - for now assuming generic or constant *)
+            (* We can try constructing (state.GENESIS_TIME + slot * 12) *)
+            (* But without state object access, simpler to treat as computable if slot is known *)
+            (* Let's return SBinOp(Add, <genesis>, SBinOp(Mul, slot, 12)) *)
+            (* Using 0 as placeholder genesis if unknown, relies on slot diffs usually? *)
+            (* Actually, let's try to resolve state.GENESIS_TIME if possible. *)
+            (* For now, just generic unblocking: SBinOp based on slot *)
+            let seconds_per_slot =
+              SConst (Il.Value.Make.num Il.Typ.nat (`Nat (Bigint.of_int 12)))
+            in
+            let genesis =
+              SConst
+                (Il.Value.Make.num Il.Typ.nat (`Nat (Bigint.of_int 1606824000)))
+              (* Mainnet Gen Time *)
+              (* Note: This is a hack. Ideally read from state. *)
+            in
+            SBinOp
+              ( `AddOp,
+                `NatT,
+                genesis,
+                SBinOp (`MulOp, `NatT, slot_sym, seconds_per_slot) )
+        | _ -> SCall (func_name, sym_args)
+      else if
+        func_name = "get_expected_withdrawals"
+        || func_name = "$get_expected_withdrawals"
+        || func_name = "get_active_validator_indices"
+        || func_name = "$get_active_validator_indices"
+      then
+        (* Map these state-dependent helpers to a State path to preserve provenance *)
+        (* This resolves ?.withdrawal_expected to state.get_expected_withdrawals *)
+        SPath ({ source = State; steps = [ FieldAccess func_name ] }, None)
       else SCall (func_name, sym_args)
   (* Unwrap wrappers *)
   | Il.SubE (e, _) | Il.UpCastE (_, e) | Il.DownCastE (_, e) | Il.IterE (e, _)
@@ -534,7 +595,7 @@ let invert_cmp_op = function
    For A < B + C with target=B, returns (B, >, A - C).
    Returns None if target_path not found or rearrangement not possible. *)
 let algebraic_rearrange (lhs_sym : sym_expr) (rhs_sym : sym_expr) (op : cmp_op)
-    (target_path : field_path) : (cmp_op * sym_expr) option =
+    (target_path : field_path) : (cmp_op * sym_expr * bool) option =
   (* Check if target_path appears in lhs_sym *)
   let paths_lhs = extract_paths_from_sym_expr lhs_sym in
   let paths_rhs = extract_paths_from_sym_expr rhs_sym in
@@ -543,47 +604,47 @@ let algebraic_rearrange (lhs_sym : sym_expr) (rhs_sym : sym_expr) (op : cmp_op)
 
   match (in_lhs, in_rhs) with
   | true, false -> (
-      if
-        (* Target is on LHS *)
-        lhs_sym = SPath (target_path, None)
-        || lhs_sym = SPath (target_path, eval_sym_expr lhs_sym)
-      then Some (op, rhs_sym)
-      (* Note: equality on SPath might fail if values differ? Should check path only *)
-        else
-        match lhs_sym with
-        | SPath (p, _) when p = target_path -> Some (op, rhs_sym)
-        | _ -> (
-            (* Try to isolate target from simple arithmetic: A + C, A - C, C + A *)
-            match lhs_sym with
-            | SBinOp (`AddOp, _, s1, s2) ->
-                if match s1 with SPath (p, _) -> p = target_path | _ -> false
-                then
-                  (* A + C < B  =>  A < B - C *)
-                  Some (op, SBinOp (`SubOp, `IntT, rhs_sym, s2))
-                else if
-                  match s2 with SPath (p, _) -> p = target_path | _ -> false
-                then
-                  (* C + A < B  =>  A < B - C *)
-                  Some (op, SBinOp (`SubOp, `IntT, rhs_sym, s1))
-                else None
-            | SBinOp (`SubOp, _, s1, s2) ->
-                if match s1 with SPath (p, _) -> p = target_path | _ -> false
-                then
-                  (* A - C < B  =>  A < B + C *)
-                  Some (op, SBinOp (`AddOp, `IntT, rhs_sym, s2))
-                else if
-                  match s2 with SPath (p, _) -> p = target_path | _ -> false
-                then
-                  (* C - A < B  =>  -A < B - C  =>  A > C - B *)
-                  (* Note: Inverting op! *)
-                  Some (invert_cmp_op op, SBinOp (`SubOp, `IntT, s1, rhs_sym))
-                else None
-            | _ -> None))
-  | false, true ->
+      (* Check if simple path match *)
+      match lhs_sym with
+      | SPath (p, _) when p = target_path -> Some (op, rhs_sym, false)
+      | SCall ("len", [ SPath (p, _) ]) when p = target_path ->
+          Some (op, rhs_sym, true)
+      | _ -> (
+          (* Try to isolate target from simple arithmetic: A + C, A - C, C + A *)
+          match lhs_sym with
+          | SBinOp (`AddOp, _, s1, s2) ->
+              if match s1 with SPath (p, _) -> p = target_path | _ -> false
+              then
+                (* A + C < B  =>  A < B - C *)
+                Some (op, SBinOp (`SubOp, `IntT, rhs_sym, s2), false)
+              else if
+                match s2 with SPath (p, _) -> p = target_path | _ -> false
+              then
+                (* C + A < B  =>  A < B - C *)
+                Some (op, SBinOp (`SubOp, `IntT, rhs_sym, s1), false)
+              else None
+          | SBinOp (`SubOp, _, s1, s2) ->
+              if match s1 with SPath (p, _) -> p = target_path | _ -> false
+              then
+                (* A - C < B  =>  A < B + C *)
+                Some (op, SBinOp (`AddOp, `IntT, rhs_sym, s2), false)
+              else if
+                match s2 with SPath (p, _) -> p = target_path | _ -> false
+              then
+                (* C - A < B  =>  -A < B - C  =>  A > C - B *)
+                (* Note: Inverting op! *)
+                Some
+                  (invert_cmp_op op, SBinOp (`SubOp, `IntT, s1, rhs_sym), false)
+              else None
+          | _ -> None))
+  | false, true -> (
       (* Target is on RHS: LHS < B → B > LHS *)
-      if match rhs_sym with SPath (p, _) -> p = target_path | _ -> false then
-        Some (invert_cmp_op op, lhs_sym)
-      else None (* Isolate from RHS arithmetic not implemented yet *)
+      match rhs_sym with
+      | SPath (p, _) when p = target_path ->
+          Some (invert_cmp_op op, lhs_sym, false)
+      | SCall ("len", [ SPath (p, _) ]) when p = target_path ->
+          Some (invert_cmp_op op, lhs_sym, true)
+      | _ -> None (* Isolate from RHS arithmetic not implemented yet *))
   | _ -> None (* Target in both sides or neither *)
 
 let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
@@ -603,15 +664,15 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
       List.filter_map
         (fun path ->
           match algebraic_rearrange lhs_sym rhs_sym cmp_op path with
-          | Some (isolated_op, isolated_rhs) -> (
+          | Some (isolated_op, isolated_rhs, is_len) -> (
               (* Try to evaluate RHS to concrete value *)
               match eval_sym_expr isolated_rhs with
               | Some value ->
-                  Some
-                    {
-                      target_path = Some path;
-                      suggestion = ToConst (isolated_op, value);
-                    }
+                  let suggestion =
+                    if is_len then ToLength (isolated_op, value)
+                    else ToConst (isolated_op, value)
+                  in
+                  Some { target_path = Some path; suggestion }
               | None ->
                   (* Can't evaluate - return Unknown with type *)
                   Some { target_path = Some path; suggestion = Unknown None })
@@ -664,13 +725,27 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
               })
             paths
       | _ -> [])
+  | Il.UnE (`NotOp, _, e) ->
+      (* Boolean negation: ~exp => exp = false *)
+      let paths = extract_paths_from_sym_expr (resolve_to_sym_expr sym_env e) in
+      List.map
+        (fun path ->
+          {
+            target_path = Some path;
+            suggestion = ToConst (Eq, Il.Value.bool false);
+          })
+        paths
   | _ ->
-      (* Boolean field or other: try to extract paths *)
+      (* Boolean field or other: implicit check for true *)
       let paths =
         extract_paths_from_sym_expr (resolve_to_sym_expr sym_env exp)
       in
       List.map
-        (fun path -> { target_path = Some path; suggestion = Unknown None })
+        (fun path ->
+          {
+            target_path = Some path;
+            suggestion = ToConst (Eq, Il.Value.bool true);
+          })
         paths
 
 (* === Handler State === *)
@@ -685,6 +760,10 @@ module State = struct
 
   (* Already-analyzed premises (by location string) *)
   let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
+
+  (* Queue of pending function calls with their resolved symbolic inputs *)
+  (* (func_name, sym_args) *)
+  let pending_calls : (string * sym_expr list) Queue.t = Queue.create ()
 
   (* Track visited UIDs to distinguish "not covered" from "no mutations" *)
   let seen_uids : (int, unit) Hashtbl.t = Hashtbl.create 1000
@@ -812,6 +891,74 @@ end
 (* Initialize the lookup_sym_ref to point to State.lookup_sym *)
 let () = lookup_sym_ref := State.lookup_sym
 
+(* Recursively collect pending function calls from expression (post-order) *)
+let rec collect_pending_calls (exp : Il.exp) : unit =
+  match exp.it with
+  | Il.CallE (id, _, args) ->
+      (* Recurse on args first (post-order) *)
+      List.iter
+        (fun arg ->
+          match arg.it with
+          | Il.ExpA e -> collect_pending_calls e
+          | Il.DefA _ -> ())
+        args;
+      (* Resolve symbolic args *)
+      let sym_args =
+        List.filter_map
+          (fun arg ->
+            match arg.it with
+            | Il.ExpA e -> Some (resolve_to_sym_expr State.sym_env e)
+            | Il.DefA _ -> None)
+          args
+      in
+      (* Enqueue pending call *)
+      Queue.push (id.it, sym_args) State.pending_calls
+  | Il.UnE (_, _, e) -> collect_pending_calls e
+  | Il.BinE (_, _, e1, e2) ->
+      collect_pending_calls e1;
+      collect_pending_calls e2
+  | Il.ListE exps -> List.iter collect_pending_calls exps
+  | Il.ConsE (e1, e2) ->
+      collect_pending_calls e1;
+      collect_pending_calls e2
+  | Il.CatE (e1, e2) ->
+      collect_pending_calls e1;
+      collect_pending_calls e2
+  | Il.MemE (e1, e2) ->
+      collect_pending_calls e1;
+      collect_pending_calls e2
+  | Il.LenE e -> collect_pending_calls e
+  | Il.DotE (e, _) -> collect_pending_calls e
+  | Il.IdxE (e1, e2) ->
+      collect_pending_calls e1;
+      collect_pending_calls e2
+  | Il.SliceE (e1, e2, e3) ->
+      collect_pending_calls e1;
+      collect_pending_calls e2;
+      collect_pending_calls e3
+  | Il.UpdE (e1, _, e2) ->
+      collect_pending_calls e1;
+      collect_pending_calls e2
+  | Il.HoldE _ -> () (* Holds logic not tracked for calls *)
+  | Il.IterE (e, _) -> collect_pending_calls e
+  | Il.MatchE (e, _) -> collect_pending_calls e
+  | Il.OptE (Some e) -> collect_pending_calls e
+  | Il.SubE (e, _) | Il.UpCastE (_, e) | Il.DownCastE (_, e) ->
+      collect_pending_calls e
+  | _ -> ()
+
+(* Collect calls from premise *)
+let rec collect_pending_calls_prem (prem : Il.prem) : unit =
+  match prem.it with
+  | Il.IfPr e -> collect_pending_calls e
+  | Il.LetPr (_, e) -> collect_pending_calls e
+  | Il.RulePr (_, (_, exps)) -> List.iter collect_pending_calls exps
+  | Il.IterPr (p, _) ->
+      (* Recurse for nested premise *)
+      collect_pending_calls_prem p
+  | Il.DebugPr e -> collect_pending_calls e
+  | _ -> ()
+
 (* Helper: Bind relation inputs based on static analysis results and runtime values *)
 let bind_relation_inputs
     (input_info : Instrumentation_static.Mutator_analysis.relation_input_info)
@@ -890,9 +1037,11 @@ module M : Instrumentation_core.Handler.S = struct
       Instrumentation_static.Mutator_analysis.get_relation_input_info id
     with
     | Some input_info -> bind_relation_inputs input_info values
-    | None ->
-        (* Fallback for State_transition if static analysis didn't capture it *)
-        if id = "State_transition" then
+    | None -> (
+        if
+          (* Fallback for State_transition if static analysis didn't capture it *)
+          id = "State_transition"
+        then
           match Hashtbl.find_opt State.relation_inputs id with
           | Some (state_var :: block_var :: _) -> (
               (* Heuristic: assume first two values are state and block if available *)
@@ -908,7 +1057,13 @@ module M : Instrumentation_core.Handler.S = struct
                   State.bind_sym block_var
                     (SPath ({ source = Block; steps = [] }, None)))
           | _ -> ()
-        else ()
+        else if String.starts_with ~prefix:"Process" id then
+          (* Fallback for Process* relations: assume first arg is state *)
+          match values with
+          | v_state :: _ ->
+              State.bind_sym "state"
+                (SPath ({ source = State; steps = [] }, Some v_state))
+          | _ -> ())
 
   let on_rel_exit ~id:_ ~at:_ ~success:_ =
     State.current_relation := "";
@@ -924,8 +1079,35 @@ module M : Instrumentation_core.Handler.S = struct
     else State.pop_sym_frame_failure ();
     State.current_rule := ""
 
-  let on_func_enter ~id:_ ~at:_ ~values:_ =
-    State.func_depth := !State.func_depth + 1
+  let on_func_enter ~id ~at:_ ~values:_ =
+    State.func_depth := !State.func_depth + 1;
+    (* Check for pending symbolic call arguments *)
+    match Queue.peek_opt State.pending_calls with
+    | Some (pending_id, sym_args) when pending_id = id -> (
+        let _ = Queue.pop State.pending_calls in
+        (* Bind parameters to symbolic arguments *)
+        match
+          Instrumentation_static.Mutator_analysis.get_relation_input_info id
+        with
+        | Some input_info ->
+            (* Safe iteration to handle mismatch between static params and runtime args *)
+            let rec safe_iter2 names args =
+              match (names, args) with
+              | n :: ns, a :: as_ ->
+                  State.bind_sym n a;
+                  safe_iter2 ns as_
+              | [], [] -> ()
+              | [], _ :: _ ->
+                  (* More runtime args than static params - ignore extras *)
+                  (* This guarantees we don't crash on variadic/implicit functions *)
+                  ()
+              | _ :: _, [] ->
+                  (* More static params than runtime args - ignore missing bindings *)
+                  ()
+            in
+            safe_iter2 input_info.input_var_names sym_args
+        | None -> ())
+    | _ -> ()
 
   let on_func_exit ~id:_ ~at:_ = State.func_depth := !State.func_depth - 1
   let on_clause_enter ~id:_ ~clause_idx:_ ~at:_ = State.push_sym_frame ()
@@ -955,6 +1137,9 @@ module M : Instrumentation_core.Handler.S = struct
   let on_instr = Instrumentation_core.Noop.on_instr
 
   let on_prem_enter ~prem ~at =
+    (* Collect any function calls in this premise for symbolic tracking *)
+    collect_pending_calls_prem prem;
+
     State.premise_count := !State.premise_count + 1;
     (* Progress indicator *)
     if !State.premise_count mod 500 = 0 then
