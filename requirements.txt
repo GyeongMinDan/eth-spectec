@@ -17,3 +17,7 @@ py-ecc==8.0.0
 py_arkworks_bls12381==0.3.8
 pycryptodome==3.23.0
 ruamel.yaml==0.18.15
+
+# Dependencies for analysis scripts
+matplotlib>=3.5.0
+numpy>=1.21.0
