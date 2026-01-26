@@ -40,7 +40,9 @@ module type S = sig
   (* IL-specific events *)
   val on_iter_prem_enter : prem:Il.prem -> at:region -> unit
   val on_iter_prem_exit : at:region -> unit
-  val on_prem_enter : prem:Il.prem -> at:region -> unit
+
+  val on_prem_enter :
+    eval:(Il.exp -> Il.Value.t) option -> prem:Il.prem -> at:region -> unit
 
   val on_prem_fields :
     prem:Il.prem ->

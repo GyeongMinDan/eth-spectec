@@ -137,7 +137,48 @@ let init spec =
               | Some input_info ->
                   Hashtbl.replace State.relation_inputs id.it input_info
               | None -> ())
-          (* We don't analyze functions (DecD) anymore as we only care about relation inputs *)
+          | Il.DecD (id, _, params, _, clauses) ->
+              (* Extract function input info from params (types) and first clause (names) *)
+              let input_types =
+                List.map
+                  (fun p ->
+                    match p.it with Il.ExpP t -> t | Il.DefP (_, _, _, t) -> t)
+                  params
+              in
+              let input_var_names =
+                match clauses with
+                | clause :: _ ->
+                    let args, _, _ = clause.it in
+                    (* Try to extract var names from args *)
+                    (* Assuming simple variable patterns for now *)
+                    List.map
+                      (fun arg ->
+                        match arg.it with
+                        | Il.ExpA e -> (
+                            match extract_var_name e with
+                            | Some n -> n
+                            | None -> "_")
+                        | Il.DefA id -> id.it)
+                      args
+                | [] -> List.map (fun _ -> "_") params
+              in
+              (* Truncate/pad if lengths differ (shouldn't happen in valid IL) *)
+              let len =
+                min (List.length input_types) (List.length input_var_names)
+              in
+              let input_types = List.filteri (fun i _ -> i < len) input_types in
+              let input_var_names =
+                List.filteri (fun i _ -> i < len) input_var_names
+              in
+              let input_positions = List.init len (fun i -> i) in
+              let block_pattern =
+                None
+                (* Functions typically don't take block components directly? *)
+              in
+              let input_info =
+                { input_var_names; input_types; input_positions; block_pattern }
+              in
+              Hashtbl.replace State.relation_inputs id.it input_info
           | _ -> ())
         il_spec
   | Static.SlSpec _ -> ()

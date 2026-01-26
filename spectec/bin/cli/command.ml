@@ -414,6 +414,7 @@ module Make (Tgt : Runner.Target.S) = struct
              in
              let spec_il = match spec_result with Ok s -> s | Error _ -> [] in
              (* best effort *)
+             Runner.Testgen.set_spec_il spec_il;
 
              (* Initialize static analysis for positive dependency handler *)
              Instrumentation_static.Mutator_analysis.init

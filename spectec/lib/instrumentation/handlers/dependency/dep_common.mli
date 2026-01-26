@@ -4,7 +4,7 @@ module Il = Lang.Il
 
 (* === Types === *)
 
-type input_source = State | Block | Unknown
+type input_source = State | Block | Local of string | Unknown
 
 (* === Structured Field Path Types === *)
 
@@ -12,7 +12,6 @@ type index_expr = ConstInt of int | PathRef of field_path
 and field_step = FieldAccess of string | IndexAccess of index_expr
 and field_path = { source : input_source; steps : field_step list }
 
-type mutation_target = Value | CollectionLength
 type binop = Add | Sub | Mul | Div | Mod
 
 (* Source environment: maps variable names to their field paths *)

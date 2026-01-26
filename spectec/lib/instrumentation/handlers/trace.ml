@@ -99,7 +99,7 @@ module M : Instrumentation_core.Handler.S = struct
     if !config.level = Full then
       Format.fprintf !fmt "%s  ← [iteration]\n%!" (State.indent ())
 
-  let on_prem_enter ~prem ~at:_ =
+  let on_prem_enter ~eval:_ ~prem ~at:_ =
     if !config.level = Full then
       Format.fprintf !fmt "%s  | -- %s\n%!" (State.indent ())
         (Il.Print.string_of_prem prem |> normalize_whitespace)

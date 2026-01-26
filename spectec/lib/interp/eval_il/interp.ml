@@ -767,7 +767,14 @@ and eval_prem (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
   in
   (match prem.it with
   | IterPr _ -> ()
-  | _ -> Instrumentation.Dispatcher.notify_prem_enter ~prem ~at:prem.at);
+  | _ ->
+      (* Create eval closure for instrumentation *)
+      let eval e =
+        let _, v = eval_exp ctx e in
+        v
+      in
+      Instrumentation.Dispatcher.notify_prem_enter ~eval:(Some eval) ~prem
+        ~at:prem.at);
   (* Pass lookup function for variable resolution in handlers *)
   let lookup id = Ctx.find_value_opt Local ctx (id $ no_region, []) in
   Instrumentation.Dispatcher.notify_prem_fields ~prem ~fields:[] ~lookup

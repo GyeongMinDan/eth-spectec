@@ -131,6 +131,7 @@ let getter_dependencies (func_name : string) : field_path list option =
 let is_valid_index_path (path : field_path) : bool =
   match path.source with
   | Unknown -> path.steps <> [] (* Unknown with steps is ok *)
+  | Local _ -> true (* Local variables (loop indices) are valid indices *)
   | Block -> (
       (* Block paths that end in index-like fields are valid *)
       match List.rev path.steps with
@@ -152,8 +153,8 @@ let rec resolve_to_path (env : source_env) (exp : Il.exp) : field_path option =
           (* Use type-based detection for source *)
           let source = source_of_type exp.note in
           match source with
-          | State | Block ->
-              (* Variable IS the state/block, not a field of it *)
+          | State | Block | Local _ ->
+              (* Variable IS the state/block/local, not a field of it *)
               Some { source; steps = [] }
           | Unknown ->
               (* Unknown source, treat as field access *)
@@ -539,7 +540,7 @@ module M : Instrumentation_core.Handler.S = struct
   let on_iter_prem_enter = Instrumentation_core.Noop.on_iter_prem_enter
   let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
 
-  let on_prem_enter ~prem ~at =
+  let on_prem_enter ~eval:_ ~prem ~at =
     State.premise_count := !State.premise_count + 1;
     if !State.premise_count mod 500 = 0 then
       Format.eprintf

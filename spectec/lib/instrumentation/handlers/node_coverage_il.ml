@@ -136,7 +136,7 @@ module M : Instrumentation_core.Handler.S = struct
   let on_iter_prem_enter = Instrumentation_core.Noop.on_iter_prem_enter
   let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
 
-  let on_prem_enter ~prem ~at:_ =
+  let on_prem_enter ~eval:_ ~prem ~at:_ =
     let key = prem_key prem in
     State.incr_count State.prems_attempted key;
     State.record_premise_coverage key
