@@ -4,7 +4,7 @@ module Il = Lang.Il
 
 (* === Types === *)
 
-type input_source = State | Block | Unknown
+type input_source = State | Block | Local of string | Unknown
 
 (* === Structured Field Path Types === *)
 

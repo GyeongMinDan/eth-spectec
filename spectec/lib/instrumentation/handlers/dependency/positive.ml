@@ -57,7 +57,10 @@ type sym_expr =
   | SUnOp of Il.unop * Il.optyp * sym_expr (* -A, !A *)
   | SConst of Il.Value.t (* Constant value *)
   | SUpdate of sym_expr * field_path list (* state{.A, .B} - tracks mutations *)
-  | SCall of string * sym_expr list (* $func(args) - future: inline getters *)
+  | SCall of
+      string
+      * sym_expr list
+      * Il.Value.t option (* $func(args) - future: inline getters *)
   | SUnknown of string (* Unresolvable *)
 
 (* Enhanced source environment - maps variables to symbolic expressions *)
@@ -77,9 +80,158 @@ type sym_mutation = {
 (* Frame for tracking sym_env bindings in scope *)
 type pos_frame = { local_env : sym_env }
 
+(* === Handler State === *)
+module State = struct
+  let output_file : string option ref = ref None
+
+  (* Symbolic expression environment - maps variable names to symbolic expressions *)
+  let sym_env : sym_env = Hashtbl.create 100
+
+  (* Relation input variable names from spec *)
+  let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
+
+  (* Already-analyzed premises (by location string) *)
+  let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
+
+  (* Track visited UIDs to distinguish "not covered" from "no mutations" *)
+  let seen_uids : (int, unit) Hashtbl.t = Hashtbl.create 1000
+
+  (* Current context *)
+  let current_relation : string ref = ref ""
+  let current_rule : string ref = ref ""
+  let current_test_id : string ref = ref ""
+
+  (* Frame stack for sym_env backtracking *)
+  let frames : pos_frame list ref = ref []
+
+  (* Per-test symbolic mutations: premise_uid -> test_id -> sym_mutation list *)
+  let per_test_sym_mutations :
+      (int, (string, sym_mutation list) Hashtbl.t) Hashtbl.t =
+    Hashtbl.create 1000
+
+  (* Progress tracking *)
+  let premise_count = ref 0
+  let if_prem_count = ref 0
+  let skipped_count = ref 0
+  let func_depth = ref 0
+
+  (* Target UIDs for filtering - empty means no filtering (use whitelist) *)
+  let target_uids : (int, unit) Hashtbl.t = Hashtbl.create 16
+
+  (* Current evaluation function from interpreter *)
+  let current_eval : (Il.exp -> Il.Value.t) ref =
+    ref (fun _ -> Il.Value.text "init")
+
+  (* Set target UIDs for filtering *)
+
+  let set_target_uids (uids : int list) =
+    Hashtbl.clear target_uids;
+    List.iter (fun uid -> Hashtbl.add target_uids uid ()) uids
+
+  let is_target_uid (uid : int) : bool =
+    (* If no target UIDs specified, fall back to whitelist behavior *)
+    Hashtbl.length target_uids = 0 || Hashtbl.mem target_uids uid
+
+  let reset () =
+    Hashtbl.clear sym_env;
+    Hashtbl.clear relation_inputs;
+    Hashtbl.clear seen_prems;
+    Hashtbl.clear seen_uids;
+    current_relation := "";
+    current_rule := "";
+    current_test_id := "";
+    frames := [];
+    Hashtbl.clear per_test_sym_mutations;
+    premise_count := 0;
+    if_prem_count := 0;
+    skipped_count := 0;
+    func_depth := 0
+
+  let in_helper_function () = !func_depth > 0
+  let already_seen loc = Hashtbl.mem seen_prems loc
+  let mark_seen loc = Hashtbl.replace seen_prems loc ()
+
+  (* Frame management for sym_env backtracking *)
+  let push_sym_frame () =
+    let new_frame = { local_env = Hashtbl.create 20 } in
+    frames := new_frame :: !frames
+
+  let pop_sym_frame_success () =
+    match !frames with
+    | frame :: rest -> (
+        frames := rest;
+        (* Merge local_env into parent frame or global sym_env *)
+        match rest with
+        | parent :: _ ->
+            Hashtbl.iter
+              (fun k v -> Hashtbl.replace parent.local_env k v)
+              frame.local_env
+        | [] ->
+            Hashtbl.iter
+              (fun k v -> Hashtbl.replace sym_env k v)
+              frame.local_env)
+    | [] -> ()
+
+  let pop_sym_frame_failure () =
+    match !frames with _ :: rest -> frames := rest | [] -> ()
+
+  (* Lookup in sym_env: check frames from top to bottom, then global *)
+  let lookup_sym (id : string) : sym_expr option =
+    let rec check_frames fs =
+      match fs with
+      | [] -> Hashtbl.find_opt sym_env id
+      | frame :: rest -> (
+          match Hashtbl.find_opt frame.local_env id with
+          | Some v -> Some v
+          | None -> check_frames rest)
+    in
+    check_frames !frames
+
+  (* Bind in current frame's local_env (or global if no frame) *)
+  let bind_sym (id : string) (expr : sym_expr) : unit =
+    match !frames with
+    | frame :: _ -> Hashtbl.replace frame.local_env id expr
+    | [] -> Hashtbl.replace sym_env id expr
+
+  (* Add per-test symbolic mutation result *)
+  let add_per_test_sym_mutation (premise_uid : int)
+      (mutations : sym_mutation list) =
+    if mutations <> [] then
+      let test_id =
+        if !current_test_id <> "" then !current_test_id else "default"
+      in
+      let test_table =
+        match Hashtbl.find_opt per_test_sym_mutations premise_uid with
+        | Some t -> t
+        | None ->
+            let t = Hashtbl.create 100 in
+            Hashtbl.add per_test_sym_mutations premise_uid t;
+            t
+      in
+      let existing =
+        match Hashtbl.find_opt test_table test_id with
+        | Some m -> m
+        | None -> []
+      in
+      Hashtbl.replace test_table test_id (existing @ mutations)
+
+  (* Clear checkpoint data after it's been saved - frees memory for long runs.
+     Per-test state (sym_env, seen_prems) is already cleared in on_test_end. *)
+  let clear_large_state () =
+    Hashtbl.clear per_test_sym_mutations;
+    Gc.compact () (* Force GC to reclaim memory *)
+end
+
 (* Lookup function ref - set by State module after initialization *)
 (* This allows resolvers defined before State to use frame-aware lookup *)
 let lookup_sym_ref : (string -> sym_expr option) ref = ref (fun _ -> None)
+
+(* Forward references for mutual recursion *)
+let resolve_to_sym_expr_ref : (sym_env -> Il.exp -> sym_expr) ref =
+  ref (fun _ _ -> SUnknown "init")
+
+let eval_sym_expr_ref : (sym_expr -> Il.Value.t option) ref =
+  ref (fun _ -> None)
 
 (* === Domain Knowledge: Ethereum Beacon Chain === *)
 
@@ -134,7 +286,8 @@ let rec resolve_to_field_path (sym_env : sym_env) (exp : Il.exp) :
       match lookup id.it with
       | Some (SPath (path, _)) -> Some path
       | Some (SVar (name, _)) ->
-          Some { source = Unknown; steps = [ FieldAccess name ] }
+          Format.eprintf "[DEBUG] SVar resolved to Local: %s\n" name;
+          Some { source = Local name; steps = [] }
       | Some _ -> None (* Has sym_expr but not a path *)
       | None ->
           (* Use centralized domain knowledge for state variables *)
@@ -165,10 +318,16 @@ let rec resolve_to_field_path (sym_env : sym_env) (exp : Il.exp) :
                   with _ -> None (* Index too large *))
               | _ -> None (* Non-nat index *))
           | _ -> (
-              (* Try to resolve as field path *)
-              match resolve_to_field_path sym_env idx with
-              | Some idx_path ->
-                  Some (append_step base_path (IndexAccess (PathRef idx_path)))
+              (* Dynamic Resolution Strategy *)
+              (* 1. Try interpreter evaluation (EXACT) *)
+              let v_opt = try Some (!State.current_eval idx) with _ -> None in
+              match v_opt with
+              | Some v -> (
+                  match v.it with
+                  | Il.NumV (`Nat bi) ->
+                      let i = Bigint.to_int_exn bi in
+                      Some (append_step base_path (IndexAccess (ConstInt i)))
+                  | _ -> None)
               | None -> None)))
   | Il.SubE (inner, _)
   | Il.UpCastE (_, inner)
@@ -252,7 +411,7 @@ let rec eval_sym_expr (sym : sym_expr) : Il.Value.t option =
       | _ -> None)
   | SUnOp (op, _, s) -> (
       match eval_sym_expr s with Some v -> eval_unop op v | None -> None)
-  | SCall ("len", [ s ]) -> (
+  | SCall ("len", [ s ], _) -> (
       match eval_sym_expr s with
       | Some v -> (
           try
@@ -264,7 +423,9 @@ let rec eval_sym_expr (sym : sym_expr) : Il.Value.t option =
       | None -> None)
   | SPath (_, v_opt) -> v_opt (* Use tracked runtime value if available *)
   | SVar (_, v_opt) -> v_opt
-  | SCall _ | SUpdate _ | SUnknown _ -> None
+  | SCall (_, _, v_opt) -> v_opt
+  | SUpdate (s, _) -> eval_sym_expr s
+  | SUnknown _ -> None
 
 (* Resolve expression to symbolic expression *)
 let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
@@ -320,9 +481,7 @@ let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
                 | _ -> None)
             | _ -> None
           in
-          let idx_path =
-            { source = Unknown; steps = [ FieldAccess idx_name ] }
-          in
+          let idx_path = { source = Local idx_name; steps = [] } in
           SPath (append_step base_path (IndexAccess (PathRef idx_path)), val_opt)
       | SPath (base_path, base_val_opt), SConst v_idx -> (
           (* Constant index from expression *)
@@ -370,7 +529,10 @@ let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
       let s = resolve_to_sym_expr sym_env e in
       SUnOp (op, typ, s)
   (* Length expressions *)
-  | Il.LenE inner -> SCall ("len", [ resolve_to_sym_expr sym_env inner ])
+  | Il.LenE inner ->
+      (* Use direct evaluation for length if possible *)
+      let val_opt = try Some (!State.current_eval exp) with _ -> None in
+      SCall ("len", [ resolve_to_sym_expr sym_env inner ], val_opt)
   (* Function calls *)
   | Il.CallE (id, _, args) ->
       let func_name = id.it in
@@ -390,7 +552,7 @@ let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
         (* Over-approximate filtered list to the original list (first argument) *)
         match sym_args with
         | arg :: _ -> arg
-        | [] -> SCall (func_name, sym_args)
+        | [] -> SCall (func_name, sym_args, None)
       else if
         func_name = "get_current_epoch"
         || func_name = "$get_current_epoch"
@@ -428,7 +590,9 @@ let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
                 `NatT,
                 genesis,
                 SBinOp (`MulOp, `NatT, slot_sym, seconds_per_slot) )
-        | _ -> SCall (func_name, sym_args)
+        | _ ->
+            let val_opt = try Some (!State.current_eval exp) with _ -> None in
+            SCall (func_name, sym_args, val_opt)
       else if
         func_name = "get_expected_withdrawals"
         || func_name = "$get_expected_withdrawals"
@@ -438,7 +602,9 @@ let rec resolve_to_sym_expr (sym_env : sym_env) (exp : Il.exp) : sym_expr =
         (* Map these state-dependent helpers to a State path to preserve provenance *)
         (* This resolves ?.withdrawal_expected to state.get_expected_withdrawals *)
         SPath ({ source = State; steps = [ FieldAccess func_name ] }, None)
-      else SCall (func_name, sym_args)
+      else
+        let val_opt = try Some (!State.current_eval exp) with _ -> None in
+        SCall (func_name, sym_args, val_opt)
   (* Unwrap wrappers *)
   | Il.SubE (e, _) | Il.UpCastE (_, e) | Il.DownCastE (_, e) | Il.IterE (e, _)
     ->
@@ -466,7 +632,7 @@ let rec extract_paths_from_sym_expr (sym : sym_expr) : field_path list =
   | SUnOp (_, _, s) -> extract_paths_from_sym_expr s
   | SConst _ -> []
   | SUpdate (s, paths) -> extract_paths_from_sym_expr s @ paths
-  | SCall (_, args) -> List.concat_map extract_paths_from_sym_expr args
+  | SCall (_, args, _) -> List.concat_map extract_paths_from_sym_expr args
   | SUnknown _ -> []
 
 (* Convert Mutator_analysis.field_path to Dep_common.field_path *)
@@ -532,9 +698,13 @@ let rec string_of_sym_expr (sym : sym_expr) : string =
   | SUpdate (s, paths) ->
       Printf.sprintf "%s{.%s}" (string_of_sym_expr s)
         (String.concat ", ." (List.map string_of_field_path paths))
-  | SCall (name, args) ->
+  | SCall (name, args, None) ->
       Printf.sprintf "$%s(%s)" name
         (String.concat ", " (List.map string_of_sym_expr args))
+  | SCall (name, args, Some v) ->
+      Printf.sprintf "$%s(%s)(=%s)" name
+        (String.concat ", " (List.map string_of_sym_expr args))
+        (Il.Print.string_of_value v)
   | SUnknown msg -> Printf.sprintf "?%s" msg
 
 (* String formatting for mutation suggestions *)
@@ -586,7 +756,7 @@ let algebraic_rearrange (lhs_sym : sym_expr) (rhs_sym : sym_expr)
       (* Check if simple path match *)
       match lhs_sym with
       | SPath (p, _) when p = target_path -> Some (op, rhs_sym, false)
-      | SCall ("len", [ SPath (p, _) ]) when p = target_path ->
+      | SCall ("len", [ SPath (p, _) ], _) when p = target_path ->
           Some (op, rhs_sym, true)
       | _ -> (
           (* Try to isolate target from simple arithmetic: A + C, A - C, C + A *)
@@ -621,7 +791,7 @@ let algebraic_rearrange (lhs_sym : sym_expr) (rhs_sym : sym_expr)
       match rhs_sym with
       | SPath (p, _) when p = target_path ->
           Some (invert_cmp_op op, lhs_sym, false)
-      | SCall ("len", [ SPath (p, _) ]) when p = target_path ->
+      | SCall ("len", [ SPath (p, _) ], _) when p = target_path ->
           Some (invert_cmp_op op, lhs_sym, true)
       | _ -> None (* Isolate from RHS arithmetic not implemented yet *))
   | _ -> None (* Target in both sides or neither *)
@@ -728,142 +898,6 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
           })
         paths
 
-(* === Handler State === *)
-module State = struct
-  let output_file : string option ref = ref None
-
-  (* Symbolic expression environment - maps variable names to symbolic expressions *)
-  let sym_env : sym_env = Hashtbl.create 100
-
-  (* Relation input variable names from spec *)
-  let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
-
-  (* Already-analyzed premises (by location string) *)
-  let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
-
-  (* Track visited UIDs to distinguish "not covered" from "no mutations" *)
-  let seen_uids : (int, unit) Hashtbl.t = Hashtbl.create 1000
-
-  (* Current context *)
-  let current_relation : string ref = ref ""
-  let current_rule : string ref = ref ""
-  let current_test_id : string ref = ref ""
-
-  (* Frame stack for sym_env backtracking *)
-  let frames : pos_frame list ref = ref []
-
-  (* Per-test symbolic mutations: premise_uid -> test_id -> sym_mutation list *)
-  let per_test_sym_mutations :
-      (int, (string, sym_mutation list) Hashtbl.t) Hashtbl.t =
-    Hashtbl.create 1000
-
-  (* Progress tracking *)
-  let premise_count = ref 0
-  let if_prem_count = ref 0
-  let skipped_count = ref 0
-  let func_depth = ref 0
-
-  (* Target UIDs for filtering - empty means no filtering (use whitelist) *)
-  let target_uids : (int, unit) Hashtbl.t = Hashtbl.create 16
-
-  let set_target_uids (uids : int list) =
-    Hashtbl.clear target_uids;
-    List.iter (fun uid -> Hashtbl.add target_uids uid ()) uids
-
-  let is_target_uid (uid : int) : bool =
-    (* If no target UIDs specified, fall back to whitelist behavior *)
-    Hashtbl.length target_uids = 0 || Hashtbl.mem target_uids uid
-
-  let reset () =
-    Hashtbl.clear sym_env;
-    Hashtbl.clear relation_inputs;
-    Hashtbl.clear seen_prems;
-    Hashtbl.clear seen_uids;
-    current_relation := "";
-    current_rule := "";
-    current_test_id := "";
-    frames := [];
-    Hashtbl.clear per_test_sym_mutations;
-    premise_count := 0;
-    if_prem_count := 0;
-    skipped_count := 0;
-    func_depth := 0
-
-  let in_helper_function () = !func_depth > 0
-  let already_seen loc = Hashtbl.mem seen_prems loc
-  let mark_seen loc = Hashtbl.replace seen_prems loc ()
-
-  (* Frame management for sym_env backtracking *)
-  let push_sym_frame () =
-    let new_frame = { local_env = Hashtbl.create 20 } in
-    frames := new_frame :: !frames
-
-  let pop_sym_frame_success () =
-    match !frames with
-    | frame :: rest -> (
-        frames := rest;
-        (* Merge local_env into parent frame or global sym_env *)
-        match rest with
-        | parent :: _ ->
-            Hashtbl.iter
-              (fun k v -> Hashtbl.replace parent.local_env k v)
-              frame.local_env
-        | [] ->
-            Hashtbl.iter
-              (fun k v -> Hashtbl.replace sym_env k v)
-              frame.local_env)
-    | [] -> ()
-
-  let pop_sym_frame_failure () =
-    match !frames with _ :: rest -> frames := rest | [] -> ()
-
-  (* Lookup in sym_env: check frames from top to bottom, then global *)
-  let lookup_sym (id : string) : sym_expr option =
-    let rec check_frames fs =
-      match fs with
-      | [] -> Hashtbl.find_opt sym_env id
-      | frame :: rest -> (
-          match Hashtbl.find_opt frame.local_env id with
-          | Some v -> Some v
-          | None -> check_frames rest)
-    in
-    check_frames !frames
-
-  (* Bind in current frame's local_env (or global if no frame) *)
-  let bind_sym (id : string) (expr : sym_expr) : unit =
-    match !frames with
-    | frame :: _ -> Hashtbl.replace frame.local_env id expr
-    | [] -> Hashtbl.replace sym_env id expr
-
-  (* Add per-test symbolic mutation result *)
-  let add_per_test_sym_mutation (premise_uid : int)
-      (mutations : sym_mutation list) =
-    if mutations <> [] then
-      let test_id =
-        if !current_test_id <> "" then !current_test_id else "default"
-      in
-      let test_table =
-        match Hashtbl.find_opt per_test_sym_mutations premise_uid with
-        | Some t -> t
-        | None ->
-            let t = Hashtbl.create 100 in
-            Hashtbl.add per_test_sym_mutations premise_uid t;
-            t
-      in
-      let existing =
-        match Hashtbl.find_opt test_table test_id with
-        | Some m -> m
-        | None -> []
-      in
-      Hashtbl.replace test_table test_id (existing @ mutations)
-
-  (* Clear checkpoint data after it's been saved - frees memory for long runs.
-     Per-test state (sym_env, seen_prems) is already cleared in on_test_end. *)
-  let clear_large_state () =
-    Hashtbl.clear per_test_sym_mutations;
-    Gc.compact () (* Force GC to reclaim memory *)
-end
-
 (* Initialize the lookup_sym_ref to point to State.lookup_sym *)
 let () = lookup_sym_ref := State.lookup_sym
 
@@ -965,10 +999,15 @@ module M : Instrumentation_core.Handler.S = struct
                   State.bind_sym block_var
                     (SPath ({ source = Block; steps = [] }, None)))
           | _ -> ()
-        else if String.starts_with ~prefix:"Process" id then
-          (* Fallback for Process* relations: assume first arg is state *)
+        else if
+          String.starts_with ~prefix:"Process" id
+          || String.starts_with ~prefix:"Get" id
+        then
+          (* Fallback for Process* and Get* relations (helpers): check first arg *)
           match values with
           | v_state :: _ ->
+              Format.eprintf "[DEBUG] Fallback binding state for %s\n" id;
+              (* Heurostic: if it's implicitly a state object, bind it *)
               State.bind_sym "state"
                 (SPath ({ source = State; steps = [] }, Some v_state))
           | _ -> ())
@@ -1017,7 +1056,8 @@ module M : Instrumentation_core.Handler.S = struct
 
   let on_instr = Instrumentation_core.Noop.on_instr
 
-  let on_prem_enter ~prem ~at =
+  let on_prem_enter ~eval ~prem ~at =
+    (match eval with Some f -> State.current_eval := f | None -> ());
     (* Collect any function calls in this premise for symbolic tracking *)
     State.premise_count := !State.premise_count + 1;
     (* Progress indicator *)

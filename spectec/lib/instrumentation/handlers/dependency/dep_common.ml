@@ -15,7 +15,7 @@ module Il = Lang.Il
 (* === Types === *)
 
 (* Input source: tracks which top-level input a path comes from *)
-type input_source = State | Block | Unknown
+type input_source = State | Block | Local of string | Unknown
 
 (* === Structured Field Path Types === *)
 
@@ -106,6 +106,7 @@ let field_path_of_source (source : input_source) : field_path =
 let string_of_input_source = function
   | State -> "state"
   | Block -> "block"
+  | Local name -> name
   | Unknown -> "?"
 
 let rec string_of_index_expr (idx : index_expr) : string =
