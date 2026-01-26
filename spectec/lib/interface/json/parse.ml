@@ -114,15 +114,22 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
   | VarT (tid, []), _ -> (
       match (TDEnv.find_opt tid tdenv, json) with
       | Some (_, { it = StructT typfields; _ }), `Assoc fields ->
-          let parse_typefield (atom, typ) (key, value) =
-            if Atom.string_of_atom atom.it |> String.lowercase_ascii = key then
-              let* field = json_to_value tdenv typ.it value in
-              Ok (atom, field)
-            else Error (FieldMissing (Atom.string_of_atom atom.it, key))
+          let find_field (atom : atom) =
+            let target =
+              Atom.string_of_atom atom.it |> String.lowercase_ascii
+            in
+            List.find_opt
+              (fun (k, _) -> String.lowercase_ascii k = target)
+              fields
           in
-          let* typfields =
-            result_all (List.map2 parse_typefield typfields fields)
+          let parse_typefield (atom, typ) =
+            match find_field atom with
+            | Some (_, value) ->
+                let* field = json_to_value tdenv typ.it value in
+                Ok (atom, field)
+            | None -> Error (FieldMissing (Atom.string_of_atom atom.it, tid.it))
           in
+          let* typfields = result_all (List.map parse_typefield typfields) in
           Value.record tid.it typfields |> Result.ok
       | Some (_, { it = PlainT typ; _ }), _ -> (
           (* Check if it's a bytes type and JSON is a hex string *)

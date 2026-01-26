@@ -47,6 +47,14 @@ let rec get_field (json : t) (path : field_step list) : t option =
   | _, [] -> Some json
   | _ -> None
 
+let find_case_insensitive_key field_name fields =
+  let target = String.lowercase_ascii field_name in
+  List.find_opt (fun (k, _) -> String.lowercase_ascii k = target) fields
+
+let remove_case_insensitive_keys field_name fields =
+  let target = String.lowercase_ascii field_name in
+  List.filter (fun (k, _) -> String.lowercase_ascii k <> target) fields
+
 (* Get value at path for reporting - wrapper around get_field *)
 let get_value_at_path (json : t) (path : field_path) : t option =
   let result = get_field json path.steps in
@@ -62,24 +70,19 @@ let rec set_field (json : t) (path : field_step list) (value : t) : t =
   match (json, path) with
   | `Assoc fields, [ Dep.FieldAccess field_name ] ->
       let updated_fields =
-        if List.mem_assoc field_name fields then
-          List.map
-            (fun (k, v) -> if k = field_name then (k, value) else (k, v))
-            fields
-        else (field_name, value) :: fields
+        match find_case_insensitive_key field_name fields with
+        | Some (k, _) ->
+            let filtered = remove_case_insensitive_keys field_name fields in
+            (k, value) :: filtered
+        | None -> (field_name, value) :: fields
       in
       `Assoc updated_fields
   | `Assoc fields, Dep.FieldAccess field_name :: rest -> (
-      match List.assoc_opt field_name fields with
-      | Some nested ->
+      match find_case_insensitive_key field_name fields with
+      | Some (k, nested) ->
           let updated_nested = set_field nested rest value in
-          let updated_fields =
-            List.map
-              (fun (k, v) ->
-                if k = field_name then (k, updated_nested) else (k, v))
-              fields
-          in
-          `Assoc updated_fields
+          let filtered = remove_case_insensitive_keys field_name fields in
+          `Assoc ((k, updated_nested) :: filtered)
       | None ->
           (* Create nested structure *)
           let new_nested = set_field (`Assoc []) rest value in
