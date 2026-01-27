@@ -272,6 +272,25 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
   Instrumentation.Dispatcher.set_handlers handlers;
   Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec_il);
 
+  (* Signal handler to skip current test (SIGUSR2 - user-defined signal 2)
+     IMPORTANT: The 'kill' command name is misleading - it sends signals, not necessarily kills!
+     SIGUSR2 is a user-defined signal that does NOT terminate the process.
+     Usage: kill -USR2 <pid>  (where <pid> is the process ID)
+     To find PID: ps aux | grep spectec-core, or the process prints it on startup *)
+  let skip_current_test = ref false in
+  let skip_handler _ =
+    skip_current_test := true;
+    Format.printf
+      "\n\
+       [SIGUSR2] Skip signal received - will skip current test after \
+       completion...\n\
+       %!"
+  in
+  (try Sys.set_signal Sys.sigusr2 (Sys.Signal_handle skip_handler)
+   with Invalid_argument _ ->
+     (* SIGUSR2 not available on this platform, ignore *)
+     ());
+
   (* Load checkpoint if resuming *)
   let loaded_checkpoint =
     match checkpoint_config.resume_from with
@@ -339,39 +358,72 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
             let task_results =
               List.mapi
                 (fun index input ->
-                  let source = T.source input in
-                  if verbose then
-                    (* Show absolute progress: [completed+1/total] *)
-                    Format.printf "  [%d/%d] %s... %!"
-                      (completed_count + index + 1)
-                      total_all source;
-                  (* Use no_lifecycle version - init/finish managed at coverage level *)
-                  let outcome =
-                    try
-                      run_with_outcome_no_lifecycle
-                        (module T)
-                        ~sl_mode ~spec_il input
-                    with exception_value ->
-                      let error =
-                        Error.IlInterpError
-                          ( Common.Source.no_region,
-                            Printexc.to_string exception_value )
-                      in
-                      Task.compute_outcome (T.expectation input) (Error error)
-                  in
-                  (if verbose then
-                     match outcome with
-                     | Task.Pass _ -> Format.printf "PASS\n%!"
-                     | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
-                     | Task.Fail _ -> Format.printf "FAIL\n%!"
-                     | Task.UnexpectedPass _ ->
-                         Format.printf "UNEXPECTED PASS\n%!");
-                  (* Track completion *)
-                  all_completed_inputs := source :: !all_completed_inputs;
-                  (* Periodic checkpoint save *)
-                  if (index + 1) mod checkpoint_config.save_interval = 0 then
-                    save_current_checkpoint ();
-                  { input; source; outcome })
+                  (* Check if skip was requested *)
+                  if !skip_current_test then (
+                    skip_current_test := false;
+                    let source = T.source input in
+                    if verbose then
+                      Format.printf "  [%d/%d] %s... SKIPPED\n%!"
+                        (completed_count + index + 1)
+                        total_all source;
+                    (* Track completion even if skipped *)
+                    all_completed_inputs := source :: !all_completed_inputs;
+                    { input; source; outcome = Task.Pass [] })
+                  else
+                    let source = T.source input in
+                    (* Record start time *)
+                    let start_time = Unix.gettimeofday () in
+                    let start_time_str =
+                      let tm = Unix.localtime (Unix.time ()) in
+                      Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d"
+                        (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1)
+                        tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+                        tm.Unix.tm_sec
+                    in
+                    if verbose then (
+                      (* Show absolute progress: [completed+1/total] with timestamp *)
+                      Format.printf "  [%d/%d] %s [started: %s]... %!"
+                        (completed_count + index + 1)
+                        total_all source start_time_str;
+                      flush stdout);
+                    (* Use no_lifecycle version - init/finish managed at coverage level *)
+                    let outcome =
+                      try
+                        run_with_outcome_no_lifecycle
+                          (module T)
+                          ~sl_mode ~spec_il input
+                      with exception_value ->
+                        let error =
+                          Error.IlInterpError
+                            ( Common.Source.no_region,
+                              Printexc.to_string exception_value )
+                        in
+                        Task.compute_outcome (T.expectation input) (Error error)
+                    in
+                    (* Show elapsed time if verbose *)
+                    (if verbose then
+                       let elapsed = Unix.gettimeofday () -. start_time in
+                       match outcome with
+                       | Task.Pass _ -> Format.printf "PASS (%.2fs)\n%!" elapsed
+                       | Task.ExpectedFail _ ->
+                           Format.printf "EXPECTED FAIL (%.2fs)\n%!" elapsed
+                       | Task.Fail _ -> Format.printf "FAIL (%.2fs)\n%!" elapsed
+                       | Task.UnexpectedPass _ ->
+                           Format.printf "UNEXPECTED PASS (%.2fs)\n%!" elapsed
+                     else
+                       match outcome with
+                       | Task.Pass _ -> Format.printf "PASS\n%!"
+                       | Task.ExpectedFail _ ->
+                           Format.printf "EXPECTED FAIL\n%!"
+                       | Task.Fail _ -> Format.printf "FAIL\n%!"
+                       | Task.UnexpectedPass _ ->
+                           Format.printf "UNEXPECTED PASS\n%!");
+                    (* Track completion *)
+                    all_completed_inputs := source :: !all_completed_inputs;
+                    (* Periodic checkpoint save *)
+                    if (index + 1) mod checkpoint_config.save_interval = 0 then
+                      save_current_checkpoint ();
+                    { input; source; outcome })
                 inputs
             in
             { task_name = T.name; summary = summarize_outcomes task_results }
