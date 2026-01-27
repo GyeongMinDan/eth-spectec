@@ -384,130 +384,174 @@ and resolve_to_field_path_with_visited (sym_env : sym_env) (exp : Il.exp)
   | _ -> None
 
 let rec expand_vars (sym_env : sym_env) (exp : Il.exp) : Il.exp =
-  expand_vars_with_visited sym_env exp []
+  expand_vars_with_visited sym_env exp [] 0
 
 and expand_vars_with_visited (sym_env : sym_env) (exp : Il.exp)
-    (visited : string list) : Il.exp =
-  (* Use frame-aware lookup *)
-  let lookup id = !lookup_sym_ref id in
-  match exp.it with
-  | Il.VarE id -> (
-      if List.mem id.it visited then exp
-      else
-        match lookup id.it with
-        | Some e -> (
-            match e.it with
-            | Il.VarE id' when id'.it = id.it -> exp
-            | _ -> expand_vars_with_visited sym_env e (id.it :: visited))
-        | None -> exp)
-  | Il.DotE (base, atom) ->
-      let base' = expand_vars_with_visited sym_env base visited in
-      if base' == base then exp else { exp with it = Il.DotE (base', atom) }
-  | Il.IdxE (base, idx) ->
-      let base' = expand_vars_with_visited sym_env base visited in
-      let idx' = expand_vars_with_visited sym_env idx visited in
-      if base' == base && idx' == idx then exp
-      else { exp with it = Il.IdxE (base', idx') }
-  | Il.BinE (op, typ, e1, e2) ->
-      let e1' = expand_vars_with_visited sym_env e1 visited in
-      let e2' = expand_vars_with_visited sym_env e2 visited in
-      { exp with it = Il.BinE (op, typ, e1', e2') }
-  | Il.CmpE (op, typ, e1, e2) ->
-      let e1' = expand_vars_with_visited sym_env e1 visited in
-      let e2' = expand_vars_with_visited sym_env e2 visited in
-      { exp with it = Il.CmpE (op, typ, e1', e2') }
-  | Il.UnE (op, typ, e) ->
-      let e' = expand_vars_with_visited sym_env e visited in
-      { exp with it = Il.UnE (op, typ, e') }
-  (* Special handling for len *)
-  | Il.LenE inner ->
-      let inner' = expand_vars_with_visited sym_env inner visited in
-      { exp with it = Il.LenE inner' }
-  (* Handle calls? Arguments might need expansion *)
-  | Il.CallE (id, targs, args) ->
-      (* Special handling for filter_list_: approximate to first argument *)
-      if
-        String.starts_with ~prefix:"filter_list_" id.it
-        || String.starts_with ~prefix:"filter_list_2" id.it
-      then
-        match args with
-        | { it = Il.ExpA e; _ } :: _ ->
-            expand_vars_with_visited sym_env e visited
-        | _ -> { exp with it = Il.CallE (id, targs, args) }
-      else
-        let args' =
-          List.map
-            (fun arg ->
-              match arg.it with
-              | Il.ExpA e ->
-                  {
-                    arg with
-                    it = Il.ExpA (expand_vars_with_visited sym_env e visited);
-                  }
-              | _ -> arg)
-            args
+    (visited : string list) (depth : int) : Il.exp =
+  (* Limit expansion depth to prevent infinite loops with deeply nested DotE/IdxE structures *)
+  if depth > 100 then exp
+  else
+    (* Use frame-aware lookup *)
+    let lookup id = !lookup_sym_ref id in
+    match exp.it with
+    | Il.VarE id -> (
+        if List.mem id.it visited then
+          (* Cycle detected - return expression as-is to break the cycle *)
+          exp
+        else
+          match lookup id.it with
+          | Some e -> (
+              match e.it with
+              | Il.VarE id' when id'.it = id.it -> exp
+              | _ ->
+                  expand_vars_with_visited sym_env e (id.it :: visited)
+                    (depth + 1))
+          | None -> exp)
+    | Il.DotE (base, atom) ->
+        let base' = expand_vars_with_visited sym_env base visited (depth + 1) in
+        if base' == base then exp else { exp with it = Il.DotE (base', atom) }
+    | Il.IdxE (base, idx) ->
+        let base' = expand_vars_with_visited sym_env base visited (depth + 1) in
+        let idx' = expand_vars_with_visited sym_env idx visited (depth + 1) in
+        if base' == base && idx' == idx then exp
+        else { exp with it = Il.IdxE (base', idx') }
+    | Il.BinE (op, typ, e1, e2) ->
+        let e1' = expand_vars_with_visited sym_env e1 visited (depth + 1) in
+        let e2' = expand_vars_with_visited sym_env e2 visited (depth + 1) in
+        { exp with it = Il.BinE (op, typ, e1', e2') }
+    | Il.CmpE (op, typ, e1, e2) ->
+        let e1' = expand_vars_with_visited sym_env e1 visited (depth + 1) in
+        let e2' = expand_vars_with_visited sym_env e2 visited (depth + 1) in
+        { exp with it = Il.CmpE (op, typ, e1', e2') }
+    | Il.UnE (op, typ, e) ->
+        let e' = expand_vars_with_visited sym_env e visited (depth + 1) in
+        { exp with it = Il.UnE (op, typ, e') }
+    (* Special handling for len *)
+    | Il.LenE inner ->
+        let inner' =
+          expand_vars_with_visited sym_env inner visited (depth + 1)
         in
-        { exp with it = Il.CallE (id, targs, args') }
-  | Il.UpdE (inner, path, value) ->
-      let inner' = expand_vars_with_visited sym_env inner visited in
-      let value' = expand_vars_with_visited sym_env value visited in
-      { exp with it = Il.UpdE (inner', path, value') }
-  | Il.OptE (Some inner) ->
-      let inner' = expand_vars_with_visited sym_env inner visited in
-      { exp with it = Il.OptE (Some inner') }
-  | Il.IterE (inner, iter) ->
-      let inner' = expand_vars_with_visited sym_env inner visited in
-      { exp with it = Il.IterE (inner', iter) }
-  | Il.SubE (inner, typ) ->
-      let inner' = expand_vars_with_visited sym_env inner visited in
-      { exp with it = Il.SubE (inner', typ) }
-  | Il.UpCastE (typ, inner) ->
-      let inner' = expand_vars_with_visited sym_env inner visited in
-      { exp with it = Il.UpCastE (typ, inner') }
-  | Il.DownCastE (typ, inner) ->
-      let inner' = expand_vars_with_visited sym_env inner visited in
-      { exp with it = Il.DownCastE (typ, inner') }
-  | Il.OptE None -> exp
-  | Il.ListE inners ->
-      let inners' =
-        List.map (fun e -> expand_vars_with_visited sym_env e visited) inners
-      in
-      { exp with it = Il.ListE inners' }
-  | Il.SliceE (base, high, low) ->
-      let base' = expand_vars_with_visited sym_env base visited in
-      let high' = expand_vars_with_visited sym_env high visited in
-      let low' = expand_vars_with_visited sym_env low visited in
-      { exp with it = Il.SliceE (base', high', low') }
-  | Il.MemE (base, member) ->
-      let base' = expand_vars_with_visited sym_env base visited in
-      let member' = expand_vars_with_visited sym_env member visited in
-      { exp with it = Il.MemE (base', member') }
-  | Il.CatE (head, tail) ->
-      let head' = expand_vars_with_visited sym_env head visited in
-      let tail' = expand_vars_with_visited sym_env tail visited in
-      { exp with it = Il.CatE (head', tail') }
-  | Il.ConsE (head, tail) ->
-      let head' = expand_vars_with_visited sym_env head visited in
-      let tail' = expand_vars_with_visited sym_env tail visited in
-      { exp with it = Il.ConsE (head', tail') }
-  | Il.TupleE inners ->
-      let inners' =
-        List.map (fun e -> expand_vars_with_visited sym_env e visited) inners
-      in
-      { exp with it = Il.TupleE inners' }
-  | Il.MatchE (inner, pattern) ->
-      let inner' = expand_vars_with_visited sym_env inner visited in
-      { exp with it = Il.MatchE (inner', pattern) }
-  | Il.StrE fields ->
-      let fields' =
-        List.map
-          (fun (atom, e) ->
-            let e' = expand_vars_with_visited sym_env e visited in
-            (atom, e'))
-          fields
-      in
-      { exp with it = Il.StrE fields' }
-  | Il.CaseE _ | Il.HoldE _ | Il.BoolE _ | Il.NumE _ | Il.TextE _ -> exp
+        { exp with it = Il.LenE inner' }
+    (* Handle calls? Arguments might need expansion *)
+    | Il.CallE (id, targs, args) ->
+        (* Special handling for filter_list_: approximate to first argument *)
+        if
+          String.starts_with ~prefix:"filter_list_" id.it
+          || String.starts_with ~prefix:"filter_list_2" id.it
+        then
+          match args with
+          | { it = Il.ExpA e; _ } :: _ ->
+              expand_vars_with_visited sym_env e visited (depth + 1)
+          | _ -> { exp with it = Il.CallE (id, targs, args) }
+        else
+          let args' =
+            List.map
+              (fun arg ->
+                match arg.it with
+                | Il.ExpA e ->
+                    {
+                      arg with
+                      it =
+                        Il.ExpA
+                          (expand_vars_with_visited sym_env e visited (depth + 1));
+                    }
+                | _ -> arg)
+              args
+          in
+          { exp with it = Il.CallE (id, targs, args') }
+    | Il.UpdE (inner, path, value) ->
+        (* State update expressions (UpdE) can be very large and contain deeply nested state references.
+         Expanding them fully can create exponential blow-up. Only expand the inner state reference
+         if it's a simple variable, and don't expand the value deeply. *)
+        if depth > 10 then exp
+        else
+          (* Only expand inner if it's a variable - don't expand if it's already a complex expression *)
+          let inner' =
+            match inner.it with
+            | Il.VarE _ ->
+                expand_vars_with_visited sym_env inner visited (depth + 1)
+            | _ -> inner
+          in
+          (* Don't expand value deeply - it might contain state references that create chains *)
+          let value' =
+            if depth > 5 then value
+            else expand_vars_with_visited sym_env value visited (depth + 1)
+          in
+          { exp with it = Il.UpdE (inner', path, value') }
+    | Il.OptE (Some inner) ->
+        let inner' =
+          expand_vars_with_visited sym_env inner visited (depth + 1)
+        in
+        { exp with it = Il.OptE (Some inner') }
+    | Il.IterE (inner, iter) ->
+        let inner' =
+          expand_vars_with_visited sym_env inner visited (depth + 1)
+        in
+        { exp with it = Il.IterE (inner', iter) }
+    | Il.SubE (inner, typ) ->
+        let inner' =
+          expand_vars_with_visited sym_env inner visited (depth + 1)
+        in
+        { exp with it = Il.SubE (inner', typ) }
+    | Il.UpCastE (typ, inner) ->
+        let inner' =
+          expand_vars_with_visited sym_env inner visited (depth + 1)
+        in
+        { exp with it = Il.UpCastE (typ, inner') }
+    | Il.DownCastE (typ, inner) ->
+        let inner' =
+          expand_vars_with_visited sym_env inner visited (depth + 1)
+        in
+        { exp with it = Il.DownCastE (typ, inner') }
+    | Il.OptE None -> exp
+    | Il.ListE inners ->
+        let inners' =
+          List.map
+            (fun e -> expand_vars_with_visited sym_env e visited (depth + 1))
+            inners
+        in
+        { exp with it = Il.ListE inners' }
+    | Il.SliceE (base, high, low) ->
+        let base' = expand_vars_with_visited sym_env base visited (depth + 1) in
+        let high' = expand_vars_with_visited sym_env high visited (depth + 1) in
+        let low' = expand_vars_with_visited sym_env low visited (depth + 1) in
+        { exp with it = Il.SliceE (base', high', low') }
+    | Il.MemE (base, member) ->
+        let base' = expand_vars_with_visited sym_env base visited (depth + 1) in
+        let member' =
+          expand_vars_with_visited sym_env member visited (depth + 1)
+        in
+        { exp with it = Il.MemE (base', member') }
+    | Il.CatE (head, tail) ->
+        let head' = expand_vars_with_visited sym_env head visited (depth + 1) in
+        let tail' = expand_vars_with_visited sym_env tail visited (depth + 1) in
+        { exp with it = Il.CatE (head', tail') }
+    | Il.ConsE (head, tail) ->
+        let head' = expand_vars_with_visited sym_env head visited (depth + 1) in
+        let tail' = expand_vars_with_visited sym_env tail visited (depth + 1) in
+        { exp with it = Il.ConsE (head', tail') }
+    | Il.TupleE inners ->
+        let inners' =
+          List.map
+            (fun e -> expand_vars_with_visited sym_env e visited (depth + 1))
+            inners
+        in
+        { exp with it = Il.TupleE inners' }
+    | Il.MatchE (inner, pattern) ->
+        let inner' =
+          expand_vars_with_visited sym_env inner visited (depth + 1)
+        in
+        { exp with it = Il.MatchE (inner', pattern) }
+    | Il.StrE fields ->
+        let fields' =
+          List.map
+            (fun (atom, e) ->
+              let e' = expand_vars_with_visited sym_env e visited (depth + 1) in
+              (atom, e'))
+            fields
+        in
+        { exp with it = Il.StrE fields' }
+    | Il.CaseE _ | Il.HoldE _ | Il.BoolE _ | Il.NumE _ | Il.TextE _ -> exp
 
 (* Initialize mutual recursion refs *)
 let () = expand_vars_ref := expand_vars
@@ -515,53 +559,72 @@ let () = expand_vars_ref := expand_vars
 (* Extract path from expression (wrapper around resolve_to_field_path) *)
 let rec extract_paths_from_exp (sym_env : sym_env) (exp : Il.exp) :
     field_path list =
-  (* Try to resolve top-level *)
-  match resolve_to_field_path sym_env exp with
-  | Some p -> [ p ]
-  | None -> (
-      (* If not a path, maybe it contains paths? e.g. A + B *)
-      match exp.it with
-      | Il.BinE (_, _, e1, e2)
-      | Il.CmpE (_, _, e1, e2)
-      | Il.IdxE (e1, e2)
-      | Il.CatE (e1, e2)
-      | Il.ConsE (e1, e2) ->
-          extract_paths_from_exp sym_env e1 @ extract_paths_from_exp sym_env e2
-      | Il.UnE (_, _, e) | Il.UpdE (e, _, _) -> extract_paths_from_exp sym_env e
-      | Il.LenE e -> extract_paths_from_exp sym_env e
-      | Il.CallE (_, _, args) ->
-          List.concat_map
-            (fun arg ->
-              match arg.it with
-              | Il.ExpA e -> extract_paths_from_exp sym_env e
-              | _ -> [])
-            args
-      | Il.UpCastE (_, e)
-      | Il.DownCastE (_, e)
-      | Il.SubE (e, _)
-      | Il.MatchE (e, _)
-      | Il.MemE (e, _)
-      | Il.OptE (Some e)
-      | Il.IterE (e, _) ->
-          extract_paths_from_exp sym_env e
-      | Il.DotE (e, _) -> extract_paths_from_exp sym_env e
-      | Il.VarE _ ->
-          (* Should have been returned by resolve_to_field_path *)
-          assert false
-      | Il.TupleE es | Il.ListE es ->
-          List.concat_map (extract_paths_from_exp sym_env) es
-      | Il.StrE fields ->
-          List.concat_map
-            (fun (_, e) -> extract_paths_from_exp sym_env e)
-            fields
-      | Il.SliceE (e1, e2, e3) ->
-          extract_paths_from_exp sym_env e1
-          @ extract_paths_from_exp sym_env e2
-          @ extract_paths_from_exp sym_env e3
-      | Il.CaseE _ | Il.HoldE _
-      | Il.OptE None
-      | Il.BoolE _ | Il.NumE _ | Il.TextE _ ->
-          [])
+  extract_paths_from_exp_with_visited sym_env exp []
+
+and extract_paths_from_exp_with_visited (sym_env : sym_env) (exp : Il.exp)
+    (visited : Il.exp list) : field_path list =
+  (* Avoid infinite loops by tracking visited expressions *)
+  if List.exists (fun e -> e == exp) visited then []
+  else
+    let visited' = exp :: visited in
+    (* Limit depth to prevent infinite recursion *)
+    if List.length visited' > 50 then []
+    else
+      (* Try to resolve top-level *)
+      match resolve_to_field_path sym_env exp with
+      | Some p -> [ p ]
+      | None -> (
+          (* If not a path, maybe it contains paths? e.g. A + B *)
+          match exp.it with
+          | Il.BinE (_, _, e1, e2)
+          | Il.CmpE (_, _, e1, e2)
+          | Il.IdxE (e1, e2)
+          | Il.CatE (e1, e2)
+          | Il.ConsE (e1, e2) ->
+              extract_paths_from_exp_with_visited sym_env e1 visited'
+              @ extract_paths_from_exp_with_visited sym_env e2 visited'
+          | Il.UnE (_, _, e) | Il.UpdE (e, _, _) ->
+              extract_paths_from_exp_with_visited sym_env e visited'
+          | Il.LenE e -> extract_paths_from_exp_with_visited sym_env e visited'
+          | Il.CallE (_, _, args) ->
+              List.concat_map
+                (fun arg ->
+                  match arg.it with
+                  | Il.ExpA e ->
+                      extract_paths_from_exp_with_visited sym_env e visited'
+                  | _ -> [])
+                args
+          | Il.UpCastE (_, e)
+          | Il.DownCastE (_, e)
+          | Il.SubE (e, _)
+          | Il.MatchE (e, _)
+          | Il.MemE (e, _)
+          | Il.OptE (Some e)
+          | Il.IterE (e, _) ->
+              extract_paths_from_exp_with_visited sym_env e visited'
+          | Il.DotE (e, _) ->
+              extract_paths_from_exp_with_visited sym_env e visited'
+          | Il.VarE _ ->
+              (* Should have been returned by resolve_to_field_path *)
+              assert false
+          | Il.TupleE es | Il.ListE es ->
+              List.concat_map
+                (fun e ->
+                  extract_paths_from_exp_with_visited sym_env e visited')
+                es
+          | Il.StrE fields ->
+              List.concat_map
+                (fun (_, e) ->
+                  extract_paths_from_exp_with_visited sym_env e visited')
+                fields
+          | Il.SliceE (e1, e2, e3) ->
+              extract_paths_from_exp_with_visited sym_env e1 visited'
+              @ extract_paths_from_exp_with_visited sym_env e2 visited'
+              @ extract_paths_from_exp_with_visited sym_env e3 visited'
+          | Il.CaseE _ | Il.HoldE _
+          | Il.OptE None
+          | Il.BoolE _ | Il.NumE _ | Il.TextE _ ->
+              [])
 
 (* Check if premise is an if-premise *)
 let rec is_if_prem (prem : Il.prem) : bool =
