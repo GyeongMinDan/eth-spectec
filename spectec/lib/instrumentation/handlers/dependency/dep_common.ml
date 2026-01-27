@@ -104,8 +104,8 @@ let field_path_of_source (source : input_source) : field_path =
 (* === String Formatting === *)
 
 let string_of_input_source = function
-  | State -> "state"
-  | Block -> "block"
+  | State -> "STATE"
+  | Block -> "BLOCK"
   | Local name -> name
   | Unknown -> "?"
 
@@ -122,7 +122,10 @@ and string_of_field_step (step : field_step) : string =
 and string_of_field_path (path : field_path) : string =
   let base = string_of_input_source path.source in
   let steps_str = String.concat "" (List.map string_of_field_step path.steps) in
-  base ^ steps_str
+  (* If it's a Local source with no steps, just show "?" *)
+  match path.source with
+  | Local _ when path.steps = [] -> "?"
+  | _ -> base ^ steps_str
 
 (* === Expression Analysis Helpers === *)
 

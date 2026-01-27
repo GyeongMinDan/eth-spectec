@@ -336,22 +336,19 @@ and resolve_to_field_path_with_visited (sym_env : sym_env) (exp : Il.exp)
                   with _ -> None (* Index too large *))
               | _ -> None (* Non-nat index *))
           | _ -> (
-              match resolve_to_field_path_with_visited sym_env idx visited with
-              | Some idx_path ->
-                  Some (append_step base_path (IndexAccess (PathRef idx_path)))
-              | None -> (
-                  let v_opt =
-                    try Some (!State.current_eval idx) with _ -> None
-                  in
-                  match v_opt with
-                  | Some v -> (
-                      match v.it with
-                      | Il.NumV (`Nat bi) ->
-                          let i = Bigint.to_int_exn bi in
-                          Some
-                            (append_step base_path (IndexAccess (ConstInt i)))
-                      | _ -> None)
-                  | None -> None))))
+              (* Try to evaluate the index expression to get a concrete value *)
+              (* No longer use PathRef - only concrete indices are allowed *)
+              let v_opt = try Some (!State.current_eval idx) with _ -> None in
+              match v_opt with
+              | Some v -> (
+                  match v.it with
+                  | Il.NumV (`Nat bi) -> (
+                      try
+                        let i = Bigint.to_int_exn bi in
+                        Some (append_step base_path (IndexAccess (ConstInt i)))
+                      with _ -> None)
+                  | _ -> None)
+              | None -> None)))
   | Il.SubE (inner, _)
   | Il.UpCastE (_, inner)
   | Il.DownCastE (_, inner)
@@ -955,28 +952,10 @@ module M : Instrumentation_core.Handler.S = struct
     else State.pop_sym_frame_failure ();
     State.current_rule := ""
 
-  let on_func_enter ~id ~at:_ ~values =
+  let on_func_enter ~id:_ ~at:_ ~values:_ =
     (* Push a new frame for function scope *)
-    State.push_sym_frame ();
-    (* Bind function parameters using parameter names from spec *)
-    match Hashtbl.find_opt State.function_params id with
-    | None -> ()
-    | Some param_names ->
-        (* Bind each parameter to its value *)
-        List.iteri
-          (fun i name ->
-            if i < List.length values && i < List.length param_names then
-              let value = List.nth values i in
-              (* Create a symbolic variable expression for this parameter *)
-              let sym_expr =
-                {
-                  it = Il.VarE (name $ no_region);
-                  at = no_region;
-                  note = value.note.Il.typ;
-                }
-              in
-              State.bind_sym name sym_expr)
-          param_names
+    (* Don't bind parameters - they should remain as ?. paths *)
+    State.push_sym_frame ()
 
   let on_func_exit ~id:_ ~at:_ =
     (* Pop the function frame, merging successful bindings back to parent *)
