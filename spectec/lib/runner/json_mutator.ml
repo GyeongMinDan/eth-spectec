@@ -185,7 +185,15 @@ let apply_mutation (json : t) (strategy : mutation_strategy) : t =
                 selected :: shuffle rest
           in
           let shuffled = shuffle indices in
-          let keep_indices = List.take target_len shuffled in
+          (* Take first target_len elements (compatible with OCaml 5.1) *)
+          let keep_indices =
+            let rec take n acc = function
+              | [] -> List.rev acc
+              | x :: xs when n > 0 -> take (n - 1) (x :: acc) xs
+              | _ -> List.rev acc
+            in
+            take target_len [] shuffled
+          in
           let keep_set =
             List.fold_left (fun acc idx -> idx :: acc) [] keep_indices
           in
