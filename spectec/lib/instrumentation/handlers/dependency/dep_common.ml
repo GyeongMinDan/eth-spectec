@@ -229,12 +229,24 @@ let extract_function_params (il_spec : Il.spec) :
   List.iter
     (fun def ->
       match def.it with
-      | Il.DecD (id, _, _, _, _) ->
-          (* For now, we can't extract parameter names from function declarations
-             since they only contain types, not variable names.
-             Functions define their parameter names in their clause definitions. *)
-          (* TODO: Extract param names from clause definitions instead *)
-          let param_names = [] in
+      | Il.DecD (id, params, _return_typ, _typ, clauses) ->
+          (* Extract parameter names from the first clause's arguments *)
+          let param_names =
+            if clauses <> [] then
+              let first_clause = List.hd clauses in
+              let args, _prems, _exp = first_clause.it in
+              (* Extract variable names from argument patterns *)
+              List.filter_map
+                (fun arg ->
+                  match arg.it with
+                  | Il.ExpA { it = Il.VarE id; _ } -> Some id.it
+                  | _ -> None)
+                args
+            else
+              (* Fallback: try to use parameter count from params *)
+              (* Generate generic names param0, param1, etc. *)
+              List.mapi (fun i _ -> Printf.sprintf "param%d" i) params
+          in
           Hashtbl.replace function_params id.it param_names
       | _ -> ())
     il_spec;

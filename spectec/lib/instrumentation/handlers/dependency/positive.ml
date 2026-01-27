@@ -82,6 +82,9 @@ module State = struct
   (* Relation input variable names from spec *)
   let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
 
+  (* Function parameter names from spec *)
+  let function_params : (string, string list) Hashtbl.t = Hashtbl.create 100
+
   (* Already-analyzed premises (by location string) *)
   let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
 
@@ -851,7 +854,7 @@ let bind_relation_inputs (rel_id : string) (values : Il.Value.t list) : unit =
       (* Bind each input variable *)
       List.iteri
         (fun i name ->
-          if i < List.length values then
+          if i < List.length values then (
             let value = List.nth values i in
             let expr =
               if i < List.length call_inputs then
@@ -883,7 +886,17 @@ let bind_relation_inputs (rel_id : string) (values : Il.Value.t list) : unit =
                     note = value.note.Il.typ;
                   }
             in
-            State.bind_sym name expr)
+            State.bind_sym name expr;
+            (* For State_transition, also create standard aliases *)
+            if rel_id = "State_transition" then
+              let type_name =
+                match value.note.Il.typ with
+                | Il.VarT (id, _) -> String.lowercase_ascii id.it
+                | _ -> ""
+              in
+              if type_name = "beaconstate" then State.bind_sym "state" expr
+              else if type_name = "signedbeaconblock" then
+                State.bind_sym "block" expr))
         input_names
 
 (* === Handler Implementation === *)
@@ -896,6 +909,7 @@ module M : Instrumentation_core.Handler.S = struct
         let inputs = extract_relation_inputs il_spec in
         let outputs = extract_relation_outputs il_spec in
         let io_indices = extract_relation_io_indices il_spec in
+        let func_params = extract_function_params il_spec in
         Hashtbl.iter
           (fun k v -> Hashtbl.replace State.relation_inputs k v)
           inputs;
@@ -904,7 +918,10 @@ module M : Instrumentation_core.Handler.S = struct
           outputs;
         Hashtbl.iter
           (fun k v -> Hashtbl.replace State.relation_io_indices k v)
-          io_indices
+          io_indices;
+        Hashtbl.iter
+          (fun k v -> Hashtbl.replace State.function_params k v)
+          func_params
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
   let on_test_start ~test_case_id = State.current_test_id := test_case_id
@@ -938,8 +955,33 @@ module M : Instrumentation_core.Handler.S = struct
     else State.pop_sym_frame_failure ();
     State.current_rule := ""
 
-  let on_func_enter = Instrumentation_core.Noop.on_func_enter
-  let on_func_exit = Instrumentation_core.Noop.on_func_exit
+  let on_func_enter ~id ~at:_ ~values =
+    (* Push a new frame for function scope *)
+    State.push_sym_frame ();
+    (* Bind function parameters using parameter names from spec *)
+    match Hashtbl.find_opt State.function_params id with
+    | None -> ()
+    | Some param_names ->
+        (* Bind each parameter to its value *)
+        List.iteri
+          (fun i name ->
+            if i < List.length values && i < List.length param_names then
+              let value = List.nth values i in
+              (* Create a symbolic variable expression for this parameter *)
+              let sym_expr =
+                {
+                  it = Il.VarE (name $ no_region);
+                  at = no_region;
+                  note = value.note.Il.typ;
+                }
+              in
+              State.bind_sym name sym_expr)
+          param_names
+
+  let on_func_exit ~id:_ ~at:_ =
+    (* Pop the function frame, merging successful bindings back to parent *)
+    State.pop_sym_frame_success ()
+
   let on_clause_enter ~id:_ ~clause_idx:_ ~at:_ = State.push_sym_frame ()
 
   let on_clause_exit ~id:_ ~clause_idx:_ ~at:_ ~success =
