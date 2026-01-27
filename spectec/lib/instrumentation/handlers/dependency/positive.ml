@@ -268,6 +268,12 @@ let is_block_type (t : Il.typ') : bool =
   | Il.VarT (id, _) -> String.lowercase_ascii id.it = "signedbeaconblock"
   | _ -> false
 
+(* Check if a type refers to the block message (body) object *)
+let is_message_type (t : Il.typ') : bool =
+  match t with
+  | Il.VarT (id, _) -> String.lowercase_ascii id.it = "beaconblock"
+  | _ -> false
+
 (* === Expression Resolution (Positive-specific: detailed symbolic tracking) === *)
 
 (* Resolve expression to structured field_path.
@@ -291,6 +297,9 @@ and resolve_to_field_path_with_visited (sym_env : sym_env) (exp : Il.exp)
       let fallback_path ~use_local =
         if is_state_type exp.note then Some { source = State; steps = [] }
         else if is_block_type exp.note then Some { source = Block; steps = [] }
+        else if is_message_type exp.note then
+          (* Resolve BeaconBlockBody variables to BLOCK.MESSAGE *)
+          Some { source = Block; steps = [ FieldAccess "MESSAGE" ] }
         else if use_local then Some { source = Local id.it; steps = [] }
         else Some { source = Unknown; steps = [ FieldAccess id.it ] }
       in
@@ -994,28 +1003,7 @@ module M : Instrumentation_core.Handler.S = struct
             |> List.map snd
           in
 
-          (* Only eagerly expand inputs for relations that need cross-relation block threading.
-   For all others, keep lazy behaviour to avoid performance blow-ups. *)
-          let relations_needing_expansion =
-            [
-              "ProcessSlots";
-              "ProcessBlock";
-              "ProcessBlockHeader";
-              (* "ProcessWithdrawals"; *)
-              (* "ProcessEth1Data"; *)
-              (* "ProcessOperations"; *)
-              (* "ProcessExecutionPayload"; *)
-              (* "ProcessRandao"; *)
-              (* "ProcessSyncAggregate"; *)
-            ]
-          in
-          let inputs_for_stack =
-            if List.mem id.it relations_needing_expansion then
-              List.map (expand_vars State.sym_env) input_exps
-            else input_exps
-          in
-
-          State.push_call_args id.it inputs_for_stack output_exps
+          State.push_call_args id.it input_exps output_exps
       | _ -> ()
     else
       (* Get premise UID *)
