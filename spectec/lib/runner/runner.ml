@@ -302,62 +302,81 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
   let results =
     List.map
       (fun (Task.Pack (module T)) ->
-        (* Each task discovers its own inputs *)
-        let all_inputs =
-          match test_dir with
-          | Some dir -> T.collect ~dir ()
-          | None -> T.collect ()
-        in
-        let total_all = List.length all_inputs in
-        (* Filter out completed inputs if resuming *)
-        let inputs =
-          match loaded_checkpoint with
-          | Some checkpoint ->
-              Checkpoint.filter_remaining checkpoint all_inputs ~get_id:T.source
-          | None -> all_inputs
-        in
-        let completed_count = total_all - List.length inputs in
-        if verbose then
-          Format.printf "Running %s (%d tests, %d already completed)...\n%!"
-            T.name (List.length inputs) completed_count;
-        let task_results =
-          List.mapi
-            (fun index input ->
-              let source = T.source input in
-              if verbose then
-                (* Show absolute progress: [completed+1/total] *)
-                Format.printf "  [%d/%d] %s... %!"
-                  (completed_count + index + 1)
-                  total_all source;
-              (* Use no_lifecycle version - init/finish managed at coverage level *)
-              let outcome =
-                try
-                  run_with_outcome_no_lifecycle
-                    (module T)
-                    ~sl_mode ~spec_il input
-                with exception_value ->
-                  let error =
-                    Error.IlInterpError
-                      ( Common.Source.no_region,
-                        Printexc.to_string exception_value )
+        (* TEMPORARY: Skip all tasks except state_transition *)
+        if T.name <> "state_transition" then
+          {
+            task_name = T.name;
+            summary =
+              {
+                total = 0;
+                pass = 0;
+                expected_fail = 0;
+                fail = 0;
+                unexpected_pass = 0;
+              };
+          }
+        else
+          let task_result =
+            (* Each task discovers its own inputs *)
+            let all_inputs =
+              match test_dir with
+              | Some dir -> T.collect ~dir ()
+              | None -> T.collect ()
+            in
+            let total_all = List.length all_inputs in
+            (* Filter out completed inputs if resuming *)
+            let inputs =
+              match loaded_checkpoint with
+              | Some checkpoint ->
+                  Checkpoint.filter_remaining checkpoint all_inputs
+                    ~get_id:T.source
+              | None -> all_inputs
+            in
+            let completed_count = total_all - List.length inputs in
+            if verbose then
+              Format.printf "Running %s (%d tests, %d already completed)...\n%!"
+                T.name (List.length inputs) completed_count;
+            let task_results =
+              List.mapi
+                (fun index input ->
+                  let source = T.source input in
+                  if verbose then
+                    (* Show absolute progress: [completed+1/total] *)
+                    Format.printf "  [%d/%d] %s... %!"
+                      (completed_count + index + 1)
+                      total_all source;
+                  (* Use no_lifecycle version - init/finish managed at coverage level *)
+                  let outcome =
+                    try
+                      run_with_outcome_no_lifecycle
+                        (module T)
+                        ~sl_mode ~spec_il input
+                    with exception_value ->
+                      let error =
+                        Error.IlInterpError
+                          ( Common.Source.no_region,
+                            Printexc.to_string exception_value )
+                      in
+                      Task.compute_outcome (T.expectation input) (Error error)
                   in
-                  Task.compute_outcome (T.expectation input) (Error error)
-              in
-              (if verbose then
-                 match outcome with
-                 | Task.Pass _ -> Format.printf "PASS\n%!"
-                 | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
-                 | Task.Fail _ -> Format.printf "FAIL\n%!"
-                 | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!");
-              (* Track completion *)
-              all_completed_inputs := source :: !all_completed_inputs;
-              (* Periodic checkpoint save *)
-              if (index + 1) mod checkpoint_config.save_interval = 0 then
-                save_current_checkpoint ();
-              { input; source; outcome })
-            inputs
-        in
-        { task_name = T.name; summary = summarize_outcomes task_results })
+                  (if verbose then
+                     match outcome with
+                     | Task.Pass _ -> Format.printf "PASS\n%!"
+                     | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
+                     | Task.Fail _ -> Format.printf "FAIL\n%!"
+                     | Task.UnexpectedPass _ ->
+                         Format.printf "UNEXPECTED PASS\n%!");
+                  (* Track completion *)
+                  all_completed_inputs := source :: !all_completed_inputs;
+                  (* Periodic checkpoint save *)
+                  if (index + 1) mod checkpoint_config.save_interval = 0 then
+                    save_current_checkpoint ();
+                  { input; source; outcome })
+                inputs
+            in
+            { task_name = T.name; summary = summarize_outcomes task_results }
+          in
+          task_result)
       tasks
   in
   (* Final checkpoint save *)

@@ -69,6 +69,63 @@ type sym_mutation = {
   suggestion : mutation_kind;
 }
 
+(* Compare two sym_mutations for equality (for deduplication) *)
+let compare_sym_mutation m1 m2 =
+  match (m1.target_path, m2.target_path) with
+  | Some p1, Some p2 ->
+      let path_cmp = compare p1 p2 in
+      if path_cmp = 0 then
+        (* Same path, compare suggestions *)
+        match (m1.suggestion, m2.suggestion) with
+        | ToConst (op1, v1), ToConst (op2, v2) ->
+            let op_cmp = compare op1 op2 in
+            if op_cmp = 0 then
+              (* Compare values by their string representation for simplicity *)
+              compare
+                (Il.Print.string_of_value v1)
+                (Il.Print.string_of_value v2)
+            else op_cmp
+        | ToLength (op1, v1), ToLength (op2, v2) ->
+            let op_cmp = compare op1 op2 in
+            if op_cmp = 0 then
+              compare
+                (Il.Print.string_of_value v1)
+                (Il.Print.string_of_value v2)
+            else op_cmp
+        | Unknown _, Unknown _ -> 0 (* All Unknown are considered equal *)
+        | ToConst _, _ -> -1
+        | ToLength _, ToConst _ -> 1
+        | ToLength _, _ -> -1
+        | Unknown _, _ -> 1
+      else path_cmp
+  | None, None -> 0
+  | Some _, None -> -1
+  | None, Some _ -> 1
+
+(* Negate comparison operator for test generation (to violate constraints).
+   This is different from invert_cmp_op: we want to generate mutations that
+   violate the constraint, so we negate the operator. *)
+let negate_cmp_op = function
+  | `GtOp -> `LeOp (* x > n violated by x <= n *)
+  | `GeOp -> `LtOp (* x >= n violated by x < n *)
+  | `LtOp -> `GeOp (* x < n violated by x >= n *)
+  | `LeOp -> `GtOp (* x <= n violated by x > n *)
+  | `EqOp -> `NeOp (* x == n violated by x != n *)
+  | `NeOp -> `EqOp (* x != n violated by x == n *)
+
+(* Negate mutation_kind to generate mutations that violate constraints *)
+let negate_mutation_kind = function
+  | ToConst (op, value) -> ToConst (negate_cmp_op op, value)
+  | ToLength (op, value) -> ToLength (negate_cmp_op op, value)
+  | Unknown hint -> Unknown hint (* Unknown mutations are not negated *)
+
+(* Negate a sym_mutation to generate mutations that violate constraints *)
+let negate_sym_mutation (mut : sym_mutation) : sym_mutation =
+  {
+    target_path = mut.target_path;
+    suggestion = negate_mutation_kind mut.suggestion;
+  }
+
 (* Frame for tracking sym_env bindings in scope *)
 type pos_frame = { local_env : sym_env; is_barrier : bool }
 
@@ -222,6 +279,12 @@ module State = struct
   let add_per_test_sym_mutation (premise_uid : int)
       (mutations : sym_mutation list) =
     if mutations <> [] then
+      (* Negate all mutations to generate violations of constraints *)
+      let negated_mutations = List.map negate_sym_mutation mutations in
+      (* Deduplicate mutations for the same test *)
+      let deduplicated_mutations =
+        List.sort_uniq compare_sym_mutation negated_mutations
+      in
       let test_id =
         if !current_test_id <> "" then !current_test_id else "default"
       in
@@ -238,7 +301,10 @@ module State = struct
         | Some m -> m
         | None -> []
       in
-      Hashtbl.replace test_table test_id (existing @ mutations)
+      (* Merge and deduplicate with existing mutations *)
+      let merged = existing @ deduplicated_mutations in
+      let final_mutations = List.sort_uniq compare_sym_mutation merged in
+      Hashtbl.replace test_table test_id final_mutations
 
   (* Clear checkpoint data after it's been saved - frees memory for long runs.
      Per-test state (sym_env, seen_prems) is already cleared in on_test_end. *)
@@ -853,20 +919,10 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
   | Il.MatchE (exp_match, pat) -> (
       match pat with
       | Il.ListP `Nil ->
-          (* matches [] => len == 0 *)
-          let paths =
-            extract_paths_from_exp sym_env (expand_vars sym_env exp_match)
-          in
-          List.map
-            (fun path ->
-              {
-                target_path = Some path;
-                suggestion =
-                  ToLength
-                    ( `EqOp,
-                      Il.Value.Make.num Il.Typ.nat (`Nat (Bigint.of_int 0)) );
-              })
-            paths
+          (* matches [] => len == 0
+             After negation: len != 0
+             But we can't mutate empty list to non-empty without schema, so skip *)
+          []
       | Il.ListP `Cons ->
           (* matches _::_ => len > 0 *)
           let paths =
@@ -1098,20 +1154,62 @@ module M : Instrumentation_core.Handler.S = struct
           match prem.it with
           | Il.IfPr exp ->
               (* Strip negation and bool_eq wrappers *)
-              let exp1, _neg1 = strip_negation exp in
-              let exp2, _neg2 = strip_bool_eq exp1 in
+              let exp1, was_negated = strip_negation exp in
+              let exp2, was_bool_eq_negated = strip_bool_eq exp1 in
+              let total_negated = was_negated <> was_bool_eq_negated in
               (* Extract symbolic mutations directly from expression *)
               let sym_mutations =
                 extract_symbolic_mutations State.sym_env exp2
               in
-              State.add_per_test_sym_mutation uid sym_mutations
+              (* If the premise was negated, we need to invert boolean values in mutations *)
+              let adjusted_mutations =
+                if total_negated then
+                  List.map
+                    (fun mut ->
+                      match mut.suggestion with
+                      | ToConst (`EqOp, v) -> (
+                          (* Check if value is boolean and invert it *)
+                          match v.it with
+                          | Il.BoolV b ->
+                              {
+                                mut with
+                                suggestion =
+                                  ToConst (`EqOp, Il.Value.bool (not b));
+                              }
+                          | _ -> mut)
+                      | _ -> mut)
+                    sym_mutations
+                else sym_mutations
+              in
+              State.add_per_test_sym_mutation uid adjusted_mutations
           | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
-              let exp1, _neg1 = strip_negation exp in
-              let exp2, _neg2 = strip_bool_eq exp1 in
+              let exp1, was_negated = strip_negation exp in
+              let exp2, was_bool_eq_negated = strip_bool_eq exp1 in
+              let total_negated = was_negated <> was_bool_eq_negated in
               let sym_mutations =
                 extract_symbolic_mutations State.sym_env exp2
               in
-              State.add_per_test_sym_mutation uid sym_mutations
+              (* If the premise was negated, we need to invert boolean values in mutations *)
+              let adjusted_mutations =
+                if total_negated then
+                  List.map
+                    (fun mut ->
+                      match mut.suggestion with
+                      | ToConst (`EqOp, v) -> (
+                          (* Check if value is boolean and invert it *)
+                          match v.it with
+                          | Il.BoolV b ->
+                              {
+                                mut with
+                                suggestion =
+                                  ToConst (`EqOp, Il.Value.bool (not b));
+                              }
+                          | _ -> mut)
+                      | _ -> mut)
+                    sym_mutations
+                else sym_mutations
+              in
+              State.add_per_test_sym_mutation uid adjusted_mutations
           | _ -> ())
 
   let on_prem_exit ~prem ~at:_ ~success =

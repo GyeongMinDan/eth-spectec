@@ -16,14 +16,36 @@ type mutation_strategy =
   | SetBoundary (* Set to boundary value - min/max *)
   | AppendItem (* Append a default/duplicate item to list *)
   | RemoveItem (* Remove the last item from list *)
+  | SetLength of int
+(* Set list to target length: duplicate random items when larger, drop random items when smaller *)
 
 (* Navigate to a field in JSON using a path *)
 let rec get_field (json : t) (path : field_step list) : t option =
   match (json, path) with
   | `Assoc fields, Dep.FieldAccess field_name :: rest -> (
-      match List.assoc_opt field_name fields with
+      (* Helper to strip "generic_" prefix *)
+      let remove_generic_prefix name =
+        if String.starts_with ~prefix:"generic_" name then
+          String.sub name 8 (String.length name - 8)
+        else name
+      in
+      let clean_field_name = remove_generic_prefix field_name in
+
+      (* Try exact match first on clean name *)
+      match List.assoc_opt clean_field_name fields with
       | Some nested -> if rest = [] then Some nested else get_field nested rest
-      | None -> None)
+      | None -> (
+          (* Try case-insensitive match *)
+          let target = String.lowercase_ascii clean_field_name in
+          let found =
+            List.find_opt
+              (fun (k, _) -> String.lowercase_ascii k = target)
+              fields
+          in
+          match found with
+          | Some (_, nested) ->
+              if rest = [] then Some nested else get_field nested rest
+          | None -> None))
   | `List items, Dep.IndexAccess idx :: rest -> (
       match idx with
       | Dep.ConstInt i ->
@@ -51,24 +73,38 @@ let get_value_at_path (json : t) (path : field_path) : t option =
 let rec set_field (json : t) (path : field_step list) (value : t) : t =
   match (json, path) with
   | `Assoc fields, [ Dep.FieldAccess field_name ] ->
+      let remove_generic_prefix name =
+        if String.starts_with ~prefix:"generic_" name then
+          String.sub name 8 (String.length name - 8)
+        else name
+      in
+      let clean_field_name = remove_generic_prefix field_name in
       let updated_fields =
-        match find_case_insensitive_key field_name fields with
+        match find_case_insensitive_key clean_field_name fields with
         | Some (k, _) ->
-            let filtered = remove_case_insensitive_keys field_name fields in
+            let filtered =
+              remove_case_insensitive_keys clean_field_name fields
+            in
             (k, value) :: filtered
-        | None -> (field_name, value) :: fields
+        | None -> (clean_field_name, value) :: fields
       in
       `Assoc updated_fields
   | `Assoc fields, Dep.FieldAccess field_name :: rest -> (
-      match find_case_insensitive_key field_name fields with
+      let remove_generic_prefix name =
+        if String.starts_with ~prefix:"generic_" name then
+          String.sub name 8 (String.length name - 8)
+        else name
+      in
+      let clean_field_name = remove_generic_prefix field_name in
+      match find_case_insensitive_key clean_field_name fields with
       | Some (k, nested) ->
           let updated_nested = set_field nested rest value in
-          let filtered = remove_case_insensitive_keys field_name fields in
+          let filtered = remove_case_insensitive_keys clean_field_name fields in
           `Assoc ((k, updated_nested) :: filtered)
       | None ->
           (* Create nested structure *)
           let new_nested = set_field (`Assoc []) rest value in
-          `Assoc ((field_name, new_nested) :: fields))
+          `Assoc ((clean_field_name, new_nested) :: fields))
   | `List items, [ Dep.IndexAccess (Dep.PathRef _) ] ->
       (* Wildcard leaf: update all items to value - assuming PathRef here is used as wildcard/iterator *)
       (* note: usage of PathRef as wildcard is a bit of an overload here, but fits the pattern *)
@@ -117,6 +153,43 @@ let apply_mutation (json : t) (strategy : mutation_strategy) : t =
   | `List items, RemoveItem ->
       if items = [] then `List []
       else `List (List.rev (List.tl (List.rev items)))
+  | `List items, SetLength target_len ->
+      (* Skip mutation if source list is empty *)
+      if items = [] then `List items
+      else
+        let current_len = List.length items in
+        if target_len = current_len then `List items
+        else if target_len > current_len then
+          (* Duplicate random items to reach target length *)
+          let needed = target_len - current_len in
+          let rec duplicate acc remaining =
+            if remaining = 0 then acc
+            else
+              let random_idx = Random.int (List.length items) in
+              let random_item = List.nth items random_idx in
+              duplicate (random_item :: acc) (remaining - 1)
+          in
+          `List (items @ List.rev (duplicate [] needed))
+        else
+          (* Drop random items to reach target length *)
+          (* Create list of indices and randomly select which ones to keep *)
+          let indices = List.init current_len (fun i -> i) in
+          let rec shuffle list =
+            match list with
+            | [] -> []
+            | [ x ] -> [ x ]
+            | _ ->
+                let random_idx = Random.int (List.length list) in
+                let selected = List.nth list random_idx in
+                let rest = List.filteri (fun i _ -> i <> random_idx) list in
+                selected :: shuffle rest
+          in
+          let shuffled = shuffle indices in
+          let keep_indices = List.take target_len shuffled in
+          let keep_set =
+            List.fold_left (fun acc idx -> idx :: acc) [] keep_indices
+          in
+          `List (List.filteri (fun idx _ -> List.mem idx keep_set) items)
   | _, SetValue v -> v
   | _ -> json
 
