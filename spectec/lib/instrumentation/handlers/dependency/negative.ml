@@ -612,6 +612,8 @@ module M : Instrumentation_core.Handler.S = struct
 
   (* Noop - logic moved to on_prem_enter/on_prem_exit *)
   let on_prem_fields = Instrumentation_core.Noop.on_prem_fields
+  let on_rule_output = Instrumentation_core.Noop.on_rule_output
+  let on_clause_return = Instrumentation_core.Noop.on_clause_return
   let on_instr = Instrumentation_core.Noop.on_instr
 
   let finish () =

@@ -111,6 +111,20 @@ let notify_prem_exit ~prem ~at ~success =
       (fun (module H : Handler.S) -> H.on_prem_exit ~prem ~at ~success)
       !handlers
 
+let notify_rule_output ~id ~rule_id ~at ~output_exps =
+  if !handlers <> [] then
+    List.iter
+      (fun (module H : Handler.S) ->
+        H.on_rule_output ~id ~rule_id ~at ~output_exps)
+      !handlers
+
+let notify_clause_return ~id ~clause_idx ~at ~return_exp =
+  if !handlers <> [] then
+    List.iter
+      (fun (module H : Handler.S) ->
+        H.on_clause_return ~id ~clause_idx ~at ~return_exp)
+      !handlers
+
 let notify_instr ~instr ~at =
   if !handlers <> [] then
     List.iter (fun (module H : Handler.S) -> H.on_instr ~instr ~at) !handlers

@@ -222,6 +222,24 @@ let extract_relation_io_indices (il_spec : Il.spec) :
     il_spec;
   relation_io_indices
 
+(* Extract function parameter names from spec *)
+let extract_function_params (il_spec : Il.spec) :
+    (string, string list) Hashtbl.t =
+  let function_params = Hashtbl.create 100 in
+  List.iter
+    (fun def ->
+      match def.it with
+      | Il.DecD (id, _, _, _, _) ->
+          (* For now, we can't extract parameter names from function declarations
+             since they only contain types, not variable names.
+             Functions define their parameter names in their clause definitions. *)
+          (* TODO: Extract param names from clause definitions instead *)
+          let param_names = [] in
+          Hashtbl.replace function_params id.it param_names
+      | _ -> ())
+    il_spec;
+  function_params
+
 (* Bind input variables for State_transition relation *)
 let bind_state_transition_inputs (env : source_env)
     (relation_inputs : (string, string list) Hashtbl.t) (rel_id : string)

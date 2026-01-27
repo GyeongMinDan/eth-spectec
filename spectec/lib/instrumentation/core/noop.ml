@@ -21,6 +21,8 @@ module M : Handler.S = struct
   let on_prem_enter ~eval:_ ~prem:_ ~at:_ = ()
   let on_prem_exit ~prem:_ ~at:_ ~success:_ = ()
   let on_prem_fields ~prem:_ ~fields:_ ~lookup:_ ~at:_ = ()
+  let on_rule_output ~id:_ ~rule_id:_ ~at:_ ~output_exps:_ = ()
+  let on_clause_return ~id:_ ~clause_idx:_ ~at:_ ~return_exp:_ = ()
   let on_instr ~instr:_ ~at:_ = ()
   let finish () = ()
 end
@@ -42,5 +44,7 @@ let on_iter_prem_exit = M.on_iter_prem_exit
 let on_prem_enter = M.on_prem_enter
 let on_prem_fields = M.on_prem_fields
 let on_prem_exit = M.on_prem_exit
+let on_rule_output = M.on_rule_output
+let on_clause_return = M.on_clause_return
 let on_instr = M.on_instr
 let finish = M.finish

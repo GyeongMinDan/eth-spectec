@@ -1102,6 +1102,35 @@ module M : Instrumentation_core.Handler.S = struct
   (* Noop - logic moved to on_prem_enter *)
   let on_prem_fields = Instrumentation_core.Noop.on_prem_fields
 
+  let on_rule_output ~id:_ ~rule_id:_ ~at:_ ~output_exps =
+    (* Extract paths from each output expression *)
+    List.iter
+      (fun output_exp ->
+        let expanded = expand_vars State.sym_env output_exp in
+        let _paths = extract_paths_from_exp State.sym_env expanded in
+        (* For now, just track that these paths are outputs *)
+        (* TODO: Store in a mapping for later use when the relation is called *)
+        match resolve_to_field_path State.sym_env expanded with
+        | Some _field_path ->
+            (* Successfully resolved to a field path *)
+            (* Future: store this for propagation to call sites *)
+            ()
+        | None -> ())
+      output_exps
+
+  let on_clause_return ~id:_ ~clause_idx:_ ~at:_ ~return_exp =
+    (* Extract paths from the return expression *)
+    let expanded = expand_vars State.sym_env return_exp in
+    let _paths = extract_paths_from_exp State.sym_env expanded in
+    (* For now, just track that we saw this return expression *)
+    (* TODO: Store in a mapping for later use when the function is called *)
+    match resolve_to_field_path State.sym_env expanded with
+    | Some _field_path ->
+        (* Successfully resolved to a field path *)
+        (* Future: store this for propagation to call sites *)
+        ()
+    | None -> ()
+
   let finish () =
     Format.fprintf !fmt "\n=== Symbolic Mutations ===\n\n";
     (* Print symbolic mutations organized by premise UID *)

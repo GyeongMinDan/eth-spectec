@@ -53,6 +53,13 @@ module type S = sig
 
   val on_prem_exit : prem:Il.prem -> at:region -> success:bool -> unit
 
+  (* Return/output expression hooks - called when rules/clauses succeed *)
+  val on_rule_output :
+    id:string -> rule_id:string -> at:region -> output_exps:Il.exp list -> unit
+
+  val on_clause_return :
+    id:string -> clause_idx:int -> at:region -> return_exp:Il.exp -> unit
+
   (* SL-specific events *)
   val on_instr : instr:Sl.instr -> at:region -> unit
   val finish : unit -> unit
