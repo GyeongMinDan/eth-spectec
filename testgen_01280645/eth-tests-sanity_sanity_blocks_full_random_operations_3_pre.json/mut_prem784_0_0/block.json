@@ -1,7 +1,7 @@
 {
   "message": {
+    "proposer_index": 18446744073709551615,
     "slot": 8193,
-    "proposer_index": 161,
     "parent_root": "0x0a01c2ee39a598a3ca7e8491522deaff84dadde2f7a068707c7f4518dbf92863",
     "state_root": "0xc7040d0edb4cbad4a491b62cfc5ca80203a739a92b3755dfa2149d1ac888c116",
     "body": {
