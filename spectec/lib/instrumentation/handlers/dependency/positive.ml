@@ -851,49 +851,25 @@ let bind_relation_inputs (rel_id : string) (values : Il.Value.t list) : unit =
       (* Bind each input variable *)
       List.iteri
         (fun i name ->
-          if i < List.length values then (
+          if i < List.length values then
             let value = List.nth values i in
             let expr =
               if i < List.length call_inputs then
                 (* Use actual call-site expression UNEXPANDED - will be expanded later when needed *)
                 List.nth call_inputs i
               else
-                (* Fallback: type-based heuristic *)
-                let type_name =
-                  match value.note.Il.typ with
-                  | Il.VarT (id, _) -> String.lowercase_ascii id.it
-                  | _ -> ""
-                in
-                if type_name = "beaconstate" then
-                  {
-                    it = Il.VarE ("state" $ no_region);
-                    at = no_region;
-                    note = value.note.Il.typ;
-                  }
-                else if type_name = "signedbeaconblock" then
-                  {
-                    it = Il.VarE ("block" $ no_region);
-                    at = no_region;
-                    note = value.note.Il.typ;
-                  }
-                else
-                  {
-                    it = Il.VarE (name $ no_region);
-                    at = no_region;
-                    note = value.note.Il.typ;
-                  }
+                (* Top-level relation call (no call_inputs): bind inputs directly to themselves
+                   so they resolve to the input source (STATE/BLOCK) via type-based fallback *)
+                (* For top-level inputs, bind to the input variable name itself.
+                   When resolving, if not found in sym_env, the type-based fallback in
+                   resolve_to_field_path_with_visited will correctly return State/Block source. *)
+                {
+                  it = Il.VarE (name $ no_region);
+                  at = no_region;
+                  note = value.note.Il.typ;
+                }
             in
-            State.bind_sym name expr;
-            (* For State_transition, also create standard aliases *)
-            if rel_id = "State_transition" then
-              let type_name =
-                match value.note.Il.typ with
-                | Il.VarT (id, _) -> String.lowercase_ascii id.it
-                | _ -> ""
-              in
-              if type_name = "beaconstate" then State.bind_sym "state" expr
-              else if type_name = "signedbeaconblock" then
-                State.bind_sym "block" expr))
+            State.bind_sym name expr)
         input_names
 
 (* === Handler Implementation === *)
@@ -1002,22 +978,44 @@ module M : Instrumentation_core.Handler.S = struct
           in
           let num_args = List.length args in
 
-          (* Split into inputs (at input indices) and outputs (rest) - no expansion yet *)
-          let inputs =
-            args
-            |> List.mapi (fun i e -> (i, e))
+          (* args is already Il.exp list (notexp = mixop * exp list), split by index *)
+          let indexed_exps = List.mapi (fun i exp -> (i, exp)) args in
+
+          (* Split into inputs and outputs *)
+          let input_exps =
+            indexed_exps
             |> List.filter (fun (i, _) -> List.mem i input_indices)
             |> List.map snd
           in
-          let outputs =
-            args
-            |> List.mapi (fun i e -> (i, e))
+          let output_exps =
+            indexed_exps
             |> List.filter (fun (i, _) ->
                    (not (List.mem i input_indices)) && i < num_args)
             |> List.map snd
           in
 
-          State.push_call_args id.it inputs outputs
+          (* Only eagerly expand inputs for relations that need cross-relation block threading.
+   For all others, keep lazy behaviour to avoid performance blow-ups. *)
+          let relations_needing_expansion =
+            [
+              "ProcessSlots";
+              "ProcessBlock";
+              "ProcessBlockHeader";
+              (* "ProcessWithdrawals"; *)
+              (* "ProcessEth1Data"; *)
+              (* "ProcessOperations"; *)
+              (* "ProcessExecutionPayload"; *)
+              (* "ProcessRandao"; *)
+              (* "ProcessSyncAggregate"; *)
+            ]
+          in
+          let inputs_for_stack =
+            if List.mem id.it relations_needing_expansion then
+              List.map (expand_vars State.sym_env) input_exps
+            else input_exps
+          in
+
+          State.push_call_args id.it inputs_for_stack output_exps
       | _ -> ()
     else
       (* Get premise UID *)
