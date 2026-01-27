@@ -42,6 +42,7 @@ STATUS_LABEL = {
 LIGHTHOUSE_CORE_IGNORE_PATTERNS = [
     "beacon_node/",           # Beacon node operational logic
     "common/",                 # Infrastructure code
+    "lighthouse/environment/", # Environment setup code 
     "lighthouse/(?!consensus/|crypto/|lcli/)",  # lighthouse/ but NOT lighthouse/consensus/, lighthouse/crypto/, lighthouse/lcli/
     "target/",                 # Build artifacts
     "\\.cargo",                 # Rust toolchain sources (.cargo directory)
@@ -69,7 +70,6 @@ LIGHTHOUSE_CORE_IGNORE_PATTERNS = [
 #   - tech/pegasys/teku/storage/**       : Storage layer
 #   - tech/pegasys/teku/ethereum/executionclient/** : Execution client integration
 #   - tech/pegasys/teku/ethereum/executionlayer/**  : Execution layer
-#   - tech/pegasys/teku/cli/**            : CLI tooling
 #   - tech/pegasys/teku/infrastructure/json/**      : JSON infrastructure
 #   - tech/pegasys/teku/infrastructure/logging/**  : Logging infrastructure
 #   - tech/pegasys/teku/infrastructure/metrics/**   : Metrics infrastructure
@@ -83,6 +83,7 @@ TEKU_CORE_INCLUDE_PREFIXES = (
     "tech/pegasys/teku/spec",
     "tech/pegasys/teku/infrastructure/ssz",
     "tech/pegasys/teku/bls",
+    "tech/pegasys/teku/cli",
 )
 
 # Nimbus coverage report scope (noise reduction)
@@ -3372,6 +3373,10 @@ def _filter_teku_xml_report(xml_input, xml_output):
     This function filters the XML report by keeping only packages that start with
     one of the TEKU_CORE_INCLUDE_PREFIXES. This is done AFTER merging original
     coverage data, matching the Nimbus/Lighthouse approach.
+    
+    IMPORTANT: After filtering packages, we must recalculate root-level counters
+    by summing counters from remaining packages. Root-level counters represent
+    the total, so they must be updated to reflect only filtered packages.
     """
     import xml.etree.ElementTree as ET
     
@@ -3394,11 +3399,63 @@ def _filter_teku_xml_report(xml_input, xml_output):
         for package in packages_to_remove:
             root.remove(package)
         
+        # Recalculate root-level counters from remaining packages
+        # Root-level counters must reflect only the filtered packages
+        total_instructions_missed = 0
+        total_instructions_covered = 0
+        total_branches_missed = 0
+        total_branches_covered = 0
+        total_lines_missed = 0
+        total_lines_covered = 0
+        
+        # Sum counters from all remaining packages
+        for package in root.findall("package"):
+            # Find package-level counters (direct children of package)
+            for counter in package.findall("counter"):
+                counter_type = counter.get("type")
+                missed = int(counter.get("missed", 0))
+                covered = int(counter.get("covered", 0))
+                
+                if counter_type == "INSTRUCTION":
+                    total_instructions_missed += missed
+                    total_instructions_covered += covered
+                elif counter_type == "BRANCH":
+                    total_branches_missed += missed
+                    total_branches_covered += covered
+                elif counter_type == "LINE":
+                    total_lines_missed += missed
+                    total_lines_covered += covered
+        
+        # Remove existing root-level counters
+        for counter in root.findall("counter"):
+            root.remove(counter)
+        
+        # Add updated root-level counters
+        if total_instructions_missed > 0 or total_instructions_covered > 0:
+            counter_elem = ET.Element("counter", type="INSTRUCTION", 
+                                     missed=str(total_instructions_missed),
+                                     covered=str(total_instructions_covered))
+            root.insert(0, counter_elem)
+        
+        if total_branches_missed > 0 or total_branches_covered > 0:
+            counter_elem = ET.Element("counter", type="BRANCH",
+                                     missed=str(total_branches_missed),
+                                     covered=str(total_branches_covered))
+            root.insert(1, counter_elem)
+        
+        if total_lines_missed > 0 or total_lines_covered > 0:
+            counter_elem = ET.Element("counter", type="LINE",
+                                     missed=str(total_lines_missed),
+                                     covered=str(total_lines_covered))
+            root.insert(2, counter_elem)
+        
         # Write filtered XML
         tree.write(xml_output, encoding="UTF-8", xml_declaration=True)
         
     except Exception as e:
         print(f"    ⚠ Warning: Failed to filter Teku XML report: {e}")
+        import traceback
+        traceback.print_exc()
         # Fallback: copy original XML
         import shutil
         shutil.copy2(xml_input, xml_output)
@@ -3418,6 +3475,9 @@ def _generate_teku_html_from_filtered_xml(filtered_xml, output_dir, teku_root):
         root = tree.getroot()
         
         # Calculate totals from filtered XML
+        # IMPORTANT: Only read root-level counters, not all descendants
+        # JaCoCo XML structure: <report><counter type="BRANCH" .../> (root level has total)
+        # Using .//counter would sum root + package + class counters (incorrect!)
         total_instructions = 0
         total_covered = 0
         total_branches = 0
@@ -3425,15 +3485,16 @@ def _generate_teku_html_from_filtered_xml(filtered_xml, output_dir, teku_root):
         total_lines = 0
         total_lines_covered = 0
         
-        for counter in root.findall(".//counter[@type='INSTRUCTION']"):
+        # Read only direct children of root (root-level counters)
+        for counter in root.findall("counter[@type='INSTRUCTION']"):
             total_instructions += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
             total_covered += int(counter.get("covered", 0))
         
-        for counter in root.findall(".//counter[@type='BRANCH']"):
+        for counter in root.findall("counter[@type='BRANCH']"):
             total_branches += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
             total_branches_covered += int(counter.get("covered", 0))
         
-        for counter in root.findall(".//counter[@type='LINE']"):
+        for counter in root.findall("counter[@type='LINE']"):
             total_lines += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
             total_lines_covered += int(counter.get("covered", 0))
         

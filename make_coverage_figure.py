@@ -195,6 +195,18 @@ def parse_teku_branch_coverage(report_dir):
     
     Note: After filtering, coverage_filtered.xml is generated. This function
     prioritizes coverage_filtered.xml (filtered data) over coverage.xml (unfiltered).
+    
+    JaCoCo XML structure:
+    <report>
+        <counter type="BRANCH" missed="..." covered="..."/>  <!-- root level = total -->
+        <package>
+            <counter type="BRANCH" .../>  <!-- package level -->
+            ...
+        </package>
+    </report>
+    
+    IMPORTANT: Only read root-level counter, not all descendants!
+    Using .//counter would sum root + package + class counters (incorrect!).
     """
     # Prioritize filtered XML (if filtering was applied), fallback to original XML
     filtered_xml = report_dir / "coverage_filtered.xml"
@@ -214,7 +226,8 @@ def parse_teku_branch_coverage(report_dir):
         tree = ET.parse(xml_file)
         root = tree.getroot()
         
-        # Find BRANCH counter at root level (total coverage)
+        # JaCoCo XML root is <report>, find BRANCH counter at root level only
+        # Use root.findall('counter') not root.findall('.//counter') to avoid summing nested counters
         branch_counter = None
         for counter in root.findall('counter'):
             if counter.get('type') == 'BRANCH':
