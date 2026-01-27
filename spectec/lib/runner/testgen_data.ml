@@ -47,8 +47,17 @@ let serialize_mutation (mut : Positive.sym_mutation) : mutation_serial =
         ToConstSerial (Positive.string_of_cmp_op op, Il.Print.string_of_value v)
     | Positive.ToLength (op, v) ->
         ToLengthSerial (Positive.string_of_cmp_op op, Il.Print.string_of_value v)
-    | Positive.Unknown typ ->
-        UnknownSerial (Option.map Il.Print.string_of_typ typ)
+    | Positive.Unknown hint ->
+        UnknownSerial
+          (match hint with
+          | Positive.ValueHint v ->
+              Some (Printf.sprintf "value:%s" (Il.Print.string_of_value v))
+          | Positive.TypeHint t ->
+              Some
+                (Printf.sprintf "type:%s"
+                   (Il.Print.string_of_typ
+                      { it = t; at = Common.Source.no_region; note = () }))
+          | Positive.NoHint -> None)
   in
   {
     target_path = mut.target_path;

@@ -52,11 +52,17 @@ end)
 (* Maps variables to their defining expression *)
 type sym_env = (string, Il.exp) Hashtbl.t
 
+(* Type hint for unknown mutations when value can't be evaluated *)
+type unknown_hint =
+  | ValueHint of Il.Value.t (* We have the actual value *)
+  | TypeHint of Il.typ' (* We only have the type (unwrapped) *)
+  | NoHint (* No information available *)
+
 (* Mutation suggestion types *)
 type mutation_kind =
   | ToConst of Il.cmpop * Il.Value.t (* path <op> value *)
   | ToLength of Il.cmpop * Il.Value.t (* collection length constraint *)
-  | Unknown of Il.typ option (* over-approximation *)
+  | Unknown of unknown_hint (* over-approximation with value or type hint *)
 
 type sym_mutation = {
   target_path : field_path option;
@@ -574,11 +580,15 @@ let string_of_mutation_kind = function
   | ToLength (op, v) ->
       Printf.sprintf "len %s %s" (string_of_cmp_op op)
         (Il.Print.string_of_value v)
-  | Unknown typ ->
+  | Unknown hint ->
       Printf.sprintf "UNKNOWN%s"
-        (match typ with
-        | Some t -> Printf.sprintf "(%s)" (Il.Print.string_of_typ t)
-        | None -> "")
+        (match hint with
+        | ValueHint v -> Printf.sprintf "(%s)" (Il.Print.string_of_value v)
+        | TypeHint t ->
+            Printf.sprintf "[%s]"
+              (Il.Print.string_of_typ
+                 { it = t; at = Common.Source.no_region; note = () })
+        | NoHint -> "")
 
 let string_of_sym_mutation (mut : sym_mutation) : string =
   let target_str =
@@ -693,6 +703,18 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
       let rhs_paths = extract_paths_from_exp sym_env rhs_sym in
       let all_paths = lhs_paths @ rhs_paths in
 
+      (* Try to evaluate LHS and RHS to get values for Unknown fallback *)
+      let lhs_hint =
+        match try Some (!State.current_eval lhs_sym) with _ -> None with
+        | Some v -> ValueHint v
+        | None -> TypeHint lhs_sym.note
+      in
+      let rhs_hint =
+        match try Some (!State.current_eval rhs_sym) with _ -> None with
+        | Some v -> ValueHint v
+        | None -> TypeHint rhs_sym.note
+      in
+
       (* For each path, try to rearrange and evaluate *)
       List.filter_map
         (fun path ->
@@ -711,31 +733,51 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
                   in
                   Some { target_path = Some path; suggestion }
               | None ->
-                  (* Can't evaluate - return Unknown with type *)
-                  Some { target_path = Some path; suggestion = Unknown None })
+                  (* Can't evaluate isolated RHS - use LHS or RHS hint for Unknown *)
+                  let fallback_hint =
+                    if List.mem path lhs_paths then rhs_hint else lhs_hint
+                  in
+                  Some
+                    {
+                      target_path = Some path;
+                      suggestion = Unknown fallback_hint;
+                    })
           | None ->
-              (* Can't rearrange - return Unknown *)
-              Some { target_path = Some path; suggestion = Unknown None })
+              (* Can't rearrange - use LHS or RHS hint for Unknown *)
+              let fallback_hint =
+                if List.mem path lhs_paths then rhs_hint else lhs_hint
+              in
+              Some
+                { target_path = Some path; suggestion = Unknown fallback_hint })
         all_paths
   | Il.CallE (_func_id, _, args) ->
-      (* Verification functions: all args get Unknown *)
-      let arg_paths =
-        List.concat_map
+      (* Verification functions: extract TOP-LEVEL path only for each arg *)
+      (* We don't want intermediate paths like state.VALIDATORS when the arg is state.VALIDATORS[i].PUBKEY *)
+      let arg_mutations =
+        List.filter_map
           (fun arg ->
             match arg.it with
-            | Il.ExpA e ->
-                extract_paths_from_exp sym_env (expand_vars sym_env e)
-            | Il.DefA _ -> [])
+            | Il.ExpA e -> (
+                let expanded = expand_vars sym_env e in
+                (* Only try to resolve as a single path - don't recurse into subexpressions *)
+                let path_opt = resolve_to_field_path sym_env expanded in
+                (* Try to get value hint *)
+                let hint =
+                  match
+                    try Some (!State.current_eval expanded) with _ -> None
+                  with
+                  | Some v -> ValueHint v
+                  | None -> TypeHint expanded.note
+                in
+                (* Only include if we have a path *)
+                match path_opt with
+                | Some path ->
+                    Some { target_path = Some path; suggestion = Unknown hint }
+                | None -> None)
+            | Il.DefA _ -> None)
           args
       in
-      List.map
-        (fun path ->
-          {
-            target_path = Some path;
-            suggestion =
-              Unknown (Some { it = exp.note; at = no_region; note = () });
-          })
-        arg_paths
+      arg_mutations
   | Il.MatchE (exp_match, pat) -> (
       match pat with
       | Il.ListP `Nil ->

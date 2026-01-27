@@ -258,9 +258,120 @@ let infer_mutation_constraints (premise_uid : premise_uid)
               | Pos.ToLength (_op, _value) ->
                   (* Adjust collection size *)
                   [ Json_mutator.AppendItem; Json_mutator.RemoveItem ]
-              | Pos.Unknown _typ ->
-                  (* Generate type-aware boundary values *)
-                  fallback_strategies
+              | Pos.Unknown hint -> (
+                  (* Generate strategies based on value hint or type hint *)
+                  let strategies_from_value value =
+                    match value.it with
+                    | Il.NumV (`Nat _) | Il.NumV (`Int _) ->
+                        (* For numeric values, generate 0 and max *)
+                        [
+                          Json_mutator.SetValue (`Intlit "0");
+                          Json_mutator.SetValue (`Intlit "18446744073709551615");
+                        ]
+                    | Il.BytesV { len; _ } ->
+                        (* For bytes, generate all zeros and all ones of same size *)
+                        let zeros_hex = String.make (len * 2) '0' in
+                        let ones_hex = String.make (len * 2) 'f' in
+                        [
+                          Json_mutator.SetValue (`String ("0x" ^ zeros_hex));
+                          Json_mutator.SetValue (`String ("0x" ^ ones_hex));
+                        ]
+                    | Il.BoolV _ ->
+                        (* For booleans, try both values *)
+                        [
+                          Json_mutator.SetValue (`Bool true);
+                          Json_mutator.SetValue (`Bool false);
+                        ]
+                    | Il.ListV _ ->
+                        (* For lists, try empty and modified *)
+                        [ Json_mutator.RemoveItem; Json_mutator.AppendItem ]
+                    | Il.StructV _ ->
+                        (* For structs, can't easily mutate - use fallback *)
+                        fallback_strategies
+                    | _ -> fallback_strategies
+                  in
+                  let strategies_from_type typ =
+                    match typ with
+                    | Il.NumT `NatT | Il.NumT `IntT ->
+                        (* Numeric types: 0 and max *)
+                        [
+                          Json_mutator.SetValue (`Intlit "0");
+                          Json_mutator.SetValue (`Intlit "18446744073709551615");
+                        ]
+                    | Il.BoolT ->
+                        [
+                          Json_mutator.SetValue (`Bool true);
+                          Json_mutator.SetValue (`Bool false);
+                        ]
+                    | Il.TextT ->
+                        [
+                          Json_mutator.SetValue (`String "");
+                          Json_mutator.SetValue (`String "mutated_string");
+                        ]
+                    | Il.VarT (id, _) ->
+                        (* Check type name for hints *)
+                        let name = String.lowercase_ascii id.it in
+                        if
+                          String.length name >= 5
+                          && String.sub name 0 5 = "bytes"
+                        then
+                          (* bytesN type - try to extract N *)
+                          let len_str =
+                            String.sub name 5 (String.length name - 5)
+                          in
+                          let len = try int_of_string len_str with _ -> 32 in
+                          let zeros_hex = String.make (len * 2) '0' in
+                          let ones_hex = String.make (len * 2) 'f' in
+                          [
+                            Json_mutator.SetValue (`String ("0x" ^ zeros_hex));
+                            Json_mutator.SetValue (`String ("0x" ^ ones_hex));
+                          ]
+                        else if name = "boolean" || name = "bool" then
+                          [
+                            Json_mutator.SetValue (`Bool true);
+                            Json_mutator.SetValue (`Bool false);
+                          ]
+                        else if
+                          List.mem name
+                            [
+                              "uint64";
+                              "slot";
+                              "epoch";
+                              "validatorindex";
+                              "nat";
+                              "int";
+                            ]
+                        then
+                          [
+                            Json_mutator.SetValue (`Intlit "0");
+                            Json_mutator.SetValue
+                              (`Intlit "18446744073709551615");
+                          ]
+                        else if
+                          List.mem name
+                            [ "root"; "hash32"; "blspubkey"; "blssignature" ]
+                        then
+                          (* 32-byte or 48-byte hashes *)
+                          let len =
+                            if name = "blspubkey" || name = "blssignature" then
+                              48
+                            else 32
+                          in
+                          let zeros_hex = String.make (len * 2) '0' in
+                          let ones_hex = String.make (len * 2) 'f' in
+                          [
+                            Json_mutator.SetValue (`String ("0x" ^ zeros_hex));
+                            Json_mutator.SetValue (`String ("0x" ^ ones_hex));
+                          ]
+                        else fallback_strategies
+                    | Il.IterT (_, Il.List) ->
+                        [ Json_mutator.RemoveItem; Json_mutator.AppendItem ]
+                    | _ -> fallback_strategies
+                  in
+                  match hint with
+                  | Pos.ValueHint v -> strategies_from_value v
+                  | Pos.TypeHint t -> strategies_from_type t
+                  | Pos.NoHint -> fallback_strategies)
             in
             (* Only include if we have strategies *)
             if strategies = [] then (
