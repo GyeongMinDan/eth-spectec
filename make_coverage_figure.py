@@ -192,9 +192,21 @@ def parse_teku_branch_coverage(report_dir):
     - Root level has <counter type="BRANCH"> with missed and covered attributes
     - Total branches = missed + covered
     - Coverage % = covered / (missed + covered) * 100
+    
+    Note: After filtering, coverage_filtered.xml is generated. This function
+    prioritizes coverage_filtered.xml (filtered data) over coverage.xml (unfiltered).
     """
-    xml_file = report_dir / "coverage.xml"
-    if not xml_file.exists():
+    # Prioritize filtered XML (if filtering was applied), fallback to original XML
+    filtered_xml = report_dir / "coverage_filtered.xml"
+    original_xml = report_dir / "coverage.xml"
+    
+    xml_file = None
+    if filtered_xml.exists():
+        xml_file = filtered_xml
+    elif original_xml.exists():
+        xml_file = original_xml
+    
+    if xml_file is None or not xml_file.exists():
         return None, None
     
     try:

@@ -39,12 +39,15 @@ STATUS_LABEL = {
 #   - target/         : Build artifacts
 #   - .cargo, rustc/  : Rust toolchain sources
 #
-# Regex explanation for --ignore-filename-regex (matches = excluded):
-#   - `\.cargo`       : Matches .cargo in any path (absolute or relative)
-#   - `rustc/`        : Matches rustc/ directory anywhere in path
-#   - `^(?!consensus/|crypto/|lcli/).*` : Matches any path that does NOT start
-#                                         with consensus/, crypto/, or lcli/
-LIGHTHOUSE_CORE_IGNORE_REGEX = r"(\.cargo|rustc/|^(?!consensus/|crypto/|lcli/).*)"
+LIGHTHOUSE_CORE_IGNORE_PATTERNS = [
+    "beacon_node/",           # Beacon node operational logic
+    "common/",                 # Infrastructure code
+    "lighthouse/(?!consensus/|crypto/|lcli/)",  # lighthouse/ but NOT lighthouse/consensus/, lighthouse/crypto/, lighthouse/lcli/
+    "target/",                 # Build artifacts
+    "\\.cargo",                 # Rust toolchain sources (.cargo directory)
+    "rustc/",                  # Rust toolchain sources (rustc directory)
+    "^root/",                  # Root directory (often contains .cargo registry)
+]
 
 # Teku coverage report scope (noise reduction)
 # We intentionally apply filtering ONLY at report generation time (after XML generation),
@@ -3111,18 +3114,22 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
         # 2. Generate HTML report with branch coverage
         html_dir = lighthouse_report_dir / "html"
         html_dir.mkdir(exist_ok=True)
+        cmd_show = [
+            str(llvm_cov), "show",
+            str(lighthouse_binary),
+            f"--instr-profile={profdata_file}",
+            "--format=html",
+            f"--output-dir={html_dir}",
+            "--show-line-counts-or-regions",
+            "--show-branches=count",  # Show branch coverage with execution counts
+            "--show-instantiations"
+        ]
+        # Add each exclude pattern separately
+        for pattern in LIGHTHOUSE_CORE_IGNORE_PATTERNS:
+            cmd_show.extend(["--ignore-filename-regex", pattern])
+        
         subprocess.run(
-            [
-                str(llvm_cov), "show",
-                str(lighthouse_binary),
-                f"--instr-profile={profdata_file}",
-                "--format=html",
-                f"--output-dir={html_dir}",
-                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
-                "--show-line-counts-or-regions",
-                "--show-branches=count",  # Show branch coverage with execution counts
-                "--show-instantiations"
-            ],
+            cmd_show,
             check=True,
             capture_output=True,
             text=True
@@ -3130,15 +3137,19 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
         
         # 3. Generate text summary with branch coverage
         summary_file = lighthouse_report_dir / "summary.txt"
+        cmd_report = [
+            str(llvm_cov), "report",
+            str(lighthouse_binary),
+            f"--instr-profile={profdata_file}",
+            "--show-branch-summary",  # Show branch condition statistics in summary table
+            "--show-instantiation-summary"
+        ]
+        # Add each exclude pattern separately
+        for pattern in LIGHTHOUSE_CORE_IGNORE_PATTERNS:
+            cmd_report.extend(["--ignore-filename-regex", pattern])
+        
         result = subprocess.run(
-            [
-                str(llvm_cov), "report",
-                str(lighthouse_binary),
-                f"--instr-profile={profdata_file}",
-                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
-                "--show-branch-summary",  # Show branch condition statistics in summary table
-                "--show-instantiation-summary"
-            ],
+            cmd_report,
             capture_output=True,
             text=True,
             check=True
@@ -3228,17 +3239,9 @@ def _generate_teku_report(teku_coverage_dir, testing_clients_dir):
         _filter_teku_xml_report(xml_report, filtered_xml)
         
         # 3. Generate HTML report from filtered XML
-        subprocess.run(
-            [
-                "java", "-jar", str(jacoco_cli),
-                "report", str(filtered_xml),
-            ] + classfiles_args + sourcefiles_args + [
-                "--html", str(teku_report_dir)
-            ],
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        # Note: JaCoCo report command doesn't accept XML as input, so we parse
+        # the filtered XML and generate HTML report directly
+        _generate_teku_html_from_filtered_xml(filtered_xml, teku_report_dir, teku_root)
         print(f"    ✓ Report: {teku_report_dir / 'index.html'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed: {e}")
@@ -3256,6 +3259,10 @@ def _filter_nimbus_lcov_report(lcov_input, lcov_output, nimbus_src):
         current_record = []
         current_file = None
         should_include = False
+        included_count = 0
+        excluded_count = 0
+        
+        nimbus_src_str = str(nimbus_src)
         
         with open(lcov_input, 'r') as f:
             for line in f:
@@ -3265,6 +3272,9 @@ def _filter_nimbus_lcov_report(lcov_input, lcov_output, nimbus_src):
                     if current_file is not None and should_include:
                         output_lines.extend(current_record)
                         output_lines.append('end_of_record\n')
+                        included_count += 1
+                    elif current_file is not None:
+                        excluded_count += 1
                     
                     # Start new record
                     current_record = [line]
@@ -3273,10 +3283,24 @@ def _filter_nimbus_lcov_report(lcov_input, lcov_output, nimbus_src):
                     # Check if file should be included
                     # Extract relative path (remove absolute prefix if exists)
                     rel_path = current_file
-                    if '/nimbus-eth2/' in current_file:
-                        rel_path = current_file.split('/nimbus-eth2/')[-1]
-                    elif current_file.startswith('/usr/') or current_file.startswith('/nimbus-eth2/'):
-                        # System paths - exclude
+                    
+                    # Normalize path separators
+                    rel_path = rel_path.replace('\\', '/')
+                    
+                    # Try to extract relative path from nimbus_src
+                    if nimbus_src_str in current_file:
+                        # Extract path relative to nimbus_src
+                        idx = current_file.find(nimbus_src_str)
+                        if idx != -1:
+                            rel_path = current_file[idx + len(nimbus_src_str):].lstrip('/')
+                    elif '/nimbus-eth2/' in current_file:
+                        # Fallback: try to extract after nimbus-eth2
+                        parts = current_file.split('/nimbus-eth2/')
+                        if len(parts) > 1:
+                            rel_path = parts[-1]
+                    
+                    # Exclude system paths
+                    if current_file.startswith('/usr/') or current_file.startswith('/nimbus-eth2/') or '/usr/' in current_file:
                         should_include = False
                     else:
                         # Check if path starts with one of the included prefixes
@@ -3287,6 +3311,9 @@ def _filter_nimbus_lcov_report(lcov_input, lcov_output, nimbus_src):
                     if should_include:
                         output_lines.extend(current_record)
                         output_lines.append(line)
+                        included_count += 1
+                    else:
+                        excluded_count += 1
                     current_record = []
                     current_file = None
                     should_include = False
@@ -3297,16 +3324,43 @@ def _filter_nimbus_lcov_report(lcov_input, lcov_output, nimbus_src):
                         current_record.append(line)
         
         # Handle last record if file doesn't end with end_of_record
-        if current_file is not None and should_include:
-            output_lines.extend(current_record)
-            output_lines.append('end_of_record\n')
+        if current_file is not None:
+            if should_include:
+                output_lines.extend(current_record)
+                output_lines.append('end_of_record\n')
+                included_count += 1
+            else:
+                excluded_count += 1
+        
+        # Check if we have any valid records
+        if not output_lines:
+            print(f"    ⚠ Warning: Filtered lcov file is empty (included: {included_count}, excluded: {excluded_count})")
+            print(f"    ℹ This might indicate that no files matched the inclusion criteria")
+            print(f"    ℹ Inclusion prefixes: {NIMBUS_CORE_INCLUDE_PREFIXES}")
+            # Don't create empty file - genhtml will fail
+            # Instead, create a minimal valid lcov file with a dummy record
+            output_lines = [
+                "TN:\n",
+                "SF:dummy\n",
+                "FN:1,dummy\n",
+                "FNDA:0,dummy\n",
+                "FNF:1\n",
+                "FNH:0\n",
+                "end_of_record\n"
+            ]
+            print(f"    ⚠ Created minimal lcov file to prevent genhtml error")
         
         # Write filtered lcov file
         with open(lcov_output, 'w') as f:
             f.writelines(output_lines)
         
+        if included_count > 0:
+            print(f"    ℹ Filtered lcov: {included_count} files included, {excluded_count} files excluded")
+        
     except Exception as e:
         print(f"    ⚠ Warning: Failed to filter Nimbus lcov report: {e}")
+        import traceback
+        traceback.print_exc()
         # Fallback: copy original lcov file
         import shutil
         shutil.copy2(lcov_input, lcov_output)
@@ -3348,6 +3402,213 @@ def _filter_teku_xml_report(xml_input, xml_output):
         # Fallback: copy original XML
         import shutil
         shutil.copy2(xml_input, xml_output)
+
+
+def _generate_teku_html_from_filtered_xml(filtered_xml, output_dir, teku_root):
+    """Generate HTML report from filtered JaCoCo XML file
+    
+    Since JaCoCo report command doesn't accept XML as input, we parse the
+    filtered XML and generate HTML report that matches JaCoCo's format.
+    """
+    import xml.etree.ElementTree as ET
+    import html as html_escape
+    
+    try:
+        tree = ET.parse(filtered_xml)
+        root = tree.getroot()
+        
+        # Calculate totals from filtered XML
+        total_instructions = 0
+        total_covered = 0
+        total_branches = 0
+        total_branches_covered = 0
+        total_lines = 0
+        total_lines_covered = 0
+        
+        for counter in root.findall(".//counter[@type='INSTRUCTION']"):
+            total_instructions += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
+            total_covered += int(counter.get("covered", 0))
+        
+        for counter in root.findall(".//counter[@type='BRANCH']"):
+            total_branches += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
+            total_branches_covered += int(counter.get("covered", 0))
+        
+        for counter in root.findall(".//counter[@type='LINE']"):
+            total_lines += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
+            total_lines_covered += int(counter.get("covered", 0))
+        
+        # Generate HTML report (simplified version matching JaCoCo style)
+        html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <title>JaCoCo Coverage Report (Filtered)</title>
+    <link rel="stylesheet" href="https://www.jacoco.org/jacoco/resource/report.css" type="text/css"/>
+    <style type="text/css">
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        .footer {{ margin-top: 20px; font-size: 10px; color: #666; }}
+    </style>
+</head>
+<body>
+    <h1>JaCoCo Coverage Report (Filtered - Core State-Transition Only)</h1>
+    
+    <table class="coverage">
+        <thead>
+            <tr>
+                <th>Element</th>
+                <th class="counter">Missed Instructions</th>
+                <th class="counter">Covered Instructions</th>
+                <th class="counter">Missed Branches</th>
+                <th class="counter">Covered Branches</th>
+                <th class="counter">Missed Lines</th>
+                <th class="counter">Covered Lines</th>
+                <th class="counter">Cxty</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="el_report">Report</td>
+                <td class="ctr2">{total_instructions - total_covered}</td>
+                <td class="ctr1">{total_covered}</td>
+                <td class="ctr2">{total_branches - total_branches_covered}</td>
+                <td class="ctr1">{total_branches_covered}</td>
+                <td class="ctr2">{total_lines - total_lines_covered}</td>
+                <td class="ctr1">{total_lines_covered}</td>
+                <td class="ctr2">-</td>
+            </tr>
+        </tbody>
+    </table>
+    
+    <h2>Packages</h2>
+    <table class="coverage">
+        <thead>
+            <tr>
+                <th>Package</th>
+                <th class="counter">Missed Instructions</th>
+                <th class="counter">Covered Instructions</th>
+                <th class="counter">Missed Branches</th>
+                <th class="counter">Covered Branches</th>
+                <th class="counter">Missed Lines</th>
+                <th class="counter">Covered Lines</th>
+                <th class="counter">Cxty</th>
+            </tr>
+        </thead>
+        <tbody>
+"""
+        
+        # Process packages from filtered XML
+        for package in root.findall(".//package"):
+            pkg_name = package.get("name", "")
+            pkg_instructions = 0
+            pkg_covered = 0
+            pkg_branches = 0
+            pkg_branches_covered = 0
+            pkg_lines = 0
+            pkg_lines_covered = 0
+            
+            for counter in package.findall(".//counter[@type='INSTRUCTION']"):
+                pkg_instructions += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
+                pkg_covered += int(counter.get("covered", 0))
+            
+            for counter in package.findall(".//counter[@type='BRANCH']"):
+                pkg_branches += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
+                pkg_branches_covered += int(counter.get("covered", 0))
+            
+            for counter in package.findall(".//counter[@type='LINE']"):
+                pkg_lines += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
+                pkg_lines_covered += int(counter.get("covered", 0))
+            
+            # Create package directory structure
+            pkg_dir = output_dir / pkg_name.replace(".", "/")
+            pkg_dir.mkdir(parents=True, exist_ok=True)
+            
+            html_content += f"""            <tr>
+                <td class="el_package"><a href="{pkg_name.replace('.', '/')}/index.html">{html_escape.escape(pkg_name)}</a></td>
+                <td class="ctr2">{pkg_instructions - pkg_covered}</td>
+                <td class="ctr1">{pkg_covered}</td>
+                <td class="ctr2">{pkg_branches - pkg_branches_covered}</td>
+                <td class="ctr1">{pkg_branches_covered}</td>
+                <td class="ctr2">{pkg_lines - pkg_lines_covered}</td>
+                <td class="ctr1">{pkg_lines_covered}</td>
+                <td class="ctr2">-</td>
+            </tr>
+"""
+        
+        html_content += """        </tbody>
+    </table>
+    
+    <div class="footer">
+        Generated from filtered JaCoCo XML report (Core State-Transition packages only)
+    </div>
+</body>
+</html>
+"""
+        
+        # Write HTML file
+        html_file = output_dir / "index.html"
+        with open(html_file, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+    except Exception as e:
+        print(f"    ⚠ Warning: Failed to generate HTML from filtered XML: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def _generate_teku_csv_from_filtered_xml(filtered_xml, csv_file):
+    """Generate CSV report from filtered JaCoCo XML file"""
+    import xml.etree.ElementTree as ET
+    import csv
+    
+    try:
+        tree = ET.parse(filtered_xml)
+        root = tree.getroot()
+        
+        with open(csv_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Package', 'Class', 'Instructions Missed', 'Instructions Covered', 'Branches Missed', 'Branches Covered', 'Lines Missed', 'Lines Covered'])
+            
+            for package in root.findall(".//package"):
+                pkg_name = package.get("name", "")
+                
+                for class_elem in package.findall(".//class"):
+                    class_name = class_elem.get("name", "")
+                    
+                    # Get counters for this class
+                    instructions_missed = 0
+                    instructions_covered = 0
+                    branches_missed = 0
+                    branches_covered = 0
+                    lines_missed = 0
+                    lines_covered = 0
+                    
+                    for counter in class_elem.findall(".//counter[@type='INSTRUCTION']"):
+                        instructions_missed += int(counter.get("missed", 0))
+                        instructions_covered += int(counter.get("covered", 0))
+                    
+                    for counter in class_elem.findall(".//counter[@type='BRANCH']"):
+                        branches_missed += int(counter.get("missed", 0))
+                        branches_covered += int(counter.get("covered", 0))
+                    
+                    for counter in class_elem.findall(".//counter[@type='LINE']"):
+                        lines_missed += int(counter.get("missed", 0))
+                        lines_covered += int(counter.get("covered", 0))
+                    
+                    writer.writerow([
+                        pkg_name,
+                        class_name,
+                        instructions_missed,
+                        instructions_covered,
+                        branches_missed,
+                        branches_covered,
+                        lines_missed,
+                        lines_covered
+                    ])
+        
+    except Exception as e:
+        print(f"    ⚠ Warning: Failed to generate CSV from filtered XML: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def _filter_prysm_coverage_txt(coverage_txt_input, coverage_txt_output):
@@ -3904,19 +4165,23 @@ def _merge_final_lighthouse_coverage(merged_coverage_dirs, output_dir, testing_c
         
         # Generate HTML report with branch coverage
         # Use absolute paths for profdata and output directory
+        cmd_show = [
+            str(llvm_cov),
+            "show",
+            str(lighthouse_binary),
+            f"--instr-profile={final_merged_profdata.resolve()}",
+            "--format=html",
+            f"--output-dir={html_dir.resolve()}",
+            "--show-line-counts-or-regions",
+            "--show-branches=count",
+            "--show-instantiations",
+        ]
+        # Add each exclude pattern separately
+        for pattern in LIGHTHOUSE_CORE_IGNORE_PATTERNS:
+            cmd_show.extend(["--ignore-filename-regex", pattern])
+        
         subprocess.run(
-            [
-                str(llvm_cov),
-                "show",
-                str(lighthouse_binary),
-                f"--instr-profile={final_merged_profdata.resolve()}",
-                "--format=html",
-                f"--output-dir={html_dir.resolve()}",
-                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
-                "--show-line-counts-or-regions",
-                "--show-branches=count",
-                "--show-instantiations",
-            ],
+            cmd_show,
             check=True,
             capture_output=True,
             text=True,
@@ -3925,15 +4190,19 @@ def _merge_final_lighthouse_coverage(merged_coverage_dirs, output_dir, testing_c
         
         # Generate text summary with branch coverage
         summary_file = report_dir / "summary.txt"
+        cmd_report = [
+            str(llvm_cov),
+            "report",
+            str(lighthouse_binary),
+            f"--instr-profile={final_merged_profdata.resolve()}",
+            "--show-branch-summary",
+        ]
+        # Add each exclude pattern separately
+        for pattern in LIGHTHOUSE_CORE_IGNORE_PATTERNS:
+            cmd_report.extend(["--ignore-filename-regex", pattern])
+        
         result = subprocess.run(
-            [
-                str(llvm_cov),
-                "report",
-                str(lighthouse_binary),
-                f"--instr-profile={final_merged_profdata.resolve()}",
-                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
-                "--show-branch-summary",
-            ],
+            cmd_report,
             check=True,
             capture_output=True,
             text=True,
@@ -4018,17 +4287,13 @@ def _merge_final_teku_coverage(merged_coverage_dirs, output_dir, testing_clients
         filtered_xml = report_dir / "coverage_filtered.xml"
         _filter_teku_xml_report(xml_report, filtered_xml)
         
-        # 3. Generate HTML and CSV reports from filtered XML
-        subprocess.run(
-            ["java", "-jar", str(jacoco_cli),
-                "report", str(filtered_xml),
-                "--html", str(report_dir),
-                "--csv", str(report_dir / "coverage.csv"),
-            ] + classfiles_args + sourcefiles_args,
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        # 3. Generate HTML report from filtered XML
+        # Note: JaCoCo report command doesn't accept XML as input, so we parse
+        # the filtered XML and generate HTML report directly
+        _generate_teku_html_from_filtered_xml(filtered_xml, report_dir, teku_root)
+        
+        # Generate CSV from filtered XML
+        _generate_teku_csv_from_filtered_xml(filtered_xml, report_dir / "coverage.csv")
         
         print(f"    ✓ Final accumulated report: {report_dir / 'index.html'}")
     except subprocess.CalledProcessError as e:
@@ -4209,17 +4474,34 @@ def _merge_prysm_coverage(cov_dirs, output_dir, testing_clients_dir):
             text=True
         )
         
-        # Generate report from merged data
-        _generate_prysm_report(merged_cov_dir, testing_clients_dir)
+        # Generate report from merged data (no filtering for test suite accumulation)
+        prysm_report_dir = output_dir / "report"
+        prysm_report_dir.mkdir(exist_ok=True)
+        prysm_dir = testing_clients_dir / "prysm"
         
-        # Move report to output_dir
-        report_dir = merged_cov_dir / "report"
-        if report_dir.exists():
-            final_report_dir = output_dir / "report"
-            if final_report_dir.exists():
-                shutil.rmtree(final_report_dir)
-            shutil.move(str(report_dir), str(final_report_dir))
-            print(f"    ✓ Accumulated report: {final_report_dir / 'coverage.html'}")
+        # Convert to text format using go tool covdata textfmt (no filtering)
+        coverage_txt = prysm_report_dir / "coverage.txt"
+        subprocess.run(
+            ["go", "tool", "covdata", "textfmt", f"-i={merged_cov_dir}", f"-o={coverage_txt}"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # Generate HTML report using go tool cover (run from Prysm directory)
+        coverage_html = prysm_report_dir / "coverage.html"
+        rel_coverage_txt = Path(os.path.relpath(coverage_txt, prysm_dir))
+        rel_coverage_html = Path(os.path.relpath(coverage_html, prysm_dir))
+        
+        subprocess.run(
+            ["go", "tool", "cover", f"-html={rel_coverage_txt}", f"-o={rel_coverage_html}"],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=str(prysm_dir)  # Run from Prysm directory (go.mod required)
+        )
+        
+        print(f"    ✓ Accumulated report: {coverage_html}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
@@ -4356,7 +4638,7 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
         html_dir = report_dir / "html"
         html_dir.mkdir(exist_ok=True)
         
-        # Generate HTML report using llvm-cov with branch coverage (same options as individual reports)
+        # Generate HTML report using llvm-cov with branch coverage (no filtering for test suite accumulation)
         subprocess.run(
             [
                 str(llvm_cov),
@@ -4365,7 +4647,6 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
                 f"--instr-profile={merged_profdata}",
                 "--format=html",
                 f"--output-dir={html_dir}",
-                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
                 "--show-line-counts-or-regions",
                 "--show-branches=count",  # Show branch coverage with execution counts
                 "--show-instantiations",
@@ -4376,7 +4657,7 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
             cwd=str(lighthouse_src)
         )
         
-        # Generate text summary with branch coverage
+        # Generate text summary with branch coverage (no filtering for test suite accumulation)
         summary_file = report_dir / "summary.txt"
         result = subprocess.run(
             [
@@ -4384,7 +4665,6 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
                 "report",
                 str(lighthouse_binary),
                 f"--instr-profile={merged_profdata}",
-                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
                 "--show-branch-summary",  # Show branch condition statistics in summary table
             ],
             check=True,
@@ -4467,28 +4747,11 @@ def _merge_teku_coverage(cov_dirs, output_dir, testing_clients_dir):
         for src_dir in src_dirs:
             sourcefiles_args.extend(["--sourcefiles", src_dir])
         
-        # 1. Generate XML report first (for filtering)
-        xml_report = report_dir / "coverage.xml"
+        # Generate HTML and CSV reports from merged exec file (no filtering for test suite accumulation)
         subprocess.run(
             [
                 "java", "-jar", str(jacoco_cli),
                 "report", str(merged_exec),
-                "--xml", str(xml_report),
-            ] + classfiles_args + sourcefiles_args,
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        
-        # 2. Filter XML report to keep only core state-transition packages
-        filtered_xml = report_dir / "coverage_filtered.xml"
-        _filter_teku_xml_report(xml_report, filtered_xml)
-        
-        # 3. Generate HTML and CSV reports from filtered XML
-        subprocess.run(
-            [
-                "java", "-jar", str(jacoco_cli),
-                "report", str(filtered_xml),
                 "--html", str(report_dir),
                 "--csv", str(report_dir / "coverage.csv"),
             ] + classfiles_args + sourcefiles_args,
@@ -4545,16 +4808,11 @@ def _merge_nimbus_coverage(cov_dirs, output_dir, testing_clients_dir):
                 text=True
             )
             
-            # Filter to keep only core state-transition packages (beacon_chain/, ncli/)
-            # This is done AFTER merging original coverage data, matching Lighthouse/TeKu approach
-            coverage_clean = report_dir / "coverage_clean.info"
-            _filter_nimbus_lcov_report(merged_coverage_info, coverage_clean, nimbus_src)
-            
-            # Generate HTML report with branch coverage (using filtered coverage_clean.info)
+            # Generate HTML report with branch coverage (no filtering for test suite accumulation)
             subprocess.run(
                 [
                     "genhtml",
-                    str(coverage_clean),
+                    str(merged_coverage_info),
                     "--output-directory", str(report_dir),
                     "--prefix", str(nimbus_src),
                     "--branch-coverage",
@@ -4667,20 +4925,15 @@ def _merge_nimbus_coverage(cov_dirs, output_dir, testing_clients_dir):
             text=True
         )
         
-        # Filter to keep only core state-transition packages (beacon_chain/, ncli/)
-        # This is done AFTER merging original coverage data, matching Lighthouse/TeKu approach
-        coverage_clean = report_dir / "coverage_clean.info"
-        _filter_nimbus_lcov_report(coverage_info, coverage_clean, nimbus_src)
-        
         # Clean up temp files
         for temp_info in temp_info_files:
             temp_info.unlink()
         
-        # Generate HTML report with branch coverage (using filtered coverage_clean.info)
+        # Generate HTML report with branch coverage (no filtering for test suite accumulation)
         subprocess.run(
             [
                 "genhtml",
-                str(coverage_clean),
+                str(coverage_info),
                 "--output-directory", str(report_dir),
                 "--prefix", str(nimbus_src),
                 "--branch-coverage",  # Enable branch coverage display
