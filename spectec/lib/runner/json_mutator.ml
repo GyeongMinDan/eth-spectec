@@ -21,21 +21,9 @@ type mutation_strategy =
 let rec get_field (json : t) (path : field_step list) : t option =
   match (json, path) with
   | `Assoc fields, Dep.FieldAccess field_name :: rest -> (
-      (* Try exact match first *)
       match List.assoc_opt field_name fields with
       | Some nested -> if rest = [] then Some nested else get_field nested rest
-      | None -> (
-          (* Try case-insensitive match *)
-          let field_name_lower = String.lowercase_ascii field_name in
-          let found =
-            List.find_opt
-              (fun (k, _) -> String.lowercase_ascii k = field_name_lower)
-              fields
-          in
-          match found with
-          | Some (_, nested) ->
-              if rest = [] then Some nested else get_field nested rest
-          | None -> None))
+      | None -> None)
   | `List items, Dep.IndexAccess idx :: rest -> (
       match idx with
       | Dep.ConstInt i ->
@@ -57,13 +45,7 @@ let remove_case_insensitive_keys field_name fields =
 
 (* Get value at path for reporting - wrapper around get_field *)
 let get_value_at_path (json : t) (path : field_path) : t option =
-  let result = get_field json path.steps in
-  (match result with
-  | None ->
-      Format.eprintf "[DEBUG] get_value_at_path failed for path: %s\n%!"
-        (Dep.string_of_field_path path)
-  | Some _ -> ());
-  result
+  get_field json path.steps
 
 (* Set a field in JSON using a path *)
 let rec set_field (json : t) (path : field_step list) (value : t) : t =

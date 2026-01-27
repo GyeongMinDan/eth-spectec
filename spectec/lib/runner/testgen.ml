@@ -33,8 +33,6 @@ type mutation_constraint = {
   field_path : field_path;
   strategies : Json_mutator.mutation_strategy list;
       (* Strategies to try for this path *)
-  suggestion_str : string option;
-      (* Original mutation suggestion string for reporting *)
 }
 
 (* Premise information *)
@@ -175,217 +173,45 @@ let get_mutation_suggestions_for_premise (premise_uid : premise_uid)
     (dependency : Instrumentation.Dependency.Positive.result option) :
     Instrumentation.Dependency.Positive.sym_mutation list =
   match dependency with
-  | None -> []
+  | None ->
+      Format.printf "[DEBUG] No dependency data for premise %d\n%!" premise_uid;
+      []
   | Some dep -> (
+      Format.printf "[DEBUG] Looking for premise %d in dependency data\n%!"
+        premise_uid;
+      Format.printf "[DEBUG] Available premise UIDs: %s\n%!"
+        (String.concat ", "
+           (List.map
+              (fun (uid, _) -> string_of_int uid)
+              dep.per_test_sym_mutations));
       (* Find mutations for this premise UID *)
       match List.assoc_opt premise_uid dep.per_test_sym_mutations with
-      | None -> []
+      | None ->
+          Format.printf "[DEBUG] Premise %d not found in mutations\n%!"
+            premise_uid;
+          []
       | Some test_muts ->
+          Format.printf
+            "[DEBUG] Found %d test cases with mutations for premise %d\n%!"
+            (List.length test_muts) premise_uid;
+          List.iter
+            (fun (test_id, muts) ->
+              Format.printf "[DEBUG]   Test %s: %d mutations\n%!" test_id
+                (List.length muts))
+            test_muts;
           (* Collect all mutations across all test cases *)
           let all_muts =
             List.fold_left (fun acc (_, muts) -> acc @ muts) [] test_muts
           in
-          (* Filter invalid mutations *)
-          let module Dep = Instrumentation.Dependency.Dep_common in
-          let is_valid_mutation
-              (mut : Instrumentation.Dependency.Positive.sym_mutation) : bool =
-            match mut.target_path with
-            | None -> false
-            | Some path ->
-                (* Filter out state as whole *)
-                if path.source = Dep.State && path.steps = [] then false
-                  (* Filter out Unknown source *)
-                else if path.source = Dep.Unknown then false
-                else true
-          in
-          let filtered_muts = List.filter is_valid_mutation all_muts in
-          (* De-duplicate mutations based on target_path and suggestion *)
-          let module Pos = Instrumentation.Dependency.Positive in
-          let mutation_key (mut : Pos.sym_mutation) : string =
-            let path_str =
-              match mut.target_path with
-              | None -> "None"
-              | Some path -> Dep.string_of_field_path path
-            in
-            let suggestion_str =
-              match mut.suggestion with
-              | Pos.ToConst (op, v) ->
-                  Printf.sprintf "ToConst(%s,%s)" (Pos.string_of_cmp_op op)
-                    (Il.Print.string_of_value v)
-              | Pos.ToLength (op, v) ->
-                  Printf.sprintf "ToLength(%s,%s)" (Pos.string_of_cmp_op op)
-                    (Il.Print.string_of_value v)
-              | Pos.Unknown typ ->
-                  Printf.sprintf "Unknown(%s)"
-                    (match typ with
-                    | Some t -> Il.Print.string_of_typ t
-                    | None -> "None")
-            in
-            Printf.sprintf "%s|%s" path_str suggestion_str
-          in
-          let seen = Hashtbl.create (List.length filtered_muts) in
-          let deduplicated_muts =
-            List.filter
-              (fun mut ->
-                let key = mutation_key mut in
-                if Hashtbl.mem seen key then false
-                else (
-                  Hashtbl.replace seen key ();
-                  true))
-              filtered_muts
-          in
-          deduplicated_muts)
+          Format.printf "[DEBUG] Total mutations collected: %d\n%!"
+            (List.length all_muts);
+          all_muts)
 
 (* Convert Il.Value.t to JSON value for mutation *)
 let value_to_json (v : Il.Value.t) : (Yojson.Safe.t, string) result =
   match Interface.JSON.Print.value_to_json v with
   | Ok json -> Ok json
   | Error err -> Error (Interface.JSON.Print.string_of_error err)
-
-(* Load type aliases from elaborated IL spec. *)
-let spec_il_ref : Il.spec option ref = ref None
-let type_aliases_cache : (string, Il.typ) Hashtbl.t option ref = ref None
-
-let set_spec_il (spec_il : Il.spec) : unit =
-  spec_il_ref := Some spec_il;
-  type_aliases_cache := None
-
-let load_type_aliases () : (string, Il.typ) Hashtbl.t =
-  match !type_aliases_cache with
-  | Some aliases -> aliases
-  | None ->
-      let aliases = Hashtbl.create 256 in
-      let spec_il = Option.value ~default:[] !spec_il_ref in
-      List.iter
-        (fun def ->
-          match def.it with
-          | Il.TypD (typid, _tparams, deftyp) -> (
-              match deftyp.it with
-              | Il.PlainT typ ->
-                  Hashtbl.replace aliases (String.lowercase_ascii typid.it) typ
-              | _ -> ())
-          | _ -> ())
-        spec_il;
-      type_aliases_cache := Some aliases;
-      aliases
-
-let is_bytes_type_name name =
-  String.length name >= 5 && String.sub name 0 5 = "bytes"
-
-let is_uint_type_name name =
-  match name with
-  | "uint" | "uint8" | "uint16" | "uint32" | "uint64" | "uint256" -> true
-  | _ -> false
-
-let is_base_primitive name =
-  match name with "nat" | "int" | "bool" | "text" -> true | _ -> false
-
-type primitive_kind = Bytes of int | Nat | Int | Bool | Text | Unknown
-
-let resolve_alias_kind (type_name : string) : primitive_kind =
-  let aliases = load_type_aliases () in
-  let rec go name visited =
-    let lname = String.lowercase_ascii name in
-    if is_bytes_type_name lname then
-      try
-        let len_str = String.sub lname 5 (String.length lname - 5) in
-        Bytes (int_of_string len_str)
-      with _ -> Unknown
-    else if is_uint_type_name lname then Nat
-    else if List.mem lname visited then Unknown
-    else
-      match Hashtbl.find_opt aliases lname with
-      | Some typ -> (
-          match typ.it with
-          | Il.NumT `NatT -> Nat
-          | Il.NumT `IntT -> Int
-          | Il.BoolT -> Bool
-          | Il.TextT -> Text
-          | Il.VarT (id, _) -> go id.it (lname :: visited)
-          | _ -> Unknown)
-      | None -> Unknown
-  in
-  go type_name []
-
-(* Helper: check if string ends with suffix *)
-let ends_with s suffix =
-  let len_s = String.length s in
-  let len_suffix = String.length suffix in
-  if len_s < len_suffix then false
-  else String.sub s (len_s - len_suffix) len_suffix = suffix
-
-(* Resolve VarT type name to primitive type information *)
-(* Returns: (is_bytes, byte_size_opt, is_nat) where:
-   - is_bytes: true if this is a bytes type
-   - byte_size_opt: Some size if bytes type, None otherwise
-   - is_nat: true if nat/uint type, false if int/signed *)
-let resolve_type_to_primitive (type_name : string) : bool * int option * bool =
-  let name = String.lowercase_ascii type_name in
-  let kind = resolve_alias_kind name in
-  (* Check for bytes types first *)
-  match kind with
-  | Bytes len -> (true, Some len, false)
-  | Nat -> (false, None, true)
-  | Int -> (false, None, false)
-  | Bool -> (false, None, true)
-  | Text -> (false, None, true)
-  | Unknown ->
-      (* Fallback to pattern-based heuristics for legacy names *)
-      if is_bytes_type_name name then
-        try
-          let len_str = String.sub name 5 (String.length name - 5) in
-          let len = int_of_string len_str in
-          if len >= 1 then (true, Some len, false) else (false, None, true)
-        with _ -> (false, None, true)
-      else if is_uint_type_name name then (false, None, true)
-      else if name = "int" then (false, None, false)
-      else (false, None, true)
-
-(* Get max bytes value for a given byte size (all 0xFF bytes) *)
-let max_bytes_value_for_size (len : int) : Yojson.Safe.t =
-  if len <= 0 then `String "0x"
-  else
-    (* Generate hex string with all 0xFF bytes *)
-    let hex_str = "0x" ^ String.make (len * 2) 'f' in
-    `String hex_str
-
-(* Get MAX value for a type as JSON *)
-let max_value_for_type (typ : Il.typ') : Yojson.Safe.t =
-  match typ with
-  | Il.NumT `NatT -> `Intlit "18446744073709551615" (* max uint64 *)
-  | Il.NumT `IntT -> `Intlit "9223372036854775807" (* max int64 *)
-  | Il.BoolT -> `Bool true
-  | Il.TextT -> `String "max_string"
-  | Il.VarT (id, _) -> (
-      let is_bytes, byte_size_opt, is_nat = resolve_type_to_primitive id.it in
-      match (is_bytes, byte_size_opt) with
-      | true, Some len -> max_bytes_value_for_size len
-      | true, None -> `String "0xff" (* fallback for bytes without size *)
-      | false, _ ->
-          if is_nat then `Intlit "18446744073709551615" (* max uint64 *)
-          else `Intlit "9223372036854775807" (* max int64 *))
-  | _ -> `Intlit "18446744073709551615" (* default to max uint64 *)
-
-(* Get MIN value for a type as JSON *)
-let min_value_for_type (typ : Il.typ') : Yojson.Safe.t =
-  match typ with
-  | Il.NumT `NatT -> `Int 0
-  | Il.NumT `IntT -> `Intlit "-9223372036854775808" (* min int64 *)
-  | Il.BoolT -> `Bool false
-  | Il.TextT -> `String ""
-  | Il.VarT (id, _) -> (
-      let is_bytes, byte_size_opt, is_nat = resolve_type_to_primitive id.it in
-      match (is_bytes, byte_size_opt) with
-      | true, Some len -> `String ("0x" ^ String.make (len * 2) '0')
-      | true, None -> `String "0x00" (* fallback for bytes without size *)
-      | false, _ ->
-          if is_nat then `Int 0
-          else `Intlit "-9223372036854775808" (* min int64 *))
-  | _ -> `Int 0 (* default to 0 *)
-
-(* Extract byte size from BytesV value *)
-let bytes_size_from_value (value : Il.Value.t) : int option =
-  match value.it with Il.BytesV { len; _ } -> Some len | _ -> None
 
 (* Infer mutation constraints from dependency analysis. *)
 let infer_mutation_constraints (premise_uid : premise_uid)
@@ -395,6 +221,9 @@ let infer_mutation_constraints (premise_uid : premise_uid)
   let suggestions =
     get_mutation_suggestions_for_premise premise_uid coverage dependency
   in
+  Format.printf
+    "[DEBUG] infer_mutation_constraints: %d suggestions for premise %d\n%!"
+    (List.length suggestions) premise_uid;
   (* Convert sym_mutation to mutation constraints using new types *)
   let module Pos = Instrumentation.Dependency.Positive in
   let module Dep = Instrumentation.Dependency.Dep_common in
@@ -402,193 +231,54 @@ let infer_mutation_constraints (premise_uid : premise_uid)
   let constraints =
     List.filter_map
       (fun (sym_mut : Pos.sym_mutation) ->
+        (* Helper to generate fallback strategies when specific values aren't known *)
+        let fallback_strategies =
+          [
+            Json_mutator.SetBoundary;
+            Json_mutator.Increment 1;
+            Json_mutator.Decrement 1;
+            Json_mutator.SetValue (`Int 0);
+            Json_mutator.SetValue (`Int 1);
+          ]
+        in
+
         (* Convert target_path to string list *)
         match sym_mut.target_path with
-        | None -> None
+        | None ->
+            Format.printf "[DEBUG] Skipping mutation with no target_path\n%!";
+            None
         | Some target_path ->
             let strategies =
               match sym_mut.suggestion with
-              | Pos.ToConst (op, value) -> (
-                  (* Check if value is BytesV to preserve byte size *)
-                  let bytes_size_opt = bytes_size_from_value value in
-                  (* Get type information from value *)
-                  let value_typ = value.note.Il.typ in
+              | Pos.ToConst (_op, value) -> (
+                  (* Generate value satisfying constraint *)
                   match value_to_json value with
-                  | Ok json -> (
-                      (* Generate mutation strategies based on operator *)
-                      match op with
-                      | `EqOp -> (
-                          (* For ==, generate not-equal values: (value+1), (value-1), and MAX *)
-                          match json with
-                          | `Int n ->
-                              [
-                                Json_mutator.SetValue (`Int (n + 1));
-                                Json_mutator.SetValue
-                                  (if n > 0 then `Int (n - 1) else `Int 0);
-                                Json_mutator.SetValue
-                                  (max_value_for_type value_typ);
-                              ]
-                          | `Bool b ->
-                              [
-                                Json_mutator.SetValue (`Bool (not b));
-                                Json_mutator.SetValue
-                                  (max_value_for_type value_typ);
-                              ]
-                          | `String s -> (
-                              (* Check if this is a bytes value (hex string) *)
-                              match bytes_size_opt with
-                              | Some len ->
-                                  [
-                                    Json_mutator.SetValue
-                                      (`String (s ^ "_mutated"));
-                                    Json_mutator.SetValue
-                                      (max_bytes_value_for_size len);
-                                  ]
-                              | None ->
-                                  [
-                                    Json_mutator.SetValue
-                                      (`String (s ^ "_mutated"));
-                                    Json_mutator.SetValue
-                                      (max_value_for_type value_typ);
-                                  ])
-                          | _ -> [ Json_mutator.SetValue json ])
-                      | `NeOp ->
-                          (* For !=, generate equal value *)
-                          [ Json_mutator.SetValue json ]
-                      | `LtOp -> (
-                          (* For <, generate lhs = rhs and lhs = MAX *)
-                          match json with
-                          | `Int _ ->
-                              [
-                                Json_mutator.SetValue json;
-                                Json_mutator.SetValue
-                                  (max_value_for_type value_typ);
-                              ]
-                          | `String _ -> (
-                              (* Check if this is a bytes value *)
-                              match bytes_size_opt with
-                              | Some len ->
-                                  [
-                                    Json_mutator.SetValue json;
-                                    Json_mutator.SetValue
-                                      (max_bytes_value_for_size len);
-                                  ]
-                              | None ->
-                                  [
-                                    Json_mutator.SetValue json;
-                                    Json_mutator.SetValue
-                                      (max_value_for_type value_typ);
-                                  ])
-                          | _ -> [ Json_mutator.SetValue json ])
-                      | `GtOp -> (
-                          (* For >, generate lhs = rhs and lhs = 0 *)
-                          match json with
-                          | `Int _ ->
-                              [
-                                Json_mutator.SetValue json;
-                                Json_mutator.SetValue
-                                  (min_value_for_type value_typ);
-                              ]
-                          | `String _ -> (
-                              (* For bytes, generate zero bytes of same size *)
-                              match bytes_size_opt with
-                              | Some len ->
-                                  [
-                                    Json_mutator.SetValue json;
-                                    Json_mutator.SetValue
-                                      (`String ("0x" ^ String.make (len * 2) '0'));
-                                  ]
-                              | None ->
-                                  [
-                                    Json_mutator.SetValue json;
-                                    Json_mutator.SetValue
-                                      (min_value_for_type value_typ);
-                                  ])
-                          | _ -> [ Json_mutator.SetValue json ])
-                      | `LeOp -> (
-                          (* For <=, generate lhs = rhs + 1 and lhs = MAX *)
-                          match json with
-                          | `Int n ->
-                              [
-                                Json_mutator.SetValue (`Int (n + 1));
-                                Json_mutator.SetValue
-                                  (max_value_for_type value_typ);
-                              ]
-                          | `String _ -> (
-                              (* For bytes, generate max bytes of same size *)
-                              match bytes_size_opt with
-                              | Some len ->
-                                  [
-                                    Json_mutator.SetValue json;
-                                    Json_mutator.SetValue
-                                      (max_bytes_value_for_size len);
-                                  ]
-                              | None ->
-                                  [
-                                    Json_mutator.SetValue json;
-                                    Json_mutator.SetValue
-                                      (max_value_for_type value_typ);
-                                  ])
-                          | _ -> [ Json_mutator.SetValue json ])
-                      | `GeOp -> (
-                          (* For >=, generate lhs = rhs - 1 and lhs = 0 *)
-                          match json with
-                          | `Int n when n > 0 ->
-                              [
-                                Json_mutator.SetValue (`Int (n - 1));
-                                Json_mutator.SetValue
-                                  (min_value_for_type value_typ);
-                              ]
-                          | `Int _ ->
-                              [
-                                Json_mutator.SetValue (`Int 0);
-                                Json_mutator.SetValue
-                                  (min_value_for_type value_typ);
-                              ]
-                          | `String _ -> (
-                              (* For bytes, generate zero bytes of same size *)
-                              match bytes_size_opt with
-                              | Some len ->
-                                  [
-                                    Json_mutator.SetValue json;
-                                    Json_mutator.SetValue
-                                      (`String ("0x" ^ String.make (len * 2) '0'));
-                                  ]
-                              | None ->
-                                  [
-                                    Json_mutator.SetValue json;
-                                    Json_mutator.SetValue
-                                      (min_value_for_type value_typ);
-                                  ])
-                          | _ -> [ Json_mutator.SetValue json ]))
-                  | Error _err -> [])
-              | Pos.ToLength (op, _value) -> (
-                  (* For len>0 constraints, create empty list *)
-                  match op with
-                  | `GtOp ->
-                      (* len > 0 means we should create empty list (len == 0) *)
-                      [ Json_mutator.SetValue (`List []) ]
-                  | _ ->
-                      (* For other length constraints, use append/remove *)
-                      [ Json_mutator.AppendItem; Json_mutator.RemoveItem ])
-              | Pos.Unknown typ_opt -> (
-                  (* Generate MAX and MIN based on type (uses resolve_type_to_primitive) *)
-                  match typ_opt with
-                  | None -> []
-                  | Some typ ->
-                      [
-                        Json_mutator.SetValue (max_value_for_type typ.it);
-                        Json_mutator.SetValue (min_value_for_type typ.it);
-                      ])
+                  | Ok json -> [ Json_mutator.SetValue json ]
+                  | Error _ -> fallback_strategies)
+              | Pos.ToLength (_op, _value) ->
+                  (* Adjust collection size *)
+                  [ Json_mutator.AppendItem; Json_mutator.RemoveItem ]
+              | Pos.Unknown _typ ->
+                  (* Generate type-aware boundary values *)
+                  fallback_strategies
             in
             (* Only include if we have strategies *)
-            if strategies = [] then None
-            else
-              (* Get the original mutation suggestion string *)
-              let suggestion_str = Some (Pos.string_of_sym_mutation sym_mut) in
-              Some { field_path = target_path; strategies; suggestion_str })
+            if strategies = [] then (
+              Format.printf
+                "[DEBUG] Skipping mutation with no strategies (field: %s)\n%!"
+                (Dep.string_of_field_path target_path);
+              None)
+            else (
+              Format.printf
+                "[DEBUG] Created constraint for field %s with %d strategies\n%!"
+                (Dep.string_of_field_path target_path)
+                (List.length strategies);
+              Some { field_path = target_path; strategies }))
       suggestions
   in
+  Format.printf
+    "[DEBUG] infer_mutation_constraints: returning %d constraints\n%!"
+    (List.length constraints);
   constraints
 
 (* Check if a test case ID corresponds to a state transition test.
@@ -711,13 +401,8 @@ let is_blacklisted (path : field_path) (blacklist : field_path list) : bool =
 let mutate_json_input ~(output_dir : string) (test_case_id : test_case_id)
     (constraints : mutation_constraint list) (blacklisted : field_path list)
     (pre_json_path : string) (block_json_path : string) : string * string =
-  (* Create mutation-specific directory within output_dir *)
-  let flat_test_id =
-    String.map (fun c -> if c = '/' then '_' else c) test_case_id
-  in
-  let mutation_dir = Filename.concat output_dir flat_test_id in
-  (* Ensure mutation directory exists *)
-  (try Unix.mkdir mutation_dir 0o755
+  (* Ensure output directory exists *)
+  (try Unix.mkdir output_dir 0o755
    with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
 
   (* Load JSON files *)
@@ -760,9 +445,16 @@ let mutate_json_input ~(output_dir : string) (test_case_id : test_case_id)
       let mutated_pre = apply_constraints pre "state" in
       let mutated_block = apply_constraints block "block" in
 
-      (* Save mutated JSON files as pre.json and block.json in the mutation directory *)
-      let output_pre_path = Filename.concat mutation_dir "pre.json" in
-      let output_block_path = Filename.concat mutation_dir "block.json" in
+      (* Save mutated JSON files *)
+      let flat_test_id =
+        String.map (fun c -> if c = '/' then '_' else c) test_case_id
+      in
+      let output_pre_path =
+        Filename.concat output_dir (Printf.sprintf "%s_pre.json" flat_test_id)
+      in
+      let output_block_path =
+        Filename.concat output_dir (Printf.sprintf "%s_block.json" flat_test_id)
+      in
       Json_mutator.save_json output_pre_path mutated_pre;
       Json_mutator.save_json output_block_path mutated_block;
       (output_pre_path, output_block_path)
@@ -857,14 +549,6 @@ let generate_test_case ~(test_dir : string) ~(output_dir : string)
       (try Unix.mkdir premise_output_dir 0o755
        with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
 
-      (* Load JSON for value extraction *)
-      let pre_json_opt =
-        try Some (Json_mutator.load_json pre_path) with _ -> None
-      in
-      let block_json_opt =
-        try Some (Json_mutator.load_json block_path) with _ -> None
-      in
-
       (* Prepare report file *)
       let report_path = Filename.concat premise_output_dir "report.txt" in
       let report_channel = open_out report_path in
@@ -876,94 +560,43 @@ let generate_test_case ~(test_dir : string) ~(output_dir : string)
       let generated_files = ref [] in
       List.iteri
         (fun c_idx constraint_ ->
-          (* Check source value first - if not found, skip mutations *)
-          let source_value_opt =
-            match
-              (constraint_.field_path.source, pre_json_opt, block_json_opt)
-            with
-            | Dep.State, Some pre_json, _ ->
-                Json_mutator.get_value_at_path pre_json constraint_.field_path
-            | Dep.Block, _, Some block_json ->
-                Json_mutator.get_value_at_path block_json constraint_.field_path
-            | Dep.Local _, Some pre_json, _ -> (
-                (* Try state JSON first for local variables *)
-                match
-                  Json_mutator.get_value_at_path pre_json constraint_.field_path
-                with
-                | Some v -> Some v
-                | None -> (
-                    (* Fallback to block JSON *)
-                    match block_json_opt with
-                    | Some block_json ->
-                        Json_mutator.get_value_at_path block_json
-                          constraint_.field_path
-                    | None -> None))
-            | _ -> None
-          in
+          List.iteri
+            (fun s_idx strategy ->
+              let mut_id =
+                Printf.sprintf "%s_mut%d_%d"
+                  (String.map (fun c -> if c = '/' then '_' else c) test_id)
+                  c_idx s_idx
+              in
+              let single_constraint =
+                { constraint_ with strategies = [ strategy ] }
+              in
 
-          match source_value_opt with
-          | None ->
-              (* Source not found - just report and skip mutations *)
-              Printf.fprintf report_channel "Field Path: %s\n"
-                (Instrumentation.Dependency.Dep_common.string_of_field_path
-                   constraint_.field_path);
-              (match constraint_.suggestion_str with
-              | Some suggestion ->
-                  Printf.fprintf report_channel "  Suggestion: %s\n" suggestion
-              | None -> ());
-              (match constraint_.field_path.source with
-              | Dep.State ->
-                  Printf.fprintf report_channel "  From: <not found in state>\n"
-              | Dep.Block ->
-                  Printf.fprintf report_channel "  From: <not found in block>\n"
-              | _ -> Printf.fprintf report_channel "  From: <not found>\n");
-              Printf.fprintf report_channel "\n"
-          | Some _source_value ->
-              (* Source found - generate mutations *)
-              List.iteri
-                (fun s_idx strategy ->
-                  let mut_id =
-                    Printf.sprintf "%s_mut%d_%d"
-                      (String.map (fun c -> if c = '/' then '_' else c) test_id)
-                      c_idx s_idx
-                  in
-                  let single_constraint =
-                    { constraint_ with strategies = [ strategy ] }
-                  in
+              (* Mutate and save *)
+              let out_pre, out_block =
+                mutate_json_input ~output_dir:premise_output_dir mut_id
+                  [ single_constraint ] blacklisted pre_path block_path
+              in
 
-                  (* Mutate and save *)
-                  let out_pre, out_block =
-                    mutate_json_input ~output_dir:premise_output_dir mut_id
-                      [ single_constraint ] blacklisted pre_path block_path
-                  in
+              (* Record generated files if successful (paths different from input) *)
+              if out_pre <> pre_path then (
+                generated_files :=
+                  (mut_id, out_pre, out_block) :: !generated_files;
 
-                  (* Record generated files if successful (paths different from input) *)
-                  if out_pre <> pre_path then (
-                    generated_files :=
-                      (mut_id, out_pre, out_block) :: !generated_files;
-
-                    (* Write to report *)
-                    Printf.fprintf report_channel "Mutation ID: %s\n" mut_id;
-                    Printf.fprintf report_channel "  Field Path: %s\n"
-                      (Instrumentation.Dependency.Dep_common
-                       .string_of_field_path constraint_.field_path);
-                    (match constraint_.suggestion_str with
-                    | Some suggestion ->
-                        Printf.fprintf report_channel "  Suggestion: %s\n"
-                          suggestion
-                    | None -> ());
-                    Printf.fprintf report_channel "  Strategy: %s\n"
-                      (match strategy with
-                      | Json_mutator.SetValue _ -> "SetValue"
-                      | Json_mutator.Increment i ->
-                          Printf.sprintf "Increment %d" i
-                      | Json_mutator.Decrement i ->
-                          Printf.sprintf "Decrement %d" i
-                      | Json_mutator.SetBoundary -> "SetBoundary"
-                      | Json_mutator.AppendItem -> "AppendItem"
-                      | Json_mutator.RemoveItem -> "RemoveItem");
-                    Printf.fprintf report_channel "\n"))
-                constraint_.strategies)
+                (* Write to report *)
+                Printf.fprintf report_channel "Mutation ID: %s\n" mut_id;
+                Printf.fprintf report_channel "  Field Path: %s\n"
+                  (Instrumentation.Dependency.Dep_common.string_of_field_path
+                     constraint_.field_path);
+                Printf.fprintf report_channel "  Strategy: %s\n"
+                  (match strategy with
+                  | Json_mutator.SetValue _ -> "SetValue"
+                  | Json_mutator.Increment i -> Printf.sprintf "Increment %d" i
+                  | Json_mutator.Decrement i -> Printf.sprintf "Decrement %d" i
+                  | Json_mutator.SetBoundary -> "SetBoundary"
+                  | Json_mutator.AppendItem -> "AppendItem"
+                  | Json_mutator.RemoveItem -> "RemoveItem");
+                Printf.fprintf report_channel "\n"))
+            constraint_.strategies)
         constraints;
 
       close_out report_channel;
@@ -1147,113 +780,83 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
                   let generated_files = ref [] in
                   List.iteri
                     (fun c_idx constraint_ ->
-                      (* Check source value first - if not found, skip mutations *)
-                      let source_value_opt =
-                        match
-                          ( constraint_.field_path.source,
-                            pre_json_opt,
-                            block_json_opt )
-                        with
-                        | Dep.State, Some pre_json, _ ->
-                            Json_mutator.get_value_at_path pre_json
-                              constraint_.field_path
-                        | Dep.Block, _, Some block_json ->
-                            Json_mutator.get_value_at_path block_json
-                              constraint_.field_path
-                        | Dep.Local _, Some pre_json, _ -> (
-                            (* Try state JSON first for local variables *)
-                            match
-                              Json_mutator.get_value_at_path pre_json
-                                constraint_.field_path
-                            with
-                            | Some v -> Some v
-                            | None -> (
-                                (* Fallback to block JSON *)
-                                match block_json_opt with
-                                | Some block_json ->
-                                    Json_mutator.get_value_at_path block_json
-                                      constraint_.field_path
-                                | None -> None))
-                        | _ -> None
-                      in
+                      List.iteri
+                        (fun s_idx strategy ->
+                          let mut_id =
+                            Printf.sprintf "mut_prem%d_%d_%d" prem_uid c_idx
+                              s_idx
+                          in
+                          let single_constraint =
+                            { constraint_ with strategies = [ strategy ] }
+                          in
 
-                      match source_value_opt with
-                      | None -> (
-                          (* Source not found - just report and skip mutations *)
-                          Printf.fprintf report_channel "  - Field: %s\n"
+                          (* Get source value before mutation *)
+                          let source_value_str =
+                            match
+                              ( constraint_.field_path.source,
+                                pre_json_opt,
+                                block_json_opt )
+                            with
+                            | Dep.State, Some pre_json, _ -> (
+                                match
+                                  Json_mutator.get_value_at_path pre_json
+                                    constraint_.field_path
+                                with
+                                | Some v -> Yojson.Safe.to_string v
+                                | None -> "<not found>")
+                            | Dep.Block, _, Some block_json -> (
+                                match
+                                  Json_mutator.get_value_at_path block_json
+                                    constraint_.field_path
+                                with
+                                | Some v -> Yojson.Safe.to_string v
+                                | None -> "<not found>")
+                            | _ -> "<unknown>"
+                          in
+
+                          (* Get destination value from strategy *)
+                          let dest_value_str =
+                            match strategy with
+                            | Json_mutator.SetValue v -> Yojson.Safe.to_string v
+                            | Json_mutator.Increment i -> Printf.sprintf "+%d" i
+                            | Json_mutator.Decrement i -> Printf.sprintf "-%d" i
+                            | Json_mutator.SetBoundary -> "<boundary>"
+                            | Json_mutator.AppendItem -> "<append>"
+                            | Json_mutator.RemoveItem -> "<remove>"
+                          in
+
+                          Format.printf
+                            "[DEBUG] Attempting mutation %s for field %s\n%!"
+                            mut_id
                             (Instrumentation.Dependency.Dep_common
                              .string_of_field_path constraint_.field_path);
-                          (match constraint_.suggestion_str with
-                          | Some suggestion ->
-                              Printf.fprintf report_channel
-                                "    Suggestion: %s\n" suggestion
-                          | None -> ());
-                          match constraint_.field_path.source with
-                          | Dep.State ->
-                              Printf.fprintf report_channel
-                                "    From: <not found in state>\n"
-                          | Dep.Block ->
-                              Printf.fprintf report_channel
-                                "    From: <not found in block>\n"
-                          | _ ->
-                              Printf.fprintf report_channel
-                                "    From: <not found>\n")
-                      | Some source_value ->
-                          (* Source found - generate mutations *)
-                          let source_value_str =
-                            Yojson.Safe.to_string source_value
+
+                          (* Mutate and save *)
+                          let out_pre, out_block =
+                            mutate_json_input ~output_dir:test_case_output_dir
+                              mut_id [ single_constraint ] [] pre_path
+                              block_path
                           in
-                          List.iteri
-                            (fun s_idx strategy ->
-                              let mut_id =
-                                Printf.sprintf "mut_prem%d_%d_%d" prem_uid c_idx
-                                  s_idx
-                              in
-                              let single_constraint =
-                                { constraint_ with strategies = [ strategy ] }
-                              in
 
-                              (* Get destination value from strategy *)
-                              let dest_value_str =
-                                match strategy with
-                                | Json_mutator.SetValue v ->
-                                    Yojson.Safe.to_string v
-                                | Json_mutator.Increment i ->
-                                    Printf.sprintf "+%d" i
-                                | Json_mutator.Decrement i ->
-                                    Printf.sprintf "-%d" i
-                                | Json_mutator.SetBoundary -> "<boundary>"
-                                | Json_mutator.AppendItem -> "<append>"
-                                | Json_mutator.RemoveItem -> "<remove>"
-                              in
+                          Format.printf
+                            "[DEBUG] Mutation result: out_pre=%s (original=%s)\n\
+                             %!"
+                            out_pre pre_path;
 
-                              (* Mutate and save *)
-                              let out_pre, out_block =
-                                mutate_json_input
-                                  ~output_dir:test_case_output_dir mut_id
-                                  [ single_constraint ] [] pre_path block_path
-                              in
+                          (* Record if successful *)
+                          if out_pre <> pre_path then (
+                            generated_files :=
+                              (mut_id, out_pre, out_block) :: !generated_files;
 
-                              (* Record if successful *)
-                              if out_pre <> pre_path then (
-                                generated_files :=
-                                  (mut_id, out_pre, out_block)
-                                  :: !generated_files;
-
-                                (* Write to report *)
-                                Printf.fprintf report_channel "  - Field: %s\n"
-                                  (Instrumentation.Dependency.Dep_common
-                                   .string_of_field_path constraint_.field_path);
-                                (match constraint_.suggestion_str with
-                                | Some suggestion ->
-                                    Printf.fprintf report_channel
-                                      "    Suggestion: %s\n" suggestion
-                                | None -> ());
-                                Printf.fprintf report_channel "    From: %s\n"
-                                  source_value_str;
-                                Printf.fprintf report_channel "    To: %s\n"
-                                  dest_value_str))
-                            constraint_.strategies)
+                            (* Write to report *)
+                            Printf.fprintf report_channel "  - Field: %s\n"
+                              (Instrumentation.Dependency.Dep_common
+                               .string_of_field_path constraint_.field_path);
+                            Printf.fprintf report_channel "    From: %s\n"
+                              source_value_str;
+                            Printf.fprintf report_channel "    To: %s\n"
+                              dest_value_str))
+                        constraint_.strategies)
                     constraints;
 
                   Printf.fprintf report_channel "\n";
@@ -1414,6 +1017,14 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
                 Filename.concat test_dir (test_id ^ "/block.json")
             in
 
+            Format.printf "[DEBUG] test_id: %s\n%!" test_id;
+            Format.printf "[DEBUG] pre_path: %s\n%!" pre_path;
+            Format.printf "[DEBUG] block_path: %s\n%!" block_path;
+            Format.printf "[DEBUG] pre_path exists: %b\n%!"
+              (Sys.file_exists pre_path);
+            Format.printf "[DEBUG] block_path exists: %b\n%!"
+              (Sys.file_exists block_path);
+
             let pre_json_opt =
               try Some (Json_mutator.load_json pre_path)
               with e ->
@@ -1451,115 +1062,70 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
                     let generated_files = ref [] in
                     List.iteri
                       (fun c_idx constraint_ ->
-                        (* Check source value first - if not found, skip mutations *)
-                        let source_value_opt =
-                          match
-                            ( constraint_.field_path.source,
-                              pre_json_opt,
-                              block_json_opt )
-                          with
-                          | Dep.State, Some pre_json, _ ->
-                              Json_mutator.get_value_at_path pre_json
-                                constraint_.field_path
-                          | Dep.Block, _, Some block_json ->
-                              Json_mutator.get_value_at_path block_json
-                                constraint_.field_path
-                          | Dep.Local _, Some pre_json, _ -> (
-                              (* Try state JSON first for local variables *)
-                              match
-                                Json_mutator.get_value_at_path pre_json
-                                  constraint_.field_path
-                              with
-                              | Some v -> Some v
-                              | None -> (
-                                  (* Fallback to block JSON *)
-                                  match block_json_opt with
-                                  | Some block_json ->
-                                      Json_mutator.get_value_at_path block_json
-                                        constraint_.field_path
-                                  | None -> None))
-                          | _ -> None
-                        in
-
-                        match source_value_opt with
-                        | None -> (
-                            (* Source not found - just report and skip mutations *)
-                            Printf.fprintf report_channel "  - Field: %s\n"
-                              (Instrumentation.Dependency.Dep_common
-                               .string_of_field_path constraint_.field_path);
-                            (match constraint_.suggestion_str with
-                            | Some suggestion ->
-                                Printf.fprintf report_channel
-                                  "    Suggestion: %s\n" suggestion
-                            | None -> ());
-                            match constraint_.field_path.source with
-                            | Dep.State ->
-                                Printf.fprintf report_channel
-                                  "    From: <not found in state>\n"
-                            | Dep.Block ->
-                                Printf.fprintf report_channel
-                                  "    From: <not found in block>\n"
-                            | _ ->
-                                Printf.fprintf report_channel
-                                  "    From: <not found>\n")
-                        | Some source_value ->
-                            (* Source found - generate mutations *)
-                            let source_value_str =
-                              Yojson.Safe.to_string source_value
+                        List.iteri
+                          (fun s_idx strategy ->
+                            let mut_id =
+                              Printf.sprintf "mut_prem%d_%d_%d" prem_uid c_idx
+                                s_idx
                             in
-                            List.iteri
-                              (fun s_idx strategy ->
-                                let mut_id =
-                                  Printf.sprintf "mut_prem%d_%d_%d" prem_uid
-                                    c_idx s_idx
-                                in
-                                let single_constraint =
-                                  { constraint_ with strategies = [ strategy ] }
-                                in
+                            let single_constraint =
+                              { constraint_ with strategies = [ strategy ] }
+                            in
 
-                                (* Get destination value from strategy *)
-                                let dest_value_str =
-                                  match strategy with
-                                  | Json_mutator.SetValue v ->
-                                      Yojson.Safe.to_string v
-                                  | Json_mutator.Increment i ->
-                                      Printf.sprintf "+%d" i
-                                  | Json_mutator.Decrement i ->
-                                      Printf.sprintf "-%d" i
-                                  | Json_mutator.SetBoundary -> "<boundary>"
-                                  | Json_mutator.AppendItem -> "<append>"
-                                  | Json_mutator.RemoveItem -> "<remove>"
-                                in
+                            let source_value_str =
+                              match
+                                ( constraint_.field_path.source,
+                                  pre_json_opt,
+                                  block_json_opt )
+                              with
+                              | Dep.State, Some pre_json, _ -> (
+                                  match
+                                    Json_mutator.get_value_at_path pre_json
+                                      constraint_.field_path
+                                  with
+                                  | Some v -> Yojson.Safe.to_string v
+                                  | None -> "<not found>")
+                              | Dep.Block, _, Some block_json -> (
+                                  match
+                                    Json_mutator.get_value_at_path block_json
+                                      constraint_.field_path
+                                  with
+                                  | Some v -> Yojson.Safe.to_string v
+                                  | None -> "<not found>")
+                              | _ -> "<unknown>"
+                            in
 
-                                (* Mutate and save *)
-                                let out_pre, out_block =
-                                  mutate_json_input
-                                    ~output_dir:test_case_output_dir mut_id
-                                    [ single_constraint ] [] pre_path block_path
-                                in
+                            let dest_value_str =
+                              match strategy with
+                              | Json_mutator.SetValue v ->
+                                  Yojson.Safe.to_string v
+                              | Json_mutator.Increment i ->
+                                  Printf.sprintf "+%d" i
+                              | Json_mutator.Decrement i ->
+                                  Printf.sprintf "-%d" i
+                              | Json_mutator.SetBoundary -> "<boundary>"
+                              | Json_mutator.AppendItem -> "<append>"
+                              | Json_mutator.RemoveItem -> "<remove>"
+                            in
 
-                                (* Record if successful *)
-                                if out_pre <> pre_path then (
-                                  generated_files :=
-                                    (mut_id, out_pre, out_block)
-                                    :: !generated_files;
+                            let out_pre, out_block =
+                              mutate_json_input ~output_dir:test_case_output_dir
+                                mut_id [ single_constraint ] [] pre_path
+                                block_path
+                            in
 
-                                  (* Write to report *)
-                                  Printf.fprintf report_channel
-                                    "  - Field: %s\n"
-                                    (Instrumentation.Dependency.Dep_common
-                                     .string_of_field_path
-                                       constraint_.field_path);
-                                  (match constraint_.suggestion_str with
-                                  | Some suggestion ->
-                                      Printf.fprintf report_channel
-                                        "    Suggestion: %s\n" suggestion
-                                  | None -> ());
-                                  Printf.fprintf report_channel "    From: %s\n"
-                                    source_value_str;
-                                  Printf.fprintf report_channel "    To: %s\n"
-                                    dest_value_str))
-                              constraint_.strategies)
+                            if out_pre <> pre_path then (
+                              generated_files :=
+                                (mut_id, out_pre, out_block) :: !generated_files;
+
+                              Printf.fprintf report_channel "  - Field: %s\n"
+                                (Instrumentation.Dependency.Dep_common
+                                 .string_of_field_path constraint_.field_path);
+                              Printf.fprintf report_channel "    From: %s\n"
+                                source_value_str;
+                              Printf.fprintf report_channel "    To: %s\n"
+                                dest_value_str))
+                          constraint_.strategies)
                       constraints;
 
                     Printf.fprintf report_channel "\n";

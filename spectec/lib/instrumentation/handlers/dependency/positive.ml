@@ -64,12 +64,7 @@ type sym_mutation = {
 }
 
 (* Frame for tracking sym_env bindings in scope *)
-type pos_frame = {
-  local_env : sym_env;
-  is_barrier : bool;
-  relation_id : string option;
-      (* Track which relation this frame belongs to, if any *)
-}
+type pos_frame = { local_env : sym_env; is_barrier : bool }
 
 (* === Handler State === *)
 module State = struct
@@ -98,19 +93,10 @@ module State = struct
   (* Pending symbolic arguments for the next relation entry (Call Graph) *)
   let pending_call_args : Il.exp list option ref = ref None
 
-  (* Track relation outputs: relation_id -> variable_name -> expression *)
-  (* This captures variables bound within a relation that should be propagated to callers *)
-  let relation_outputs : (string, (string, Il.exp) Hashtbl.t) Hashtbl.t =
-    Hashtbl.create 50
-
   (* Per-test symbolic mutations: premise_uid -> test_id -> sym_mutation list *)
   let per_test_sym_mutations :
       (int, (string, sym_mutation list) Hashtbl.t) Hashtbl.t =
     Hashtbl.create 1000
-
-  (* Map from field_path to original expression for PathRef evaluation *)
-  (* This allows us to evaluate PathRef indices later when we have more context *)
-  let path_to_expr : (field_path, Il.exp) Hashtbl.t = Hashtbl.create 1000
 
   (* Progress tracking *)
   let premise_count = ref 0
@@ -146,9 +132,7 @@ module State = struct
     current_test_id := "";
     frames := [];
     pending_call_args := None;
-    Hashtbl.clear relation_outputs;
     Hashtbl.clear per_test_sym_mutations;
-    Hashtbl.clear path_to_expr;
     premise_count := 0;
     if_prem_count := 0;
     skipped_count := 0
@@ -158,40 +142,24 @@ module State = struct
 
   (* Frame management for sym_env backtracking *)
   let push_sym_frame () =
-    let relation_id =
-      match !frames with
-      | frame :: _ when frame.is_barrier -> frame.relation_id
-      | _ -> None
-    in
-    let new_frame =
-      { local_env = Hashtbl.create 20; is_barrier = false; relation_id }
-    in
+    let new_frame = { local_env = Hashtbl.create 20; is_barrier = false } in
     frames := new_frame :: !frames
 
   let push_call_frame () =
-    let new_frame =
-      {
-        local_env = Hashtbl.create 20;
-        is_barrier = true;
-        relation_id = Some !current_relation;
-      }
-    in
+    let new_frame = { local_env = Hashtbl.create 20; is_barrier = true } in
     frames := new_frame :: !frames
 
   let pop_sym_frame_success () =
     match !frames with
     | frame :: rest -> (
         frames := rest;
-        (* Only merge into immediate parent frame or global sym_env *)
-        (* This prevents bindings from leaking across unrelated scopes *)
+        (* Merge local_env into parent frame or global sym_env *)
         match rest with
         | parent :: _ ->
-            (* Merge into immediate parent only *)
             Hashtbl.iter
               (fun k v -> Hashtbl.replace parent.local_env k v)
               frame.local_env
         | [] ->
-            (* No parent - merge into global sym_env *)
             Hashtbl.iter
               (fun k v -> Hashtbl.replace sym_env k v)
               frame.local_env)
@@ -201,36 +169,16 @@ module State = struct
     match !frames with _ :: rest -> frames := rest | [] -> ()
 
   (* Lookup in sym_env: check frames from top to bottom, then global *)
-  (* Barriers prevent lookups from outside the relation, but allow lookups
-     within nested scopes of the same relation *)
   let lookup_sym (id : string) : Il.exp option =
-    let rec check_frames fs current_relation_id =
+    let rec check_frames fs =
       match fs with
       | [] -> Hashtbl.find_opt sym_env id
       | frame :: rest -> (
           match Hashtbl.find_opt frame.local_env id with
           | Some v -> Some v
-          | None ->
-              if
-                (* If this is a barrier frame, check if we're within the same relation *)
-                frame.is_barrier
-              then
-                match (frame.relation_id, current_relation_id) with
-                | Some rel_id, Some current_id when rel_id = current_id ->
-                    (* Same relation - continue searching *)
-                    check_frames rest current_relation_id
-                | _ ->
-                    None (* Different relation or no current relation - stop *)
-              else
-                (* Not a barrier - continue searching *)
-                check_frames rest current_relation_id)
+          | None -> if frame.is_barrier then None else check_frames rest)
     in
-    let current_rel_id =
-      match !frames with
-      | frame :: _ when frame.is_barrier -> frame.relation_id
-      | _ -> None
-    in
-    check_frames !frames current_rel_id
+    check_frames !frames
 
   (* Bind in current frame's local_env (or global if no frame) *)
   let bind_sym (id : string) (expr : Il.exp) : unit =
@@ -290,96 +238,6 @@ let is_block_type (t : Il.typ') : bool =
 
 (* === Expression Resolution (Positive-specific: detailed symbolic tracking) === *)
 
-(* Helper: Deduplicate repeated fields like MESSAGE.MESSAGE *)
-let rec deduplicate_path (path : field_path) : field_path =
-  let rec dedup_steps steps =
-    match steps with
-    | FieldAccess s1
-      :: FieldAccess s2
-      :: FieldAccess s3
-      :: FieldAccess s4
-      :: rest
-      when s1 = s2 && s2 = s3 && s3 = s4 ->
-        dedup_steps (FieldAccess s1 :: rest)
-    | FieldAccess s1 :: FieldAccess s2 :: FieldAccess s3 :: rest
-      when s1 = s2 && s2 = s3 ->
-        dedup_steps (FieldAccess s1 :: rest)
-    | FieldAccess s1 :: FieldAccess s2 :: rest when s1 = s2 ->
-        dedup_steps (FieldAccess s1 :: rest)
-    | IndexAccess (PathRef nested_path) :: rest ->
-        (* Recursively deduplicate nested paths in index expressions *)
-        let deduped_nested = deduplicate_path nested_path in
-        IndexAccess (PathRef deduped_nested) :: dedup_steps rest
-    | step :: rest -> step :: dedup_steps rest
-    | [] -> []
-  in
-  { path with steps = dedup_steps path.steps }
-
-(* Concretize paths by evaluating PathRef indices to ConstInt when possible.
-   This function tries to evaluate index paths to get concrete integer values.
-   It uses the stored original expressions from State.path_to_expr.
-*)
-(* Concretize paths by evaluating PathRef indices to ConstInt when possible.
-   This function tries to evaluate index paths to get concrete integer values.
-   It uses the stored original expressions from State.path_to_expr.
-   If evaluation fails, we eliminate the PathRef and return None for the path
-   (which will cause it to be filtered out).
-*)
-(* Concretize paths by evaluating PathRef indices to ConstInt when possible.
-   This function tries to evaluate index paths to get concrete integer values.
-   It uses the stored original expressions from State.path_to_expr.
-   If evaluation fails, we keep the PathRef (don't filter out the path).
-   The path will be handled by the mutator which can work with PathRef in some cases.
-*)
-let rec concretize_path_indices (path : field_path) : field_path =
-  let rec concretize_steps steps =
-    match steps with
-    | IndexAccess (PathRef idx_path) :: rest -> (
-        (* Try to get the original expression for this path *)
-        match Hashtbl.find_opt State.path_to_expr idx_path with
-        | Some orig_expr -> (
-            (* Try to evaluate the stored expression directly *)
-            let v_opt =
-              try Some (!State.current_eval orig_expr) with _ -> None
-            in
-            match v_opt with
-            | Some v -> (
-                match v.it with
-                | Il.NumV (`Nat bi) ->
-                    let i = Bigint.to_int_exn bi in
-                    IndexAccess (ConstInt i) :: concretize_steps rest
-                | Il.NumV (`Int bi) -> (
-                    try
-                      let i = Bigint.to_int_exn bi in
-                      if i >= 0 then
-                        IndexAccess (ConstInt i) :: concretize_steps rest
-                      else
-                        (* Negative index - keep PathRef *)
-                        IndexAccess (PathRef (concretize_path_indices idx_path))
-                        :: concretize_steps rest
-                    with _ ->
-                      (* Can't convert - keep PathRef *)
-                      IndexAccess (PathRef (concretize_path_indices idx_path))
-                      :: concretize_steps rest)
-                | _ ->
-                    (* Not a number - keep PathRef *)
-                    IndexAccess (PathRef (concretize_path_indices idx_path))
-                    :: concretize_steps rest)
-            | None ->
-                (* Evaluation failed - keep PathRef and continue *)
-                IndexAccess (PathRef (concretize_path_indices idx_path))
-                :: concretize_steps rest)
-        | None ->
-            (* No stored expression - keep PathRef and continue *)
-            IndexAccess (PathRef (concretize_path_indices idx_path))
-            :: concretize_steps rest)
-    | IndexAccess (ConstInt i) :: rest ->
-        IndexAccess (ConstInt i) :: concretize_steps rest
-    | step :: rest -> step :: concretize_steps rest
-    | [] -> []
-  in
-  { path with steps = concretize_steps path.steps }
-
 (* Resolve expression to structured field_path.
    More restrictive than resolve_to_path - only returns paths that can be mutated.
    Complex expressions (BinE, UnE, LenE, etc.) return None.
@@ -390,9 +248,7 @@ let rec concretize_path_indices (path : field_path) : field_path =
 *)
 let rec resolve_to_field_path (sym_env : sym_env) (exp : Il.exp) :
     field_path option =
-  match resolve_to_field_path_with_visited sym_env exp [] with
-  | Some path -> Some (deduplicate_path path)
-  | None -> None
+  resolve_to_field_path_with_visited sym_env exp []
 
 and resolve_to_field_path_with_visited (sym_env : sym_env) (exp : Il.exp)
     (visited : string list) : field_path option =
@@ -401,19 +257,10 @@ and resolve_to_field_path_with_visited (sym_env : sym_env) (exp : Il.exp)
   (* Variables: look up and recurse *)
   | Il.VarE id -> (
       let fallback_path ~use_local =
-        (* Try to infer source from type information first *)
         if is_state_type exp.note then Some { source = State; steps = [] }
         else if is_block_type exp.note then Some { source = Block; steps = [] }
         else if use_local then Some { source = Local id.it; steps = [] }
-        else
-          (* Last resort: check if variable name suggests a source *)
-          let var_lower = String.lowercase_ascii id.it in
-          if var_lower = "state" || String.starts_with ~prefix:"state" var_lower
-          then Some { source = State; steps = [] }
-          else if
-            var_lower = "block" || String.starts_with ~prefix:"block" var_lower
-          then Some { source = Block; steps = [] }
-          else Some { source = Unknown; steps = [ FieldAccess id.it ] }
+        else Some { source = Unknown; steps = [ FieldAccess id.it ] }
       in
 
       if List.mem id.it visited then fallback_path ~use_local:false
@@ -436,10 +283,8 @@ and resolve_to_field_path_with_visited (sym_env : sym_env) (exp : Il.exp)
   | Il.DotE (base, atom) -> (
       match resolve_to_field_path_with_visited sym_env base visited with
       | Some base_path ->
-          (* Deduplicate the base path before appending the field *)
-          let deduped_base = deduplicate_path base_path in
           Some
-            (append_step deduped_base
+            (append_step base_path
                (FieldAccess (Lang.Xl.Atom.string_of_atom atom.it)))
       | None -> None)
   (* Array indexing: base[idx] *)
@@ -459,83 +304,22 @@ and resolve_to_field_path_with_visited (sym_env : sym_env) (exp : Il.exp)
                   with _ -> None (* Index too large *))
               | _ -> None (* Non-nat index *))
           | _ -> (
-              (* Try to evaluate the index expression first to get a concrete value *)
-              (* Expand variables first to help the evaluator *)
-              let idx_expanded = !expand_vars_ref sym_env idx in
-              let v_opt =
-                try Some (!State.current_eval idx_expanded) with _ -> None
-              in
-              match v_opt with
-              | Some v -> (
-                  (* Successfully evaluated - use concrete index *)
-                  match v.it with
-                  | Il.NumV (`Nat bi) ->
-                      let i = Bigint.to_int_exn bi in
-                      Some (append_step base_path (IndexAccess (ConstInt i)))
-                  | Il.NumV (`Int bi) -> (
-                      (* Try to convert signed int to unsigned if non-negative *)
-                      try
-                        let i = Bigint.to_int_exn bi in
-                        if i >= 0 then
+              match resolve_to_field_path_with_visited sym_env idx visited with
+              | Some idx_path ->
+                  Some (append_step base_path (IndexAccess (PathRef idx_path)))
+              | None -> (
+                  let v_opt =
+                    try Some (!State.current_eval idx) with _ -> None
+                  in
+                  match v_opt with
+                  | Some v -> (
+                      match v.it with
+                      | Il.NumV (`Nat bi) ->
+                          let i = Bigint.to_int_exn bi in
                           Some
                             (append_step base_path (IndexAccess (ConstInt i)))
-                        else None
-                      with _ -> None)
-                  | _ -> None)
-              | None -> (
-                  (* Evaluation failed - try to resolve as path *)
-                  match
-                    resolve_to_field_path_with_visited sym_env idx visited
-                  with
-                  | Some idx_path -> (
-                      (* Deduplicate the nested path before using it *)
-                      let deduped_idx_path = deduplicate_path idx_path in
-                      (* Store the expanded expression for later evaluation during concretization *)
-                      Hashtbl.replace State.path_to_expr deduped_idx_path
-                        idx_expanded;
-                      (* Try evaluating the expanded expression again with more context *)
-                      (* Also try evaluating the original expression in case expansion broke something *)
-                      let v_opt2 =
-                        try Some (!State.current_eval idx_expanded)
-                        with _ -> None
-                      in
-                      let v_opt3 =
-                        match v_opt2 with
-                        | Some _ -> v_opt2
-                        | None -> (
-                            try Some (!State.current_eval idx) with _ -> None)
-                      in
-                      match v_opt3 with
-                      | Some v -> (
-                          match v.it with
-                          | Il.NumV (`Nat bi) ->
-                              let i = Bigint.to_int_exn bi in
-                              Some
-                                (append_step base_path
-                                   (IndexAccess (ConstInt i)))
-                          | Il.NumV (`Int bi) -> (
-                              try
-                                let i = Bigint.to_int_exn bi in
-                                if i >= 0 then
-                                  Some
-                                    (append_step base_path
-                                       (IndexAccess (ConstInt i)))
-                                else None
-                              with _ -> None)
-                          | _ ->
-                              (* Not a number - create PathRef for later concretization *)
-                              Some
-                                (append_step base_path
-                                   (IndexAccess (PathRef deduped_idx_path))))
-                      | None ->
-                          (* Can't evaluate now - create PathRef for later concretization *)
-                          (* We'll try to evaluate it during concretization when we have more context *)
-                          Some
-                            (append_step base_path
-                               (IndexAccess (PathRef deduped_idx_path))))
-                  | None ->
-                      (* Can't resolve as path either - return None (drop the path) *)
-                      None))))
+                      | _ -> None)
+                  | None -> None))))
   | Il.SubE (inner, _)
   | Il.UpCastE (_, inner)
   | Il.DownCastE (_, inner)
@@ -741,81 +525,6 @@ let rec extract_paths_from_exp (sym_env : sym_env) (exp : Il.exp) :
       | Il.BoolE _ | Il.NumE _ | Il.TextE _ ->
           [])
 
-(* Extract paths with their corresponding types from an expression *)
-let rec extract_paths_with_types_from_exp (sym_env : sym_env) (exp : Il.exp) :
-    (field_path * Il.typ') list =
-  (* Try to resolve top-level and use its type *)
-  match resolve_to_field_path sym_env exp with
-  | Some p -> [ (p, exp.note) ]
-  | None -> (
-      (* If not a path, recursively extract from sub-expressions *)
-      match exp.it with
-      | Il.BinE (_, _, e1, e2)
-      | Il.CmpE (_, _, e1, e2)
-      | Il.CatE (e1, e2)
-      | Il.ConsE (e1, e2) ->
-          extract_paths_with_types_from_exp sym_env e1
-          @ extract_paths_with_types_from_exp sym_env e2
-      | Il.UnE (_, _, e) | Il.UpdE (e, _, _) ->
-          extract_paths_with_types_from_exp sym_env e
-      | Il.LenE e -> extract_paths_with_types_from_exp sym_env e
-      | Il.CallE (_, _, args) ->
-          List.concat_map
-            (fun arg ->
-              match arg.it with
-              | Il.ExpA e -> extract_paths_with_types_from_exp sym_env e
-              | _ -> [])
-            args
-      | Il.IdxE (base, _idx) -> (
-          (* For IdxE, try to resolve the full path first *)
-          match resolve_to_field_path sym_env exp with
-          | Some p -> [ (p, exp.note) ]
-          | None -> (
-              (* If that fails, extract from base but use IdxE result type *)
-              (* This ensures array accesses like validators[i] get the element type, not list type *)
-              match extract_paths_with_types_from_exp sym_env base with
-              | [] -> []
-              | base_paths ->
-                  (* Replace types with the IdxE result type for all paths from base *)
-                  List.map (fun (p, _) -> (p, exp.note)) base_paths))
-      | Il.UpCastE (_, e)
-      | Il.DownCastE (_, e)
-      | Il.SubE (e, _)
-      | Il.MatchE (e, _)
-      | Il.MemE (e, _)
-      | Il.OptE (Some e)
-      | Il.IterE (e, _) ->
-          extract_paths_with_types_from_exp sym_env e
-      | Il.DotE (base, _atom) -> (
-          (* For DotE, try to resolve the full path first *)
-          match resolve_to_field_path sym_env exp with
-          | Some p -> [ (p, exp.note) ]
-          | None -> (
-              (* If that fails, extract from base but use DotE result type *)
-              (* This ensures field accesses like state.slot get the slot type, not state type *)
-              match extract_paths_with_types_from_exp sym_env base with
-              | [] -> []
-              | base_paths ->
-                  (* Replace types with the DotE result type for all paths from base *)
-                  List.map (fun (p, _) -> (p, exp.note)) base_paths))
-      | Il.VarE _ ->
-          (* Should have been returned by resolve_to_field_path *)
-          assert false
-      | Il.TupleE es | Il.ListE es ->
-          List.concat_map (extract_paths_with_types_from_exp sym_env) es
-      | Il.StrE fields ->
-          List.concat_map
-            (fun (_, e) -> extract_paths_with_types_from_exp sym_env e)
-            fields
-      | Il.SliceE (e1, e2, e3) ->
-          extract_paths_with_types_from_exp sym_env e1
-          @ extract_paths_with_types_from_exp sym_env e2
-          @ extract_paths_with_types_from_exp sym_env e3
-      | Il.CaseE _ | Il.HoldE _
-      | Il.OptE None
-      | Il.BoolE _ | Il.NumE _ | Il.TextE _ ->
-          [])
-
 (* Check if premise is an if-premise *)
 let rec is_if_prem (prem : Il.prem) : bool =
   match prem.it with
@@ -948,6 +657,27 @@ let algebraic_rearrange (lhs_exp : Il.exp) (rhs_exp : Il.exp) (op : Il.cmpop)
           | _ -> None))
   | _ -> None (* Target in both sides or neither *)
 
+(* Helper: Deduplicate repeated fields like MESSAGE.MESSAGE *)
+let deduplicate_path (path : field_path) : field_path =
+  let rec dedup_steps steps =
+    match steps with
+    | FieldAccess s1
+      :: FieldAccess s2
+      :: FieldAccess s3
+      :: FieldAccess s4
+      :: rest
+      when s1 = s2 && s2 = s3 && s3 = s4 ->
+        dedup_steps (FieldAccess s1 :: rest)
+    | FieldAccess s1 :: FieldAccess s2 :: FieldAccess s3 :: rest
+      when s1 = s2 && s2 = s3 ->
+        dedup_steps (FieldAccess s1 :: rest)
+    | FieldAccess s1 :: FieldAccess s2 :: rest when s1 = s2 ->
+        dedup_steps (FieldAccess s1 :: rest)
+    | step :: rest -> step :: dedup_steps rest
+    | [] -> []
+  in
+  { path with steps = dedup_steps path.steps }
+
 let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
     sym_mutation list =
   match exp.it with
@@ -959,10 +689,7 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
       (* Extract all paths from both sides *)
       let lhs_paths = extract_paths_from_exp sym_env lhs_sym in
       let rhs_paths = extract_paths_from_exp sym_env rhs_sym in
-      let all_paths =
-        lhs_paths @ rhs_paths |> List.map deduplicate_path
-        |> List.map concretize_path_indices
-      in
+      let all_paths = lhs_paths @ rhs_paths |> List.map deduplicate_path in
 
       (* For each path, try to rearrange and evaluate *)
       List.filter_map
@@ -980,48 +707,33 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
                     if is_len then ToLength (isolated_op, value)
                     else ToConst (isolated_op, value)
                   in
-                  Some
-                    {
-                      target_path = Some (concretize_path_indices path);
-                      suggestion;
-                    }
+                  Some { target_path = Some path; suggestion }
               | None ->
                   (* Can't evaluate - return Unknown with type *)
-                  Some
-                    {
-                      target_path = Some (concretize_path_indices path);
-                      suggestion = Unknown None;
-                    })
+                  Some { target_path = Some path; suggestion = Unknown None })
           | None ->
               (* Can't rearrange - return Unknown *)
-              Some
-                {
-                  target_path = Some (concretize_path_indices path);
-                  suggestion = Unknown None;
-                })
+              Some { target_path = Some path; suggestion = Unknown None })
         all_paths
   | Il.CallE (_func_id, _, args) ->
       (* Verification functions: all args get Unknown *)
-      (* Extract paths with their corresponding types from each argument *)
-      List.concat_map
-        (fun arg ->
-          match arg.it with
-          | Il.ExpA e ->
-              let e_expanded = expand_vars sym_env e in
-              (* Extract paths with their types - each path gets the type of its expression *)
-              let path_type_pairs =
-                extract_paths_with_types_from_exp sym_env e_expanded
-              in
-              List.map
-                (fun (path, typ) ->
-                  {
-                    target_path = Some (concretize_path_indices path);
-                    suggestion =
-                      Unknown (Some { it = typ; at = no_region; note = () });
-                  })
-                path_type_pairs
-          | Il.DefA _ -> [])
-        args
+      let arg_paths =
+        List.concat_map
+          (fun arg ->
+            match arg.it with
+            | Il.ExpA e ->
+                extract_paths_from_exp sym_env (expand_vars sym_env e)
+            | Il.DefA _ -> [])
+          args
+      in
+      List.map
+        (fun path ->
+          {
+            target_path = Some path;
+            suggestion =
+              Unknown (Some { it = exp.note; at = no_region; note = () });
+          })
+        arg_paths
   | Il.MatchE (exp_match, pat) -> (
       match pat with
       | Il.ListP `Nil ->
@@ -1032,7 +744,7 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
           List.map
             (fun path ->
               {
-                target_path = Some (concretize_path_indices path);
+                target_path = Some path;
                 suggestion =
                   ToLength
                     ( `EqOp,
@@ -1047,7 +759,7 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
           List.map
             (fun path ->
               {
-                target_path = Some (concretize_path_indices path);
+                target_path = Some path;
                 suggestion =
                   ToLength
                     ( `GtOp,
@@ -1061,7 +773,7 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
       List.map
         (fun path ->
           {
-            target_path = Some (concretize_path_indices path);
+            target_path = Some path;
             suggestion = ToConst (`EqOp, Il.Value.bool false);
           })
         paths
@@ -1071,7 +783,7 @@ let extract_symbolic_mutations (sym_env : sym_env) (exp : Il.exp) :
       List.map
         (fun path ->
           {
-            target_path = Some (concretize_path_indices path);
+            target_path = Some path;
             suggestion = ToConst (`EqOp, Il.Value.bool true);
           })
         paths
@@ -1108,7 +820,10 @@ let bind_relation_inputs (rel_id : string) (values : Il.Value.t list) : unit =
             (* Dynamic Binding Strategy:
                1. If we have a symbolic argument from the caller, bind it directly! *)
             (match arg_opt with
-            | Some sym_arg -> State.bind_sym n sym_arg
+            | Some sym_arg ->
+                Format.eprintf "[DEBUG] Binding input %s from call arg: %s\n" n
+                  (string_of_sym_expr sym_arg);
+                State.bind_sym n sym_arg
             | None ->
                 (* 2. Fallback: Type-based heuristic *)
                 let type_name =
@@ -1116,9 +831,14 @@ let bind_relation_inputs (rel_id : string) (values : Il.Value.t list) : unit =
                   | Il.VarT (id, _) -> String.lowercase_ascii id.it
                   | _ -> ""
                 in
-                if type_name = "beaconstate" then bind_state n v.note
-                else if type_name = "signedbeaconblock" then bind_block n v.note
-                else
+                if type_name = "beaconstate" then (
+                  Format.eprintf "[DEBUG] Binding input %s to State\n" n;
+                  bind_state n v.note)
+                else if type_name = "signedbeaconblock" then (
+                  Format.eprintf "[DEBUG] Binding input %s to Block\n" n;
+                  bind_block n v.note)
+                else (
+                  Format.eprintf "[DEBUG] Binding input %s to Local\n" n;
                   (* Bind as simple local variable *)
                   (* Use runtime type for local variable ensures it can be resolved as Block/State if needed *)
                   State.bind_sym n
@@ -1126,7 +846,7 @@ let bind_relation_inputs (rel_id : string) (values : Il.Value.t list) : unit =
                       it = Il.VarE (n $ no_region);
                       at = no_region;
                       note = v.note.Il.typ;
-                    });
+                    }));
             bind_loop ns vs args_rest
         | _ -> () (* Mismatch length or done *)
       in
@@ -1161,7 +881,11 @@ module M : Instrumentation_core.Handler.S = struct
     | Instrumentation_core.Handler.IlSpec il_spec ->
         let inputs = extract_relation_inputs il_spec in
         Hashtbl.iter
-          (fun k v -> Hashtbl.replace State.relation_inputs k v)
+          (fun k v ->
+            if k = "State_transition" then
+              Format.printf "[DEBUG Positive.init] Found inputs for %s: %s\n" k
+                (String.concat ", " v);
+            Hashtbl.replace State.relation_inputs k v)
           inputs
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
@@ -1172,7 +896,6 @@ module M : Instrumentation_core.Handler.S = struct
     State.current_test_id := "";
     Hashtbl.clear State.sym_env;
     Hashtbl.clear State.seen_prems;
-    Hashtbl.clear State.relation_outputs;
     State.frames := []
   (* Note: per_test_sym_mutations is preserved - it accumulates across tests *)
 
@@ -1182,23 +905,8 @@ module M : Instrumentation_core.Handler.S = struct
     (* Bind inputs using types and relation input names *)
     bind_relation_inputs id values
 
-  let on_rel_exit ~id ~at:_ ~success =
-    if success then (
-      (* Before popping, capture relation outputs for propagation *)
-      (* Note: nested frames (rules/clauses) have already been popped and merged
-         into this barrier frame, so we only need to capture from the barrier frame *)
-      (match !State.frames with
-      | frame :: _ when frame.is_barrier && frame.relation_id = Some id ->
-          (* Capture all bindings in this relation's frame as potential outputs *)
-          (* These include bindings from nested scopes that were merged on pop *)
-          let outputs = Hashtbl.create 20 in
-          Hashtbl.iter
-            (fun var_name expr -> Hashtbl.replace outputs var_name expr)
-            frame.local_env;
-          (* Store outputs for this relation *)
-          Hashtbl.replace State.relation_outputs id outputs
-      | _ -> ());
-      State.pop_sym_frame_success ())
+  let on_rel_exit ~id:_ ~at:_ ~success =
+    if success then State.pop_sym_frame_success ()
     else State.pop_sym_frame_failure ();
     State.current_relation := "";
     State.current_rule := ""
@@ -1220,7 +928,17 @@ module M : Instrumentation_core.Handler.S = struct
     if success then State.pop_sym_frame_success ()
     else State.pop_sym_frame_failure ()
 
-  let on_iter_prem_enter = Instrumentation_core.Noop.on_iter_prem_enter
+  let on_iter_prem_enter ~prem ~at:_ =
+    (* Bind iteration variables to symbolic environment *)
+    match prem.it with
+    | Il.IterPr (_, (_iter, vars)) ->
+        List.iter
+          (fun (id, typ, _) ->
+            State.bind_sym id.it
+              { it = Il.VarE id; at = no_region; note = typ.it })
+          vars
+    | _ -> ()
+
   let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
   let on_instr = Instrumentation_core.Noop.on_instr
 
@@ -1235,11 +953,18 @@ module M : Instrumentation_core.Handler.S = struct
 
     if not (is_if_prem prem) then
       match prem.it with
-      | Il.RulePr (_id, (_, args)) ->
+      | Il.RulePr (id, (_, args)) ->
           (* It's a relation call! Resolve arguments in CURRENT environment context *)
           (* and save them for the upcoming on_rel_enter *)
+          Format.eprintf "[DEBUG] on_prem_enter RulePr %s\n" id.it;
           let resolved_args =
-            List.map (fun arg -> expand_vars State.sym_env arg) args
+            List.map
+              (fun arg ->
+                let expanded = expand_vars State.sym_env arg in
+                Format.eprintf "  Arg: %s -> %s\n" (string_of_sym_expr arg)
+                  (string_of_sym_expr expanded);
+                expanded)
+              args
           in
           State.pending_call_args := Some resolved_args
       | _ -> ()
@@ -1301,19 +1026,7 @@ module M : Instrumentation_core.Handler.S = struct
       | Il.IterPr ({ it = Il.LetPr ({ it = Il.VarE id; _ }, rhs); _ }, _) ->
           let sym = expand_vars State.sym_env rhs in
           State.bind_sym id.it sym
-      | Il.RulePr (rel_id, _) -> (
-          (* Relation call completed successfully - bind outputs if available *)
-          match Hashtbl.find_opt State.relation_outputs rel_id.it with
-          | Some outputs ->
-              (* Propagate relation outputs to caller's context *)
-              Hashtbl.iter
-                (fun var_name expr ->
-                  (* Only bind if not already bound in current scope *)
-                  match State.lookup_sym var_name with
-                  | None -> State.bind_sym var_name expr
-                  | Some _ -> ())
-                outputs
-          | None -> ())
+      | Il.RulePr _ -> ()
       | _ -> ()
     else
       (* On failure, we don't accumulate dependencies or update bindings *)
