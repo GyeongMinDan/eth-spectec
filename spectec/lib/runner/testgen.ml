@@ -1735,7 +1735,37 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
         (List.length selected)
         (List.length filtered_test_to_prems)
         (List.length premise_uids);
-      selected)
+      (* Sort tests: sanity tests first, random tests last *)
+      let test_priority (test_id, _) =
+        let test_id_lower = String.lowercase_ascii test_id in
+        (* Check if test_id contains "sanity" or "random" as substrings *)
+        let has_sanity =
+          try
+            let _ =
+              Str.search_forward (Str.regexp_string "sanity") test_id_lower 0
+            in
+            true
+          with Not_found -> false
+        in
+        let has_random =
+          try
+            let _ =
+              Str.search_forward (Str.regexp_string "random") test_id_lower 0
+            in
+            true
+          with Not_found -> false
+        in
+        if has_sanity then 0 (* sanity tests first *)
+        else if has_random then 2 (* random tests last *)
+        else 1 (* other tests in between *)
+      in
+      List.sort
+        (fun t1 t2 ->
+          let p1 = test_priority t1 in
+          let p2 = test_priority t2 in
+          if p1 <> p2 then compare p1 p2 else compare (fst t1) (fst t2))
+          (* Stable sort by test_id within same priority *)
+        selected)
     else filtered_test_to_prems
   in
 
@@ -1758,6 +1788,10 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
   (* Track analyzed tests for checkpoint *)
   let analyzed = ref (Testgen_data.analyzed_tests testgen_data) in
   let last_dep_result = ref None in
+
+  (* Track previously generated mutations across test cases to avoid duplicates *)
+  let module Dep = Instrumentation.Dependency.Dep_common in
+  let previously_generated_mutations = Hashtbl.create 1000 in
 
   (* Calculate starting position for progress display *)
   let already_completed =
@@ -1847,14 +1881,16 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
 
             (* Collect all constraints from all premises first, then deduplicate *)
             let module Dep = Instrumentation.Dependency.Dep_common in
-            let all_constraints =
+            (* Track which premises each constraint came from *)
+            let all_constraints_with_prems =
               List.fold_left
                 (fun acc prem_uid ->
                   let constraints =
                     infer_mutation_constraints prem_uid coverage
                       (Some dependency_result)
                   in
-                  acc @ constraints)
+                  (* Tag each constraint with its premise UID *)
+                  List.map (fun c -> (c, prem_uid)) constraints @ acc)
                 [] prem_uids
             in
             (* Deduplicate constraints across all premises for this test *)
@@ -1879,18 +1915,34 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
               in
               Printf.sprintf "%s|%s" path_str strategies_str
             in
-            let seen_constraints =
-              Hashtbl.create (List.length all_constraints)
+            (* Deduplicate but keep track of all premise UIDs for each constraint *)
+            let constraint_map =
+              Hashtbl.create (List.length all_constraints_with_prems)
             in
+            List.iter
+              (fun (constraint_, prem_uid) ->
+                let key = constraint_key constraint_ in
+                match Hashtbl.find_opt constraint_map key with
+                | None ->
+                    Hashtbl.replace constraint_map key
+                      (constraint_, [ prem_uid ])
+                | Some (_, prems) ->
+                    if not (List.mem prem_uid prems) then
+                      Hashtbl.replace constraint_map key
+                        (constraint_, prem_uid :: prems))
+              all_constraints_with_prems;
+            (* Convert back to list with premise UIDs, filtering out previously generated mutations *)
             let deduplicated_constraints =
-              List.filter
-                (fun constraint_ ->
-                  let key = constraint_key constraint_ in
-                  if Hashtbl.mem seen_constraints key then false
+              Hashtbl.fold
+                (fun key (constraint_, prems) acc ->
+                  (* Check if this mutation was already generated for a previous test case *)
+                  if Hashtbl.mem previously_generated_mutations key then acc
+                    (* Skip - already generated *)
                   else (
-                    Hashtbl.replace seen_constraints key ();
-                    true))
-                all_constraints
+                    (* Mark as generated for future test cases *)
+                    Hashtbl.replace previously_generated_mutations key ();
+                    (constraint_, List.sort_uniq compare prems) :: acc))
+                constraint_map []
             in
 
             (* Process all deduplicated constraints together (not per premise) *)
@@ -1905,7 +1957,7 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
 
               let generated_files = ref [] in
               List.iteri
-                (fun c_idx constraint_ ->
+                (fun c_idx (constraint_, premise_uids_for_constraint) ->
                   (* Check source value first - if not found, skip mutations *)
                   let source_value_opt =
                     match
@@ -1942,6 +1994,10 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
                       Printf.fprintf report_channel "  - Field: %s\n"
                         (Instrumentation.Dependency.Dep_common
                          .string_of_field_path constraint_.field_path);
+                      Printf.fprintf report_channel "    Premises: %s\n"
+                        (String.concat ", "
+                           (List.map (Printf.sprintf "%d")
+                              premise_uids_for_constraint));
                       (match constraint_.suggestion_str with
                       | Some suggestion ->
                           Printf.fprintf report_channel "    Suggestion: %s\n"
@@ -2072,8 +2128,14 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
                         in
                         List.iteri
                           (fun s_idx strategy ->
+                            (* Include premise UIDs in file name *)
+                            let prem_str =
+                              String.concat "_"
+                                (List.map (Printf.sprintf "prem%d")
+                                   premise_uids_for_constraint)
+                            in
                             let mut_id =
-                              Printf.sprintf "mut_%d_%d" c_idx s_idx
+                              Printf.sprintf "mut_%s_%d_%d" prem_str c_idx s_idx
                             in
                             let single_constraint =
                               { constraint_ with strategies = [ strategy ] }
@@ -2111,6 +2173,10 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
                               Printf.fprintf report_channel "  - Field: %s\n"
                                 (Instrumentation.Dependency.Dep_common
                                  .string_of_field_path constraint_.field_path);
+                              Printf.fprintf report_channel "    Premises: %s\n"
+                                (String.concat ", "
+                                   (List.map (Printf.sprintf "%d")
+                                      premise_uids_for_constraint));
                               (match constraint_.suggestion_str with
                               | Some suggestion ->
                                   Printf.fprintf report_channel
