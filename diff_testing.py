@@ -19,6 +19,147 @@ STATUS_LABEL = {
     2: "UNHANDLED_EXCEPTION"
 }
 
+# Lighthouse coverage report scope (noise reduction)
+# We intentionally apply filtering ONLY at report generation time (llvm-cov),
+# after merging raw coverage data (llvm-profdata). This matches the Nimbus
+# approach: merge first to preserve full information, then filter for a
+# consistent, well-defined scope.
+#
+# Scope A: keep only core state-transition related crates.
+# 
+# INCLUDED (kept in report):
+#   - consensus/     : Core consensus state-transition logic
+#   - crypto/         : Cryptographic primitives (BLS signatures, etc.)
+#   - lcli/           : Lighthouse CLI tool (entry point for state-transition)
+#
+# EXCLUDED (filtered out from report):
+#   - beacon_node/    : Beacon node operational logic (not core state-transition)
+#   - common/         : Infrastructure code (logging, metrics, config)
+#   - lighthouse/     : Environment setup code
+#   - target/         : Build artifacts
+#   - .cargo, rustc/  : Rust toolchain sources
+#
+# Regex explanation for --ignore-filename-regex (matches = excluded):
+#   - `\.cargo`       : Matches .cargo in any path (absolute or relative)
+#   - `rustc/`        : Matches rustc/ directory anywhere in path
+#   - `^(?!consensus/|crypto/|lcli/).*` : Matches any path that does NOT start
+#                                         with consensus/, crypto/, or lcli/
+LIGHTHOUSE_CORE_IGNORE_REGEX = r"(\.cargo|rustc/|^(?!consensus/|crypto/|lcli/).*)"
+
+# Teku coverage report scope (noise reduction)
+# We intentionally apply filtering ONLY at report generation time (after XML generation),
+# after merging raw coverage data (.exec files). This matches the Nimbus/Lighthouse
+# approach: merge first to preserve full information, then filter for a consistent,
+# well-defined scope.
+#
+# INCLUDED (kept in report):
+#   - tech/pegasys/teku/spec/**           : Core consensus state-transition logic
+#   - tech/pegasys/teku/infrastructure/ssz/** : SSZ encoding/decoding (required for state-transition)
+#   - tech/pegasys/teku/bls/**            : BLS signature verification (required for state-transition)
+#
+# EXCLUDED (filtered out from report):
+#   - tech/pegasys/teku/beaconrestapi/** : REST API handlers
+#   - tech/pegasys/teku/api/**            : API layer
+#   - tech/pegasys/teku/networking/**    : Networking layer
+#   - tech/pegasys/teku/services/**       : Node services
+#   - tech/pegasys/teku/validator/**     : Validator client
+#   - tech/pegasys/teku/storage/**       : Storage layer
+#   - tech/pegasys/teku/ethereum/executionclient/** : Execution client integration
+#   - tech/pegasys/teku/ethereum/executionlayer/**  : Execution layer
+#   - tech/pegasys/teku/cli/**            : CLI tooling
+#   - tech/pegasys/teku/infrastructure/json/**      : JSON infrastructure
+#   - tech/pegasys/teku/infrastructure/logging/**  : Logging infrastructure
+#   - tech/pegasys/teku/infrastructure/metrics/**   : Metrics infrastructure
+#   - tech/pegasys/teku/infrastructure/http/**      : HTTP infrastructure
+#   - tech/pegasys/teku/infrastructure/restapi/**  : REST API infrastructure
+#   - tech/pegasys/teku/infrastructure/async/**     : Async infrastructure
+#
+# Filtering is done by parsing JaCoCo XML report and keeping only packages that start
+# with one of the included prefixes, then regenerating HTML report from filtered XML.
+TEKU_CORE_INCLUDE_PREFIXES = (
+    "tech/pegasys/teku/spec",
+    "tech/pegasys/teku/infrastructure/ssz",
+    "tech/pegasys/teku/bls",
+)
+
+# Nimbus coverage report scope (noise reduction)
+# We intentionally apply filtering ONLY at report generation time (after lcov capture),
+# after merging raw coverage data (.gcda files). This matches the Lighthouse/TeKu
+# approach: merge first to preserve full information, then filter for a consistent,
+# well-defined scope.
+#
+# INCLUDED (kept in report):
+#   - beacon_chain/**                    : Core consensus state-transition logic
+#   - ncli/**                            : Nimbus CLI tool (entry point for state-transition)
+#   - vendor/nim-blscurve/**             : BLS signature verification (required for state-transition)
+#   - vendor/nim-ssz-serialization/**    : SSZ encoding/decoding (required for state-transition)
+#
+# EXCLUDED (filtered out from report):
+#   - vendor/** (except nim-blscurve, nim-ssz-serialization) : Other third-party libraries
+#   - nimcache/**      : Build cache artifacts
+#   - research/**      : Research code
+#   - generated_not_to_break_here : Generated files
+#   - usr/**           : System headers
+#   - System paths     : /usr/, /nimbus-eth2/, etc.
+#
+# Filtering is done by parsing lcov coverage.info file and keeping only files
+# that start with one of the included prefixes, then regenerating the info file.
+NIMBUS_CORE_INCLUDE_PREFIXES = (
+    "beacon_chain/",
+    "ncli/",
+    "vendor/nim-blscurve/",
+    "vendor/nim-ssz-serialization/",
+)
+
+# Prysm coverage report scope (noise reduction)
+# We intentionally apply filtering ONLY at report generation time (after coverage.txt generation),
+# after merging raw coverage data (covcounters.* files). This matches the Lighthouse/TeKu/Nimbus
+# approach: merge first to preserve full information, then filter for a consistent,
+# well-defined scope.
+#
+# INCLUDED (kept in report):
+#   - github.com/OffchainLabs/prysm/v7/beacon-chain/core/**  : Core consensus state-transition logic
+#   - github.com/OffchainLabs/prysm/v7/beacon-chain/state/** : State management
+#   - github.com/OffchainLabs/prysm/v7/consensus-types/**    : Consensus type definitions
+#   - github.com/OffchainLabs/prysm/v7/encoding/ssz/**      : SSZ encoding/decoding
+#   - github.com/OffchainLabs/prysm/v7/crypto/bls/**        : BLS signature verification
+#   - github.com/OffchainLabs/prysm/v7/config/params         : Configuration parameters (features excluded)
+#   - github.com/OffchainLabs/prysm/v7/tools/pcli           : Prysm CLI tool (entry point for state-transition)
+#
+# EXCLUDED (filtered out from report):
+#   - github.com/OffchainLabs/prysm/v7/proto/**             : Protocol buffer generated code
+#   - github.com/OffchainLabs/prysm/v7/testing/**           : Testing utilities
+#   - github.com/OffchainLabs/prysm/v7/runtime/**           : Runtime infrastructure
+#   - github.com/OffchainLabs/prysm/v7/monitoring/**        : Monitoring
+#   - github.com/OffchainLabs/prysm/v7/cmd/**                : Other command-line tools (pcli excluded)
+#   - github.com/OffchainLabs/prysm/v7/io/**                 : File I/O infrastructure
+#   - github.com/OffchainLabs/prysm/v7/time/**               : Time utilities
+#   - github.com/OffchainLabs/prysm/v7/container/**          : Container data structures
+#   - github.com/OffchainLabs/prysm/v7/cache/**              : Cache infrastructure
+#   - github.com/OffchainLabs/prysm/v7/math/**               : Math utilities
+#   - github.com/OffchainLabs/prysm/v7/async/**              : Async processing infrastructure
+#   - github.com/OffchainLabs/prysm/v7/beacon-chain/blockchain/** : Blockchain operational logic
+#   - github.com/OffchainLabs/prysm/v7/beacon-chain/cache/**     : Cache
+#   - github.com/OffchainLabs/prysm/v7/beacon-chain/db/**        : Database
+#   - github.com/OffchainLabs/prysm/v7/beacon-chain/operations/** : Operational logic
+#   - github.com/OffchainLabs/prysm/v7/beacon-chain/p2p/**       : P2P networking
+#   - github.com/OffchainLabs/prysm/v7/beacon-chain/slasher/**   : Slasher logic
+#   - github.com/OffchainLabs/prysm/v7/config/features           : Feature flags (params only)
+#   - github.com/OffchainLabs/prysm/v7/encoding/bytesutil         : Byte utilities (ssz only)
+#   - github.com/OffchainLabs/prysm/v7/crypto/hash/**            : Hash functions (bls only)
+#
+# Filtering is done by parsing Go coverage.txt file and keeping only files that belong to
+# one of the included packages, then regenerating HTML report from filtered coverage.txt.
+PRYSM_CORE_INCLUDE_PREFIXES = (
+    "github.com/OffchainLabs/prysm/v7/beacon-chain/core",
+    "github.com/OffchainLabs/prysm/v7/beacon-chain/state",
+    "github.com/OffchainLabs/prysm/v7/consensus-types",
+    "github.com/OffchainLabs/prysm/v7/encoding/ssz",
+    "github.com/OffchainLabs/prysm/v7/crypto/bls",
+    "github.com/OffchainLabs/prysm/v7/config/params",
+    "github.com/OffchainLabs/prysm/v7/tools/pcli",
+)
+
 class Clients:
     def __init__(self, name, cmd_path, cmd_args):
         self.name = name
@@ -2654,13 +2795,18 @@ def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
     
     try:
         # Convert to text format using go tool covdata textfmt
-        coverage_txt = prysm_report_dir / "coverage.txt"
+        coverage_txt_raw = prysm_report_dir / "coverage_raw.txt"
         subprocess.run(
-            ["go", "tool", "covdata", "textfmt", f"-i={prysm_coverage_dir}", f"-o={coverage_txt}"],
+            ["go", "tool", "covdata", "textfmt", f"-i={prysm_coverage_dir}", f"-o={coverage_txt_raw}"],
             check=True,
             capture_output=True,
             text=True
         )
+        
+        # Filter to keep only core state-transition packages
+        # This is done AFTER merging original coverage data, matching Lighthouse/TeKu/Nimbus approach
+        coverage_txt = prysm_report_dir / "coverage.txt"
+        _filter_prysm_coverage_txt(coverage_txt_raw, coverage_txt)
         
         # Generate HTML report using go tool cover (run from Prysm directory)
         coverage_html = prysm_report_dir / "coverage.html"
@@ -2972,7 +3118,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
                 f"--instr-profile={profdata_file}",
                 "--format=html",
                 f"--output-dir={html_dir}",
-                "--ignore-filename-regex=/.cargo|rustc/",
+                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
                 "--show-line-counts-or-regions",
                 "--show-branches=count",  # Show branch coverage with execution counts
                 "--show-instantiations"
@@ -2989,7 +3135,7 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
                 str(llvm_cov), "report",
                 str(lighthouse_binary),
                 f"--instr-profile={profdata_file}",
-                "--ignore-filename-regex=/.cargo|rustc/",
+                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
                 "--show-branch-summary",  # Show branch condition statistics in summary table
                 "--show-instantiation-summary"
             ],
@@ -3063,10 +3209,29 @@ def _generate_teku_report(teku_coverage_dir, testing_clients_dir):
         else:
             print(f"    ⚠ Warning: No source directories found, source code mapping may not work")
         
+        # 1. Generate XML report first (for filtering)
+        xml_report = teku_report_dir / "coverage.xml"
         subprocess.run(
             [
                 "java", "-jar", str(jacoco_cli),
                 "report", str(teku_exec),
+            ] + classfiles_args + sourcefiles_args + [
+                "--xml", str(xml_report)
+            ],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # 2. Filter XML report to keep only core state-transition packages
+        filtered_xml = teku_report_dir / "coverage_filtered.xml"
+        _filter_teku_xml_report(xml_report, filtered_xml)
+        
+        # 3. Generate HTML report from filtered XML
+        subprocess.run(
+            [
+                "java", "-jar", str(jacoco_cli),
+                "report", str(filtered_xml),
             ] + classfiles_args + sourcefiles_args + [
                 "--html", str(teku_report_dir)
             ],
@@ -3077,6 +3242,173 @@ def _generate_teku_report(teku_coverage_dir, testing_clients_dir):
         print(f"    ✓ Report: {teku_report_dir / 'index.html'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed: {e}")
+
+
+def _filter_nimbus_lcov_report(lcov_input, lcov_output, nimbus_src):
+    """Filter Nimbus lcov coverage.info file to keep only core state-transition packages
+    
+    This function filters the lcov report by keeping only files that start with
+    one of the NIMBUS_CORE_INCLUDE_PREFIXES. This is done AFTER merging original
+    coverage data, matching the Lighthouse/TeKu approach.
+    """
+    try:
+        output_lines = []
+        current_record = []
+        current_file = None
+        should_include = False
+        
+        with open(lcov_input, 'r') as f:
+            for line in f:
+                if line.startswith('SF:'):
+                    # Start of a new file record
+                    # Save previous record if it should be included
+                    if current_file is not None and should_include:
+                        output_lines.extend(current_record)
+                        output_lines.append('end_of_record\n')
+                    
+                    # Start new record
+                    current_record = [line]
+                    current_file = line[3:].strip()
+                    
+                    # Check if file should be included
+                    # Extract relative path (remove absolute prefix if exists)
+                    rel_path = current_file
+                    if '/nimbus-eth2/' in current_file:
+                        rel_path = current_file.split('/nimbus-eth2/')[-1]
+                    elif current_file.startswith('/usr/') or current_file.startswith('/nimbus-eth2/'):
+                        # System paths - exclude
+                        should_include = False
+                    else:
+                        # Check if path starts with one of the included prefixes
+                        should_include = any(rel_path.startswith(prefix) for prefix in NIMBUS_CORE_INCLUDE_PREFIXES)
+                
+                elif line.startswith('end_of_record'):
+                    # End of current record
+                    if should_include:
+                        output_lines.extend(current_record)
+                        output_lines.append(line)
+                    current_record = []
+                    current_file = None
+                    should_include = False
+                
+                else:
+                    # Part of current record
+                    if current_file is not None:
+                        current_record.append(line)
+        
+        # Handle last record if file doesn't end with end_of_record
+        if current_file is not None and should_include:
+            output_lines.extend(current_record)
+            output_lines.append('end_of_record\n')
+        
+        # Write filtered lcov file
+        with open(lcov_output, 'w') as f:
+            f.writelines(output_lines)
+        
+    except Exception as e:
+        print(f"    ⚠ Warning: Failed to filter Nimbus lcov report: {e}")
+        # Fallback: copy original lcov file
+        import shutil
+        shutil.copy2(lcov_input, lcov_output)
+
+
+def _filter_teku_xml_report(xml_input, xml_output):
+    """Filter Teku JaCoCo XML report to keep only core state-transition packages
+    
+    This function filters the XML report by keeping only packages that start with
+    one of the TEKU_CORE_INCLUDE_PREFIXES. This is done AFTER merging original
+    coverage data, matching the Nimbus/Lighthouse approach.
+    """
+    import xml.etree.ElementTree as ET
+    
+    try:
+        tree = ET.parse(xml_input)
+        root = tree.getroot()
+        
+        # Find all package elements and collect ones to remove
+        packages_to_remove = []
+        for package in root.findall(".//package"):
+            package_name = package.get("name", "")
+            
+            # Check if package should be included
+            should_include = any(package_name.startswith(prefix) for prefix in TEKU_CORE_INCLUDE_PREFIXES)
+            
+            if not should_include:
+                packages_to_remove.append(package)
+        
+        # Remove excluded packages (packages are direct children of root in JaCoCo XML)
+        for package in packages_to_remove:
+            root.remove(package)
+        
+        # Write filtered XML
+        tree.write(xml_output, encoding="UTF-8", xml_declaration=True)
+        
+    except Exception as e:
+        print(f"    ⚠ Warning: Failed to filter Teku XML report: {e}")
+        # Fallback: copy original XML
+        import shutil
+        shutil.copy2(xml_input, xml_output)
+
+
+def _filter_prysm_coverage_txt(coverage_txt_input, coverage_txt_output):
+    """Filter Prysm Go coverage.txt file to keep only core state-transition packages
+    
+    This function filters the Go coverage.txt report by keeping only files that belong to
+    one of the PRYSM_CORE_INCLUDE_PREFIXES. This is done AFTER merging original
+    coverage data, matching the Lighthouse/TeKu/Nimbus approach.
+    
+    Go coverage.txt format:
+    mode: set
+    github.com/OffchainLabs/prysm/v7/beacon-chain/core/blocks.go:10.118,12.15 2 0
+    """
+    try:
+        output_lines = []
+        
+        with open(coverage_txt_input, 'r') as f:
+            for line in f:
+                # Keep mode line
+                if line.startswith('mode:'):
+                    output_lines.append(line)
+                    continue
+                
+                # Skip empty lines
+                if line.strip() == '':
+                    continue
+                
+                # Parse coverage line: path.go:start.end,start.end statements covered
+                # Example: github.com/OffchainLabs/prysm/v7/beacon-chain/core/blocks.go:10.118,12.15 2 0
+                parts = line.split()
+                if len(parts) >= 3:
+                    file_path = parts[0]
+                    
+                    # Extract package path (everything before the last /)
+                    if ':' in file_path:
+                        file_path_only = file_path.split(':')[0]
+                        if '/' in file_path_only:
+                            # Check if file belongs to an included package
+                            should_include = False
+                            
+                            # Special handling for config/params (exclude config/features)
+                            if file_path_only.startswith("github.com/OffchainLabs/prysm/v7/config/params"):
+                                should_include = True
+                            elif file_path_only.startswith("github.com/OffchainLabs/prysm/v7/config/features"):
+                                should_include = False
+                            else:
+                                # Check if path starts with any included prefix
+                                should_include = any(file_path_only.startswith(prefix) for prefix in PRYSM_CORE_INCLUDE_PREFIXES)
+                            
+                            if should_include:
+                                output_lines.append(line)
+        
+        # Write filtered coverage.txt file
+        with open(coverage_txt_output, 'w') as f:
+            f.writelines(output_lines)
+        
+    except Exception as e:
+        print(f"    ⚠ Warning: Failed to filter Prysm coverage.txt: {e}")
+        # Fallback: copy original coverage.txt
+        import shutil
+        shutil.copy2(coverage_txt_input, coverage_txt_output)
 
 
 def _generate_nimbus_report(nimbus_coverage_dir, testing_clients_dir):
@@ -3169,12 +3501,10 @@ def _generate_nimbus_report(nimbus_coverage_dir, testing_clients_dir):
                 text=True
             )
         
-        # Filter generated_not_to_break_here -> non-existent files (lcov error remains...)
+        # Filter to keep only core state-transition packages (beacon_chain/, ncli/)
+        # This is done AFTER merging original coverage data, matching Lighthouse/TeKu approach
         coverage_clean = nimbus_report_dir / "coverage_clean.info"
-        with open(coverage_info, 'r') as infile, open(coverage_clean, 'w') as outfile:
-            for line in infile:
-                if 'generated_not_to_break_here' not in line:
-                    outfile.write(line)
+        _filter_nimbus_lcov_report(coverage_info, coverage_clean, nimbus_src)
         
         # Generate HTML report using genhtml (using filtered coverage_clean.info)
         # Enable branch coverage display with --branch-coverage option
@@ -3582,7 +3912,7 @@ def _merge_final_lighthouse_coverage(merged_coverage_dirs, output_dir, testing_c
                 f"--instr-profile={final_merged_profdata.resolve()}",
                 "--format=html",
                 f"--output-dir={html_dir.resolve()}",
-                "--ignore-filename-regex=/.cargo|rustc/",
+                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
                 "--show-line-counts-or-regions",
                 "--show-branches=count",
                 "--show-instantiations",
@@ -3601,7 +3931,7 @@ def _merge_final_lighthouse_coverage(merged_coverage_dirs, output_dir, testing_c
                 "report",
                 str(lighthouse_binary),
                 f"--instr-profile={final_merged_profdata.resolve()}",
-                "--ignore-filename-regex=/.cargo|rustc/",
+                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
                 "--show-branch-summary",
             ],
             check=True,
@@ -3672,11 +4002,27 @@ def _merge_final_teku_coverage(merged_coverage_dirs, output_dir, testing_clients
         report_dir = output_dir / "report"
         report_dir.mkdir(exist_ok=True)
         
+        # 1. Generate XML report first (for filtering)
+        xml_report = report_dir / "coverage.xml"
         subprocess.run(
             ["java", "-jar", str(jacoco_cli),
                 "report", str(final_merged_exec),
+                "--xml", str(xml_report),
+            ] + classfiles_args + sourcefiles_args,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # 2. Filter XML report to keep only core state-transition packages
+        filtered_xml = report_dir / "coverage_filtered.xml"
+        _filter_teku_xml_report(xml_report, filtered_xml)
+        
+        # 3. Generate HTML and CSV reports from filtered XML
+        subprocess.run(
+            ["java", "-jar", str(jacoco_cli),
+                "report", str(filtered_xml),
                 "--html", str(report_dir),
-                "--xml", str(report_dir / "coverage.xml"),
                 "--csv", str(report_dir / "coverage.csv"),
             ] + classfiles_args + sourcefiles_args,
             check=True,
@@ -3735,12 +4081,10 @@ def _merge_final_nimbus_coverage(merged_coverage_dirs, output_dir, testing_clien
             text=True
         )
         
-        # Filter generated_not_to_break_here
+        # Filter to keep only core state-transition packages (beacon_chain/, ncli/)
+        # This is done AFTER merging original coverage data, matching Lighthouse/TeKu/Prysm approach
         coverage_clean = report_dir / "coverage_clean.info"
-        with open(final_merged_coverage_info, 'r') as infile, open(coverage_clean, 'w') as outfile:
-            for line in infile:
-                if 'generated_not_to_break_here' not in line:
-                    outfile.write(line)
+        _filter_nimbus_lcov_report(final_merged_coverage_info, coverage_clean, nimbus_src)
         
         # Generate HTML report with branch coverage
         subprocess.run(
@@ -4021,7 +4365,7 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
                 f"--instr-profile={merged_profdata}",
                 "--format=html",
                 f"--output-dir={html_dir}",
-                "--ignore-filename-regex=/.cargo|rustc/",
+                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
                 "--show-line-counts-or-regions",
                 "--show-branches=count",  # Show branch coverage with execution counts
                 "--show-instantiations",
@@ -4040,7 +4384,7 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
                 "report",
                 str(lighthouse_binary),
                 f"--instr-profile={merged_profdata}",
-                "--ignore-filename-regex=/.cargo|rustc/",
+                f"--ignore-filename-regex={LIGHTHOUSE_CORE_IGNORE_REGEX}",
                 "--show-branch-summary",  # Show branch condition statistics in summary table
             ],
             check=True,
@@ -4123,12 +4467,29 @@ def _merge_teku_coverage(cov_dirs, output_dir, testing_clients_dir):
         for src_dir in src_dirs:
             sourcefiles_args.extend(["--sourcefiles", src_dir])
         
+        # 1. Generate XML report first (for filtering)
+        xml_report = report_dir / "coverage.xml"
         subprocess.run(
             [
                 "java", "-jar", str(jacoco_cli),
                 "report", str(merged_exec),
+                "--xml", str(xml_report),
+            ] + classfiles_args + sourcefiles_args,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # 2. Filter XML report to keep only core state-transition packages
+        filtered_xml = report_dir / "coverage_filtered.xml"
+        _filter_teku_xml_report(xml_report, filtered_xml)
+        
+        # 3. Generate HTML and CSV reports from filtered XML
+        subprocess.run(
+            [
+                "java", "-jar", str(jacoco_cli),
+                "report", str(filtered_xml),
                 "--html", str(report_dir),
-                "--xml", str(report_dir / "coverage.xml"),
                 "--csv", str(report_dir / "coverage.csv"),
             ] + classfiles_args + sourcefiles_args,
             check=True,
@@ -4184,13 +4545,19 @@ def _merge_nimbus_coverage(cov_dirs, output_dir, testing_clients_dir):
                 text=True
             )
             
-            # Generate HTML report
+            # Filter to keep only core state-transition packages (beacon_chain/, ncli/)
+            # This is done AFTER merging original coverage data, matching Lighthouse/TeKu approach
+            coverage_clean = report_dir / "coverage_clean.info"
+            _filter_nimbus_lcov_report(merged_coverage_info, coverage_clean, nimbus_src)
+            
+            # Generate HTML report with branch coverage (using filtered coverage_clean.info)
             subprocess.run(
                 [
                     "genhtml",
-                    str(merged_coverage_info),
+                    str(coverage_clean),
                     "--output-directory", str(report_dir),
                     "--prefix", str(nimbus_src),
+                    "--branch-coverage",
                 ],
                 check=True,
                 capture_output=True,
@@ -4300,12 +4667,10 @@ def _merge_nimbus_coverage(cov_dirs, output_dir, testing_clients_dir):
             text=True
         )
         
-        # Filter generated_not_to_break_here (same as individual reports)
+        # Filter to keep only core state-transition packages (beacon_chain/, ncli/)
+        # This is done AFTER merging original coverage data, matching Lighthouse/TeKu approach
         coverage_clean = report_dir / "coverage_clean.info"
-        with open(coverage_info, 'r') as infile, open(coverage_clean, 'w') as outfile:
-            for line in infile:
-                if 'generated_not_to_break_here' not in line:
-                    outfile.write(line)
+        _filter_nimbus_lcov_report(coverage_info, coverage_clean, nimbus_src)
         
         # Clean up temp files
         for temp_info in temp_info_files:
