@@ -177,6 +177,51 @@ let extract_relation_inputs (il_spec : Il.spec) :
     il_spec;
   relation_inputs
 
+(* Extract output variable names from spec relations *)
+let extract_relation_outputs (il_spec : Il.spec) :
+    (string, string list) Hashtbl.t =
+  let relation_outputs = Hashtbl.create 50 in
+  List.iter
+    (fun def ->
+      match def.it with
+      | Il.RelD (id, _, input_hints, rules) ->
+          if rules <> [] then
+            (* Get expressions from first rule's notexp *)
+            let rule = List.hd rules in
+            let _, notexp, _ = rule.it in
+            let _, exps = notexp in
+            (* Split expressions based on indices NOT in input_hints (outputs) *)
+            let exps_output =
+              exps
+              |> List.mapi (fun idx exp -> (idx, exp))
+              |> List.filter (fun (idx, _) -> not (List.mem idx input_hints))
+              |> List.map snd
+            in
+            (* Extract variable names from output expressions *)
+            let output_vars =
+              List.filter_map
+                (fun exp ->
+                  match exp.it with Il.VarE id -> Some id.it | _ -> None)
+                exps_output
+            in
+            Hashtbl.replace relation_outputs id.it output_vars
+      | _ -> ())
+    il_spec;
+  relation_outputs
+
+(* Extract input/output indices from spec relations *)
+let extract_relation_io_indices (il_spec : Il.spec) :
+    (string, int list) Hashtbl.t =
+  let relation_io_indices = Hashtbl.create 50 in
+  List.iter
+    (fun def ->
+      match def.it with
+      | Il.RelD (id, _, input_hints, _rules) ->
+          Hashtbl.replace relation_io_indices id.it input_hints
+      | _ -> ())
+    il_spec;
+  relation_io_indices
+
 (* Bind input variables for State_transition relation *)
 let bind_state_transition_inputs (env : source_env)
     (relation_inputs : (string, string list) Hashtbl.t) (rel_id : string)

@@ -47,9 +47,11 @@ val string_of_field_path : field_path -> string
 val strip_negation : Il.exp -> Il.exp * bool
 val strip_bool_eq : Il.exp -> Il.exp * bool
 
-(* === Relation Input Binding === *)
+(* === Relation Input/Output Binding === *)
 
 val extract_relation_inputs : Il.spec -> (string, string list) Hashtbl.t
+val extract_relation_outputs : Il.spec -> (string, string list) Hashtbl.t
+val extract_relation_io_indices : Il.spec -> (string, int list) Hashtbl.t
 
 val bind_state_transition_inputs :
   source_env ->
