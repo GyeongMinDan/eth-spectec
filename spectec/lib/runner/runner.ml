@@ -262,6 +262,9 @@ type task_result = { task_name : string; summary : suite_summary }
 
 (* Run coverage across all input specs in a target with checkpoint support.
    Init/finish lifecycle is managed here - called once for the entire run. *)
+(* Exception for skipping current test *)
+exception SkipCurrentTest
+
 let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
     ~(checkpoint_config : Checkpoint.config) ~verbose ~sl_mode ~spec_files
     spec_il tasks =
@@ -280,11 +283,7 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
   let skip_current_test = ref false in
   let skip_handler _ =
     skip_current_test := true;
-    Format.printf
-      "\n\
-       [SIGUSR2] Skip signal received - will skip current test after \
-       completion...\n\
-       %!"
+    Format.printf "\n[SIGUSR2] Interrupting current test...\n%!"
   in
   (try Sys.set_signal Sys.sigusr2 (Sys.Signal_handle skip_handler)
    with Invalid_argument _ ->
@@ -389,16 +388,43 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                     (* Use no_lifecycle version - init/finish managed at coverage level *)
                     let outcome =
                       try
+                        (* Check if skip was requested before starting *)
+                        if !skip_current_test then (
+                          skip_current_test := false;
+                          raise SkipCurrentTest);
                         run_with_outcome_no_lifecycle
                           (module T)
                           ~sl_mode ~spec_il input
-                      with exception_value ->
-                        let error =
-                          Error.IlInterpError
-                            ( Common.Source.no_region,
-                              Printexc.to_string exception_value )
-                        in
-                        Task.compute_outcome (T.expectation input) (Error error)
+                      with
+                      | SkipCurrentTest ->
+                          (* Test was interrupted by signal - treat as FAIL *)
+                          skip_current_test := false;
+                          if verbose then
+                            Format.printf "INTERRUPTED (treated as FAIL)\n%!";
+                          Task.compute_outcome (T.expectation input)
+                            (Error
+                               (Error.IlInterpError
+                                  ( Common.Source.no_region,
+                                    "Test interrupted by SIGUSR2" )))
+                      | exception_value ->
+                          (* Check if skip was requested during execution *)
+                          if !skip_current_test then (
+                            skip_current_test := false;
+                            if verbose then
+                              Format.printf "INTERRUPTED (treated as FAIL)\n%!";
+                            Task.compute_outcome (T.expectation input)
+                              (Error
+                                 (Error.IlInterpError
+                                    ( Common.Source.no_region,
+                                      "Test interrupted by SIGUSR2" ))))
+                          else
+                            let error =
+                              Error.IlInterpError
+                                ( Common.Source.no_region,
+                                  Printexc.to_string exception_value )
+                            in
+                            Task.compute_outcome (T.expectation input)
+                              (Error error)
                     in
                     (* Show elapsed time if verbose *)
                     (if verbose then
