@@ -52,16 +52,6 @@ syntax indexedAttestation =
     DATA attestationData,
     SIGNATURE blsSignature }
 
-syntax pendingAttestation =
-  { AGGREGATION_BITS bool*,
-    DATA attestationData,
-    INCLUSION_DELAY slot,
-    PROPOSER_INDEX validatorIndex }
-
-syntax historicalBatch =
-  { BLOCK_ROOTS root*,
-    STATE_ROOTS root* }
-
 syntax depositMessage =
   { PUBKEY blsPubkey,
     WITHDRAWAL_CREDENTIALS bytes32,
@@ -72,10 +62,6 @@ syntax depositData =
     WITHDRAWAL_CREDENTIALS bytes32,
     AMOUNT gwei,
     SIGNATURE blsSignature }
-
-syntax signingData =
-  { OBJECT_ROOT root,
-    DOMAIN domain }
 
 syntax attesterSlashing =
   { ATTESTATION_1 indexedAttestation,
@@ -106,20 +92,6 @@ syntax proposerSlashing =
   { SIGNED_HEADER_1 signedBeaconBlockHeader,
     SIGNED_HEADER_2 signedBeaconBlockHeader }
 
-syntax eth1Block =
-  { TIMESTAMP uint64,
-    DEPOSIT_ROOT root,
-    DEPOSIT_COUNT uint64 }
-
-syntax aggregateAndProof =
-  { AGGREGATOR_INDEX validatorIndex,
-    AGGREGATE attestation,
-    SELECTION_PROOF blsSignature }
-
-syntax signedAggregateAndProof =
-  { MESSAGE aggregateAndProof,
-    SIGNATURE blsSignature }
-
 syntax syncAggregate =
   { SYNC_COMMITTEE_BITS bool*,
     SYNC_COMMITTEE_SIGNATURE blsSignature }
@@ -127,32 +99,6 @@ syntax syncAggregate =
 syntax syncCommittee =
   { PUBKEYS blsPubkey*,
     AGGREGATE_PUBKEY blsPubkey }
-
-syntax syncCommitteeMessage =
-  { SLOT slot,
-    BEACON_BLOCK_ROOT root,
-    VALIDATOR_INDEX validatorIndex,
-    SIGNATURE blsSignature }
-
-syntax syncCommitteeContribution =
-  { SLOT slot,
-    BEACON_BLOCK_ROOT root,
-    SUBCOMMITTEE_INDEX uint64,
-    AGGREGATION_BITS bool*,
-    SIGNATURE blsSignature }
-
-syntax contributionAndProof =
-  { AGGREGATOR_INDEX validatorIndex,
-    CONTRIBUTION syncCommitteeContribution,
-    SELECTION_PROOF blsSignature }
-
-syntax signedContributionAndProof =
-  { MESSAGE contributionAndProof,
-    SIGNATURE blsSignature }
-
-syntax syncAggregatorSelectionData =
-  { SLOT slot,
-    SUBCOMMITTEE_INDEX uint64 }
 
 syntax executionPayloadHeader =
   { PARENT_HASH hash32,
@@ -170,42 +116,6 @@ syntax executionPayloadHeader =
     BLOCK_HASH hash32,
     TRANSACTIONS_ROOT root,
     WITHDRAWALS_ROOT root }
-
-syntax lightClientHeader =
-  { BEACON beaconBlockHeader,
-    EXECUTION executionPayloadHeader,
-    EXECUTION_BRANCH bytes32* }
-
-syntax lightClientOptimisticUpdate =
-  { ATTESTED_HEADER lightClientHeader,
-    SYNC_AGGREGATE syncAggregate,
-    SIGNATURE_SLOT slot }
-
-syntax lightClientFinalityUpdate =
-  { ATTESTED_HEADER lightClientHeader,
-    FINALIZED_HEADER lightClientHeader,
-    FINALITY_BRANCH bytes32*,
-    SYNC_AGGREGATE syncAggregate,
-    SIGNATURE_SLOT slot }
-
-syntax lightClientUpdate =
-  { ATTESTED_HEADER lightClientHeader,
-    NEXT_SYNC_COMMITTEE syncCommittee,
-    NEXT_SYNC_COMMITTEE_BRANCH bytes32*,
-    FINALIZED_HEADER lightClientHeader,
-    FINALITY_BRANCH bytes32*,
-    SYNC_AGGREGATE syncAggregate,
-    SIGNATURE_SLOT slot }
-
-syntax lightClientBootstrap =
-  { HEADER lightClientHeader,
-    CURRENT_SYNC_COMMITTEE syncCommittee,
-    CURRENT_SYNC_COMMITTEE_BRANCH bytes32* }
-
-syntax powBlock =
-  { BLOCK_HASH hash32,
-    PARENT_HASH hash32,
-    TOTAL_DIFFICULTY uint256 }
 
 syntax withdrawal =
   { INDEX withdrawalIndex,
