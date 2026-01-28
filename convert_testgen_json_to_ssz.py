@@ -19,6 +19,7 @@ import sys
 import subprocess
 import argparse
 from pathlib import Path
+from typing import Literal
 
 # Add Converter to path
 script_dir = Path(__file__).parent.resolve()
@@ -29,7 +30,15 @@ json_to_ssz_dir = converter_dir / "JsonToSSZ"
 sys.path.insert(0, str(json_to_ssz_dir))
 sys.path.insert(0, str(converter_dir))
 
-def convert_json_to_ssz(json_path, ssz_path, conversion_script, type_module="eth2spec.capella.mainnet", type_name=None):
+ForkName = Literal["capella", "deneb"]
+
+FORK_TO_TYPE_MODULE: dict[str, str] = {
+    "capella": "eth2spec.capella.mainnet",
+    "deneb": "eth2spec.deneb.mainnet",
+}
+
+
+def convert_json_to_ssz(json_path, ssz_path, conversion_script, type_module, type_name=None):
     """
     Convert JSON file to SSZ using the specified conversion script.
     
@@ -37,7 +46,7 @@ def convert_json_to_ssz(json_path, ssz_path, conversion_script, type_module="eth
         json_path: Path to input JSON file
         ssz_path: Path to output SSZ file
         conversion_script: Path to conversion script (BeaconStateJsonToSSZ.py or SignedBeaconBlockJsonToSSZ.py)
-        type_module: Python module path (default: eth2spec.capella.mainnet)
+        type_module: Python module path (e.g., eth2spec.capella.mainnet, eth2spec.deneb.mainnet)
         type_name: Type name (default: None, uses script default)
     """
     if not os.path.exists(json_path):
@@ -74,17 +83,22 @@ def convert_json_to_ssz(json_path, ssz_path, conversion_script, type_module="eth
         print(f"    stderr: {e.stderr}")
         return False
 
-def process_testgen_directory(input_testgen_dir, output_base_dir, dry_run=False):
+def process_testgen_directory(input_testgen_dir, output_base_dir, fork: ForkName, dry_run=False):
     """
     Process all test cases in testgen directory.
     
     Args:
         input_testgen_dir: Direct path to testgen directory (e.g., testgen_01270309)
         output_base_dir: Base directory for output (will create testgen/ subdirectory)
+        fork: Consensus fork name ("capella" or "deneb"), used to select eth2spec.<fork>.mainnet types
         dry_run: If True, only print what would be done without actually converting
     """
     testgen_dir = Path(input_testgen_dir)
     output_base = Path(output_base_dir)
+    type_module = FORK_TO_TYPE_MODULE.get(fork)
+    if not type_module:
+        print(f"[!] Unsupported fork: {fork}. Supported: {sorted(FORK_TO_TYPE_MODULE.keys())}")
+        return
     
     # Paths to conversion scripts
     state_converter = json_to_ssz_dir / "BeaconStateJsonToSSZ.py"
@@ -165,7 +179,7 @@ def process_testgen_directory(input_testgen_dir, output_base_dir, dry_run=False)
             pre_json,
             pre_ssz,
             state_converter,
-            type_module="eth2spec.capella.mainnet",
+            type_module=type_module,
             type_name="BeaconState"
         ):
             # Convert block.json to blocks_0.ssz
@@ -173,7 +187,7 @@ def process_testgen_directory(input_testgen_dir, output_base_dir, dry_run=False)
                 block_json,
                 block_ssz,
                 block_converter,
-                type_module="eth2spec.capella.mainnet",
+                type_module=type_module,
                 type_name="SignedBeaconBlock"
             ):
                 success_count += 1
@@ -197,9 +211,19 @@ def main():
     )
     parser.add_argument(
         "--input-dir",
+        "--input",
+        dest="input_dir",
         type=str,
         required=True,
         help="Direct path to testgen directory (e.g., /path/to/testgen_01270309)"
+    )
+    parser.add_argument(
+        "--fork",
+        "--version",
+        dest="fork",
+        choices=sorted(FORK_TO_TYPE_MODULE.keys()),
+        default="capella",
+        help="Consensus fork/version to use for SSZ types (default: capella)"
     )
     parser.add_argument(
         "--output-dir",
@@ -215,7 +239,7 @@ def main():
     
     args = parser.parse_args()
     
-    process_testgen_directory(args.input_dir, args.output_dir, dry_run=args.dry_run)
+    process_testgen_directory(args.input_dir, args.output_dir, fork=args.fork, dry_run=args.dry_run)
 
 if __name__ == "__main__":
     main()

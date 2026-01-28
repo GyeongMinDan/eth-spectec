@@ -117,6 +117,8 @@ All operations run entirely inside the Docker container.
 
 Execute differential testing with all client implementations. All clients receive the same input and produce state-transition results and coverage data.
 
+Note : All this command is example, if you want to change, then check your command.
+# measure the baseline (official test suite)
 ```bash
 # Interactive shell - all operations run inside container
 docker run -it --name eth2test-workspace eth2test:coverage
@@ -124,7 +126,7 @@ docker run -it --name eth2test-workspace eth2test:coverage
 # Inside the container:
 cd /workspace/spectec-core
 
-# measure the baseline (official test suite)
+
 python3 diff_testing.py \
   --test-suite Converter/OfficialTestSuite/capella/sanity/blocks/pyspec_tests \
   --test-type state-transition \
@@ -161,6 +163,35 @@ python3 diff_testing.py \
   --final-output-dir ./results/accumulated_coverage_report
 ```
 
+# measure the ETH2SpecTec generated Test cases
+```bash
+cd /workspace/spectec-core
+
+# First you need to convert the ETH2SpecTec generated Test cases(Json) to ssz files
+# Then, it will make ./your_path/spectec-generated/...(Test cases)
+python3 diff_testing.py \
+  --input-dir ./testgen_01280645 \
+  --version capella \
+  --output-dir ./your_path
+
+python3 diff_testing.py \
+  --test-suite ./your_path/spectec-generated \
+  --test-type state-transition \
+  --fork-version capella \
+  --output-base ./results/coverage_ETH2SpecTec \
+  --enable-coverage \
+  --cleanup-after-report
+
+
+# Generate accumulated coverage report (baseline + ETH2SpecTec)
+python3 diff_testing.py \
+  --generate-final-coverage \
+  ./results/coverage_sanity_block_test \
+  ./results/coverage_random_test \
+  ./results/coverage_finality_test \
+  ./results/coverage_ETH2SpecTec \
+  --final-output-dir ./results/accumulated_coverage_report_with_ETH2SpecTec
+```
 **2. Process results with analysis scripts:**
 
 All results are stored in `/workspace/spectec-core/results/` inside the container. You can process them using the analysis scripts:
@@ -169,14 +200,16 @@ All results are stored in `/workspace/spectec-core/results/` inside the containe
 # Inside the container (continue from step 1):
 cd /workspace/spectec-core
 
-# Generate coverage figures
-python3 make_coverage_figure.py \
-  --input-dir ./results/accumulated_coverage_report \
-  --output-dir ./results/coverage_figures \
-  --format png
-
 # Check results for mismatches
 python3 check_results.py ./results/coverage_sanity_block_test
+python3 check_results.py ./results/coverage_ETH2SpecTec
+
+# Generate coverage figures
+# Currently Working on this script (It will be updated)...
+#python3 make_coverage_figure.py \
+#  --input-dir ./results/accumulated_coverage_report \
+#  --output-dir ./results/coverage_figures \
+#  --format png
 ```
 
 
