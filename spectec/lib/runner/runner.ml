@@ -283,11 +283,23 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
   let skip_current_test = ref false in
   let skip_handler _ =
     skip_current_test := true;
-    Format.printf "\n[SIGUSR2] Interrupting current test...\n%!"
+    Format.printf "\n[SIGUSR2] Interrupting current test...\n%!";
+    (* Use SIGALRM to interrupt the current execution immediately *)
+    (* This will cause an exception that we can catch *)
+    ignore (Unix.alarm 0)
+    (* Cancel any existing alarm *)
   in
-  (try Sys.set_signal Sys.sigusr2 (Sys.Signal_handle skip_handler)
+  (* Set up SIGALRM handler to raise SkipCurrentTest when timeout/interrupt occurs *)
+  let alarm_handler _ =
+    if !skip_current_test then (
+      skip_current_test := false;
+      raise SkipCurrentTest)
+  in
+  (try
+     Sys.set_signal Sys.sigusr2 (Sys.Signal_handle skip_handler);
+     Sys.set_signal Sys.sigalrm (Sys.Signal_handle alarm_handler)
    with Invalid_argument _ ->
-     (* SIGUSR2 not available on this platform, ignore *)
+     (* Signals not available on this platform, ignore *)
      ());
 
   (* Load checkpoint if resuming *)
@@ -391,14 +403,25 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                         (* Check if skip was requested before starting *)
                         if !skip_current_test then (
                           skip_current_test := false;
+                          ignore (Unix.alarm 0);
+                          (* Cancel any alarm *)
                           raise SkipCurrentTest);
-                        run_with_outcome_no_lifecycle
-                          (module T)
-                          ~sl_mode ~spec_il input
+                        (* Start periodic alarm checks (every 1 second) to detect interrupts *)
+                        ignore (Unix.alarm 1);
+                        let result =
+                          run_with_outcome_no_lifecycle
+                            (module T)
+                            ~sl_mode ~spec_il input
+                        in
+                        (* Cancel alarm on successful completion *)
+                        ignore (Unix.alarm 0);
+                        result
                       with
                       | SkipCurrentTest ->
                           (* Test was interrupted by signal - treat as FAIL *)
                           skip_current_test := false;
+                          ignore (Unix.alarm 0);
+                          (* Cancel any pending alarm *)
                           if verbose then
                             Format.printf "INTERRUPTED (treated as FAIL)\n%!";
                           Task.compute_outcome (T.expectation input)
@@ -407,6 +430,8 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                                   ( Common.Source.no_region,
                                     "Test interrupted by SIGUSR2" )))
                       | exception_value ->
+                          ignore (Unix.alarm 0);
+                          (* Cancel any pending alarm *)
                           (* Check if skip was requested during execution *)
                           if !skip_current_test then (
                             skip_current_test := false;
