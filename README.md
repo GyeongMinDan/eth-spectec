@@ -217,7 +217,7 @@ python3 make_compare_figure.py \
   --output-dir ./results/final_compare_result \
   --format png
 ```
-![Branch coverage comparison(Example)](./image.png)
+![Branch coverage comparison(Example)](./example_compare_image.png)
 
 
 
