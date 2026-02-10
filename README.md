@@ -56,11 +56,12 @@ docker build -t eth2test:coverage --target coverage .
 cd /workspace/spectec-core
 
 make exe
+```
 
 This creates an executable `spectec-core` in the project root.
-
+```bash
 # Print IL representation
-./spectec-core elab spec/*.spectec
+./spectec-core elab spec/spec_capella/*.spectec
 ```
 
 ### 3. Testing
