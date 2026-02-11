@@ -851,9 +851,10 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 "--post-state-output-path", paths["lighthouse"]["output"],
                 # Pure config: fork epochs set to 0
                 "--testnet-dir", str(lighthouse_testnet_dir),
-                # validate_result = true: Enable signature verification and state root verification
-                # Signature verification is enabled by default (no --no-signature-verification flag)
-                # State root verification is enabled in code (CLIENT_CODE_MODIFICATIONS.md Modification 3)
+                # validate_result = false (via modified_code): Skip block signature and state root verification
+                # Block signature: skipped in transition_blocks.rs (SkipBlockSignatureOnly)
+                # State root: skipped in transition_blocks.rs (commented out)
+                # RANDAO and attestation signatures: still verified
             ]),
         Clients(
             "Prysm",
@@ -863,8 +864,10 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 f"--block-path={block}",
                 f"--pre-state-path={state}",
                 f"--expected-post-state-path={paths['prysm']['output']}"
-                # validate_result = true: Signature verification and state root verification enabled in code
-                # (CLIENT_CODE_MODIFICATIONS.md Modification 3)
+                # validate_result = false (via modified_code): Skip block signature and state root verification
+                # Block signature: skipped in main.go debugStateTransition (filtered out from verify set)
+                # State root: skipped in main.go (commented out)
+                # RANDAO and attestation signatures: still verified
             ]),
         Clients(
             "Nimbus",
@@ -890,9 +893,10 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 "--Xnetwork-bellatrix-fork-epoch=0",
                 "--Xnetwork-capella-fork-epoch=0",
                 f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
-                # validate_result = true: Signature verification and state root verification enabled
-                # Note: Teku uses BLSSignatureVerifier.SIMPLE for signature verification
-                # State root verification is enabled in code (CLIENT_CODE_MODIFICATIONS.md)
+                # validate_result = false (via modified_code): Skip block signature and state root verification
+                # Block signature: skipped in AbstractBlockProcessor.java (verifyBlockSignature commented out)
+                # State root: skipped in AbstractBlockProcessor.java (validatePostState commented out)
+                # RANDAO and attestation signatures: still verified via BLSSignatureVerifier.SIMPLE
             ]),
 
     ]
@@ -2229,7 +2233,7 @@ def create_csv_time(all_results, output_parent_dir):
                 key: f"{value:.{time_decimal_places}f}" if isinstance(value, (int, float)) else value
                 for key, value in result.items()
             }
-            writer.writerow(result)
+            writer.writerow(formatted_result)
         writer.writerow(total_row)
 
     print(f"[+] CSV log saved at {csv_file_path}")
