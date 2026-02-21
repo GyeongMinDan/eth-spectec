@@ -4873,11 +4873,16 @@ def _merge_nimbus_coverage(cov_dirs, output_dir, testing_clients_dir):
                 text=True
             )
             
-            # Generate HTML report with branch coverage (no filtering for test suite accumulation)
+            # Filter to keep only core state-transition packages (exclude generated_not_to_break_here etc.)
+            # genhtml fails if lcov references non-existent paths like Nim's generated_not_to_break_here
+            coverage_clean = report_dir / "coverage_clean.info"
+            _filter_nimbus_lcov_report(merged_coverage_info, coverage_clean, nimbus_src)
+            
+            # Generate HTML report with branch coverage (using filtered coverage)
             subprocess.run(
                 [
                     "genhtml",
-                    str(merged_coverage_info),
+                    str(coverage_clean),
                     "--output-directory", str(report_dir),
                     "--prefix", str(nimbus_src),
                     "--branch-coverage",
@@ -4994,11 +4999,15 @@ def _merge_nimbus_coverage(cov_dirs, output_dir, testing_clients_dir):
         for temp_info in temp_info_files:
             temp_info.unlink()
         
-        # Generate HTML report with branch coverage (no filtering for test suite accumulation)
+        # Filter to exclude generated_not_to_break_here etc. before genhtml
+        coverage_clean = report_dir / "coverage_clean.info"
+        _filter_nimbus_lcov_report(coverage_info, coverage_clean, nimbus_src)
+        
+        # Generate HTML report with branch coverage (using filtered coverage)
         subprocess.run(
             [
                 "genhtml",
-                str(coverage_info),
+                str(coverage_clean),
                 "--output-directory", str(report_dir),
                 "--prefix", str(nimbus_src),
                 "--branch-coverage",  # Enable branch coverage display

@@ -28,10 +28,10 @@ The Dockerfile provides a reproducible, isolated environment for building and te
    - Installs OCaml compiler and opam package manager
    - Configures build environment for spectec-core
 3. Clones and builds client implementations:
-   - Lighthouse (v8.0.0)
+   - Lighthouse (v8.0.1)
    - Prysm (v7.0.0)
-   - Nimbus (v25.11.0)
-   - Teku (25.11.0)
+   - Nimbus (v25.11.1)
+   - Teku (25.11.1)
    - Lodestar (v1.36.0 @state-transition)
 4. Applies code modifications for differential testing compatibility (see `modified_code/` directory for client-specific changes)
 5. Builds both base binaries and coverage-instrumented binaries

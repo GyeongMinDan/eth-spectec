@@ -181,11 +181,11 @@ RUN mkdir -p testing_clients
 # ============================================
 WORKDIR /workspace/spectec-core/testing_clients
 
-# Clone Lighthouse (v8.0.0)
+# Clone Lighthouse (v8.0.1)
 RUN git clone https://github.com/sigp/lighthouse.git && \
     cd lighthouse && \
-    git checkout v8.0.0 && \
-    git reset --hard v8.0.0 && \
+    git checkout v8.0.1 && \
+    git reset --hard v8.0.1 && \
     git clean -fd
 
 # Clone Prysm (v7.0.0)
@@ -195,18 +195,18 @@ RUN git clone https://github.com/prysmaticlabs/prysm.git && \
     git reset --hard v7.0.0 && \
     git clean -fd
 
-# Clone Teku (25.11.0)
+# Clone Teku (25.11.1)
 RUN git clone https://github.com/ConsenSys/teku.git && \
     cd teku && \
-    git checkout 25.11.0 && \
-    git reset --hard 25.11.0 && \
+    git checkout 25.11.1 && \
+    git reset --hard 25.11.1 && \
     git clean -fd
 
-# Clone Nimbus (v25.11.0)
+# Clone Nimbus (v25.11.1)
 RUN git clone https://github.com/status-im/nimbus-eth2.git && \
     cd nimbus-eth2 && \
-    git checkout v25.11.0 && \
-    git reset --hard v25.11.0 && \
+    git checkout v25.11.1 && \
+    git reset --hard v25.11.1 && \
     git clean -fd
 
 # Setup Lodestar (create package.json and install dependencies)
