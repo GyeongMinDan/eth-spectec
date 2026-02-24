@@ -47,11 +47,13 @@ RUN apt-get update && \
 # ============================================
 # Stage 2: Install Rust (for Lighthouse)
 # ============================================
+# Pin nightly for reproducible coverage builds (Lighthouse uses -Z coverage-options=branch)
+ARG RUST_NIGHTLY_DATE=2026-01-15
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
     rustup default stable && \
     rustup component add llvm-tools-preview && \
-    rustup toolchain install nightly --component llvm-tools-preview
+    rustup toolchain install nightly-${RUST_NIGHTLY_DATE} --component llvm-tools-preview
 
 ENV PATH="/root/.cargo/bin:${PATH}"
 
@@ -126,10 +128,11 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Initialize opam and create OCaml switch
+# Pin menhir to 20211012: newer menhir drops MenhirLib.General used by spectec parser_debug.ml
 RUN opam init --disable-sandboxing -y && \
     opam switch create 5.1.0 && \
     eval $(opam env) && \
-    opam install -y dune bignum menhir core core_unix bisect_ppx yojson digestif bls12-381 bls12-381-signature
+    opam install -y dune bignum menhir.20211012 core core_unix bisect_ppx yojson digestif bls12-381 bls12-381-signature
 
 ENV OPAM_SWITCH_PREFIX="/root/.opam/5.1.0"
 ENV CAML_LD_LIBRARY_PATH="/root/.opam/5.1.0/lib/stublibs:/root/.opam/default/lib/stublibs"
@@ -323,10 +326,11 @@ FROM base AS coverage
 
 WORKDIR /workspace/spectec-core
 
-# Build Lighthouse with coverage
+# Build Lighthouse with coverage (use same pinned nightly as Stage 2)
+ARG RUST_NIGHTLY_DATE=2026-01-15
 WORKDIR /workspace/spectec-core/testing_clients/lighthouse
 RUN RUSTFLAGS="-Cinstrument-coverage -Z coverage-options=branch" \
-    cargo +nightly build --release --bin lcli && \
+    cargo +nightly-${RUST_NIGHTLY_DATE} build --release --bin lcli && \
     cp target/release/lcli target/release/lcli-cov
 
 # Build Prysm with coverage
