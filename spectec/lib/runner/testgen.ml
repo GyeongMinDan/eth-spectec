@@ -28,6 +28,81 @@ type premise_uid = int
 type test_case_id = string
 type field_path = Instrumentation.Dependency.Dep_common.field_path
 
+(* === Slot-gap limiting ===
+   The spec's main loop replays state changes from state.slot up to block.slot - 1.
+   Large gaps (common in "random" seeds) cause extremely slow execution.
+   A max gap of 32 (1 epoch) suffices to trigger Process_epoch. *)
+
+(* Parse a JSON value as an integer (handles `Int, `Intlit, `String) *)
+let json_to_int (json : Yojson.Safe.t) : int option =
+  match json with
+  | `Int n -> Some n
+  | `Intlit s | `String s -> (
+      try Some (int_of_string s) with Failure _ -> None)
+  | _ -> None
+
+(* Navigate a JSON value by a field_step path and parse as int *)
+let json_get_int (json : Yojson.Safe.t) (path : Dep.field_step list) :
+    int option =
+  Option.bind (Json_mutator.get_field json path) json_to_int
+
+(* Paths for slot fields *)
+let state_slot_path = [ Dep.FieldAccess "slot" ]
+let block_msg_slot_path = [ Dep.FieldAccess "message"; Dep.FieldAccess "slot" ]
+let block_slot_path = [ Dep.FieldAccess "slot" ]
+
+(* Extract slot from JSON, trying each path in order *)
+let get_slot (json : Yojson.Safe.t) (paths : Dep.field_step list list) :
+    int option =
+  List.find_map (json_get_int json) paths
+
+let get_state_slot json = get_slot json [ state_slot_path ]
+let get_block_slot json = get_slot json [ block_msg_slot_path; block_slot_path ]
+
+(* Compute block_slot - state_slot *)
+let get_slot_gap (pre_json : Yojson.Safe.t) (block_json : Yojson.Safe.t) :
+    int option =
+  match (get_state_slot pre_json, get_block_slot block_json) with
+  | Some s, Some b -> Some (b - s)
+  | _ -> None
+
+(* Strip /pre.json suffix from a test_id to get the test case directory *)
+let test_id_to_dir (test_id : string) : string =
+  if String.ends_with ~suffix:"/pre.json" test_id then
+    String.sub test_id 0 (String.length test_id - 9)
+  else test_id
+
+(* Check if a seed test's slot gap is within the limit.
+   Returns true (pass) when files can't be loaded or gap can't be determined. *)
+let slot_gap_within_limit ~test_dir ~max_slot_gap (test_id : string) : bool =
+  let dir = test_id_to_dir test_id in
+  let load f = try Some (Json_mutator.load_json f) with _ -> None in
+  match
+    ( load (Filename.concat test_dir (dir ^ "/pre.json")),
+      load (Filename.concat test_dir (dir ^ "/block.json")) )
+  with
+  | Some pre, Some block -> (
+      match get_slot_gap pre block with
+      | Some gap -> gap <= max_slot_gap
+      | None -> true)
+  | _ -> true
+
+(* Cap block slot so that block_slot - state_slot <= max_slot_gap.
+   Sets the slot via whichever path the block slot was found at. *)
+let cap_slot_gap ~max_slot_gap (pre_json : Yojson.Safe.t)
+    (block_json : Yojson.Safe.t) : Yojson.Safe.t =
+  match (get_slot_gap pre_json block_json, get_state_slot pre_json) with
+  | Some gap, Some state_slot when gap > max_slot_gap ->
+      let capped = `Intlit (string_of_int (state_slot + max_slot_gap)) in
+      (* Use whichever path the block slot actually lives at *)
+      let slot_path =
+        if Option.is_some (json_get_int block_json block_msg_slot_path) then
+          block_msg_slot_path
+        else block_slot_path
+      in
+      Json_mutator.set_field block_json slot_path capped
+  | _ -> block_json
+
 (* Mutation constraint - what field to mutate and to what values *)
 type mutation_constraint = {
   field_path : field_path;
@@ -828,9 +903,10 @@ let is_blacklisted (path : field_path) (blacklist : field_path list) : bool =
 
 (* Mutate JSON input files based on mutation constraints.
    Returns paths to the mutated files (or originals if mutation failed). *)
-let mutate_json_input ~(output_dir : string) (test_case_id : test_case_id)
-    (constraints : mutation_constraint list) (blacklisted : field_path list)
-    (pre_json_path : string) (block_json_path : string) : string * string =
+let mutate_json_input ~(output_dir : string) ?(max_slot_gap : int option)
+    (test_case_id : test_case_id) (constraints : mutation_constraint list)
+    (blacklisted : field_path list) (pre_json_path : string)
+    (block_json_path : string) : string * string =
   (* Create mutation-specific directory within output_dir *)
   let flat_test_id =
     String.map (fun c -> if c = '/' then '_' else c) test_case_id
@@ -878,7 +954,15 @@ let mutate_json_input ~(output_dir : string) (test_case_id : test_case_id)
           json constraints
       in
       let mutated_pre = apply_constraints pre "state" in
-      let mutated_block = apply_constraints block "block" in
+      let mutated_block_raw = apply_constraints block "block" in
+
+      (* Cap slot gap if max_slot_gap is set *)
+      let mutated_block =
+        match max_slot_gap with
+        | Some max_gap ->
+            cap_slot_gap ~max_slot_gap:max_gap mutated_pre mutated_block_raw
+        | None -> mutated_block_raw
+      in
 
       (* Save mutated JSON files as pre.json and block.json in the mutation directory *)
       let output_pre_path = Filename.concat mutation_dir "pre.json" in
@@ -1682,7 +1766,8 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
 let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
     ~(checkpoint_file : string option) ~(resume_file : string option)
     ~(save_interval : int) ~(filter_seeds : string option)
-    ~(select_minimal : bool) (premise_uids : premise_uid list)
+    ~(select_minimal : bool) ?(max_slot_gap : int = 32)
+    (premise_uids : premise_uid list)
     (coverage : Instrumentation.Node_coverage_il.result option)
     (analyze_test_case :
       test_case_id ->
@@ -1702,8 +1787,24 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
   let all_test_to_prems = get_test_to_premises premise_uids coverage in
 
   (* Filter by seed type if requested *)
-  let filtered_test_to_prems =
+  let seed_filtered_test_to_prems =
     filter_by_seed_type filter_seeds all_test_to_prems
+  in
+
+  (* Filter by slot gap *)
+  let filtered_test_to_prems =
+    let before_count = List.length seed_filtered_test_to_prems in
+    let result =
+      List.filter
+        (fun (test_id, _) ->
+          slot_gap_within_limit ~test_dir ~max_slot_gap test_id)
+        seed_filtered_test_to_prems
+    in
+    let after_count = List.length result in
+    if before_count <> after_count then
+      Format.printf "Slot-gap filter (max %d): %d → %d tests\n%!" max_slot_gap
+        before_count after_count;
+    result
   in
 
   (* Apply minimal selection if requested *)

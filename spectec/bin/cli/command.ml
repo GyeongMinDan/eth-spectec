@@ -355,6 +355,12 @@ module Make (Tgt : Runner.Target.S) = struct
            ~doc:
              " select minimal set of tests covering all premises (greedy set \
               cover)"
+       and max_slot_gap =
+         flag "--max-slot-gap"
+           (optional_with_default 32 int)
+           ~doc:
+             "N max slot gap between state and block (default: 32, 0 to \
+              disable)"
        in
        fun () ->
          let open Runner.Testgen in
@@ -591,7 +597,8 @@ module Make (Tgt : Runner.Target.S) = struct
                Runner.Testgen.generate_tests_with_checkpoint ~test_dir:test_path
                  ~output_dir:output_path ~checkpoint_file:testgen_checkpoint
                  ~resume_file:testgen_resume ~save_interval ~filter_seeds
-                 ~select_minimal uids_to_generate coverage analyze_test_case
+                 ~select_minimal ~max_slot_gap uids_to_generate coverage
+                 analyze_test_case
              in
 
              (* Print summary *)
