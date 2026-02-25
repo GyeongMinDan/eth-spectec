@@ -1,7 +1,7 @@
 open Common.Source
 open Lang.Xl
 open Lang.Il
-open Semantics.Dynamic.Envs
+open Envs.Il
 
 type error =
   | FileReadError of string * string (* filename, message *)
@@ -17,7 +17,7 @@ let string_of_error = function
       Format.asprintf "JSON parse error in '%s': %s" filename msg
   | TypeError (msg, typ, json) ->
       Format.asprintf "Type error (%s) : expected %s, got JSON: %s" msg
-        (Typ.to_string (typ $ no_region))
+        (Lang.Il.Typ.to_string (typ $ no_region))
         (Yojson.Safe.pretty_to_string json)
   | FieldMissing (field_name, struct_name) ->
       Format.asprintf "Field '%s' is missing in struct '%s'" field_name
@@ -110,7 +110,7 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
         List.init bit_length (fun bit_index ->
             Z.testbit int bit_index |> Value.bool)
       in
-      Value.list (Typ.bool $ no_region) bool_list |> Result.ok
+      Value.list (Lang.Il.Typ.bool $ no_region) bool_list |> Result.ok
   | VarT (tid, []), _ -> (
       match (TDEnv.find_opt tid tdenv, json) with
       | Some (_, { it = StructT typfields; _ }), `Assoc fields ->

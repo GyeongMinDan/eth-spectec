@@ -1,0 +1,6 @@
+(include_subdirs qualified)
+
+(library
+ (name elaborate)
+ (public_name spectec.pass.elaborate)
+ (libraries spectec.common spectec.lang spectec.envs))

@@ -6,6 +6,6 @@
  (libraries
   spectec.common
   spectec.lang
-  spectec.semantics
   spectec.instrumentation
-  builtins))
+  builtins
+  cache))

@@ -1,0 +1,24 @@
+open Common.Source
+open Lang.Sl
+open Error
+module F = Format
+
+let run_relation (ctx : Ctx.t) (spec : spec) (rid : id') (values : value list) :
+    Ctx.t * value list =
+  let ctx = Interp.load_spec ctx spec in
+  match Interp.invoke_rel ctx (rid $ no_region) values with
+  | Some (ctx, values) -> (ctx, values)
+  | None -> error no_region "relation was not matched"
+
+(* Entry point : Run typing rule *)
+
+let run_relation_fresh (filename : string) (builtins : Builtins.t)
+    (cache : Cache.t) (spec : spec) (rid : id') (values : value list) :
+    Ctx.t * value list =
+  Cache.clear cache;
+  let ctx = Ctx.empty filename builtins cache in
+  run_relation ctx spec rid values
+
+module Ctx = Ctx
+
+exception Error = Error.InterpError

@@ -1,25 +1,17 @@
 open Common.Source
-open Common.Domain
 open Lang.Xl
 module Il = Lang.Il
 module Value = Lang.Il.Value
 open Lang.Sl
-module Hint = Semantics.Static.Rel.Hint
-module Typ = Semantics.Dynamic.Typ
-module Cache = Semantics.Dynamic.Cache
-open Semantics.Dynamic_Sl.Envs
-module Rel = Semantics.Dynamic_Sl.Rel
+open Envs.Make
+module Hint = Envs.Hint
+module Typ = Envs.Il.Typ
 open Error
 module F = Format
 
 (* Option monad *)
 
 let ( let* ) = Option.bind
-
-(* Cache *)
-
-let func_cache = ref (Cache.Cache.create ~size:10000)
-let rule_cache = ref (Cache.Cache.create ~size:10000)
 
 (* Assignments *)
 
@@ -84,7 +76,7 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
         List.fold_left
           (fun ctxs_rev value ->
             let ctx =
-              { ctx with local = { ctx.local with venv = VEnv.empty } }
+              { ctx with local = { ctx.local with venv = Ctx.VEnv.empty } }
             in
             let ctx = assign_exp ctx exp value in
             ctx :: ctxs_rev)
@@ -1125,16 +1117,14 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
     result
   in
   let result =
-    if Cache.is_cached_rule id.it then
-      let invoke () =
-        match attempt_rules () with
-        | Some (_, values_output) -> Ok values_output
-        | None -> Error ()
-      in
-      match invoke |> Cache.with_cache rule_cache (id.it, values_input) with
-      | Ok values_output -> Some (ctx, values_output)
-      | Error _ -> None
-    else attempt_rules ()
+    let invoke () =
+      match attempt_rules () with
+      | Some (_, values_output) -> Ok values_output
+      | None -> Error ()
+    in
+    match invoke |> Cache.with_rel_cache ctx.cache (id.it, values_input) with
+    | Ok values_output -> Some (ctx, values_output)
+    | Error _ -> None
   in
   Instrumentation.Dispatcher.notify_rel_exit ~id:id.it ~at:id.at
     ~success:(Option.is_some result);
@@ -1148,7 +1138,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
   (* Builtin function invocation *)
   let invoke_func_builtin () =
     let value_output =
-      Builtins.invoke id targs values_input |> unwrap_builtin
+      ctx.builtins.invoke id targs values_input |> unwrap_builtin
     in
     (ctx, value_output)
   in
@@ -1165,7 +1155,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       | [] -> []
       | targs ->
           let theta =
-            TDEnv.fold
+            Ctx.TDEnv.fold
               (fun tid typdef theta ->
                 let tparams, deftyp = typdef in
                 match (tparams, deftyp.it) with
@@ -1205,21 +1195,21 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
   let invoke_func' () =
     let invoke () =
       let _, v =
-        if Builtins.is_builtin id then invoke_func_builtin ()
+        if ctx.builtins.is_builtin id then invoke_func_builtin ()
         else invoke_func_def ()
       in
       Ok v
     in
     let value_output_result =
+      (* Skip caching for generics and HOFs *)
       if
-        (not (Cache.is_cached_func id.it))
-        || targs <> []
+        targs <> []
         || List.exists
              (fun value ->
                match value.it with Lang.Il.FuncV _ -> true | _ -> false)
              values_input
       then invoke ()
-      else invoke |> Cache.with_cache func_cache (id.it, values_input)
+      else invoke |> Cache.with_func_cache ctx.cache (id.it, values_input)
     in
     (ctx, value_output_result |> Result.get_ok)
   in

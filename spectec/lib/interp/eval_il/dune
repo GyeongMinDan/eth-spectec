@@ -6,7 +6,8 @@
  (libraries
   spectec.common
   spectec.lang
-  spectec.semantics
+  spectec.envs
   spectec.instrumentation
   unix
-  builtins))
+  builtins
+  cache))

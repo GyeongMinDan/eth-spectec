@@ -50,13 +50,15 @@ module StateTransition = struct
     |> List.map (fun ((pre_file, block_file), expect) ->
            { pre_file; block_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* block_il = parse_json ~spec input.block_file "signedBeaconBlock" in
     Ok
       ("State_transition", [ beaconState_il; block_il; Lang.Il.Value.bool true ])
 
+  let parse_string = parse_string
+  let unparse = unparse
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "State transition succeeded"

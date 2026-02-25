@@ -1,5 +1,5 @@
 open Common.Domain
-open Semantics.Static.Envs
+open Ctx
 
 (* Context for dataflow analysis *)
 

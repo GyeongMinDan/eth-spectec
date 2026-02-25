@@ -1,4 +1,0 @@
-(library
- (name semantics)
- (public_name spectec.semantics)
- (libraries static dynamic il sl))

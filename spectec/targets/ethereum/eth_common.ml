@@ -1,5 +1,7 @@
 (** Ethereum Target - Common utilities and shared functions *)
 
+open Lang
+
 (* Paths are relative to the repo root (where the binary runs from) *)
 let spec_dir = "spec/spec_capella"
 let test_base_dir = "eth-tests"
@@ -13,20 +15,56 @@ module Target : Runner.Target.S = struct
   let name = "ethereum"
   let spec_dir = spec_dir
   let test_dir = test_base_dir
+  let builtins = Builtin_eth.builtins
+  let handler f = f ()
+  let is_impure_func _ = false
+  let is_impure_rel _ = false
+  let state_version = ref 0
 end
+
+(* Build type definition environment from spec *)
+let build_tdenv spec =
+  List.fold_left
+    (fun tdenv (def : Il.def) ->
+      match def.it with
+      | Il.TypD (id, tparams, deftyp) ->
+          Envs.Il.TDEnv.add id (tparams, deftyp) tdenv
+      | _ -> tdenv)
+    Envs.Il.TDEnv.empty spec
 
 (* Shared JSON parsing function *)
 let parse_json ~spec filename input_type =
-  let ctx_init = Interp.Eval_Il.Ctx.empty filename in
-  let ctx = Interp.Eval_Il.Interp.load_spec ctx_init spec in
+  let tdenv = build_tdenv spec in
   let json_data = Yojson.Safe.from_file filename in
-  Interface.JSON.Parse.json_to_value
-    (Interp.Eval_Il.Ctx.tdenv_to_map ctx)
-    (Lang.Il.Typ.var input_type [])
-    json_data
+  Interface.JSON.Parse.json_to_value tdenv (Il.Typ.var input_type []) json_data
   |> Result.map_error (fun err ->
          let msg = Interface.JSON.Parse.string_of_error err in
-         Runner.Error.JsonParseError (Common.Source.no_region, msg))
+         Runner.Error.TaskParseError (Common.Source.no_region, msg))
+
+(* Shared parse_string: parse a JSON string given a type name.
+   Requires the caller to provide type context via the spec. *)
+let parse_string ~spec ~filename:_ content =
+  let tdenv = build_tdenv spec in
+  (* We need a type name to parse against — extract from JSON if possible,
+     otherwise this is a stub for now *)
+  let json = Yojson.Safe.from_string content in
+  (* Try parsing as beaconState by default; callers should use parse_json
+     directly when they know the type *)
+  Interface.JSON.Parse.json_to_value tdenv (Il.Typ.var "beaconState" []) json
+  |> Result.map (fun v -> [ v ])
+  |> Result.map_error (fun err ->
+         let msg = Interface.JSON.Parse.string_of_error err in
+         Runner.Error.TaskParseError (Common.Source.no_region, msg))
+
+(* Shared unparse: convert IL values back to JSON string *)
+let unparse ~spec:_ values =
+  match values with
+  | [ v ] -> (
+      match Interface.JSON.Print.value_to_json v with
+      | Ok json -> Yojson.Safe.pretty_to_string json
+      | Error e ->
+          "<json print error: " ^ Interface.JSON.Print.string_of_error e ^ ">")
+  | _ -> "<multiple values>"
 
 (* Expectation filter for collecting tests *)
 type expectation_filter = All | PositiveOnly | NegativeOnly
@@ -93,3 +131,32 @@ let collect_tests_from_dir_recursive ~base_dir ~file_checker ?(filter = All) ()
     List.fold_left (fun acc sub -> collect_dirs sub acc) acc subdirs
   in
   if not (dir_exists base_dir) then [] else collect_dirs base_dir [] |> List.rev
+
+(* JsonParse task - minimal task for the parse command *)
+module JsonParse = struct
+  let name = "json_parse"
+
+  module Target = Target
+
+  type input = {
+    json_file : string;
+    input_type : string;
+    expect : Runner.Task.expectation;
+  }
+
+  let make ?(expect = Runner.Task.Positive) ~json_file ~input_type () =
+    { json_file; input_type; expect }
+
+  let parse_input ~spec input =
+    let ( let* ) = Result.bind in
+    let* value = parse_json ~spec input.json_file input.input_type in
+    Ok ("", [ value ])
+
+  let parse_string = parse_string
+  let unparse = unparse
+  let source { json_file; _ } = json_file
+  let expectation { expect; _ } = expect
+  let collect ?dir:_ () = []
+  let format_output values = unparse ~spec:[] values
+  let save_output _filename _values = ()
+end

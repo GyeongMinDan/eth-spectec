@@ -1,20 +1,12 @@
-open Common.Domain
+open Common.Source
 open Lang.Xl
 open Lang.Il
-module Hint = Semantics.Static.Rel.Hint
-module Typ = Semantics.Dynamic.Typ
-module Cache = Semantics.Dynamic.Cache
-module Rel = Semantics.Dynamic_Il.Rel
-open Semantics.Dynamic_Il.Envs
+open Envs.Make
+module Hint = Envs.Hint
+module Typ = Envs.Il.Typ
 open Error
 open Attempt
 module F = Format
-open Common.Source
-
-(* Cache *)
-
-let func_cache = ref (Cache.Cache.create ~size:10000)
-let rule_cache = ref (Cache.Cache.create ~size:10000)
 
 (* Assignments *)
 
@@ -24,7 +16,7 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
   let note = value.note.typ in
   match (exp.it, value.it) with
   | VarE id, _ ->
-      let ctx = Ctx.add_value Local ctx (id, []) value in
+      let ctx = Ctx.add_value ctx (id, []) value in
       ctx
       (* to handle true, false value*)
   | BoolE b, BoolV b_val ->
@@ -70,7 +62,7 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
             ((id, iters @ [ Opt ]), value_sub))
           vars
       in
-      Ctx.add_values Local ctx bindings
+      Ctx.add_values ctx bindings
   | IterE (exp, (Opt, vars)), OptV (Some value) ->
       (* Assign the value to the iterated expression *)
       let ctx = assign_exp ctx exp value in
@@ -79,14 +71,14 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
         List.map
           (fun (id, typ, iters) ->
             let value_sub =
-              let value = Ctx.find_value Local ctx (id, iters) in
+              let value = Ctx.find_value ctx (id, iters) in
               let typ = Lang.Il.Typ.iterate typ (iters @ [ Opt ]) in
               Some value |> Value.Make.opt typ.it
             in
             ((id, iters @ [ Opt ]), value_sub))
           vars
       in
-      Ctx.add_values Local ctx bindings
+      Ctx.add_values ctx bindings
   | IterE (exp, (List, vars)), ListV values ->
       (* Map over the value list elements,
          and assign each value to the iterated expression *)
@@ -105,13 +97,13 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
       List.fold_left
         (fun ctx (id, typ, iters) ->
           let values =
-            List.map (fun ctx -> Ctx.find_value Local ctx (id, iters)) ctxs
+            List.map (fun ctx -> Ctx.find_value ctx (id, iters)) ctxs
           in
           let value_sub =
             let typ = Lang.Il.Typ.iterate typ (iters @ [ List ]) in
             values |> Value.Make.list typ.it
           in
-          Ctx.add_value Local ctx (id, iters @ [ List ]) value_sub)
+          Ctx.add_value ctx (id, iters @ [ List ]) value_sub)
         ctx vars
   | _ ->
       error exp.at
@@ -136,8 +128,8 @@ and assign_arg (ctx_caller : Ctx.t) (ctx_callee : Ctx.t) (arg : arg)
   let assign_arg_def ctx_caller ctx_callee id value =
     match value.it with
     | FuncV id_f ->
-        let func = Ctx.find_func Local ctx_caller id_f in
-        Ctx.add_func Local ctx_callee id func
+        let _, func = Ctx.find_func ctx_caller id_f in
+        Ctx.add_func ctx_callee id func
     | _ ->
         error id.at
           (F.asprintf "cannot assign a value %s to a definition %s"
@@ -181,7 +173,7 @@ let rec upcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
       | NumV (`Int _) -> value
       | _ -> assert false)
   | VarT (tid, targs) -> (
-      let tparams, deftyp = Ctx.find_typdef Local ctx tid in
+      let tparams, deftyp = Ctx.find_typdef ctx tid in
       let theta = List.combine tparams targs |> TIdMap.of_list in
       match deftyp.it with
       | PlainT typ ->
@@ -210,7 +202,7 @@ let rec downcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
       | NumV (`Int i) when Bigint.(i >= zero) -> Value.nat i
       | _ -> assert false)
   | VarT (tid, targs) -> (
-      let tparams, deftyp = Ctx.find_typdef Local ctx tid in
+      let tparams, deftyp = Ctx.find_typdef ctx tid in
       let theta = List.combine tparams targs |> TIdMap.of_list in
       match deftyp.it with
       | PlainT typ ->
@@ -239,7 +231,7 @@ let rec subtyp (ctx : Ctx.t) (typ : typ) (value : value) : bool =
       | NumV (`Int i) -> Bigint.(i >= zero)
       | _ -> assert false)
   | VarT (tid, targs) -> (
-      let tparams, deftyp = Ctx.find_typdef Local ctx tid in
+      let tparams, deftyp = Ctx.find_typdef ctx tid in
       let theta = List.combine tparams targs |> TIdMap.of_list in
       match (deftyp.it, value.it) with
       | PlainT typ, _ ->
@@ -266,7 +258,7 @@ let rec eval_exp (ctx : Ctx.t) (exp : exp) : Ctx.t * value =
   let eval_bool_exp note b = Value.Make.bool note b in
   let eval_num_exp note n = Value.Make.num note n in
   let eval_text_exp note s = Value.Make.text note s in
-  let eval_var_exp _note ctx id = Ctx.find_value Local ctx (id, []) in
+  let eval_var_exp _note ctx id = Ctx.find_value ctx (id, []) in
   let wrap_ctx value = (ctx, value) in
   let at, note = (exp.at, exp.note) in
   match exp.it with
@@ -734,7 +726,7 @@ and eval_args (ctx : Ctx.t) (args : arg list) : Ctx.t * value list =
 
 and eval_prem (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
   let eval_rule_prem ctx id notexp =
-    let rel = Ctx.find_rel Local ctx id in
+    let rel = Ctx.find_rel ctx id in
     let exps_input, exps_output =
       let inputs, _ = rel in
       let _, exps = notexp in
@@ -776,7 +768,7 @@ and eval_prem (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
       Instrumentation.Dispatcher.notify_prem_enter ~eval:(Some eval) ~prem
         ~at:prem.at);
   (* Pass lookup function for variable resolution in handlers *)
-  let lookup id = Ctx.find_value_opt Local ctx (id $ no_region, []) in
+  let lookup id = Ctx.find_value_opt ctx (id $ no_region, []) in
   Instrumentation.Dispatcher.notify_prem_fields ~prem ~fields:[] ~lookup
     ~at:prem.at;
   let result =
@@ -809,8 +801,7 @@ and eval_iter_prem_list (ctx : Ctx.t) (prem : prem) (vars : var list) :
   (* Discriminate between bound and binding variables *)
   let vars_bound, vars_binding =
     List.partition
-      (fun (id, _typ, iters) ->
-        Ctx.bound_value Local ctx (id, iters @ [ List ]))
+      (fun (id, _typ, iters) -> Ctx.bound_value ctx (id, iters @ [ List ]))
       vars
   in
   (* Create a subcontext for each batch of bound values *)
@@ -838,7 +829,7 @@ and eval_iter_prem_list (ctx : Ctx.t) (prem : prem) (vars : var list) :
               let value_binding_batch =
                 List.map
                   (fun (id_binding, _typ_binding, iters_binding) ->
-                    Ctx.find_value Local ctx_sub (id_binding, iters_binding))
+                    Ctx.find_value ctx_sub (id_binding, iters_binding))
                   vars_binding
               in
               let values_binding_batch_rev =
@@ -866,7 +857,7 @@ and eval_iter_prem_list (ctx : Ctx.t) (prem : prem) (vars : var list) :
         ((id_binding, iters_binding @ [ List ]), value_binding))
       vars_binding values_binding
   in
-  let ctx = Ctx.add_values Local ctx bindings in
+  let ctx = Ctx.add_values ctx bindings in
   Ok ctx
 
 and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
@@ -876,8 +867,7 @@ and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
     (* Discriminate between bound and binding variables *)
     let vars_bound, vars_binding =
       List.partition
-        (fun (id, _typ, iters) ->
-          Ctx.bound_value Local ctx (id, iters @ [ List ]))
+        (fun (id, _typ, iters) -> Ctx.bound_value ctx (id, iters @ [ List ]))
         vars
     in
     (* Create a subcontext for each batch of bound values *)
@@ -906,7 +896,7 @@ and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
                 let value_binding_batch =
                   List.map
                     (fun (id_binding, _typ_binding, iters_binding) ->
-                      Ctx.find_value Local ctx_sub (id_binding, iters_binding))
+                      Ctx.find_value ctx_sub (id_binding, iters_binding))
                     vars_binding
                 in
                 let values_binding_batch_rev =
@@ -931,9 +921,7 @@ and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
             in
             values_binding |> Value.Make.list typ.it
           in
-          Ctx.add_value Local ctx
-            (id_binding, iters_binding @ [ List ])
-            value_binding)
+          Ctx.add_value ctx (id_binding, iters_binding @ [ List ]) value_binding)
         ctx vars_binding values_binding
     in
     Ok ctx
@@ -965,7 +953,7 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
   (* Main invocation logic *)
   let invoke_rel' () =
     (* Find the relation *)
-    let inputs, rules = Ctx.find_rel Local ctx id in
+    let inputs, rules = Ctx.find_rel ctx id in
     check_warn (rules <> []) id.at "relation has no rules";
     (* Apply the first matching rule *)
     let attempt_rules () =
@@ -1009,9 +997,7 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
       Ok values_output
     in
     let* values_output =
-      if Cache.is_cached_rule id.it then
-        invoke |> Cache.with_cache rule_cache (id.it, values_input)
-      else invoke ()
+      invoke |> Cache.with_rel_cache ctx.cache (id.it, values_input)
     in
     Ok (ctx, values_output)
   in
@@ -1043,7 +1029,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       Instrumentation.Dispatcher.notify_clause_enter ~id:id.it ~clause_idx:0
         ~at:id.at;
       let value_output =
-        Builtins.invoke id targs values_input |> unwrap_builtin
+        ctx.builtins.invoke id targs values_input |> unwrap_builtin
       in
       Instrumentation.Dispatcher.notify_clause_exit ~id:id.it ~clause_idx:0
         ~at:id.at ~success:true;
@@ -1054,7 +1040,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
   (* User-defined function invocation *)
   let invoke_func_def () =
     (* Find the function *)
-    let tparams, clauses = Ctx.find_func Local ctx id in
+    let _, (tparams, clauses) = Ctx.find_func ctx id in
     check_warn (clauses <> []) id.at "function has no clauses";
     (* Evaluate type arguments *)
     let targs =
@@ -1062,7 +1048,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       | [] -> []
       | targs ->
           let theta =
-            TDEnv.fold
+            Ctx.TDEnv.fold
               (fun tid typdef theta ->
                 let tparams, deftyp = typdef in
                 match (tparams, deftyp.it) with
@@ -1097,7 +1083,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
                   (fun tparam targ -> (tparam, ([], PlainT targ $ targ.at)))
                   tparams targs
               in
-              let ctx_local = Ctx.add_typdefs Local ctx_local typdef_bindings in
+              let ctx_local = Ctx.add_typdefs ctx_local typdef_bindings in
               (* Try to match the clause *)
               let ctx_local, args_input, prems, exp_output =
                 match_clause ctx ctx_local clause values_input
@@ -1125,22 +1111,27 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
   let result =
     let invoke_func' () =
       let* _, value_output =
-        if Builtins.is_builtin id then invoke_func_builtin ()
+        if ctx.builtins.is_builtin id then invoke_func_builtin ()
         else invoke_func_def ()
       in
       Ok value_output
     in
+    let is_anonymous fid =
+      assert (Ctx.bound_func ctx fid);
+      let cursor, _ = Ctx.find_func ctx fid in
+      cursor = Ctx.Local
+    in
+    let is_high_order values =
+      List.exists
+        (fun value ->
+          match value.it with Lang.Il.FuncV _ -> true | _ -> false)
+        values
+    in
     let* value_output =
       (* Skip caching for generics and HOFs *)
-      if
-        (not (Cache.is_cached_func id.it))
-        || targs <> []
-        || List.exists
-             (fun value ->
-               match value.it with Lang.Il.FuncV _ -> true | _ -> false)
-             values_input
-      then invoke_func' ()
-      else invoke_func' |> Cache.with_cache func_cache (id.it, values_input)
+      if targs <> [] || is_anonymous id || is_high_order values_input then
+        invoke_func' ()
+      else invoke_func' |> Cache.with_func_cache ctx.cache (id.it, values_input)
     in
     Ok (ctx, value_output)
   in
@@ -1154,18 +1145,21 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
 
 (* Load definitions into the context *)
 
-let load_def (ctx : Ctx.t) (def : def) : Ctx.t =
+let load_def (l : Ctx.global_loader) (def : def) : unit =
   match def.it with
   | TypD (id, tparams, deftyp) ->
       let typdef = (tparams, deftyp) in
-      Ctx.add_typdef Global ctx id typdef
+      Ctx.load_typdef l id typdef
   | RelD (id, _, inputs, rules) ->
       let rel = (inputs, rules) in
-      Ctx.add_rel Global ctx id rel
+      Ctx.load_rel l id rel
   | DecD (id, tparams, _, _, clauses) ->
       let func = (tparams, clauses) in
-      Ctx.add_func Global ctx id func
+      Ctx.load_func l id func
 
-let load_spec (ctx : Ctx.t) (spec : spec) : Ctx.t =
-  Ctx.clear_global ctx;
-  List.fold_left load_def ctx spec
+let load_spec (filename : string) (builtins : Builtins.t) (cache : Cache.t)
+    (spec : spec) : Ctx.t =
+  let l = Ctx.create_loader () in
+  List.iter (load_def l) spec;
+  let global_layer = Ctx.freeze l in
+  Ctx.create ~filename builtins cache global_layer

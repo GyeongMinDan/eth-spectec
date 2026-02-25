@@ -57,7 +57,7 @@ module Slots = struct
     |> List.map (fun ((pre_file, slots_file), expect) ->
            { pre_file; slots_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     (* Read slots delta from YAML *)
@@ -70,6 +70,8 @@ module Slots = struct
     (* ProcessSlots(state, target_slot) *)
     Ok ("ProcessSlots", [ beaconState_il; slots_il ])
 
+  let parse_string = parse_string
+  let unparse = unparse
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "Sanity slots processed"

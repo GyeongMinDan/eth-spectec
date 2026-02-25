@@ -1,5 +1,8 @@
 (** P4 Typechecker target - Implements TARGET and TASK for P4 typechecking *)
 
+module Builtins = Builtins_p4
+module Frontend = Frontend_p4
+
 (* Paths are relative to the repo root (where the binary runs from) *)
 let includes_dir = "tests/interp/p4-tests/includes"
 let excludes_dir = "tests/interp/p4-tests/excludes"
@@ -53,11 +56,50 @@ let load_excludes dir =
 let is_excluded excludes path =
   List.exists (fun pattern -> contains_substring path pattern) excludes
 
+(* Module-level tid_counter shared with cache as state_generation *)
+let tid_counter = ref 0
+
 (* P4 target specification *)
 module Target : Runner.Target.S = struct
   let name = "p4"
   let spec_dir = "examples/p4-concrete"
   let test_dir = test_base_dir
+  let builtins = Builtins.builtins
+
+  let handler f =
+    let vid_counter = ref 0 in
+    tid_counter := 0;
+    let fresh_vid () =
+      let vid = !vid_counter in
+      incr vid_counter;
+      vid
+    in
+    Lang.Il.Value.GlobalVidProvider.set fresh_vid;
+    let fresh_tid () =
+      let tid = "FRESH__" ^ string_of_int !tid_counter in
+      incr tid_counter;
+      tid
+    in
+    Builtins.Fresh.GlobalTidProvider.set fresh_tid;
+    f ()
+
+  (* Functions/relations known to transitively call fresh_tid but safe to cache.
+     These are cached unconditionally; everything else uses the purity guard. *)
+  let is_impure_func = function
+    | "subst_type" | "subst_typeDef" | "specialize_typeDef" | "canon"
+    | "free_type" | "is_nominal_typeIR" | "bound" | "gen_constraint_type"
+    | "merge_constraint" | "merge_constraint'" | "find_matchings"
+    | "nestable_struct" | "nestable_struct_in_header" | "find_map" ->
+        true
+    | _ -> false
+
+  let is_impure_rel = function
+    | "Sub_expl" | "Sub_expl_canon" | "Sub_expl_canon_neq" | "Sub_impl"
+    | "Sub_impl_canon" | "Sub_impl_canon_neq" | "Type_wf" | "Type_alpha" ->
+        true
+    | _ -> false
+
+  let state_version = tid_counter
 end
 
 (* P4 Typechecker task - extends TASK with make function for CLI *)
@@ -72,10 +114,6 @@ module Typecheck = struct
     expect : Runner.Task.expectation;
   }
 
-  (* Create an input with optional expectation *)
-  let make ?(expect = Runner.Task.Positive) ~includes ~filename () =
-    { includes; filename; expect }
-
   (* Collect inputs from directory, uses Target.test_dir if not specified *)
   let collect ?dir () =
     let test_dir = Option.value dir ~default:Target.test_dir in
@@ -89,8 +127,11 @@ module Typecheck = struct
            in
            { includes = [ includes_dir ]; filename; expect })
 
-  let parse ~spec:_ { includes; filename; _ } =
-    Runner.parse_p4_file includes filename
+  let unparse = Frontend.unparse
+  let parse_string = Frontend.parse_string
+
+  let parse_input ~spec:_ { includes; filename; _ } =
+    Frontend.parse_file ~handler:Target.handler includes filename
     |> Result.map (fun v -> ("Program_ok", [ v ]))
 
   let source { filename; _ } = filename

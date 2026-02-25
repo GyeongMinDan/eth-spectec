@@ -34,11 +34,13 @@ struct
     collect_epoch_tests ~epoch_type:M.name ?dir ()
     |> List.map (fun (pre_file, expect) -> { pre_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     Ok (M.relation_name, [ beaconState_il ])
 
+  let parse_string = parse_string
+  let unparse = unparse
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = M.format_msg

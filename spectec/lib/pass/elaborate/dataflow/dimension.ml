@@ -1,10 +1,9 @@
 open Common.Domain
+open Common.Source
 open Lang
 open Il
-open Semantics.Static
+open Ctx
 open Error
-open Envs
-open Common.Source
 
 (* Dimension analysis :
 

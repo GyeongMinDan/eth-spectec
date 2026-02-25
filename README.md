@@ -46,7 +46,6 @@ docker build -t eth2test:base --target base .
 docker build -t eth2test:coverage --target coverage .
 ```
 
-
 ### 2. Building the Project (TODO : Have to fix spectec command 2, 3, 4 for now it is temp)
 
 **Use spectec-core executable:**

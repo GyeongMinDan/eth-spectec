@@ -1,4 +1,0 @@
-(library
- (name builtin_p4)
- (public_name spectec.interp.builtins.p4)
- (libraries spectec.common spectec.lang define))

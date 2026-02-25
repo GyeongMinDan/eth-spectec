@@ -3,9 +3,9 @@ open Common.Domain
 open Lang
 open Lang.Xl
 open Ol.Ast
-module Hint = Semantics.Static.Rel.Hint
-module HEnv = Semantics.Static.Envs.HEnv
-module TDEnv = Semantics.Dynamic_Sl.Envs.TDEnv
+module Hint = Envs.Hint
+module HEnv = Envs.HEnv
+module TDEnv = Envs.Il.TDEnv
 
 (* [1] Remove redundant, trivial let aliases from the code,
 

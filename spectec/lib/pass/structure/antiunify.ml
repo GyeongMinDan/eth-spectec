@@ -2,11 +2,12 @@ open Common.Domain
 open Common.Source
 open Lang
 open Lang.Il
+open Envs.Make
 
 (* Unification environment: a map from original id to its unified id *)
 
 module UEnv = struct
-  include MakeIdEnv (Id)
+  include MakeIdMap (Id)
 
   let unified id uenv =
     uenv |> bindings
@@ -248,7 +249,7 @@ let antiunify_rules (inputs : int list) (rules : rule list) :
         let _, notexp, prems = rule.it in
         let _, exps = notexp in
         let exps_input, exps_output =
-          Semantics.Static.Rel.Hint.split_exps_without_idx inputs exps
+          Envs.Hint.split_exps_without_idx inputs exps
         in
         let exps_input_group = exps_input_group @ [ exps_input ] in
         let exps_output_group = exps_output_group @ [ exps_output ] in

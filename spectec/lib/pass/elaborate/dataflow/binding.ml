@@ -1,11 +1,9 @@
 open Common.Domain
 open Common.Source
-open Lang
 open Lang.Il
-open Semantics.Static
-open Semantics.Static.Rel
-open Semantics.Static.Envs
+module Hint = Envs.Hint
 open Error
+open Ctx
 open Bind
 
 (* Binding analysis :

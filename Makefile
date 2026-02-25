@@ -1,24 +1,31 @@
 NAME = spectec-core
 
-# Compile
+SWITCH = eth-spectec
 
-.PHONY: exe
+OPAM_EXEC = opam exec --switch=$(SWITCH) --
+DUNE = cd spectec && $(OPAM_EXEC) dune
+
+# Compile & Format
+
+.PHONY: exe fmt promote clean
 
 EXESPEC = spectec/_build/default/bin/main.exe
 
 exe:
 	rm -f ./$(NAME)
-	opam switch 5.1.0
-	cd spectec && opam exec -- dune build bin/main.exe && echo
+	$(DUNE) build bin/main.exe
+	@echo
 	ln -f $(EXESPEC) ./$(NAME)
 
-# Format
-
-.PHONY: fmt
-
 fmt:
-	opam switch 5.1.0
-	cd spectec && opam exec dune fmt
+	$(DUNE) fmt
+
+promote:
+	$(DUNE) promote
+
+clean:
+	rm -f ./$(NAME)
+	$(DUNE) clean
 
 # Tests
 #
@@ -43,41 +50,32 @@ fmt:
 
 test-elab:
 	@echo "#### Running elaboration test"
-	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune build @test/elab/runtest --profile=release && echo OK
+	@$(DUNE) build @test/elab/runtest --profile=release && echo OK
 
 test-struct:
 	@echo "#### Running structuring test"
-	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune build @test/struct/runtest --profile=release && echo OK
+	@$(DUNE) build @test/struct/runtest --profile=release && echo OK
+
+# $(1): il / sl
+# $(2): pos / neg
+define run_interp_test
+	@echo "#### Running $(1) interpreter $(2) tests"
+	@$(DUNE) build @test/interp/$(1)-$(2) --profile=release
+	@cat spectec/_build/default/test/interp/$(1)-$(2).err >&2
+	@echo OK
+endef
 
 test-il-pos:
-	@echo "#### Running IL interpreter positive tests"
-	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune build @test/interp/il-pos --profile=release
-	@cat spectec/_build/default/test/interp/il-pos.err >&2
-	@echo OK
+	$(call run_interp_test,il,pos)
 
 test-il-neg:
-	@echo "#### Running IL interpreter negative tests"
-	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune build @test/interp/il-neg --profile=release
-	@cat spectec/_build/default/test/interp/il-neg.err >&2
-	@echo OK
+	$(call run_interp_test,il,neg)
 
 test-sl-pos:
-	@echo "#### Running SL interpreter positive tests"
-	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune build @test/interp/sl-pos --profile=release
-	@cat spectec/_build/default/test/interp/sl-pos.err >&2
-	@echo OK
+	$(call run_interp_test,sl,pos)
 
 test-sl-neg:
-	@echo "#### Running SL interpreter negative tests"
-	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune build @test/interp/sl-neg --profile=release
-	@cat spectec/_build/default/test/interp/sl-neg.err >&2
-	@echo OK
+	$(call run_interp_test,sl,neg)
 
 test-quick: test-elab test-struct
 	@echo "#### Quick tests passed"
@@ -90,15 +88,3 @@ test-sl: test-sl-pos test-sl-neg
 
 test: test-quick test-il test-sl
 	@echo "#### All tests passed"
-
-promote:
-	@opam switch 5.1.0
-	@cd spectec && opam exec -- dune promote
-
-# Cleanup
-
-.PHONY: clean
-
-clean:
-	rm -f ./$(NAME)
-	cd spectec && dune clean

@@ -468,6 +468,12 @@ let extract_fields_from_expr (_env : source_env) (exp : Il.exp) : FieldPathSet.t
 (* === Handler Implementation === *)
 
 module M : Instrumentation_core.Handler.S = struct
+  let static_dependencies =
+    [
+      (module Instrumentation_static.Premise_uid.Premise_uid
+      : Instrumentation_static.Static.S);
+    ]
+
   let init ~spec =
     State.reset ();
     match spec with

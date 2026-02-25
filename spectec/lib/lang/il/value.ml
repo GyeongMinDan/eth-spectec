@@ -89,13 +89,54 @@ end
 
 (* Functor for creating value module with custom vid provider *)
 module MakeWithVid (VidProvider : VidProvider) = struct
-  let with_fresh_vid (typ : typ') : vnote =
+  (* Incremental hashing: compute hash from value' using child vhash values 
+     -> O(width) not O(tree-size) *)
+  let hash_of (v : value') : int =
+    let ( +! ) h1 h2 = (h1 * 65599) + h2 in
+    let hash_atom (atom : Xl.Atom.t) : int = Hashtbl.hash atom in
+
+    let hash_num (num : Xl.Num.t) : int =
+      match num with
+      | `Nat n -> 0 +! Bigint.hash n
+      | `Int i -> 1 +! Bigint.hash i
+    in
+
+    let hash_mixop (mixop : Xl.Mixop.t) : int =
+      List.fold_left
+        (fun hash atoms ->
+          List.fold_left
+            (fun hash atom -> hash +! hash_atom atom.Common.Source.it)
+            hash atoms)
+        2 mixop
+    in
+    match v with
+    | BoolV b -> 0 +! Hashtbl.hash b
+    | NumV n -> 1 +! hash_num n
+    | TextV s -> 2 +! Hashtbl.hash s
+    | StructV fields ->
+        List.fold_left
+          (fun hash (atom, v) ->
+            hash +! (hash_atom atom.Common.Source.it +! v.note.vhash))
+          3 fields
+    | CaseV (mixop, values) ->
+        let base_hash = 4 +! hash_mixop mixop in
+        List.fold_left (fun hash v -> hash +! v.note.vhash) base_hash values
+    | TupleV values ->
+        List.fold_left (fun hash v -> hash +! v.note.vhash) 5 values
+    | OptV None -> 6
+    | OptV (Some v) -> 7 +! v.note.vhash
+    | ListV values ->
+        List.fold_left (fun hash v -> hash +! v.note.vhash) 8 values
+    | FuncV id -> 9 +! Hashtbl.hash id.Common.Source.it
+    | BytesV { num; len } -> 10 +! Bigint.hash num +! Hashtbl.hash len
+
+  let with_fresh_vid (typ : typ') (vhash : int) : vnote =
     let vid = VidProvider.fresh () in
-    { vid; typ }
+    { vid; vhash; typ }
 
   let make_val (typ : typ') (v : value') : t =
-    let value = v $$$ with_fresh_vid typ in
-    value
+    let vhash = hash_of v in
+    v $$$ with_fresh_vid typ vhash
 
   module Make = struct
     let value (t' : typ') (v : value') : t = make_val t' v
@@ -116,12 +157,8 @@ module MakeWithVid (VidProvider : VidProvider) = struct
       make_val t' (CaseV cases)
   end
 
-  (* Re-export other functions that need vid *)
   let make_bytes ~(num : Bigint.t) ~(len : int) : t =
-    if len < 0 then failwith "bytes len < 0";
-    let value = BytesV { num; len } in
-    let typ = NumT `NatT in
-    value $$$ with_fresh_vid typ
+    make_val (NumT `NatT) (BytesV { num; len })
 
   let bool (b : bool) : t = Make.bool Typ.bool b
   let nat (i : Bigint.t) : t = Make.nat Typ.nat i

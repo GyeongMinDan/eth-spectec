@@ -1,9 +1,9 @@
 open Common.Domain
-open Lang.Il
-open Semantics.Static
-open Semantics.Static.Envs
-open Error
 open Common.Source
+open Lang.Il
+open Envs.Make
+open Ctx
+open Error
 
 (* Binding occurrences of identifiers, singular or multiple (parallel) *)
 
@@ -21,7 +21,7 @@ end
 (* Environment for identifier bindings *)
 
 module BEnv = struct
-  include MakeIdEnv (Occ)
+  include MakeIdMap (Occ)
 
   let singleton id typ = add id (Occ.Single (typ, [])) empty
   let flatten (benv : t) : VEnv.t = map Occ.strip benv

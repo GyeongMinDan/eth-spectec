@@ -83,6 +83,12 @@ let rec is_fallible prem =
   | IfPr _ | RulePr _ -> true
 
 module M : Instrumentation_core.Handler.S = struct
+  let static_dependencies =
+    [
+      (module Instrumentation_static.Premise_uid.Premise_uid
+      : Instrumentation_static.Static.S);
+    ]
+
   let rec count_prem prem =
     match prem.it with
     (* count IfPr, RulePr, and their iterations *)
@@ -369,6 +375,9 @@ let restore result =
   List.iter
     (fun (key, count) -> Hashtbl.replace State.prems_succeeded key count)
     result.prems_succeeded;
+  (* Restore UID mapping through static service *)
+  Instrumentation_static.Premise_uid.restore
+    (result.prem_to_uid, result.uid_to_prem);
   (* Reconstruct prems_failed from attempted - succeeded *)
   List.iter
     (fun (key, attempted_count) ->
@@ -379,7 +388,6 @@ let restore result =
       if failed_count > 0 then
         Hashtbl.replace State.prems_failed key failed_count)
     result.prems_attempted;
-
   List.iter
     (fun (key, test_cases) -> Hashtbl.replace State.prem_to_test key test_cases)
     result.prem_to_test;

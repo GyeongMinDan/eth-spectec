@@ -1,10 +1,4 @@
 (library
  (name builtins)
  (public_name spectec.interp.builtins)
- (libraries
-  spectec.common
-  spectec.lang
-  spectec.semantics
-  define
-  builtin_eth
-  builtin_p4))
+ (libraries spectec.common spectec.lang))

@@ -322,20 +322,6 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
     | Some cfg -> cfg
     | None -> Instrumentation.Dependency.Negative.default_config
   in
-  (* Register static dependencies for all handlers that will be created.
-     Since display_report creates handlers for all coverage types, we need
-     to register dependencies for all of them. *)
-  let temp_config_for_deps : Instrumentation.Config.t =
-    {
-      trace = None;
-      profile = None;
-      branch_coverage = None;
-      node_coverage = Some node_il_cfg;
-      dep_pos = Some dep_pos_cfg;
-      dep_neg = Some dep_neg_cfg;
-    }
-  in
-  Instrumentation.Config.register_static_dependencies temp_config_for_deps;
   (* Create handlers with configured outputs *)
   let handlers =
     [
@@ -346,6 +332,14 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
       Instrumentation.Dependency.Negative.make dep_neg_cfg;
     ]
   in
+  (* Register static dependencies from all handlers *)
+  List.iter
+    (fun (module H : Instrumentation.Handler.S) ->
+      List.iter
+        (fun (module M : Instrumentation_static.Static.S) ->
+          Instrumentation_static.Static.register (module M))
+        H.static_dependencies)
+    handlers;
   (* Initialize Static analysis *)
   Instrumentation_static.Static.reset_all ();
   Instrumentation_static.Static.init_all

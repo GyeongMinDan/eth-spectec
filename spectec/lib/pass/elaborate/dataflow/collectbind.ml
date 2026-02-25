@@ -1,8 +1,7 @@
-open Lang
+open Common.Source
 open Lang.Il
 open Error
-open Semantics.Static.Envs
-open Common.Source
+open Ctx
 
 (* Collect binding identifiers,
    while enforcing the invariant that binding identifiers

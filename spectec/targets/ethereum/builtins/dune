@@ -1,0 +1,12 @@
+(include_subdirs no)
+
+(library
+ (name builtin_eth)
+ (public_name spectec.interp.builtins.eth)
+ (libraries
+  spectec.common
+  spectec.lang
+  spectec.interp.builtins
+  bls12-381
+  bls12-381-signature
+  digestif))

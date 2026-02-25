@@ -269,10 +269,6 @@ module HistoricalSummariesUpdate_Cli =
 module ParticipationFlagUpdates_Cli =
   Make_Epoch_Cli (Epoch.ParticipationFlagUpdates)
 
-(* ========================================================================== *)
-(* Slots                                                                      *)
-(* ========================================================================== *)
-
 (** CLI_TASK for Slots *)
 module Slots_Cli : Cli.Command.CLI_TASK with type input = Slots.input = struct
   include Slots
@@ -287,6 +283,27 @@ module Slots_Cli : Cli.Command.CLI_TASK with type input = Slots.input = struct
     in
     make ~pre_file:pre ~slots_file:slots ()
 end
+
+(** CLI_TASK for Ethereum JSON parsing *)
+module JsonParse_Cli :
+  Cli.Command.CLI_TASK with type input = Targets_eth.Eth.JsonParse.input =
+struct
+  include Targets_eth.Eth.JsonParse
+
+  let cli_flags =
+    let open Core.Command.Let_syntax in
+    let open Core.Command.Param in
+    let%map json_file =
+      flag "-p" (required string) ~doc:"FILE JSON file to parse"
+    and input_type =
+      flag "-t" (required string) ~doc:"TYPE IL type name (e.g. beaconState)"
+    in
+    make ~json_file ~input_type ()
+end
+
+let parse_command =
+  Cli.Command.make_parse ~summary:"parse an Ethereum JSON"
+    (module JsonParse_Cli)
 
 (* ========================================================================== *)
 (* Commands                                                                   *)

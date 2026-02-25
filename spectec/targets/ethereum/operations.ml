@@ -41,7 +41,7 @@ module ProposerSlashing = struct
     |> List.map (fun ((pre_file, operation_file), expect) ->
            { pre_file; proposer_slashing_file = operation_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* slashing_il =
@@ -52,6 +52,8 @@ module ProposerSlashing = struct
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "Proposer slashing processed"
+  let parse_string = parse_string
+  let unparse = unparse
   let save_output _filename _values = ()
 end
 
@@ -77,7 +79,7 @@ module AttesterSlashing = struct
     |> List.map (fun ((pre_file, operation_file), expect) ->
            { pre_file; attester_slashing_file = operation_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* slashing_il =
@@ -88,6 +90,8 @@ module AttesterSlashing = struct
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "Attester slashing processed"
+  let parse_string = parse_string
+  let unparse = unparse
   let save_output _filename _values = ()
 end
 
@@ -112,7 +116,7 @@ module Attestation = struct
     |> List.map (fun ((pre_file, operation_file), expect) ->
            { pre_file; attestation_file = operation_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* attestation_il =
@@ -123,6 +127,8 @@ module Attestation = struct
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "Attestation processed"
+  let parse_string = parse_string
+  let unparse = unparse
   let save_output _filename _values = ()
 end
 
@@ -147,7 +153,7 @@ module Deposit = struct
     |> List.map (fun ((pre_file, operation_file), expect) ->
            { pre_file; deposit_file = operation_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* deposit_il = parse_json ~spec input.deposit_file "deposit" in
@@ -156,6 +162,8 @@ module Deposit = struct
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "Deposit processed"
+  let parse_string = parse_string
+  let unparse = unparse
   let save_output _filename _values = ()
 end
 
@@ -180,7 +188,7 @@ module VoluntaryExit = struct
     |> List.map (fun ((pre_file, operation_file), expect) ->
            { pre_file; voluntary_exit_file = operation_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* exit_il =
@@ -191,6 +199,8 @@ module VoluntaryExit = struct
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "Voluntary exit processed"
+  let parse_string = parse_string
+  let unparse = unparse
   let save_output _filename _values = ()
 end
 
@@ -215,7 +225,7 @@ module BlsToExecutionChange = struct
     |> List.map (fun ((pre_file, operation_file), expect) ->
            { pre_file; address_change_file = operation_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* change_il =
@@ -226,6 +236,8 @@ module BlsToExecutionChange = struct
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "BLS to execution change processed"
+  let parse_string = parse_string
+  let unparse = unparse
   let save_output _filename _values = ()
 end
 
@@ -267,7 +279,7 @@ module ExecutionPayload = struct
              expect;
            })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     if Sys.file_exists input.execution_data_file then
       try
@@ -287,6 +299,8 @@ module ExecutionPayload = struct
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "Execution payload processed"
+  let parse_string = parse_string
+  let unparse = unparse
   let save_output _filename _values = ()
 end
 
@@ -312,7 +326,7 @@ module Withdrawals = struct
     |> List.map (fun ((pre_file, operation_file), expect) ->
            { pre_file; execution_payload_file = operation_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* payload_il =
@@ -323,6 +337,8 @@ module Withdrawals = struct
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "Withdrawals processed"
+  let parse_string = parse_string
+  let unparse = unparse
   let save_output _filename _values = ()
 end
 
@@ -347,7 +363,7 @@ module BlockHeader = struct
     |> List.map (fun ((pre_file, operation_file), expect) ->
            { pre_file; block_file = operation_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* block_il = parse_json ~spec input.block_file "beaconBlock" in
@@ -356,6 +372,8 @@ module BlockHeader = struct
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "Block header processed"
+  let parse_string = parse_string
+  let unparse = unparse
   let save_output _filename _values = ()
 end
 
@@ -380,7 +398,7 @@ module SyncAggregate = struct
     |> List.map (fun ((pre_file, operation_file), expect) ->
            { pre_file; sync_aggregate_file = operation_file; expect })
 
-  let parse ~spec (input : input) =
+  let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* aggregate_il =
@@ -391,5 +409,7 @@ module SyncAggregate = struct
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
   let format_output _values = "Sync aggregate processed"
+  let parse_string = parse_string
+  let unparse = unparse
   let save_output _filename _values = ()
 end

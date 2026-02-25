@@ -1,4 +1,4 @@
 (library
  (name json)
  (public_name spectec.interface.json)
- (libraries spectec.common spectec.lang spectec.semantics bignum yojson))
+ (libraries spectec.common spectec.lang spectec.envs bignum yojson))
