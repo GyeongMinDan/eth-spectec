@@ -118,7 +118,7 @@ All operations run entirely inside the Docker container.
 Execute differential testing with all client implementations. All clients receive the same input and produce state-transition results and coverage data.
 
 Note : All this command is example, if you want to change, then check your command.
-# measure the baseline (official test suite)
+**measure the baseline (official test suite):**
 ```bash
 # Interactive shell - all operations run inside container
 docker run -it --name eth2test-workspace eth2test:coverage
@@ -163,19 +163,24 @@ python3 diff_testing.py \
   --final-output-dir ./results/accumulated_coverage_report
 ```
 
-# measure the ETH2SpecTec generated Test cases
+**measure the ETH2SpecTec generated test cases:**
+
+First, convert the ETH2SpecTec-generated JSON test cases to SSZ.
+
 ```bash
 cd /workspace/spectec-core
-
-# First you need to convert the ETH2SpecTec generated Test cases(Json) to ssz files
-# Then, it will make ./your_path/spectec-generated/...(Test cases)
-python3 diff_testing.py \
+python3 convert_testgen_json_to_ssz.py \
   --input-dir ./testgen_01280645 \
-  --version capella \
+  --fork capella \
   --output-dir ./your_path
+```
 
+After conversion, run diff testing using the generated SSZ tests located at `./your_path/testgen/spectec-generated/...`.
+
+```bash
+cd /workspace/spectec-core
 python3 diff_testing.py \
-  --test-suite ./your_path/spectec-generated \
+  --test-suite ./your_path/testgen/spectec-generated \
   --test-type state-transition \
   --fork-version capella \
   --output-base ./results/coverage_ETH2SpecTec \
