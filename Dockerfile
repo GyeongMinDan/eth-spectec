@@ -272,6 +272,14 @@ RUN JOBS=4 && \
 WORKDIR /workspace/spectec-core
 RUN if [ -f "modified_code/nimbus/ncli.nim" ]; then \
         cp modified_code/nimbus/ncli.nim testing_clients/nimbus-eth2/ncli/ncli.nim; \
+    fi && \
+    if [ -f "modified_code/nimbus/beacon_chain/extras.nim" ]; then \
+        mkdir -p testing_clients/nimbus-eth2/beacon_chain && \
+        cp modified_code/nimbus/beacon_chain/extras.nim testing_clients/nimbus-eth2/beacon_chain/extras.nim; \
+    fi && \
+    if [ -f "modified_code/nimbus/beacon_chain/spec/state_transition.nim" ]; then \
+        mkdir -p testing_clients/nimbus-eth2/beacon_chain/spec && \
+        cp modified_code/nimbus/beacon_chain/spec/state_transition.nim testing_clients/nimbus-eth2/beacon_chain/spec/state_transition.nim; \
     fi
 
 # Apply Lodestar modifications

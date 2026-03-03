@@ -217,12 +217,14 @@ proc doTransition(conf: NcliConf) =
           cfg, readAllBytes(conf.blck).tryGet())
       except CatchableError:
         raiseAssert "error reading signed beacon block"
-    # validate_result = false: Disable block signature and state root verification only
-    # When validate_result = false, we skip block signature and state root verification
-    # to test mutated blocks, simulating a block proposer's perspective.
-    # Other signatures (attestations, RANDAO, proposer slashing, voluntary exit) are still verified.
-    # When verifyStateRoot is false, skip state root validation (block signature is also skipped in state_transition.nim)
-    flags = if not conf.verifyStateRoot: {skipStateRootValidation} else: {}
+    # validate_result = false behavior:
+    # - Skip block proposer signature verification only
+    # - Skip block state root verification
+    # - Keep other signature checks (RANDAO, attestations, slashings, exits)
+    flags = if not conf.verifyStateRoot:
+              {skipBlockSignatureValidation, skipStateRootValidation}
+            else:
+              {}
 
   var
     cache = StateCache()
