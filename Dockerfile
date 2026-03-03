@@ -127,17 +127,17 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Initialize opam and create OCaml switch
+# Initialize opam and create OCaml switch (name must match Makefile SWITCH=eth-spectec)
 # Pin menhir to 20211012: newer menhir drops MenhirLib.General used by spectec parser_debug.ml
 RUN opam init --disable-sandboxing -y && \
-    opam switch create 5.1.0 && \
-    eval $(opam env) && \
+    opam switch create eth-spectec ocaml-base-compiler.5.1.0 && \
+    eval $(opam env --switch=eth-spectec) && \
     opam install -y dune bignum menhir.20211012 core core_unix bisect_ppx yojson digestif bls12-381 bls12-381-signature
 
-ENV OPAM_SWITCH_PREFIX="/root/.opam/5.1.0"
-ENV CAML_LD_LIBRARY_PATH="/root/.opam/5.1.0/lib/stublibs:/root/.opam/default/lib/stublibs"
-ENV OCAML_TOPLEVEL_PATH="/root/.opam/5.1.0/lib/toplevel"
-ENV PATH="/root/.opam/5.1.0/bin:/root/.opam/default/bin:${PATH}"
+ENV OPAM_SWITCH_PREFIX="/root/.opam/eth-spectec"
+ENV CAML_LD_LIBRARY_PATH="/root/.opam/eth-spectec/lib/stublibs:/root/.opam/default/lib/stublibs"
+ENV OCAML_TOPLEVEL_PATH="/root/.opam/eth-spectec/lib/toplevel"
+ENV PATH="/root/.opam/eth-spectec/bin:/root/.opam/default/bin:${PATH}"
 
 # ============================================
 # Stage 8: Copy project files and install Python dependencies
