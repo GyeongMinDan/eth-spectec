@@ -17,7 +17,8 @@ type mutation_strategy =
   | AppendItem (* Append a default/duplicate item to list *)
   | RemoveItem (* Remove the last item from list *)
   | SetLength of int
-(* Set list to target length: duplicate random items when larger, drop random items when smaller *)
+  (* Set list to target length: duplicate random items when larger, drop random items when smaller *)
+  | AppendRandom of t (* Append a pre-generated random element to a list *)
 
 (* Navigate to a field in JSON using a path *)
 let rec get_field (json : t) (path : field_step list) : t option =
@@ -198,6 +199,7 @@ let apply_mutation (json : t) (strategy : mutation_strategy) : t =
             List.fold_left (fun acc idx -> idx :: acc) [] keep_indices
           in
           `List (List.filteri (fun idx _ -> List.mem idx keep_set) items)
+  | `List items, AppendRandom new_elem -> `List (items @ [ new_elem ])
   | _, SetValue v -> v
   | _ -> json
 

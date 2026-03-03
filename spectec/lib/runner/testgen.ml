@@ -22,6 +22,48 @@ module Il = Lang.Il
 module Checkpoint = Checkpoint
 module Instrumentation = Instrumentation
 module Dep = Instrumentation.Dependency.Dep_common
+module Type_tree = Instrumentation.Type_tree
+
+(* Look up element type for a list field name.
+   Tries singularizing (drop trailing 's'), then well-known aliases. *)
+let lookup_list_elem_type (field_name : string) : Type_tree.typ option =
+  let name = String.lowercase_ascii field_name in
+  let singular =
+    if String.length name > 1 && name.[String.length name - 1] = 's' then
+      String.sub name 0 (String.length name - 1)
+    else name
+  in
+  let well_known =
+    [
+      ("randao_mixes", "bytes32");
+      ("historical_roots", "root");
+      ("balances", "uint64");
+      ("inactivity_scores", "uint64");
+      ("previous_epoch_participation", "participationflags");
+      ("current_epoch_participation", "participationflags");
+      ("slashings", "gwei");
+    ]
+  in
+  match List.assoc_opt name well_known with
+  | Some type_name -> Type_tree.lookup_ci type_name
+  | None -> (
+      match Type_tree.lookup_ci singular with
+      | Some _ as r -> r
+      | None -> Type_tree.lookup_ci name)
+
+(* Generate AppendRandom strategy using type tree.
+   Uses first existing element as template when available. *)
+let make_append_random_strategy (field_name : string)
+    (source_value : Yojson.Safe.t) : Json_mutator.mutation_strategy option =
+  match lookup_list_elem_type field_name with
+  | None -> None
+  | Some elem_typ ->
+      let new_elem =
+        match source_value with
+        | `List (first :: _) -> Type_tree.template_fill elem_typ first
+        | _ -> Type_tree.random_value elem_typ
+      in
+      Some (Json_mutator.AppendRandom new_elem)
 
 (* Types *)
 type premise_uid = int
@@ -763,6 +805,8 @@ let infer_mutation_constraints (premise_uid : premise_uid)
                   | Json_mutator.SetBoundary, Json_mutator.SetBoundary -> 0
                   | Json_mutator.AppendItem, Json_mutator.AppendItem -> 0
                   | Json_mutator.RemoveItem, Json_mutator.RemoveItem -> 0
+                  | Json_mutator.AppendRandom _, Json_mutator.AppendRandom _ ->
+                      0
                   | _ -> compare s1 s2)
                 strategies
             in
@@ -1108,7 +1152,8 @@ let generate_test_case ~(test_dir : string) ~(output_dir : string)
                   | Json_mutator.AppendItem -> "AppendItem"
                   | Json_mutator.RemoveItem -> "RemoveItem"
                   | Json_mutator.SetLength len ->
-                      Printf.sprintf "SetLength %d" len);
+                      Printf.sprintf "SetLength %d" len
+                  | Json_mutator.AppendRandom _ -> "AppendRandom");
                 Printf.fprintf report_channel "\n"))
             constraint_.strategies)
         constraints;
@@ -1484,6 +1529,9 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
                               0
                           | Json_mutator.RemoveItem, Json_mutator.RemoveItem ->
                               0
+                          | ( Json_mutator.AppendRandom _,
+                              Json_mutator.AppendRandom _ ) ->
+                              0
                           | _ -> compare s1 s2)
                         strategies
                     in
@@ -1517,7 +1565,8 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
                          "Decrement:" ^ string_of_int i
                      | Json_mutator.SetBoundary -> "SetBoundary"
                      | Json_mutator.AppendItem -> "AppendItem"
-                     | Json_mutator.RemoveItem -> "RemoveItem")
+                     | Json_mutator.RemoveItem -> "RemoveItem"
+                     | Json_mutator.AppendRandom _ -> "AppendRandom")
                    constraint_.strategies)
             in
             Printf.sprintf "%s|%s" path_str strategies_str
@@ -1659,18 +1708,28 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
                     (* For list paths with Unknown or ToConst, generate double/nothing strategies *)
                     let list_strategies =
                       if is_list_path && constraint_.strategies = [] then
-                        match source_value with
-                        | `List source_list ->
-                            let current_len = List.length source_list in
-                            if current_len = 0 then
-                              (* Can't mutate empty list *)
-                              []
-                            else
-                              [
-                                Json_mutator.SetLength (2 * current_len);
-                                Json_mutator.SetLength 0;
-                              ]
-                        | _ -> []
+                        let len_strategies =
+                          match source_value with
+                          | `List source_list ->
+                              let current_len = List.length source_list in
+                              if current_len = 0 then
+                                (* Can't mutate empty list *)
+                                []
+                              else
+                                [
+                                  Json_mutator.SetLength (2 * current_len);
+                                  Json_mutator.SetLength 0;
+                                ]
+                          | _ -> []
+                        in
+                        let append_strategy =
+                          match List.rev constraint_.field_path.steps with
+                          | Dep.FieldAccess field_name :: _ ->
+                              make_append_random_strategy field_name
+                                source_value
+                          | _ -> None
+                        in
+                        len_strategies @ Option.to_list append_strategy
                       else []
                     in
                     (* Filter out strategies that would result in no change or empty list *)
@@ -1722,6 +1781,7 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
                             | Json_mutator.RemoveItem -> "<remove>"
                             | Json_mutator.SetLength len ->
                                 Printf.sprintf "<length %d>" len
+                            | Json_mutator.AppendRandom _ -> "<append:random>"
                           in
 
                           (* Mutate and save *)
@@ -2011,7 +2071,8 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
                            "Decrement:" ^ string_of_int i
                        | Json_mutator.SetBoundary -> "SetBoundary"
                        | Json_mutator.AppendItem -> "AppendItem"
-                       | Json_mutator.RemoveItem -> "RemoveItem")
+                       | Json_mutator.RemoveItem -> "RemoveItem"
+                       | Json_mutator.AppendRandom _ -> "AppendRandom")
                      constraint_.strategies)
               in
               Printf.sprintf "%s|%s" path_str strategies_str
@@ -2179,18 +2240,28 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
                       (* For list paths with Unknown or ToConst, generate double/nothing strategies *)
                       let list_strategies =
                         if is_list_path && constraint_.strategies = [] then
-                          match source_value with
-                          | `List source_list ->
-                              let current_len = List.length source_list in
-                              if current_len = 0 then
-                                (* Can't mutate empty list *)
-                                []
-                              else
-                                [
-                                  Json_mutator.SetLength (2 * current_len);
-                                  Json_mutator.SetLength 0;
-                                ]
-                          | _ -> []
+                          let len_strategies =
+                            match source_value with
+                            | `List source_list ->
+                                let current_len = List.length source_list in
+                                if current_len = 0 then
+                                  (* Can't mutate empty list *)
+                                  []
+                                else
+                                  [
+                                    Json_mutator.SetLength (2 * current_len);
+                                    Json_mutator.SetLength 0;
+                                  ]
+                            | _ -> []
+                          in
+                          let append_strategy =
+                            match List.rev constraint_.field_path.steps with
+                            | Dep.FieldAccess field_name :: _ ->
+                                make_append_random_strategy field_name
+                                  source_value
+                            | _ -> None
+                          in
+                          len_strategies @ Option.to_list append_strategy
                         else []
                       in
                       (* Filter out strategies that would result in no change or empty list *)
@@ -2256,6 +2327,7 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
                               | Json_mutator.RemoveItem -> "<remove>"
                               | Json_mutator.SetLength len ->
                                   Printf.sprintf "<length %d>" len
+                              | Json_mutator.AppendRandom _ -> "<append:random>"
                             in
 
                             (* Mutate and save *)

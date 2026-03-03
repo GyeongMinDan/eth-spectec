@@ -1429,6 +1429,7 @@ let static_dependencies () =
     : Instrumentation_static.Static.S);
     (module Instrumentation_static.Mutator_analysis.Mutator_analysis
     : Instrumentation_static.Static.S);
+    (module Instrumentation_static.Type_tree : Instrumentation_static.Static.S);
   ]
 
 let make cfg : (module Instrumentation_core.Handler.S) =
