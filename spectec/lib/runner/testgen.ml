@@ -34,6 +34,31 @@ type premise_info = {
   content : string;
 }
 
+(* Outcome of one (constraint × strategy) attempt, recorded for reporting only. *)
+type constraint_outcome =
+  | MutationOk of {
+      field : field_path;
+      prems : premise_uid list;
+      suggestion : string option;
+      from_val : string;
+      to_val : string;
+    }
+  | FieldNotFound of {
+      field : field_path;
+      prems : premise_uid list;
+      src_label : string;
+    }
+  | JsonLoadFailed of { field : field_path; prems : premise_uid list }
+
+(* All diagnostic data produced by process_test_case.
+   Never drives control flow — consumed only by the presentation layer. *)
+type process_diag = {
+  prems_no_muts : premise_uid list;
+  prems_no_constraints : premise_uid list;
+  constraint_outcomes : constraint_outcome list;
+  covered_prems : premise_uid list;
+}
+
 (* ===== Slot-gap utilities ===== *)
 
 let json_to_int = function
@@ -774,31 +799,42 @@ let mutate_json_input ~output_dir ?(max_slot_gap : int option) (mut_id : string)
 
 (* ===== Core test-case processing ===== *)
 
-(* Apply constraints to a test case, writing mutation files and a report.
+(* Apply constraints to a test case, writing mutation files.
    - constraints_with_prems: deduplicated constraints tagged with their premise UIDs
-   - previously_generated: optional global-dedup table (mutated in place if provided)
-   Returns (test_id, [(first_prem_uid, mutations)]) if any mutations were generated. *)
+   - previously_generated: global-dedup table (mutated in place)
+   Returns (result option, process_diag).
+   result is Some (test_id, [...]) if any mutations were generated.
+   process_diag holds all observability data; never drives control flow. *)
 let process_test_case ~test_dir ~output_dir ~previously_generated test_id
     prem_uids (dependency_result : Pos.result) =
-  (* Collect and deduplicate constraints from all target premises. *)
+  (* Collect and deduplicate constraints from all target premises.
+     Track per-premise status for diagnostics. *)
   let constraint_map = Hashtbl.create 64 in
+  let prem_no_muts = ref [] in
+  let prem_no_constraints = ref [] in
   List.iter
     (fun puid ->
       let muts =
         get_mutation_suggestions_for_premise puid (Some dependency_result)
       in
-      List.iter
-        (fun sym_mut ->
-          match sym_mutation_to_constraint sym_mut with
-          | None -> ()
-          | Some c -> (
-              let k = constraint_key c in
-              match Hashtbl.find_opt constraint_map k with
-              | None -> Hashtbl.replace constraint_map k (c, [ puid ])
-              | Some (_, puids) when not (List.mem puid puids) ->
-                  Hashtbl.replace constraint_map k (c, puid :: puids)
-              | _ -> ()))
-        muts)
+      if muts = [] then prem_no_muts := puid :: !prem_no_muts
+      else
+        let any_constraint = ref false in
+        List.iter
+          (fun sym_mut ->
+            match sym_mutation_to_constraint sym_mut with
+            | None -> ()
+            | Some c -> (
+                any_constraint := true;
+                let k = constraint_key c in
+                match Hashtbl.find_opt constraint_map k with
+                | None -> Hashtbl.replace constraint_map k (c, [ puid ])
+                | Some (_, puids) when not (List.mem puid puids) ->
+                    Hashtbl.replace constraint_map k (c, puid :: puids)
+                | _ -> ()))
+          muts;
+        if not !any_constraint then
+          prem_no_constraints := puid :: !prem_no_constraints)
     prem_uids;
 
   (* Filter out constraints already generated for a previous test case (global dedup). *)
@@ -812,7 +848,16 @@ let process_test_case ~test_dir ~output_dir ~previously_generated test_id
       constraint_map []
   in
 
-  if fresh_constraints = [] then None
+  let base_diag =
+    {
+      prems_no_muts = List.sort compare !prem_no_muts;
+      prems_no_constraints = List.sort compare !prem_no_constraints;
+      constraint_outcomes = [];
+      covered_prems = [];
+    }
+  in
+
+  if fresh_constraints = [] then (None, base_diag)
   else
     let test_case_sanitized =
       String.map (fun c -> if c = '/' then '_' else c) test_id
@@ -824,11 +869,8 @@ let process_test_case ~test_dir ~output_dir ~previously_generated test_id
     let pre_json_opt = load_json_opt pre_path in
     let block_json_opt = load_json_opt block_path in
 
-    let report_ch = open_out (Filename.concat out_dir "report.txt") in
-    Printf.fprintf report_ch "Test Case: %s\n\nMutations for premises: %s\n"
-      test_id
-      (String.concat ", " (List.map string_of_int prem_uids));
-
+    let outcomes = ref [] in
+    let local_covered : (premise_uid, unit) Hashtbl.t = Hashtbl.create 16 in
     let generated = ref [] in
     List.iteri
       (fun c_idx (constraint_, puids_for_constraint) ->
@@ -842,11 +884,14 @@ let process_test_case ~test_dir ~output_dir ~previously_generated test_id
               | Dep.Block -> "<not found in block>"
               | _ -> "<not found>"
             in
-            Printf.fprintf report_ch
-              "  - Field: %s\n    Premises: %s\n    From: %s\n"
-              (Dep.string_of_field_path constraint_.field_path)
-              (String.concat ", " (List.map string_of_int puids_for_constraint))
-              src_label
+            outcomes :=
+              FieldNotFound
+                {
+                  field = constraint_.field_path;
+                  prems = puids_for_constraint;
+                  src_label;
+                }
+              :: !outcomes
         | Some src ->
             let strats = resolve_strategies constraint_ src in
             List.iteri
@@ -864,25 +909,108 @@ let process_test_case ~test_dir ~output_dir ~previously_generated test_id
                     pre_path block_path
                 in
                 if out_pre <> pre_path then (
+                  List.iter
+                    (fun uid -> Hashtbl.replace local_covered uid ())
+                    puids_for_constraint;
                   generated := (mut_id, out_pre, out_block) :: !generated;
-                  Printf.fprintf report_ch "  - Field: %s\n    Premises: %s\n"
-                    (Dep.string_of_field_path constraint_.field_path)
-                    (String.concat ", "
-                       (List.map string_of_int puids_for_constraint));
-                  Option.iter
-                    (Printf.fprintf report_ch "    Suggestion: %s\n")
-                    constraint_.suggestion_str;
-                  Printf.fprintf report_ch "    From: %s\n    To: %s\n"
-                    (Yojson.Safe.to_string src)
-                    (strategy_to_display_string strategy)))
+                  outcomes :=
+                    MutationOk
+                      {
+                        field = constraint_.field_path;
+                        prems = puids_for_constraint;
+                        suggestion = constraint_.suggestion_str;
+                        from_val = Yojson.Safe.to_string src;
+                        to_val = strategy_to_display_string strategy;
+                      }
+                    :: !outcomes)
+                else
+                  outcomes :=
+                    JsonLoadFailed
+                      {
+                        field = constraint_.field_path;
+                        prems = puids_for_constraint;
+                      }
+                    :: !outcomes)
               strats)
       fresh_constraints;
 
-    Printf.fprintf report_ch "\n";
-    close_out report_ch;
+    let covered_prems_list =
+      Hashtbl.fold (fun uid () acc -> uid :: acc) local_covered []
+    in
+    let diag =
+      {
+        prems_no_muts = List.sort compare !prem_no_muts;
+        prems_no_constraints = List.sort compare !prem_no_constraints;
+        constraint_outcomes = List.rev !outcomes;
+        covered_prems = List.sort_uniq compare covered_prems_list;
+      }
+    in
 
-    if !generated = [] then None
-    else Some (test_id, [ (List.hd prem_uids, List.rev !generated) ])
+    let result =
+      if !generated = [] then None
+      else Some (test_id, [ (List.hd prem_uids, List.rev !generated) ])
+    in
+    (result, diag)
+
+(* Write a report.txt file for a processed seed.
+   Pure presentation: reads only from diag, performs no branching on diag data. *)
+let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
+  let test_case_sanitized =
+    String.map (fun c -> if c = '/' then '_' else c) test_id
+  in
+  let out_dir = Filename.concat output_dir test_case_sanitized in
+  let report_ch = open_out (Filename.concat out_dir "report.txt") in
+  Printf.fprintf report_ch "Test Case: %s\n\nMutations for premises: %s\n"
+    test_id
+    (String.concat ", " (List.map string_of_int prem_uids));
+  if diag.prems_no_muts <> [] then
+    Printf.fprintf report_ch "  No suggestions: %s\n"
+      (String.concat ", " (List.map string_of_int diag.prems_no_muts));
+  if diag.prems_no_constraints <> [] then
+    Printf.fprintf report_ch "  No valid constraints: %s\n"
+      (String.concat ", " (List.map string_of_int diag.prems_no_constraints));
+  Printf.fprintf report_ch "\n";
+  List.iter
+    (fun outcome ->
+      match outcome with
+      | FieldNotFound { field; prems; src_label } ->
+          Printf.fprintf report_ch
+            "  - Field: %s\n    Premises: %s\n    [FAILED: field %s]\n"
+            (Dep.string_of_field_path field)
+            (String.concat ", " (List.map string_of_int prems))
+            src_label
+      | MutationOk { field; prems; suggestion; from_val; to_val } ->
+          Printf.fprintf report_ch "  - Field: %s\n    Premises: %s\n"
+            (Dep.string_of_field_path field)
+            (String.concat ", " (List.map string_of_int prems));
+          Option.iter
+            (Printf.fprintf report_ch "    Suggestion: %s\n")
+            suggestion;
+          Printf.fprintf report_ch "    From: %s\n    To: %s\n" from_val to_val
+      | JsonLoadFailed { field; prems } ->
+          Printf.fprintf report_ch
+            "  - Field: %s\n\
+            \    Premises: %s\n\
+            \    [FAILED: could not load JSON]\n"
+            (Dep.string_of_field_path field)
+            (String.concat ", " (List.map string_of_int prems)))
+    diag.constraint_outcomes;
+  let mutation_count =
+    List.length
+      (List.filter
+         (function MutationOk _ -> true | _ -> false)
+         diag.constraint_outcomes)
+  in
+  let field_not_found_count =
+    List.length
+      (List.filter
+         (function FieldNotFound _ -> true | _ -> false)
+         diag.constraint_outcomes)
+  in
+  Printf.fprintf report_ch
+    "\nResult: %d mutation(s) generated | %d field(s) not found\n"
+    mutation_count field_not_found_count;
+  close_out report_ch
 
 (* ===== Legacy premise-centric generation ===== *)
 
@@ -1117,8 +1245,14 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
           Format.printf "  Skipped: analysis failed\n%!";
           None
       | Some dependency_result ->
-          process_test_case ~test_dir ~output_dir ~previously_generated test_id
-            prem_uids dependency_result)
+          let result_opt, diag =
+            process_test_case ~test_dir ~output_dir ~previously_generated
+              test_id prem_uids dependency_result
+          in
+          (match result_opt with
+          | Some _ -> write_seed_report ~output_dir ~test_id ~prem_uids diag
+          | None -> ());
+          result_opt)
     test_to_prems
 
 (* Generate mutations for each test case with checkpoint support.
@@ -1216,6 +1350,8 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
   let analyzed = ref (Testgen_data.analyzed_tests testgen_data) in
   let last_dep_result = ref None in
   let previously_generated = Hashtbl.create 1000 in
+  let analysis_failed_count = ref 0 in
+  let all_diags = ref [] in
   let already_completed =
     List.length all_test_ids - List.length remaining_ids
   in
@@ -1244,11 +1380,19 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
 
         match result_opt with
         | None ->
+            analysis_failed_count := !analysis_failed_count + 1;
             Format.printf "  Skipped: analysis failed\n%!";
             None
         | Some dep_result ->
-            process_test_case ~test_dir ~output_dir ~previously_generated
-              test_id prem_uids dep_result)
+            let tc_result, diag =
+              process_test_case ~test_dir ~output_dir ~previously_generated
+                test_id prem_uids dep_result
+            in
+            all_diags := diag :: !all_diags;
+            (match tc_result with
+            | Some _ -> write_seed_report ~output_dir ~test_id ~prem_uids diag
+            | None -> ());
+            tc_result)
       remaining
     |> List.filter_map Fun.id
   in
@@ -1262,5 +1406,101 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
             ~positive_result:r
       | None -> ())
   | _ -> ());
+
+  (* ===== Comprehensive summary ===== *)
+  let seeds_with_mutations =
+    List.length (List.filter (fun d -> d.covered_prems <> []) !all_diags)
+  in
+  let all_covered_prems =
+    List.sort_uniq compare
+      (List.concat_map (fun d -> d.covered_prems) !all_diags)
+  in
+  let total_mutations =
+    List.fold_left
+      (fun acc d ->
+        acc
+        + List.length
+            (List.filter
+               (function MutationOk _ -> true | _ -> false)
+               d.constraint_outcomes))
+      0 !all_diags
+  in
+  (* Seed type breakdown *)
+  let n_sanity, n_finality, n_random, n_other =
+    List.fold_left
+      (fun (s, f, r, o) (tid, _) ->
+        let lower = String.lowercase_ascii tid in
+        let contains str =
+          try
+            let _ = Str.search_forward (Str.regexp_string str) lower 0 in
+            true
+          with Not_found -> false
+        in
+        if contains "sanity" then (s + 1, f, r, o)
+        else if contains "finality" then (s, f + 1, r, o)
+        else if contains "random" then (s, f, r + 1, o)
+        else (s, f, r, o + 1))
+      (0, 0, 0, 0) test_to_prems
+  in
+  (* Premise coverage *)
+  let covered_by_seeds =
+    List.fold_left
+      (fun acc (_, prems) ->
+        List.fold_left (fun a p -> if List.mem p a then a else p :: a) acc prems)
+      [] test_to_prems
+  in
+  let no_seed_coverage =
+    List.filter (fun uid -> not (List.mem uid covered_by_seeds)) premise_uids
+  in
+  let no_mutations =
+    List.filter
+      (fun uid -> not (List.mem uid all_covered_prems))
+      covered_by_seeds
+  in
+  let seeds_analyzed = List.length remaining in
+  let seeds_no_mutations =
+    seeds_analyzed - !analysis_failed_count - seeds_with_mutations
+  in
+  let summary_lines =
+    let buf = Buffer.create 512 in
+    let pr fmt = Printf.bprintf buf (fmt ^^ "\n") in
+    pr "=== Test Generation Summary ===";
+    pr "";
+    pr "Seeds:";
+    pr "  Selected: %d  (Sanity: %d | Finality: %d | Random: %d | Other: %d)"
+      (List.length test_to_prems)
+      n_sanity n_finality n_random n_other;
+    if already_completed > 0 then
+      pr "  Already analyzed (checkpoint): %d" already_completed;
+    pr "  Analyzed this run: %d  (failed: %d)" seeds_analyzed
+      !analysis_failed_count;
+    pr "  Generated mutations: %d seeds  |  No new mutations: %d seeds"
+      seeds_with_mutations seeds_no_mutations;
+    pr "";
+    pr "Mutations: %d total" total_mutations;
+    if seeds_with_mutations > 0 then
+      pr "  Avg per seed: %.1f"
+        (float_of_int total_mutations /. float_of_int seeds_with_mutations);
+    pr "";
+    pr "Premise coverage (%d targeted):" (List.length premise_uids);
+    pr "  Covered by seeds:  %d" (List.length covered_by_seeds);
+    pr "  Got >=1 mutation:  %d" (List.length all_covered_prems);
+    if no_seed_coverage <> [] then
+      pr "  No seed coverage:  %d  (UIDs: %s)"
+        (List.length no_seed_coverage)
+        (String.concat ", "
+           (List.map string_of_int (List.sort compare no_seed_coverage)));
+    if no_mutations <> [] then
+      pr "  No mutations:      %d  (UIDs: %s)" (List.length no_mutations)
+        (String.concat ", "
+           (List.map string_of_int (List.sort compare no_mutations)));
+    Buffer.contents buf
+  in
+  Format.printf "\n%s%!" summary_lines;
+  (let summary_path = Filename.concat output_dir "summary.txt" in
+   let ch = open_out summary_path in
+   output_string ch summary_lines;
+   close_out ch;
+   Format.printf "Summary written to: %s\n%!" summary_path);
 
   results
