@@ -4529,11 +4529,13 @@ def _merge_prysm_coverage(cov_dirs, output_dir, testing_clients_dir):
     
     # Merge using go tool covdata merge - use original directories directly
     try:
-        # Build input directories list
+        # Build input directories list.
+        # go tool covdata merge expects a single -i with comma-separated dirs.
         input_dirs = [str(d) for d in all_cov_dirs]
-        
+        input_dirs_str = ",".join(input_dirs)
+
         subprocess.run(
-            ["go", "tool", "covdata", "merge", f"-o={merged_cov_dir}"] + [f"-i={d}" for d in input_dirs],
+            ["go", "tool", "covdata", "merge", f"-i={input_dirs_str}", f"-o={merged_cov_dir}"],
             check=True,
             capture_output=True,
             text=True
@@ -5462,4 +5464,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
