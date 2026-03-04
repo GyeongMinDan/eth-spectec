@@ -350,11 +350,12 @@ module Make (Tgt : Runner.Target.S) = struct
        and filter_seeds =
          flag "--filter-seeds" (optional string)
            ~doc:"TYPE only process seeds of TYPE (sanity|finality|random)"
-       and select_minimal =
-         flag "--select-minimal" no_arg
+       and coverage_level_flag =
+         flag "--coverage-level"
+           (optional_with_default 0 int)
            ~doc:
-             " select minimal set of tests covering all premises (greedy set \
-              cover)"
+             "N select seeds with K-cover: each premise covered by at least N \
+              seeds (0 = all, 1 = minimal/greedy)"
        and max_slot_gap =
          flag "--max-slot-gap"
            (optional_with_default 32 int)
@@ -591,13 +592,18 @@ module Make (Tgt : Runner.Target.S) = struct
                          | _ -> None))
              in
 
+             (* Resolve coverage_level: --coverage-level wins over --select-minimal *)
+             let coverage_level =
+               if coverage_level_flag > 0 then coverage_level_flag else 0
+             in
+
              (* Use test-case-centric generation with checkpoint support *)
              Format.printf "Starting test-case-centric generation...\n%!";
              let results =
                Runner.Testgen.generate_tests_with_checkpoint ~test_dir:test_path
                  ~output_dir:output_path ~checkpoint_file:testgen_checkpoint
                  ~resume_file:testgen_resume ~save_interval ~filter_seeds
-                 ~select_minimal ~max_slot_gap uids_to_generate coverage
+                 ~coverage_level ~max_slot_gap uids_to_generate coverage
                  analyze_test_case
              in
 

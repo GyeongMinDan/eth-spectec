@@ -1123,11 +1123,11 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
 
 (* Generate mutations for each test case with checkpoint support.
    Supports resuming from a prior run, seed-type filtering, slot-gap filtering,
-   greedy minimal test selection, and periodic checkpoint saves. *)
+   K-cover seed selection, and periodic checkpoint saves. *)
 let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
     ~(checkpoint_file : string option) ~(resume_file : string option)
     ~(save_interval : int) ~(filter_seeds : string option)
-    ~(select_minimal : bool) ?(max_slot_gap : int = 32)
+    ~(coverage_level : int) ?(max_slot_gap : int = 32)
     (premise_uids : premise_uid list) (coverage : Node_cov.result option)
     (analyze_test_case : test_case_id -> premise_uid list -> Pos.result option)
     =
@@ -1157,9 +1157,11 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
   in
 
   let test_to_prems =
-    if not select_minimal then slot_filtered
+    if coverage_level = 0 then slot_filtered
     else (
-      Format.printf "Selecting minimal set of tests (greedy set cover)...\n%!";
+      Format.printf
+        "Selecting seeds with K-cover (k=%d, greedy set cover)...\n%!"
+        coverage_level;
       let prem_to_tests = Hashtbl.create 256 in
       let test_to_prems_tbl = Hashtbl.create 256 in
       List.iter
@@ -1175,14 +1177,14 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
             prems)
         slot_filtered;
       let selected =
-        Source_selector.select_minimal_tests premise_uids prem_to_tests
-          test_to_prems_tbl
+        Source_selector.select_k_cover_tests ~k:coverage_level premise_uids
+          prem_to_tests test_to_prems_tbl
       in
       Format.printf
-        "Selected %d tests (from %d candidates) covering %d premises\n%!"
+        "Selected %d tests (from %d candidates) covering %d premises (k=%d)\n%!"
         (List.length selected)
         (List.length slot_filtered)
-        (List.length premise_uids);
+        (List.length premise_uids) coverage_level;
       let test_priority (test_id, _) =
         let lower = String.lowercase_ascii test_id in
         let contains s =
