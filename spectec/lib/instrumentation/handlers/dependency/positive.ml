@@ -133,13 +133,11 @@ type pos_frame = { local_env : sym_env; is_barrier : bool }
 module State = struct
   let output_file : string option ref = ref None
 
-  (* Symbolic expression environment - maps variable names to symbolic expressions *)
-  let sym_env : sym_env = Hashtbl.create 100
+  (* --- Static data: loaded once from spec, read-only at runtime --- *)
 
-  (* Relation input variable names from spec *)
   let relation_inputs : (string, string list) Hashtbl.t = Hashtbl.create 50
-
-  (* Function parameter names from spec *)
+  let relation_outputs : (string, string list) Hashtbl.t = Hashtbl.create 50
+  let relation_io_indices : (string, int list) Hashtbl.t = Hashtbl.create 50
   let function_params : (string, string list) Hashtbl.t = Hashtbl.create 100
 
   (* Per-function interior IfPr premises for static inlining:
@@ -147,25 +145,24 @@ module State = struct
   let func_interiors : (string, string list * (int * Il.prem) list) Hashtbl.t =
     Hashtbl.create 100
 
-  (* Already-analyzed premises (by location string) *)
-  let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
+  (* --- Execution context: current relation / rule / test --- *)
 
-  (* Track visited UIDs to distinguish "not covered" from "no mutations" *)
-  let seen_uids : (int, unit) Hashtbl.t = Hashtbl.create 1000
-
-  (* Current context *)
   let current_relation : string ref = ref ""
   let current_rule : string ref = ref ""
   let current_test_id : string ref = ref ""
 
+  (* Current evaluation function from interpreter *)
+  let current_eval : (Il.exp -> Il.Value.t) ref =
+    ref (fun _ -> Il.Value.text "init")
+
+  (* --- Symbolic environment: variable bindings with frame-based scoping --- *)
+
+  let sym_env : sym_env = Hashtbl.create 100
+
   (* Frame stack for sym_env backtracking *)
   let frames : pos_frame list ref = ref []
 
-  (* Relation output variable names from spec *)
-  let relation_outputs : (string, string list) Hashtbl.t = Hashtbl.create 50
-
-  (* Relation input indices from spec (which arg positions are inputs) *)
-  let relation_io_indices : (string, int list) Hashtbl.t = Hashtbl.create 50
+  (* --- Relation call stack: args pushed at RulePr enter, popped at exit --- *)
 
   (* Stack of pending call args for nested relation calls *)
   (* Each entry: (relation_id, input_exprs, output_exprs) *)
@@ -185,23 +182,30 @@ module State = struct
   let peek_call_args () =
     match !call_args_stack with entry :: _ -> Some entry | [] -> None
 
+  (* --- Result accumulation: persists across tests --- *)
+
   (* Per-test symbolic mutations: premise_uid -> test_id -> sym_mutation list *)
   let per_test_sym_mutations :
       (int, (string, sym_mutation list) Hashtbl.t) Hashtbl.t =
     Hashtbl.create 1000
 
-  (* Progress tracking *)
-  let premise_count = ref 0
-  let if_prem_count = ref 0
-  let skipped_count = ref 0
-  let func_depth = ref 0
+  (* --- Coverage tracking: seen by this run --- *)
+
+  (* Already-analyzed premises (by location string) *)
+  let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
+
+  (* Track visited UIDs to distinguish "not covered" from "no mutations" *)
+  let seen_uids : (int, unit) Hashtbl.t = Hashtbl.create 1000
 
   (* Target UIDs for filtering - empty means no filtering (use whitelist) *)
   let target_uids : (int, unit) Hashtbl.t = Hashtbl.create 16
 
-  (* Current evaluation function from interpreter *)
-  let current_eval : (Il.exp -> Il.Value.t) ref =
-    ref (fun _ -> Il.Value.text "init")
+  (* --- Telemetry --- *)
+
+  let premise_count = ref 0
+  let if_prem_count = ref 0
+  let skipped_count = ref 0
+  let func_depth = ref 0
 
   (* Set target UIDs for filtering *)
 
@@ -460,18 +464,16 @@ let rec expand_vars (sym_env : sym_env) (exp : Il.exp) : Il.exp =
 
 and expand_vars_with_visited (sym_env : sym_env) (exp : Il.exp)
     (visited : string list) (depth : int) : Il.exp =
-  (* Limit expansion depth to prevent infinite loops with deeply nested DotE/IdxE structures *)
   if depth > 100 then exp
   else
-    (* Use frame-aware lookup *)
-    let lookup id = !lookup_sym_ref id in
+    let recurse child =
+      expand_vars_with_visited sym_env child visited (depth + 1)
+    in
     match exp.it with
     | Il.VarE id -> (
-        if List.mem id.it visited then
-          (* Cycle detected - return expression as-is to break the cycle *)
-          exp
+        if List.mem id.it visited then exp
         else
-          match lookup id.it with
+          match !lookup_sym_ref id.it with
           | Some e -> (
               match e.it with
               | Il.VarE id' when id'.it = id.it -> exp
@@ -479,151 +481,27 @@ and expand_vars_with_visited (sym_env : sym_env) (exp : Il.exp)
                   expand_vars_with_visited sym_env e (id.it :: visited)
                     (depth + 1))
           | None -> exp)
-    | Il.DotE (base, atom) ->
-        let base' = expand_vars_with_visited sym_env base visited (depth + 1) in
-        if base' == base then exp else { exp with it = Il.DotE (base', atom) }
-    | Il.IdxE (base, idx) ->
-        let base' = expand_vars_with_visited sym_env base visited (depth + 1) in
-        let idx' = expand_vars_with_visited sym_env idx visited (depth + 1) in
-        if base' == base && idx' == idx then exp
-        else { exp with it = Il.IdxE (base', idx') }
-    | Il.BinE (op, typ, e1, e2) ->
-        let e1' = expand_vars_with_visited sym_env e1 visited (depth + 1) in
-        let e2' = expand_vars_with_visited sym_env e2 visited (depth + 1) in
-        { exp with it = Il.BinE (op, typ, e1', e2') }
-    | Il.CmpE (op, typ, e1, e2) ->
-        let e1' = expand_vars_with_visited sym_env e1 visited (depth + 1) in
-        let e2' = expand_vars_with_visited sym_env e2 visited (depth + 1) in
-        { exp with it = Il.CmpE (op, typ, e1', e2') }
-    | Il.UnE (op, typ, e) ->
-        let e' = expand_vars_with_visited sym_env e visited (depth + 1) in
-        { exp with it = Il.UnE (op, typ, e') }
-    (* Special handling for len *)
-    | Il.LenE inner ->
-        let inner' =
-          expand_vars_with_visited sym_env inner visited (depth + 1)
-        in
-        { exp with it = Il.LenE inner' }
-    (* Handle calls? Arguments might need expansion *)
-    | Il.CallE (id, targs, args) ->
-        (* Special handling for filter_list_: approximate to first argument *)
-        if
-          String.starts_with ~prefix:"filter_list_" id.it
-          || String.starts_with ~prefix:"filter_list_2" id.it
-        then
-          match args with
-          | { it = Il.ExpA e; _ } :: _ ->
-              expand_vars_with_visited sym_env e visited (depth + 1)
-          | _ -> { exp with it = Il.CallE (id, targs, args) }
-        else
-          let args' =
-            List.map
-              (fun arg ->
-                match arg.it with
-                | Il.ExpA e ->
-                    {
-                      arg with
-                      it =
-                        Il.ExpA
-                          (expand_vars_with_visited sym_env e visited (depth + 1));
-                    }
-                | _ -> arg)
-              args
-          in
-          { exp with it = Il.CallE (id, targs, args') }
     | Il.UpdE (inner, path, value) ->
-        (* State update expressions (UpdE) can be very large and contain deeply nested state references.
-         Expanding them fully can create exponential blow-up. Only expand the inner state reference
-         if it's a simple variable, and don't expand the value deeply. *)
+        (* Depth guards to prevent exponential blowup in deeply nested state updates *)
         if depth > 10 then exp
         else
-          (* Only expand inner if it's a variable - don't expand if it's already a complex expression *)
           let inner' =
-            match inner.it with
-            | Il.VarE _ ->
-                expand_vars_with_visited sym_env inner visited (depth + 1)
-            | _ -> inner
+            match inner.it with Il.VarE _ -> recurse inner | _ -> inner
           in
-          (* Don't expand value deeply - it might contain state references that create chains *)
-          let value' =
-            if depth > 5 then value
-            else expand_vars_with_visited sym_env value visited (depth + 1)
-          in
-          { exp with it = Il.UpdE (inner', path, value') }
-    | Il.OptE (Some inner) ->
-        let inner' =
-          expand_vars_with_visited sym_env inner visited (depth + 1)
-        in
-        { exp with it = Il.OptE (Some inner') }
-    | Il.IterE (inner, iter) ->
-        let inner' =
-          expand_vars_with_visited sym_env inner visited (depth + 1)
-        in
-        { exp with it = Il.IterE (inner', iter) }
-    | Il.SubE (inner, typ) ->
-        let inner' =
-          expand_vars_with_visited sym_env inner visited (depth + 1)
-        in
-        { exp with it = Il.SubE (inner', typ) }
-    | Il.UpCastE (typ, inner) ->
-        let inner' =
-          expand_vars_with_visited sym_env inner visited (depth + 1)
-        in
-        { exp with it = Il.UpCastE (typ, inner') }
-    | Il.DownCastE (typ, inner) ->
-        let inner' =
-          expand_vars_with_visited sym_env inner visited (depth + 1)
-        in
-        { exp with it = Il.DownCastE (typ, inner') }
-    | Il.OptE None -> exp
-    | Il.ListE inners ->
-        let inners' =
-          List.map
-            (fun e -> expand_vars_with_visited sym_env e visited (depth + 1))
-            inners
-        in
-        { exp with it = Il.ListE inners' }
-    | Il.SliceE (base, high, low) ->
-        let base' = expand_vars_with_visited sym_env base visited (depth + 1) in
-        let high' = expand_vars_with_visited sym_env high visited (depth + 1) in
-        let low' = expand_vars_with_visited sym_env low visited (depth + 1) in
-        { exp with it = Il.SliceE (base', high', low') }
-    | Il.MemE (base, member) ->
-        let base' = expand_vars_with_visited sym_env base visited (depth + 1) in
-        let member' =
-          expand_vars_with_visited sym_env member visited (depth + 1)
-        in
-        { exp with it = Il.MemE (base', member') }
-    | Il.CatE (head, tail) ->
-        let head' = expand_vars_with_visited sym_env head visited (depth + 1) in
-        let tail' = expand_vars_with_visited sym_env tail visited (depth + 1) in
-        { exp with it = Il.CatE (head', tail') }
-    | Il.ConsE (head, tail) ->
-        let head' = expand_vars_with_visited sym_env head visited (depth + 1) in
-        let tail' = expand_vars_with_visited sym_env tail visited (depth + 1) in
-        { exp with it = Il.ConsE (head', tail') }
-    | Il.TupleE inners ->
-        let inners' =
-          List.map
-            (fun e -> expand_vars_with_visited sym_env e visited (depth + 1))
-            inners
-        in
-        { exp with it = Il.TupleE inners' }
-    | Il.MatchE (inner, pattern) ->
-        let inner' =
-          expand_vars_with_visited sym_env inner visited (depth + 1)
-        in
-        { exp with it = Il.MatchE (inner', pattern) }
-    | Il.StrE fields ->
-        let fields' =
-          List.map
-            (fun (atom, e) ->
-              let e' = expand_vars_with_visited sym_env e visited (depth + 1) in
-              (atom, e'))
-            fields
-        in
-        { exp with it = Il.StrE fields' }
-    | Il.CaseE _ | Il.HoldE _ | Il.BoolE _ | Il.NumE _ | Il.TextE _ -> exp
+          let value' = if depth > 5 then value else recurse value in
+          if inner' == inner && value' == value then exp
+          else { exp with it = Il.UpdE (inner', path, value') }
+    | Il.CaseE _ | Il.HoldE _ ->
+        (* Leave variant constructors unexpanded — matching original behavior *)
+        exp
+    | Il.CallE (id, _, args)
+      when String.starts_with ~prefix:"filter_list_" id.it
+           || String.starts_with ~prefix:"filter_list_2" id.it -> (
+        (* Approximate filter_list_ calls by expanding just the first (list) argument *)
+        match args with
+        | { it = Il.ExpA e; _ } :: _ -> recurse e
+        | _ -> Il.Traverse.map_children_exp recurse exp)
+    | _ -> Il.Traverse.map_children_exp recurse exp
 
 (* Initialize mutual recursion refs *)
 let () = expand_vars_ref := expand_vars
@@ -635,68 +513,21 @@ let rec extract_paths_from_exp (sym_env : sym_env) (exp : Il.exp) :
 
 and extract_paths_from_exp_with_visited (sym_env : sym_env) (exp : Il.exp)
     (visited : Il.exp list) : field_path list =
-  (* Avoid infinite loops by tracking visited expressions *)
-  if List.exists (fun e -> e == exp) visited then []
+  if List.exists (fun e -> e == exp) visited || List.length visited > 50 then []
   else
-    let visited' = exp :: visited in
-    (* Limit depth to prevent infinite recursion *)
-    if List.length visited' > 50 then []
-    else
-      (* Try to resolve top-level *)
-      match resolve_to_field_path sym_env exp with
-      | Some p -> [ p ]
-      | None -> (
-          (* If not a path, maybe it contains paths? e.g. A + B *)
-          match exp.it with
-          | Il.BinE (_, _, e1, e2)
-          | Il.CmpE (_, _, e1, e2)
-          | Il.IdxE (e1, e2)
-          | Il.CatE (e1, e2)
-          | Il.ConsE (e1, e2) ->
-              extract_paths_from_exp_with_visited sym_env e1 visited'
-              @ extract_paths_from_exp_with_visited sym_env e2 visited'
-          | Il.UnE (_, _, e) | Il.UpdE (e, _, _) ->
-              extract_paths_from_exp_with_visited sym_env e visited'
-          | Il.LenE e -> extract_paths_from_exp_with_visited sym_env e visited'
-          | Il.CallE (_, _, args) ->
-              List.concat_map
-                (fun arg ->
-                  match arg.it with
-                  | Il.ExpA e ->
-                      extract_paths_from_exp_with_visited sym_env e visited'
-                  | _ -> [])
-                args
-          | Il.UpCastE (_, e)
-          | Il.DownCastE (_, e)
-          | Il.SubE (e, _)
-          | Il.MatchE (e, _)
-          | Il.MemE (e, _)
-          | Il.OptE (Some e)
-          | Il.IterE (e, _) ->
-              extract_paths_from_exp_with_visited sym_env e visited'
-          | Il.DotE (e, _) ->
-              extract_paths_from_exp_with_visited sym_env e visited'
-          | Il.VarE _ ->
-              (* Should have been returned by resolve_to_field_path *)
-              assert false
-          | Il.TupleE es | Il.ListE es ->
-              List.concat_map
-                (fun e ->
-                  extract_paths_from_exp_with_visited sym_env e visited')
-                es
-          | Il.StrE fields ->
-              List.concat_map
-                (fun (_, e) ->
-                  extract_paths_from_exp_with_visited sym_env e visited')
-                fields
-          | Il.SliceE (e1, e2, e3) ->
-              extract_paths_from_exp_with_visited sym_env e1 visited'
-              @ extract_paths_from_exp_with_visited sym_env e2 visited'
-              @ extract_paths_from_exp_with_visited sym_env e3 visited'
-          | Il.CaseE _ | Il.HoldE _
-          | Il.OptE None
-          | Il.BoolE _ | Il.NumE _ | Il.TextE _ ->
-              [])
+    match resolve_to_field_path sym_env exp with
+    | Some p -> [ p ]
+    | None -> (
+        match exp.it with
+        | Il.VarE _ ->
+            (* Should have been returned by resolve_to_field_path *)
+            assert false
+        | Il.CaseE _ | Il.HoldE _ -> [] (* opaque constructors *)
+        | _ ->
+            Il.Traverse.fold_children_exp ( @ ) []
+              (fun e ->
+                extract_paths_from_exp_with_visited sym_env e (exp :: visited))
+              exp)
 
 (* Check if premise is an if-premise *)
 let rec is_if_prem (prem : Il.prem) : bool =
@@ -1147,11 +978,8 @@ module M : Instrumentation_core.Handler.S = struct
             args
         in
         [ (fname.it, arg_exps) ]
-    | Il.BinE (_, _, a, b) | Il.CmpE (_, _, a, b) ->
-        collect_call_exps a @ collect_call_exps b
-    | Il.UnE (_, _, e) | Il.LenE e | Il.DotE (e, _) -> collect_call_exps e
-    | Il.IdxE (a, b) -> collect_call_exps a @ collect_call_exps b
-    | _ -> []
+        (* stop here — don't recurse into call args *)
+    | _ -> Il.Traverse.fold_children_exp ( @ ) [] collect_call_exps exp
 
   (* Concretize index variables in an expression by evaluating them to NumE literals.
      This avoids the sym_env expansion that would turn 'vid' into 'vid_h' (from outer-scope
@@ -1166,28 +994,62 @@ module M : Instrumentation_core.Handler.S = struct
               match try Some (!State.current_eval idx) with _ -> None with
               | Some { it = Il.NumV (`Nat bi); _ } -> (
                   try
-                    let i = Bigint.to_int_exn bi in
-                    { idx with it = Il.NumE (`Nat (Bigint.of_int i)) }
+                    {
+                      idx with
+                      it = Il.NumE (`Nat (Bigint.of_int (Bigint.to_int_exn bi)));
+                    }
                   with _ -> idx)
               | _ -> idx)
           | _ -> idx
         in
         if base' == base && idx' == idx then exp
         else { exp with it = Il.IdxE (base', idx') }
-    | Il.DotE (base, atom) ->
-        let base' = materialize_arg base in
-        if base' == base then exp else { exp with it = Il.DotE (base', atom) }
-    | Il.CallE (id, targs, args) ->
-        let args' =
-          List.map
-            (fun arg ->
-              match arg.it with
-              | Il.ExpA e -> { arg with it = Il.ExpA (materialize_arg e) }
-              | _ -> arg)
-            args
-        in
-        { exp with it = Il.CallE (id, targs, args') }
-    | _ -> exp
+    | _ -> Il.Traverse.map_children_exp materialize_arg exp
+
+  (** Strip negation wrappers, extract symbolic mutations, adjust booleans if
+      negated, and record in State. Called once per (uid, if-expression) pair.
+  *)
+  let extract_and_record_if_mutations (uid : int) (exp : Il.exp) : unit =
+    let exp1, was_negated = strip_negation exp in
+    let exp2, was_bool_eq_negated = strip_bool_eq exp1 in
+    let total_negated = was_negated <> was_bool_eq_negated in
+    let mutations = extract_symbolic_mutations State.sym_env exp2 in
+    let adjusted =
+      if not total_negated then mutations
+      else
+        List.map
+          (fun mut ->
+            match mut.suggestion with
+            | ToConst (`EqOp, ({ it = Il.BoolV b; _ } as v)) ->
+                {
+                  mut with
+                  suggestion = ToConst (`EqOp, { v with it = Il.BoolV (not b) });
+                }
+            | _ -> mut)
+          mutations
+    in
+    State.add_per_test_sym_mutation uid adjusted
+
+  (** Track call-site args for a RulePr premise (pushed before relation enters,
+      popped in on_prem_exit after relation exits). *)
+  let track_relation_call_args (id : string) (args : Il.exp list) : unit =
+    let input_indices =
+      Option.value (Hashtbl.find_opt State.relation_io_indices id) ~default:[]
+    in
+    let num_args = List.length args in
+    let indexed_exps = List.mapi (fun i exp -> (i, exp)) args in
+    let input_exps =
+      indexed_exps
+      |> List.filter (fun (i, _) -> List.mem i input_indices)
+      |> List.map snd
+    in
+    let output_exps =
+      indexed_exps
+      |> List.filter (fun (i, _) ->
+             (not (List.mem i input_indices)) && i < num_args)
+      |> List.map snd
+    in
+    State.push_call_args id input_exps output_exps
 
   let generate_interior_mutations (func_id : string) (call_args : Il.exp list) =
     match Hashtbl.find_opt State.func_interiors func_id with
@@ -1205,195 +1067,73 @@ module M : Instrumentation_core.Handler.S = struct
               let materialized = materialize_arg (List.nth call_args i) in
               State.bind_sym param_name materialized)
           param_names;
-        let process_interior uid exp =
-          Hashtbl.replace State.seen_uids uid ();
-          let should_process =
-            if Hashtbl.length State.target_uids = 0 then
-              is_whitelisted !State.current_relation
-            else State.is_target_uid uid
-          in
-          if should_process then
-            let exp1, was_negated = strip_negation exp in
-            let exp2, was_bool_eq_negated = strip_bool_eq exp1 in
-            let total_negated = was_negated <> was_bool_eq_negated in
-            let sym_mutations = extract_symbolic_mutations State.sym_env exp2 in
-            let adjusted =
-              if total_negated then
-                List.map
-                  (fun mut ->
-                    match mut.suggestion with
-                    | ToConst (`EqOp, v) -> (
-                        match v.it with
-                        | Il.BoolV b ->
-                            {
-                              mut with
-                              suggestion = ToConst (`EqOp, Il.Value.bool (not b));
-                            }
-                        | _ -> mut)
-                    | _ -> mut)
-                  sym_mutations
-              else sym_mutations
-            in
-            State.add_per_test_sym_mutation uid adjusted
-        in
         List.iter
           (fun (uid, prem) ->
-            match prem.it with
-            | Il.IfPr exp -> process_interior uid exp
-            | Il.IterPr ({ it = Il.IfPr exp; _ }, _) -> process_interior uid exp
-            | _ -> ())
+            Hashtbl.replace State.seen_uids uid ();
+            let should_process =
+              if Hashtbl.length State.target_uids = 0 then
+                is_whitelisted !State.current_relation
+              else State.is_target_uid uid
+            in
+            if should_process then
+              match prem.it with
+              | Il.IfPr exp -> extract_and_record_if_mutations uid exp
+              | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
+                  extract_and_record_if_mutations uid exp
+              | _ -> ())
           interior_prems;
         (* Pop without merging — param bindings must not escape to parent scope *)
         State.pop_sym_frame_failure ()
 
+  (** For any IfPr containing a CallE, check if we have function-interior
+      premises and generate mutations for them under the current call args as
+      param bindings. *)
+  let trigger_function_inlining (exp : Il.exp) : unit =
+    let exp1, _ = strip_negation exp in
+    let exp2, _ = strip_bool_eq exp1 in
+    List.iter
+      (fun (fname, arg_exps) -> generate_interior_mutations fname arg_exps)
+      (collect_call_exps exp2)
+
   let on_prem_enter ~eval ~prem ~at =
     (match eval with Some f -> State.current_eval := f | None -> ());
-    (* Collect any function calls in this premise for symbolic tracking *)
     State.premise_count := !State.premise_count + 1;
-    (* Progress indicator *)
     if !State.premise_count mod 500 = 0 then
       Format.eprintf "\r[Positive] %d premises, %d if-prems, %d skipped...%!"
         !State.premise_count !State.if_prem_count !State.skipped_count;
 
     if not (is_if_prem prem) then
       match prem.it with
-      | Il.RulePr (id, (_, args)) ->
-          (* Capture call-site arguments WITHOUT expanding yet (expand lazily in bind_relation_inputs) *)
-          (* Split into inputs and outputs based on relation's input_hints *)
-          let input_indices =
-            Option.value
-              (Hashtbl.find_opt State.relation_io_indices id.it)
-              ~default:[]
-          in
-          let num_args = List.length args in
-
-          (* args is already Il.exp list (notexp = mixop * exp list), split by index *)
-          let indexed_exps = List.mapi (fun i exp -> (i, exp)) args in
-
-          (* Split into inputs and outputs *)
-          let input_exps =
-            indexed_exps
-            |> List.filter (fun (i, _) -> List.mem i input_indices)
-            |> List.map snd
-          in
-          let output_exps =
-            indexed_exps
-            |> List.filter (fun (i, _) ->
-                   (not (List.mem i input_indices)) && i < num_args)
-            |> List.map snd
-          in
-
-          State.push_call_args id.it input_exps output_exps
+      | Il.RulePr (id, (_, args)) -> track_relation_call_args id.it args
       | _ -> ()
     else
-      (* Get premise UID *)
       let prem_key = Premise_uid.prem_key prem in
       let uid = Premise_uid.assign_uid prem_key in
-
-      (* Mark UID as seen for coverage tracking *)
       Hashtbl.replace State.seen_uids uid ();
 
-      (* Always trigger function-interior inlining for any if-premise that contains
-         a CallE, regardless of whether the outer UID is in target_uids.
-         Must be outside the should_extract_mutations gate because the outer premise
-         (e.g. `if $is_active_validator(v, e)`) has its own UID that is NOT in
-         target_uids — the target UIDs are the interior ones (78, 79, ...).
-         Must also be outside already_seen so it fires on every loop iteration. *)
+      (* Always inline function interiors — target UIDs are inside functions, not the outer IfPr.
+         Must be outside already_seen so it fires on every loop iteration. *)
       (match prem.it with
-      | Il.IfPr exp ->
-          let exp1, _ = strip_negation exp in
-          let exp2, _ = strip_bool_eq exp1 in
-          List.iter
-            (fun (fname, arg_exps) ->
-              generate_interior_mutations fname arg_exps)
-            (collect_call_exps exp2)
-      | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
-          let exp1, _ = strip_negation exp in
-          let exp2, _ = strip_bool_eq exp1 in
-          List.iter
-            (fun (fname, arg_exps) ->
-              generate_interior_mutations fname arg_exps)
-            (collect_call_exps exp2)
+      | Il.IfPr exp | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
+          trigger_function_inlining exp
       | _ -> ());
 
-      (* Check if this UID is in our target list (or if using whitelist fallback) *)
-      let should_extract_mutations =
+      let should_extract =
         if Hashtbl.length State.target_uids = 0 then
-          (* No target UIDs specified - use whitelist *)
           is_whitelisted !State.current_relation
-        else
-          (* Target UIDs specified - filter by UID *)
-          State.is_target_uid uid
+        else State.is_target_uid uid
       in
-
-      if not should_extract_mutations then ()
-      else
+      if should_extract then
         let loc = string_of_region at in
         if State.already_seen loc then
           State.skipped_count := !State.skipped_count + 1
         else (
           State.mark_seen loc;
           State.if_prem_count := !State.if_prem_count + 1;
-
           match prem.it with
-          | Il.IfPr exp ->
-              (* Strip negation and bool_eq wrappers *)
-              let exp1, was_negated = strip_negation exp in
-              let exp2, was_bool_eq_negated = strip_bool_eq exp1 in
-              let total_negated = was_negated <> was_bool_eq_negated in
-              (* Extract symbolic mutations directly from expression *)
-              let sym_mutations =
-                extract_symbolic_mutations State.sym_env exp2
-              in
-              (* If the premise was negated, we need to invert boolean values in mutations *)
-              let adjusted_mutations =
-                if total_negated then
-                  List.map
-                    (fun mut ->
-                      match mut.suggestion with
-                      | ToConst (`EqOp, v) -> (
-                          (* Check if value is boolean and invert it *)
-                          match v.it with
-                          | Il.BoolV b ->
-                              {
-                                mut with
-                                suggestion =
-                                  ToConst (`EqOp, Il.Value.bool (not b));
-                              }
-                          | _ -> mut)
-                      | _ -> mut)
-                    sym_mutations
-                else sym_mutations
-              in
-              State.add_per_test_sym_mutation uid adjusted_mutations
+          | Il.IfPr exp -> extract_and_record_if_mutations uid exp
           | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
-              let exp1, was_negated = strip_negation exp in
-              let exp2, was_bool_eq_negated = strip_bool_eq exp1 in
-              let total_negated = was_negated <> was_bool_eq_negated in
-              let sym_mutations =
-                extract_symbolic_mutations State.sym_env exp2
-              in
-              (* If the premise was negated, we need to invert boolean values in mutations *)
-              let adjusted_mutations =
-                if total_negated then
-                  List.map
-                    (fun mut ->
-                      match mut.suggestion with
-                      | ToConst (`EqOp, v) -> (
-                          (* Check if value is boolean and invert it *)
-                          match v.it with
-                          | Il.BoolV b ->
-                              {
-                                mut with
-                                suggestion =
-                                  ToConst (`EqOp, Il.Value.bool (not b));
-                              }
-                          | _ -> mut)
-                      | _ -> mut)
-                    sym_mutations
-                else sym_mutations
-              in
-              State.add_per_test_sym_mutation uid adjusted_mutations
+              extract_and_record_if_mutations uid exp
           | _ -> ())
 
   let on_prem_exit ~prem ~at:_ ~success =
