@@ -142,6 +142,11 @@ module State = struct
   (* Function parameter names from spec *)
   let function_params : (string, string list) Hashtbl.t = Hashtbl.create 100
 
+  (* Per-function interior IfPr premises for static inlining:
+     fname -> (param_names, [(uid, if_prem)] list) *)
+  let func_interiors : (string, string list * (int * Il.prem) list) Hashtbl.t =
+    Hashtbl.create 100
+
   (* Already-analyzed premises (by location string) *)
   let seen_prems : (string, unit) Hashtbl.t = Hashtbl.create 1000
 
@@ -213,6 +218,7 @@ module State = struct
     Hashtbl.clear relation_inputs;
     Hashtbl.clear relation_outputs;
     Hashtbl.clear relation_io_indices;
+    Hashtbl.clear func_interiors;
     Hashtbl.clear seen_prems;
     Hashtbl.clear seen_uids;
     current_relation := "";
@@ -1000,6 +1006,49 @@ let bind_relation_inputs (rel_id : string) (values : Il.Value.t list) : unit =
             State.bind_sym name expr)
         input_names
 
+(* Pre-compute per-function interior IfPr premises for static inlining.
+   Returns: fname -> (param_names, [(uid, if_prem)] list across all clauses).
+   Called once at init; UIDs are assigned stably from source location. *)
+let extract_func_interiors (il_spec : Il.spec) :
+    (string, string list * (int * Il.prem) list) Hashtbl.t =
+  let tbl = Hashtbl.create 100 in
+  List.iter
+    (fun def ->
+      match def.it with
+      | Il.DecD (id, _tparams, _params, _return_typ, clauses) ->
+          let param_names =
+            match clauses with
+            | [] -> []
+            | first_clause :: _ ->
+                let args, _body, _prems = first_clause.it in
+                List.filter_map
+                  (fun arg ->
+                    match arg.it with
+                    | Il.ExpA { it = Il.VarE id; _ } -> Some id.it
+                    | _ -> None)
+                  args
+          in
+          let interior_prems =
+            List.concat_map
+              (fun clause ->
+                let _args, _body, prems = clause.it in
+                List.filter_map
+                  (fun prem ->
+                    match prem.it with
+                    | Il.IfPr _ | Il.IterPr ({ it = Il.IfPr _; _ }, _) ->
+                        let key = Premise_uid.prem_key prem in
+                        let uid = Premise_uid.assign_uid key in
+                        Some (uid, prem)
+                    | _ -> None)
+                  prems)
+              clauses
+          in
+          if interior_prems <> [] then
+            Hashtbl.replace tbl id.it (param_names, interior_prems)
+      | _ -> ())
+    il_spec;
+  tbl
+
 (* === Handler Implementation === *)
 
 module M : Instrumentation_core.Handler.S = struct
@@ -1028,7 +1077,11 @@ module M : Instrumentation_core.Handler.S = struct
           io_indices;
         Hashtbl.iter
           (fun k v -> Hashtbl.replace State.function_params k v)
-          func_params
+          func_params;
+        let func_interiors_data = extract_func_interiors il_spec in
+        Hashtbl.iter
+          (fun k v -> Hashtbl.replace State.func_interiors k v)
+          func_interiors_data
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
   let on_test_start ~test_case_id = State.current_test_id := test_case_id
@@ -1062,15 +1115,8 @@ module M : Instrumentation_core.Handler.S = struct
     else State.pop_sym_frame_failure ();
     State.current_rule := ""
 
-  let on_func_enter ~id:_ ~at:_ ~values:_ =
-    (* Push a new frame for function scope *)
-    (* Don't bind parameters - they should remain as ?. paths *)
-    State.push_sym_frame ()
-
-  let on_func_exit ~id:_ ~at:_ =
-    (* Pop the function frame, merging successful bindings back to parent *)
-    State.pop_sym_frame_success ()
-
+  let on_func_enter ~id:_ ~at:_ ~values:_ = ()
+  let on_func_exit ~id:_ ~at:_ = ()
   let on_clause_enter ~id:_ ~clause_idx:_ ~at:_ = State.push_sym_frame ()
 
   let on_clause_exit ~id:_ ~clause_idx:_ ~at:_ ~success =
@@ -1090,6 +1136,115 @@ module M : Instrumentation_core.Handler.S = struct
 
   let on_iter_prem_exit = Instrumentation_core.Noop.on_iter_prem_exit
   let on_instr = Instrumentation_core.Noop.on_instr
+
+  (* Collect (fname, arg_exps) for every CallE node in the expression tree. *)
+  let rec collect_call_exps (exp : Il.exp) : (string * Il.exp list) list =
+    match exp.it with
+    | Il.CallE (fname, _, args) ->
+        let arg_exps =
+          List.filter_map
+            (fun arg -> match arg.it with Il.ExpA e -> Some e | _ -> None)
+            args
+        in
+        [ (fname.it, arg_exps) ]
+    | Il.BinE (_, _, a, b) | Il.CmpE (_, _, a, b) ->
+        collect_call_exps a @ collect_call_exps b
+    | Il.UnE (_, _, e) | Il.LenE e | Il.DotE (e, _) -> collect_call_exps e
+    | Il.IdxE (a, b) -> collect_call_exps a @ collect_call_exps b
+    | _ -> []
+
+  (* Concretize index variables in an expression by evaluating them to NumE literals.
+     This avoids the sym_env expansion that would turn 'vid' into 'vid_h' (from outer-scope
+     relation bindings), which then can't be resolved in the current interpreter context. *)
+  let rec materialize_arg (exp : Il.exp) : Il.exp =
+    match exp.it with
+    | Il.IdxE (base, idx) ->
+        let base' = materialize_arg base in
+        let idx' =
+          match idx.it with
+          | Il.VarE _ | Il.CallE _ -> (
+              match try Some (!State.current_eval idx) with _ -> None with
+              | Some { it = Il.NumV (`Nat bi); _ } -> (
+                  try
+                    let i = Bigint.to_int_exn bi in
+                    { idx with it = Il.NumE (`Nat (Bigint.of_int i)) }
+                  with _ -> idx)
+              | _ -> idx)
+          | _ -> idx
+        in
+        if base' == base && idx' == idx then exp
+        else { exp with it = Il.IdxE (base', idx') }
+    | Il.DotE (base, atom) ->
+        let base' = materialize_arg base in
+        if base' == base then exp else { exp with it = Il.DotE (base', atom) }
+    | Il.CallE (id, targs, args) ->
+        let args' =
+          List.map
+            (fun arg ->
+              match arg.it with
+              | Il.ExpA e -> { arg with it = Il.ExpA (materialize_arg e) }
+              | _ -> arg)
+            args
+        in
+        { exp with it = Il.CallE (id, targs, args') }
+    | _ -> exp
+
+  let generate_interior_mutations (func_id : string) (call_args : Il.exp list) =
+    match Hashtbl.find_opt State.func_interiors func_id with
+    | None -> ()
+    | Some (param_names, interior_prems) ->
+        (* Push a frame so param bindings are visible through State.lookup_sym.
+           We use materialize_arg instead of expand_vars to avoid sym_env expansion of
+           index variables (e.g. 'vid' mapped to 'vid_h' by bind_relation_inputs for the
+           outer SlashIfEligible call) — materialize_arg evaluates indices directly via
+           !State.current_eval, producing NumE literals that resolve correctly. *)
+        State.push_sym_frame ();
+        List.iteri
+          (fun i param_name ->
+            if i < List.length call_args then
+              let materialized = materialize_arg (List.nth call_args i) in
+              State.bind_sym param_name materialized)
+          param_names;
+        let process_interior uid exp =
+          Hashtbl.replace State.seen_uids uid ();
+          let should_process =
+            if Hashtbl.length State.target_uids = 0 then
+              is_whitelisted !State.current_relation
+            else State.is_target_uid uid
+          in
+          if should_process then
+            let exp1, was_negated = strip_negation exp in
+            let exp2, was_bool_eq_negated = strip_bool_eq exp1 in
+            let total_negated = was_negated <> was_bool_eq_negated in
+            let sym_mutations = extract_symbolic_mutations State.sym_env exp2 in
+            let adjusted =
+              if total_negated then
+                List.map
+                  (fun mut ->
+                    match mut.suggestion with
+                    | ToConst (`EqOp, v) -> (
+                        match v.it with
+                        | Il.BoolV b ->
+                            {
+                              mut with
+                              suggestion = ToConst (`EqOp, Il.Value.bool (not b));
+                            }
+                        | _ -> mut)
+                    | _ -> mut)
+                  sym_mutations
+              else sym_mutations
+            in
+            State.add_per_test_sym_mutation uid adjusted
+        in
+        List.iter
+          (fun (uid, prem) ->
+            match prem.it with
+            | Il.IfPr exp -> process_interior uid exp
+            | Il.IterPr ({ it = Il.IfPr exp; _ }, _) -> process_interior uid exp
+            | _ -> ())
+          interior_prems;
+        (* Pop without merging — param bindings must not escape to parent scope *)
+        State.pop_sym_frame_failure ()
 
   let on_prem_enter ~eval ~prem ~at =
     (match eval with Some f -> State.current_eval := f | None -> ());
@@ -1137,6 +1292,29 @@ module M : Instrumentation_core.Handler.S = struct
 
       (* Mark UID as seen for coverage tracking *)
       Hashtbl.replace State.seen_uids uid ();
+
+      (* Always trigger function-interior inlining for any if-premise that contains
+         a CallE, regardless of whether the outer UID is in target_uids.
+         Must be outside the should_extract_mutations gate because the outer premise
+         (e.g. `if $is_active_validator(v, e)`) has its own UID that is NOT in
+         target_uids — the target UIDs are the interior ones (78, 79, ...).
+         Must also be outside already_seen so it fires on every loop iteration. *)
+      (match prem.it with
+      | Il.IfPr exp ->
+          let exp1, _ = strip_negation exp in
+          let exp2, _ = strip_bool_eq exp1 in
+          List.iter
+            (fun (fname, arg_exps) ->
+              generate_interior_mutations fname arg_exps)
+            (collect_call_exps exp2)
+      | Il.IterPr ({ it = Il.IfPr exp; _ }, _) ->
+          let exp1, _ = strip_negation exp in
+          let exp2, _ = strip_bool_eq exp1 in
+          List.iter
+            (fun (fname, arg_exps) ->
+              generate_interior_mutations fname arg_exps)
+            (collect_call_exps exp2)
+      | _ -> ());
 
       (* Check if this UID is in our target list (or if using whitelist fallback) *)
       let should_extract_mutations =
