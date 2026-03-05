@@ -801,12 +801,11 @@ let mutate_json_input ~output_dir ?(max_slot_gap : int option) (mut_id : string)
 
 (* Apply constraints to a test case, writing mutation files.
    - constraints_with_prems: deduplicated constraints tagged with their premise UIDs
-   - previously_generated: global-dedup table (mutated in place)
    Returns (result option, process_diag).
    result is Some (test_id, [...]) if any mutations were generated.
    process_diag holds all observability data; never drives control flow. *)
-let process_test_case ~test_dir ~output_dir ~previously_generated test_id
-    prem_uids (dependency_result : Pos.result) =
+let process_test_case ~test_dir ~output_dir test_id prem_uids
+    (dependency_result : Pos.result) =
   (* Collect and deduplicate constraints from all target premises.
      Track per-premise status for diagnostics. *)
   let constraint_map = Hashtbl.create 64 in
@@ -837,14 +836,12 @@ let process_test_case ~test_dir ~output_dir ~previously_generated test_id
           prem_no_constraints := puid :: !prem_no_constraints)
     prem_uids;
 
-  (* Filter out constraints already generated for a previous test case (global dedup). *)
-  let fresh_constraints =
+  (* Collect all constraints for this seed. The same constraint key may appear
+     across multiple seeds — that is intentional, since the same mutation applied
+     to different base states can expose different implementation bugs. *)
+  let all_constraints =
     Hashtbl.fold
-      (fun k (c, puids) acc ->
-        if Hashtbl.mem previously_generated k then acc
-        else (
-          Hashtbl.replace previously_generated k ();
-          (c, List.sort_uniq compare puids) :: acc))
+      (fun _k (c, puids) acc -> (c, List.sort_uniq compare puids) :: acc)
       constraint_map []
   in
 
@@ -857,7 +854,7 @@ let process_test_case ~test_dir ~output_dir ~previously_generated test_id
     }
   in
 
-  if fresh_constraints = [] then (None, base_diag)
+  if all_constraints = [] then (None, base_diag)
   else
     let test_case_sanitized =
       String.map (fun c -> if c = '/' then '_' else c) test_id
@@ -932,7 +929,7 @@ let process_test_case ~test_dir ~output_dir ~previously_generated test_id
                       }
                     :: !outcomes)
               strats)
-      fresh_constraints;
+      all_constraints;
 
     let covered_prems_list =
       Hashtbl.fold (fun uid () acc -> uid :: acc) local_covered []
@@ -1235,7 +1232,6 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
     (analyze_test_case : test_case_id -> premise_uid list -> Pos.result option)
     =
   let test_to_prems = get_test_to_premises premise_uids coverage in
-  let previously_generated = Hashtbl.create 1000 in
   List.filter_map
     (fun (test_id, prem_uids) ->
       Format.printf "Processing test case: %s (premises: %s)\n%!" test_id
@@ -1246,8 +1242,8 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
           None
       | Some dependency_result ->
           let result_opt, diag =
-            process_test_case ~test_dir ~output_dir ~previously_generated
-              test_id prem_uids dependency_result
+            process_test_case ~test_dir ~output_dir test_id prem_uids
+              dependency_result
           in
           (match result_opt with
           | Some _ -> write_seed_report ~output_dir ~test_id ~prem_uids diag
@@ -1349,7 +1345,6 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
 
   let analyzed = ref (Testgen_data.analyzed_tests testgen_data) in
   let last_dep_result = ref None in
-  let previously_generated = Hashtbl.create 1000 in
   let analysis_failed_count = ref 0 in
   let all_diags = ref [] in
   let already_completed =
@@ -1385,8 +1380,8 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
             None
         | Some dep_result ->
             let tc_result, diag =
-              process_test_case ~test_dir ~output_dir ~previously_generated
-                test_id prem_uids dep_result
+              process_test_case ~test_dir ~output_dir test_id prem_uids
+                dep_result
             in
             all_diags := diag :: !all_diags;
             (match tc_result with
