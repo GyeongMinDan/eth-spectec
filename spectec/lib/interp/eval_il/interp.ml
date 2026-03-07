@@ -11,8 +11,8 @@ module F = Format
 (* Provenance propagation: copy provenance from source value to result value *)
 let propagate_provenance (source : value) (result : value) : value =
   match source.note.provenance with
-  | None -> result
-  | Some p -> Value.with_provenance p result
+  | [] -> result
+  | provs -> { result with note = { result.note with provenance = provs } }
 
 (* Assignments *)
 
@@ -357,6 +357,7 @@ and eval_bin_exp (note : typ') (ctx : Ctx.t) (binop : binop) (_optyp : optyp)
     | #Bool.binop as binop -> eval_bin_bool note binop value_l value_r
     | #Num.binop as binop -> eval_bin_num note binop value_l value_r
   in
+  let value_res = Value.with_merged_provenance [ value_l; value_r ] value_res in
   (ctx, value_res)
 
 (* Comparison expression evaluation *)
@@ -628,6 +629,7 @@ and eval_upd_exp (_note : typ') (ctx : Ctx.t) (exp_b : exp) (path : path)
             fields
         in
         let value_updated = Value.Make.record path.note fields in
+        let value_updated = propagate_provenance value value_updated in
         eval_update_path ctx value_b path value_updated
     | IdxP (path, exp) ->
         let ctx, value_base = eval_access_path ctx value_b path in
@@ -651,6 +653,7 @@ and eval_upd_exp (_note : typ') (ctx : Ctx.t) (exp_b : exp) (path : path)
           List.rev_append prefix_rev (value_n :: suffix)
           |> Value.Make.list path.note
         in
+        let values_updated = propagate_provenance value_base values_updated in
         eval_update_path ctx value_b path values_updated
     | SliceP (_path, _exp_l, _exp_h) ->
         failwith "(TODO) update: SliceP update not yet implemented"
@@ -706,6 +709,27 @@ and eval_iter_exp (note : typ') (ctx : Ctx.t) (exp : exp) (iterexp : iterexp) :
         (ctx, []) ctxs_sub
     in
     let value_res = values_rev |> List.rev |> Value.Make.list note in
+    (* Propagate provenance from source list variables to the container *)
+    let source_provs =
+      List.concat_map
+        (fun (id, _typ, iters) ->
+          match Ctx.find_value_opt ctx (id, iters @ [ List ]) with
+          | Some v -> v.note.provenance
+          | None -> [])
+        vars
+    in
+    let value_res =
+      if source_provs = [] then value_res
+      else
+        {
+          value_res with
+          note =
+            {
+              value_res.note with
+              provenance = List.sort_uniq compare source_provs;
+            };
+        }
+    in
     (ctx, value_res)
   in
   let iter, vars = iterexp in

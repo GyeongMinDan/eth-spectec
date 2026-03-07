@@ -79,7 +79,7 @@ type json_provenance = json_source * json_step list
 (* Values *)
 
 type vid = int
-and vnote = { vid : vid; vhash : int; typ : typ'; provenance : json_provenance option }
+and vnote = { vid : vid; vhash : int; typ : typ'; provenance : json_provenance list }
 
 (* not exp....... is in the value...*)
 and value = (value', vnote) note

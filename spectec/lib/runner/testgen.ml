@@ -24,6 +24,12 @@ type mutation_constraint = {
   field_path : field_path;
   strategies : Json_mutator.mutation_strategy list;
   suggestion_str : string option;
+  class_key : string; (* structural path key — outer group for report layout *)
+  sampling_key : string;
+      (* structural path + op class — inner group for sampling;
+         same class_key but different ops → different sampling_key *)
+  group_total : int;
+      (* how many sym_mutations were in this sampling group before sampling *)
 }
 
 type premise_info = {
@@ -34,15 +40,25 @@ type premise_info = {
   content : string;
 }
 
-(* Outcome of one (constraint × strategy) attempt, recorded for reporting only. *)
+(* Payload of a successful mutation outcome — kept as a named record so it
+   can be extracted from the variant without triggering OCaml's "inline record
+   cannot escape" restriction. *)
+type mutation_ok = {
+  field : field_path;
+  prems : premise_uid list;
+  suggestion : string option;
+  class_key : string; (* structural path key — outer grouping for the report *)
+  sampling_key : string;
+      (* structural path + op class — inner grouping within class_key *)
+  total_variants : int;
+      (* sampling group size before sampling; 1 = not grouped *)
+  from_val : string;
+  to_vals : string list; (* one entry per successfully applied strategy *)
+}
+
+(* Outcome of one (constraint × all-strategies) attempt, for reporting only. *)
 type constraint_outcome =
-  | MutationOk of {
-      field : field_path;
-      prems : premise_uid list;
-      suggestion : string option;
-      from_val : string;
-      to_val : string;
-    }
+  | MutationOk of mutation_ok
   | FieldNotFound of {
       field : field_path;
       prems : premise_uid list;
@@ -57,6 +73,8 @@ type process_diag = {
   prems_no_constraints : premise_uid list;
   constraint_outcomes : constraint_outcome list;
   covered_prems : premise_uid list;
+  raw_suggestions : (premise_uid * Pos.sym_mutation list) list;
+      (* one entry per puid that returned ≥1 suggestion, before sampling *)
 }
 
 (* ===== Slot-gap utilities ===== *)
@@ -409,6 +427,111 @@ let deduplicate_strategies (strategies : Json_mutator.mutation_strategy list) :
       | _ -> compare s1 s2)
     strategies
 
+(* ===== Mutation suggestion grouping and sampling ===== *)
+
+(* Maximum representative samples to keep per sampling group. *)
+let max_samples_per_group = 3
+
+(* Structural field path: normalize all IndexAccess steps to index 0 so that
+   validators[0].effective_balance and validators[42].effective_balance share
+   the same structural key. *)
+let structural_field_path (path : field_path) : field_path =
+  let normalize = function Dep.IndexAccess _ -> Dep.IndexAccess 0 | s -> s in
+  { path with steps = List.map normalize path.steps }
+
+(* Human-readable structural path: show [*] in place of concrete indices. *)
+let string_of_structural_field_path (path : field_path) : string =
+  let source_str =
+    match path.source with
+    | Dep.State -> "STATE"
+    | Dep.Block -> "BLOCK"
+    | Dep.Local s -> s
+    | Dep.Unknown -> "?"
+  in
+  let step_str = function
+    | Dep.FieldAccess f -> "." ^ f
+    | Dep.IndexAccess _ -> "[*]"
+  in
+  source_str ^ String.concat "" (List.map step_str path.steps)
+
+(* Report-level class key: structural path only.
+   All ops and all concrete indices for the same field shape share one key,
+   so the report can group them under a single header. *)
+let structural_path_key (path : field_path) : string =
+  Dep.string_of_field_path (structural_field_path path)
+
+(* Sampling key: structural path + mutation kind class.
+   Different ops (e.g. "!= N" vs ">= M") for the same structural path are
+   sampled independently; same op with different values / indices are sampled
+   together. *)
+let sym_mutation_sampling_key (m : Pos.sym_mutation) : string =
+  match m.target_path with
+  | None -> "__none__"
+  | Some path -> (
+      let spk = structural_path_key path in
+      match m.suggestion with
+      | Pos.ToLength (op, _) ->
+          Printf.sprintf "%s|TL|%s" spk (Pos.string_of_cmp_op op)
+      | Pos.ToConst (op, _) ->
+          Printf.sprintf "%s|TC|%s" spk (Pos.string_of_cmp_op op)
+      | Pos.Unknown _ -> Printf.sprintf "%s|UK" spk)
+
+(* Extract a numeric sort key from a sym_mutation for ordering within a group. *)
+let sym_mutation_numeric (m : Pos.sym_mutation) : int option =
+  match m.suggestion with
+  | Pos.ToLength (_, v) | Pos.ToConst (_, v) ->
+      Option.bind (extract_numeric_value v) Bigint.to_int
+  | Pos.Unknown _ -> None
+
+(* Select up to n items evenly spaced from a list (first and last always included). *)
+let evenly_sample (lst : 'a list) (n : int) : 'a list =
+  let total = List.length lst in
+  if total <= n then lst
+  else
+    let arr = Array.of_list lst in
+    if n = 1 then [ arr.(0) ]
+    else
+      let indices =
+        List.init n (fun i -> min (total - 1) (i * (total - 1) / (n - 1)))
+      in
+      List.map (Array.get arr) (List.sort_uniq compare indices)
+
+(* Group sym_mutations by sampling key (structural path + op class), keep up to
+   max_samples_per_group representatives evenly spaced by numeric value or
+   array index.  Returns (sym_mutation * group_total) list. *)
+let group_and_sample_sym_mutations (muts : Pos.sym_mutation list) :
+    (Pos.sym_mutation * int) list =
+  let groups : (string, Pos.sym_mutation list) Hashtbl.t = Hashtbl.create 8 in
+  List.iter
+    (fun m ->
+      let k = sym_mutation_sampling_key m in
+      let existing = Option.value ~default:[] (Hashtbl.find_opt groups k) in
+      Hashtbl.replace groups k (m :: existing))
+    muts;
+  Hashtbl.fold
+    (fun _k members acc ->
+      let total = List.length members in
+      (* Sort by: numeric value first, then concrete array index as fallback
+         so that validators[0], validators[108], validators[217] are ordered
+         when they all carry the same suggestion value. *)
+      let sort_key m =
+        match sym_mutation_numeric m with
+        | Some n -> n
+        | None -> (
+            match m.Pos.target_path with
+            | Some path -> (
+                match List.rev path.steps with
+                | Dep.IndexAccess i :: _ -> i
+                | _ -> 0)
+            | None -> 0)
+      in
+      let sorted =
+        List.sort (fun m1 m2 -> compare (sort_key m1) (sort_key m2)) members
+      in
+      let selected = evenly_sample sorted max_samples_per_group in
+      List.map (fun m -> (m, total)) selected @ acc)
+    groups []
+
 (* ===== Building mutation constraints ===== *)
 
 (* Generate mutation strategies for a sym_mutation target path and suggestion. *)
@@ -455,8 +578,9 @@ let diagnose_filtered_mutation (sym_mut : Pos.sym_mutation) : string option =
       else None
 
 (* Convert a symbolic mutation from the dependency analysis into a mutation constraint.
-   Returns None if the target is invalid or no strategies apply. *)
-let sym_mutation_to_constraint (sym_mut : Pos.sym_mutation) :
+   Returns None if the target is invalid or no strategies apply.
+   [group_total] is the number of sym_mutations in the class group this was sampled from. *)
+let sym_mutation_to_constraint ?(group_total = 1) (sym_mut : Pos.sym_mutation) :
     mutation_constraint option =
   match sym_mut.target_path with
   | None -> None
@@ -473,6 +597,9 @@ let sym_mutation_to_constraint (sym_mut : Pos.sym_mutation) :
             field_path = target_path;
             strategies;
             suggestion_str = Some (Pos.string_of_sym_mutation sym_mut);
+            class_key = structural_path_key target_path;
+            sampling_key = sym_mutation_sampling_key sym_mut;
+            group_total;
           }
 
 (* ===== Strategy application ===== *)
@@ -560,7 +687,7 @@ let strategy_to_display_string : Json_mutator.mutation_strategy -> string =
   | Json_mutator.SetBoundary -> "<boundary>"
   | Json_mutator.AppendItem -> "<append>"
   | Json_mutator.RemoveItem -> "<remove>"
-  | Json_mutator.SetLength n -> Printf.sprintf "<length %d>" n
+  | Json_mutator.SetLength n -> string_of_int n
   | Json_mutator.AppendRandom _ -> "<append:random>"
 
 (* Canonical string key for a strategy, used for deduplication. *)
@@ -832,6 +959,7 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
   let constraint_map = Hashtbl.create 64 in
   let prem_no_muts = ref [] in
   let prem_no_constraints = ref [] in
+  let raw_sugg_acc = ref [] in
   List.iter
     (fun puid ->
       let muts =
@@ -841,9 +969,11 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
       else
         let any_constraint = ref false in
         let filtered_reasons = ref [] in
+        raw_sugg_acc := (puid, muts) :: !raw_sugg_acc;
+        let muts_sampled = group_and_sample_sym_mutations muts in
         List.iter
-          (fun sym_mut ->
-            match sym_mutation_to_constraint sym_mut with
+          (fun (sym_mut, group_total) ->
+            match sym_mutation_to_constraint ~group_total sym_mut with
             | None -> (
                 match diagnose_filtered_mutation sym_mut with
                 | Some reason -> filtered_reasons := reason :: !filtered_reasons
@@ -856,12 +986,13 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                 | Some (_, puids) when not (List.mem puid puids) ->
                     Hashtbl.replace constraint_map k (c, puid :: puids)
                 | _ -> ()))
-          muts;
+          muts_sampled;
         if not !any_constraint then (
           prem_no_constraints := puid :: !prem_no_constraints;
           Format.eprintf
-            "[Testgen] uid=%d: %d mutations but ALL filtered: %s\n%!" puid
-            (List.length muts)
+            "[Testgen] uid=%d: %d mutations (%d sampled) but ALL filtered: %s\n\
+             %!"
+            puid (List.length muts) (List.length muts_sampled)
             (String.concat "; "
                (List.sort_uniq String.compare !filtered_reasons))))
     prem_uids;
@@ -881,6 +1012,7 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
       prems_no_constraints = List.sort compare !prem_no_constraints;
       constraint_outcomes = [];
       covered_prems = [];
+      raw_suggestions = List.rev !raw_sugg_acc;
     }
   in
 
@@ -921,12 +1053,15 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
               :: !outcomes
         | Some src ->
             let strats = resolve_strategies constraint_ src in
+            let prem_str =
+              String.concat "_"
+                (List.map (Printf.sprintf "prem%d") puids_for_constraint)
+            in
+            (* Apply all strategies for this constraint; accumulate to_vals
+               so the report shows one grouped entry per constraint. *)
+            let to_vals = ref [] in
             List.iteri
               (fun s_idx strategy ->
-                let prem_str =
-                  String.concat "_"
-                    (List.map (Printf.sprintf "prem%d") puids_for_constraint)
-                in
                 let mut_id =
                   Printf.sprintf "mut_%s_%d_%d" prem_str c_idx s_idx
                 in
@@ -940,25 +1075,34 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                     (fun uid -> Hashtbl.replace local_covered uid ())
                     puids_for_constraint;
                   generated := (mut_id, out_pre, out_block) :: !generated;
-                  outcomes :=
-                    MutationOk
-                      {
-                        field = constraint_.field_path;
-                        prems = puids_for_constraint;
-                        suggestion = constraint_.suggestion_str;
-                        from_val = Yojson.Safe.to_string src;
-                        to_val = strategy_to_display_string strategy;
-                      }
-                    :: !outcomes)
-                else
-                  outcomes :=
-                    JsonLoadFailed
-                      {
-                        field = constraint_.field_path;
-                        prems = puids_for_constraint;
-                      }
-                    :: !outcomes)
-              strats)
+                  to_vals := strategy_to_display_string strategy :: !to_vals))
+              strats;
+            if !to_vals <> [] then
+              outcomes :=
+                MutationOk
+                  {
+                    field = constraint_.field_path;
+                    prems = puids_for_constraint;
+                    suggestion = constraint_.suggestion_str;
+                    class_key = constraint_.class_key;
+                    sampling_key = constraint_.sampling_key;
+                    total_variants = constraint_.group_total;
+                    from_val =
+                      (match src with
+                      | `List items ->
+                          Printf.sprintf "(%d items)" (List.length items)
+                      | _ -> Yojson.Safe.to_string src);
+                    to_vals = List.rev !to_vals;
+                  }
+                :: !outcomes
+            else
+              outcomes :=
+                JsonLoadFailed
+                  {
+                    field = constraint_.field_path;
+                    prems = puids_for_constraint;
+                  }
+                :: !outcomes)
       all_constraints;
 
     let covered_prems_list =
@@ -970,6 +1114,7 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
         prems_no_constraints = List.sort compare !prem_no_constraints;
         constraint_outcomes = List.rev !outcomes;
         covered_prems = List.sort_uniq compare covered_prems_list;
+        raw_suggestions = List.rev !raw_sugg_acc;
       }
     in
 
@@ -987,46 +1132,215 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
   in
   let out_dir = Filename.concat output_dir test_case_sanitized in
   let report_ch = open_out (Filename.concat out_dir "report.txt") in
-  Printf.fprintf report_ch "Test Case: %s\n\nMutations for premises: %s\n"
-    test_id
+  Printf.fprintf report_ch "Test Case: %s\n\nMutations for premises (%d): %s\n"
+    test_id (List.length prem_uids)
     (String.concat ", " (List.map string_of_int prem_uids));
   if diag.prems_no_muts <> [] then
-    Printf.fprintf report_ch "  No suggestions: %s\n"
+    Printf.fprintf report_ch "  No suggestions (%d): %s\n"
+      (List.length diag.prems_no_muts)
       (String.concat ", " (List.map string_of_int diag.prems_no_muts));
   if diag.prems_no_constraints <> [] then
-    Printf.fprintf report_ch "  No valid constraints: %s\n"
+    Printf.fprintf report_ch "  No valid constraints (%d): %s\n"
+      (List.length diag.prems_no_constraints)
       (String.concat ", " (List.map string_of_int diag.prems_no_constraints));
-  Printf.fprintf report_ch "\n";
-  List.iter
-    (fun outcome ->
-      match outcome with
-      | FieldNotFound { field; prems; src_label } ->
-          Printf.fprintf report_ch
-            "  - Field: %s\n    Premises: %s\n    [FAILED: field %s]\n"
-            (Dep.string_of_field_path field)
-            (String.concat ", " (List.map string_of_int prems))
-            src_label
-      | MutationOk { field; prems; suggestion; from_val; to_val } ->
-          Printf.fprintf report_ch "  - Field: %s\n    Premises: %s\n"
-            (Dep.string_of_field_path field)
-            (String.concat ", " (List.map string_of_int prems));
-          Option.iter
-            (Printf.fprintf report_ch "    Suggestion: %s\n")
-            suggestion;
-          Printf.fprintf report_ch "    From: %s\n    To: %s\n" from_val to_val
-      | JsonLoadFailed { field; prems } ->
-          Printf.fprintf report_ch
-            "  - Field: %s\n\
-            \    Premises: %s\n\
-            \    [FAILED: could not load JSON]\n"
-            (Dep.string_of_field_path field)
-            (String.concat ", " (List.map string_of_int prems)))
-    diag.constraint_outcomes;
-  let mutation_count =
-    List.length
+  (* Premises that had constraints but all field-lookups failed (FieldNotFound /
+     JsonLoadFailed) — not in covered_prems, prems_no_muts, or prems_no_constraints. *)
+  let prems_all_failed =
+    List.sort compare
       (List.filter
-         (function MutationOk _ -> true | _ -> false)
-         diag.constraint_outcomes)
+         (fun uid ->
+           (not (List.mem uid diag.covered_prems))
+           && (not (List.mem uid diag.prems_no_muts))
+           && not (List.mem uid diag.prems_no_constraints))
+         prem_uids)
+  in
+  if prems_all_failed <> [] then
+    Printf.fprintf report_ch "  All constraints failed (%d): %s\n"
+      (List.length prems_all_failed)
+      (String.concat ", " (List.map string_of_int prems_all_failed));
+  Printf.fprintf report_ch "\n";
+  (* Group constraint_outcomes by class_key (structural path) so that all
+     mutations for the same field shape appear together, regardless of which
+     op or which concrete array index was sampled. *)
+  let outcome_class_key = function
+    | MutationOk { class_key; _ } -> class_key
+    | FieldNotFound { field; _ } -> structural_path_key field
+    | JsonLoadFailed { field; _ } -> structural_path_key field
+  in
+  (* Stable group ordering: collect keys in first-seen order. *)
+  let seen_keys : (string, unit) Hashtbl.t = Hashtbl.create 16 in
+  let key_order = ref [] in
+  List.iter
+    (fun o ->
+      let k = outcome_class_key o in
+      if not (Hashtbl.mem seen_keys k) then (
+        Hashtbl.replace seen_keys k ();
+        key_order := k :: !key_order))
+    diag.constraint_outcomes;
+  let grouped : (string, constraint_outcome list) Hashtbl.t =
+    Hashtbl.create 16
+  in
+  List.iter
+    (fun o ->
+      let k = outcome_class_key o in
+      let existing = Option.value ~default:[] (Hashtbl.find_opt grouped k) in
+      Hashtbl.replace grouped k (o :: existing))
+    diag.constraint_outcomes;
+  (* Extract the "kind" part of a suggestion string (after " → ").
+     The arrow is UTF-8 U+2192 = bytes \xe2\x86\x92. *)
+  let suggestion_kind s =
+    let sep = " \xe2\x86\x92 " in
+    let sep_len = String.length sep in
+    let s_len = String.length s in
+    let rec find i =
+      if i + sep_len > s_len then s
+      else if String.sub s i sep_len = sep then
+        String.sub s (i + sep_len) (s_len - i - sep_len)
+      else find (i + 1)
+    in
+    find 0
+  in
+  let truncate_val s =
+    let max = 60 in
+    if String.length s <= max then s else String.sub s 0 max ^ "..."
+  in
+  List.iter
+    (fun key ->
+      let outcomes_for_key =
+        List.rev (Option.value ~default:[] (Hashtbl.find_opt grouped key))
+      in
+      let ok_entries =
+        List.filter_map
+          (function MutationOk r -> Some r | _ -> None)
+          outcomes_for_key
+      in
+      (* Union of all premises across the structural group *)
+      let all_prems =
+        List.sort_uniq compare (List.concat_map (fun r -> r.prems) ok_entries)
+      in
+      (* Does any entry in this group have a concrete index in its path? *)
+      let has_index =
+        List.exists
+          (fun r ->
+            List.exists
+              (function Dep.IndexAccess _ -> true | _ -> false)
+              r.field.steps)
+          ok_entries
+      in
+      (* Structural display string and sampled index list *)
+      let struct_str =
+        match List.find_map (fun r -> Some r.field) ok_entries with
+        | Some f -> string_of_structural_field_path f
+        | None -> key
+      in
+      let sampled_indices =
+        if has_index then
+          List.filter_map
+            (fun r ->
+              List.find_map
+                (function Dep.IndexAccess i -> Some i | _ -> None)
+                r.field.steps)
+            ok_entries
+          |> List.sort_uniq compare
+        else []
+      in
+      (* Group total from the first entry (all entries in one sampling key
+         share the same group_total value since they were sampled together). *)
+      let group_total_for_index =
+        match ok_entries with r :: _ -> r.total_variants | [] -> 1
+      in
+      let field_header =
+        if has_index && List.length sampled_indices > 1 then
+          Printf.sprintf "%s  (i = %s; %d total)" struct_str
+            (String.concat ", " (List.map string_of_int sampled_indices))
+            group_total_for_index
+        else struct_str
+      in
+      Printf.fprintf report_ch "  - Field: %s\n" field_header;
+      if all_prems <> [] then
+        Printf.fprintf report_ch "    Premises: %s\n"
+          (String.concat ", " (List.map string_of_int all_prems));
+      (* Sub-group by sampling_key so that different ops on the same field
+         (e.g. ">= 33" and "!= 1") appear as separate labelled blocks. *)
+      let sub_seen = Hashtbl.create 4 in
+      let sub_order = ref [] in
+      List.iter
+        (fun r ->
+          if not (Hashtbl.mem sub_seen r.sampling_key) then (
+            Hashtbl.replace sub_seen r.sampling_key ();
+            sub_order := r.sampling_key :: !sub_order))
+        ok_entries;
+      let sub_grouped = Hashtbl.create 4 in
+      List.iter
+        (fun r ->
+          let xs =
+            Option.value ~default:[]
+              (Hashtbl.find_opt sub_grouped r.sampling_key)
+          in
+          Hashtbl.replace sub_grouped r.sampling_key (r :: xs))
+        ok_entries;
+      List.iter
+        (fun sk ->
+          let sub_entries =
+            List.rev
+              (Option.value ~default:[] (Hashtbl.find_opt sub_grouped sk))
+          in
+          let sub_total =
+            match sub_entries with r :: _ -> r.total_variants | [] -> 1
+          in
+          (* Print each instance — no sub-group label; the kind string on each
+             line already makes the suggestion clear. *)
+          List.iter
+            (fun r ->
+              let kind_str =
+                match r.suggestion with
+                | Some s -> suggestion_kind s
+                | None -> "?"
+              in
+              let to_str = String.concat ", " r.to_vals in
+              let variant_suffix =
+                if sub_total > 1 then Printf.sprintf "  (group: %d)" sub_total
+                else ""
+              in
+              if has_index then
+                let idx =
+                  match
+                    List.find_map
+                      (function Dep.IndexAccess i -> Some i | _ -> None)
+                      r.field.steps
+                  with
+                  | Some i -> i
+                  | None -> -1
+                in
+                Printf.fprintf report_ch "    [i=%-4d] %s%s  →  %s\n" idx
+                  kind_str variant_suffix to_str
+              else
+                Printf.fprintf report_ch "    %s%s  From: %s  →  %s\n" kind_str
+                  variant_suffix (truncate_val r.from_val) to_str)
+            sub_entries)
+        (List.rev !sub_order);
+      (* Append non-MutationOk failures for this group *)
+      List.iter
+        (fun outcome ->
+          match outcome with
+          | FieldNotFound { field; prems; src_label } ->
+              Printf.fprintf report_ch
+                "    [FAILED] field %s not found (%s)  prems: %s\n"
+                (Dep.string_of_field_path field)
+                src_label
+                (String.concat ", " (List.map string_of_int prems))
+          | JsonLoadFailed { field; prems } ->
+              Printf.fprintf report_ch "    [FAILED] JSON load: %s  prems: %s\n"
+                (Dep.string_of_field_path field)
+                (String.concat ", " (List.map string_of_int prems))
+          | MutationOk _ -> ())
+        outcomes_for_key)
+    (List.rev !key_order);
+  let mutation_count =
+    List.fold_left
+      (fun acc -> function
+        | MutationOk { to_vals; _ } -> acc + List.length to_vals | _ -> acc)
+      0 diag.constraint_outcomes
   in
   let field_not_found_count =
     List.length
@@ -1039,6 +1353,174 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
     mutation_count field_not_found_count;
   close_out report_ch
 
+(* Write suggestions.txt: all sym_mutations before sampling, grouped by
+   structural path (outer) then by op (inner).  Within each op, each unique
+   concrete index is listed once (deduplicating across test-case repetitions).
+   This lets you verify that, e.g., all 40 validator indices were found before
+   sampling reduced them to 3. *)
+let write_suggestions_log ~output_dir ~test_id (diag : process_diag) =
+  let test_case_sanitized =
+    String.map (fun c -> if c = '/' then '_' else c) test_id
+  in
+  let out_dir = Filename.concat output_dir test_case_sanitized in
+  let ch = open_out (Filename.concat out_dir "suggestions.txt") in
+  Printf.fprintf ch "Test Case: %s\n\n" test_id;
+  (* Flatten all raw suggestions, preserving puid.
+     Use string_of_structural_field_path as the outer grouping key so that
+     paths that share the same structural shape (e.g. STATE.validators[*].x)
+     always land in the same bucket regardless of which concrete index they carry. *)
+  let all_muts : (premise_uid * Pos.sym_mutation) list =
+    List.concat_map
+      (fun (puid, muts) -> List.map (fun m -> (puid, m)) muts)
+      diag.raw_suggestions
+    (* Drop ToConst on list paths: provenance-through-LenE artifacts that are
+       always filtered by strategies_for_sym_mutation anyway. *)
+    |> List.filter (fun (_, m) ->
+           match (m.Pos.target_path, m.Pos.suggestion) with
+           | Some p, Pos.ToConst _ -> not (is_list_path p.steps)
+           | _ -> true)
+  in
+  let display_key (m : Pos.sym_mutation) =
+    match m.target_path with
+    | None -> None
+    | Some p -> Some (string_of_structural_field_path p)
+  in
+  (* Collect structural display keys in first-seen order. *)
+  let grp_seen : (string, unit) Hashtbl.t = Hashtbl.create 16 in
+  let grp_order = ref [] in
+  List.iter
+    (fun (_puid, m) ->
+      match display_key m with
+      | None -> ()
+      | Some k ->
+          if not (Hashtbl.mem grp_seen k) then (
+            Hashtbl.replace grp_seen k ();
+            grp_order := k :: !grp_order))
+    all_muts;
+  (* Group muts by structural display key. *)
+  let by_grp : (string, (premise_uid * Pos.sym_mutation) list) Hashtbl.t =
+    Hashtbl.create 16
+  in
+  List.iter
+    (fun ((_, m) as entry) ->
+      match display_key m with
+      | None -> ()
+      | Some k ->
+          let xs = Option.value ~default:[] (Hashtbl.find_opt by_grp k) in
+          Hashtbl.replace by_grp k (entry :: xs))
+    all_muts;
+  (* Header summary: count unique (concrete_path, op) pairs per group. *)
+  let count_unique_pairs entries =
+    let seen = Hashtbl.create 16 in
+    List.iter
+      (fun (_, m) ->
+        let path_s =
+          match m.Pos.target_path with
+          | Some p -> Dep.string_of_field_path p
+          | None -> "?"
+        in
+        let op_s = Pos.string_of_mutation_kind m.Pos.suggestion in
+        Hashtbl.replace seen (path_s ^ "|" ^ op_s) ())
+      entries;
+    Hashtbl.length seen
+  in
+  let total_unique =
+    Hashtbl.fold
+      (fun _ entries acc -> acc + count_unique_pairs entries)
+      by_grp 0
+  in
+  let n_paths = List.length !grp_order in
+  Printf.fprintf ch
+    "Extracted mutation suggestions (before sampling)\n\
+    \  Total: %d unique suggestion%s across %d structural path%s\n\n"
+    total_unique
+    (if total_unique = 1 then "" else "s")
+    n_paths
+    (if n_paths = 1 then "" else "s");
+  List.iter
+    (fun grp_key ->
+      let entries =
+        List.rev (Option.value ~default:[] (Hashtbl.find_opt by_grp grp_key))
+      in
+      let muts_here = List.map snd entries in
+      let n_unique = count_unique_pairs entries in
+      (* Collect op keys in first-seen order. *)
+      let op_seen : (string, unit) Hashtbl.t = Hashtbl.create 8 in
+      let op_order = ref [] in
+      List.iter
+        (fun m ->
+          let sk = sym_mutation_sampling_key m in
+          if not (Hashtbl.mem op_seen sk) then (
+            Hashtbl.replace op_seen sk ();
+            op_order := sk :: !op_order))
+        muts_here;
+      let prems_here = List.sort_uniq compare (List.map fst entries) in
+      Printf.fprintf ch "%s  (%d unique suggestion%s)\n" grp_key n_unique
+        (if n_unique = 1 then "" else "s");
+      Printf.fprintf ch "  Premises: %s\n"
+        (String.concat ", " (List.map string_of_int prems_here));
+      (* Group by op sampling key. *)
+      let by_op : (string, Pos.sym_mutation list) Hashtbl.t =
+        Hashtbl.create 8
+      in
+      List.iter
+        (fun m ->
+          let sk = sym_mutation_sampling_key m in
+          let xs = Option.value ~default:[] (Hashtbl.find_opt by_op sk) in
+          Hashtbl.replace by_op sk (m :: xs))
+        muts_here;
+      List.iter
+        (fun op_key ->
+          let op_muts =
+            List.rev (Option.value ~default:[] (Hashtbl.find_opt by_op op_key))
+          in
+          let op_label =
+            match op_muts with
+            | m :: _ -> Pos.string_of_mutation_kind m.Pos.suggestion
+            | [] -> op_key
+          in
+          (* Sort by concrete array index (primary) or numeric value (fallback),
+             then deduplicate so each index appears at most once. *)
+          let index_of m =
+            match m.Pos.target_path with
+            | Some path ->
+                List.find_map
+                  (function Dep.IndexAccess i -> Some i | _ -> None)
+                  path.steps
+            | None -> None
+          in
+          let is_indexed_group =
+            List.exists (fun m -> index_of m <> None) op_muts
+          in
+          if is_indexed_group then Printf.fprintf ch "  %s\n" op_label;
+          let sort_key m =
+            match index_of m with
+            | Some i -> i
+            | None -> Option.value ~default:0 (sym_mutation_numeric m)
+          in
+          let sorted =
+            List.sort (fun m1 m2 -> compare (sort_key m1) (sort_key m2)) op_muts
+          in
+          (* Deduplicate by display string: each distinct "i=N" or suggestion
+             is shown at most once per op group. *)
+          let dup_seen : (string, unit) Hashtbl.t = Hashtbl.create 16 in
+          List.iter
+            (fun m ->
+              let display =
+                match index_of m with
+                | Some i -> Printf.sprintf "i=%-4d" i
+                | None -> Pos.string_of_mutation_kind m.Pos.suggestion
+              in
+              if not (Hashtbl.mem dup_seen display) then (
+                Hashtbl.replace dup_seen display ();
+                let indent = if is_indexed_group then "    " else "  " in
+                Printf.fprintf ch "%s%s\n" indent display))
+            sorted)
+        (List.rev !op_order);
+      Printf.fprintf ch "\n")
+    (List.rev !grp_order);
+  close_out ch
+
 (* ===== Legacy premise-centric generation ===== *)
 
 (* Convert sym_mutations for a premise into a deduplicated mutation_constraint list. *)
@@ -1046,7 +1528,9 @@ let infer_mutation_constraints (puid : premise_uid)
     (_coverage : Node_cov.result option) (dependency : Pos.result option) :
     mutation_constraint list =
   get_mutation_suggestions_for_premise puid dependency
-  |> List.filter_map sym_mutation_to_constraint
+  |> group_and_sample_sym_mutations
+  |> List.filter_map (fun (sym_mut, group_total) ->
+         sym_mutation_to_constraint ~group_total sym_mut)
   |> deduplicate_constraints
 
 (* Generate mutations for a single premise using one base test case.
@@ -1261,7 +1745,9 @@ let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
               dependency_result
           in
           (match result_opt with
-          | Some _ -> write_seed_report ~output_dir ~test_id ~prem_uids diag
+          | Some _ ->
+              write_seed_report ~output_dir ~test_id ~prem_uids diag;
+              write_suggestions_log ~output_dir ~test_id diag
           | None -> ());
           result_opt)
     test_to_prems
@@ -1400,7 +1886,9 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
             in
             all_diags := diag :: !all_diags;
             (match tc_result with
-            | Some _ -> write_seed_report ~output_dir ~test_id ~prem_uids diag
+            | Some _ ->
+                write_seed_report ~output_dir ~test_id ~prem_uids diag;
+                write_suggestions_log ~output_dir ~test_id diag
             | None -> ());
             tc_result)
       remaining

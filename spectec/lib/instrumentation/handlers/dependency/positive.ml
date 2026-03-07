@@ -150,6 +150,9 @@ module State = struct
   (* Track visited UIDs to distinguish "not covered" from "no mutations" *)
   let seen_uids : (int, unit) Hashtbl.t = Hashtbl.create 1000
 
+  (* Track UIDs that ever produced mutations - persists across clear_large_state *)
+  let uids_with_mutations : (int, unit) Hashtbl.t = Hashtbl.create 256
+
   (* Target UIDs for filtering - empty means no filtering (use whitelist) *)
   let target_uids : (int, unit) Hashtbl.t = Hashtbl.create 16
 
@@ -180,6 +183,7 @@ module State = struct
 
   let reset () =
     Hashtbl.clear seen_uids;
+    Hashtbl.clear uids_with_mutations;
     Hashtbl.clear no_mutation_reasons;
     current_relation := "";
     current_rule := "";
@@ -192,7 +196,7 @@ module State = struct
   (* Add per-test symbolic mutation result *)
   let add_per_test_sym_mutation (premise_uid : int)
       (mutations : sym_mutation list) =
-    if mutations <> [] then
+    if mutations <> [] then (
       (* Negate all mutations to generate violations of constraints *)
       let negated_mutations = List.map negate_sym_mutation mutations in
       (* Deduplicate mutations for the same test *)
@@ -218,7 +222,8 @@ module State = struct
       (* Merge and deduplicate with existing mutations *)
       let merged = existing @ deduplicated_mutations in
       let final_mutations = List.sort_uniq compare_sym_mutation merged in
-      Hashtbl.replace test_table test_id final_mutations
+      Hashtbl.replace test_table test_id final_mutations;
+      Hashtbl.replace uids_with_mutations premise_uid ())
 
   (* Clear checkpoint data after it's been saved - frees memory for long runs. *)
   let clear_large_state () =
@@ -251,11 +256,9 @@ let provenance_to_field_path (prov : Il.json_provenance) : field_path =
     steps;
   }
 
-(* Get the field_path from a value's provenance, if any *)
-let prov_of_val (v : Il.Value.t) : field_path option =
-  match v.note.provenance with
-  | None -> None
-  | Some prov -> Some (provenance_to_field_path prov)
+(* Get the field_paths from a value's provenance list *)
+let provs_of_val (v : Il.Value.t) : field_path list =
+  List.map provenance_to_field_path v.note.provenance
 
 (* Check if expression is wrapped in LenE *)
 let is_length_exp (exp : Il.exp) : bool =
@@ -307,100 +310,103 @@ let extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp) :
   let try_eval e = try Some (eval e) with _ -> None in
   (* For a (target_exp, constraint_exp, op) triple:
      evaluate target for provenance, constraint for concrete value.
-     Returns a sym_mutation if target has provenance. *)
-  let make_mut_from_prov target_exp constraint_exp effective_op is_len =
+     Returns sym_mutations for each provenance path. *)
+  let make_muts_from_prov target_exp constraint_exp effective_op is_len =
     (* For LenE(inner), get provenance from inner, not the length value *)
     let prov_exp = strip_len target_exp in
     match try_eval prov_exp with
-    | None -> None
-    | Some tv -> (
-        match prov_of_val tv with
-        | None -> None
-        | Some path ->
-            let constraint_val = try_eval constraint_exp in
-            let suggestion =
-              match constraint_val with
-              | Some cv ->
-                  if is_len then ToLength (effective_op, cv)
-                  else ToConst (effective_op, cv)
-              | None ->
-                  let hint = TypeHint target_exp.note in
-                  Unknown hint
-            in
-            Some { target_path = Some path; suggestion })
+    | None -> []
+    | Some tv ->
+        let paths = provs_of_val tv in
+        if paths = [] then []
+        else
+          let constraint_val = try_eval constraint_exp in
+          List.map
+            (fun path ->
+              let suggestion =
+                match constraint_val with
+                | Some cv ->
+                    if is_len then ToLength (effective_op, cv)
+                    else ToConst (effective_op, cv)
+                | None ->
+                    let hint = TypeHint target_exp.note in
+                    Unknown hint
+              in
+              { target_path = Some path; suggestion })
+            paths
   in
   match exp.it with
   | Il.CmpE (op, _, lhs, rhs) ->
       let lhs_is_len = is_length_exp lhs in
       let rhs_is_len = is_length_exp rhs in
       (* LHS as target: lhs op rhs *)
-      let mut_lhs = make_mut_from_prov lhs rhs op lhs_is_len in
+      let muts_lhs = make_muts_from_prov lhs rhs op lhs_is_len in
       (* RHS as target: rhs invert_op lhs *)
-      let mut_rhs = make_mut_from_prov rhs lhs (invert_cmp_op op) rhs_is_len in
-      List.filter_map Fun.id [ mut_lhs; mut_rhs ]
+      let muts_rhs =
+        make_muts_from_prov rhs lhs (invert_cmp_op op) rhs_is_len
+      in
+      muts_lhs @ muts_rhs
   | Il.CallE (_, _, args) ->
       (* Verification-function args: extract provenance from each argument *)
-      List.filter_map
+      List.concat_map
         (fun arg ->
           match arg.it with
           | Il.ExpA e -> (
               match try_eval e with
-              | Some v -> (
-                  match prov_of_val v with
-                  | Some path ->
-                      let hint = ValueHint v in
-                      Some
-                        { target_path = Some path; suggestion = Unknown hint }
-                  | None -> None)
-              | None -> None)
-          | Il.DefA _ -> None)
+              | Some v ->
+                  let paths = provs_of_val v in
+                  let hint = ValueHint v in
+                  List.map
+                    (fun path ->
+                      { target_path = Some path; suggestion = Unknown hint })
+                    paths
+              | None -> [])
+          | Il.DefA _ -> [])
         args
-  | Il.MatchE (_, pat) -> (
+  | Il.MatchE (inner, pat) -> (
       match pat with
       | Il.ListP `Nil -> []
       | Il.ListP `Cons -> (
-          match try_eval exp with
-          | Some v -> (
-              match prov_of_val v with
-              | Some path ->
-                  [
-                    {
-                      target_path = Some path;
-                      suggestion =
-                        ToLength
-                          ( `GtOp,
-                            Il.Value.Make.num Il.Typ.nat
-                              (`Nat (Bigint.of_int 0)) );
-                    };
-                  ]
-              | None -> [])
+          (* Evaluate the inner expression (the list), not the MatchE bool result *)
+          match try_eval inner with
+          | Some v ->
+              let paths = provs_of_val v in
+              List.map
+                (fun path ->
+                  {
+                    target_path = Some path;
+                    suggestion =
+                      ToLength
+                        ( `GtOp,
+                          Il.Value.Make.num Il.Typ.nat (`Nat (Bigint.of_int 0))
+                        );
+                  })
+                paths
           | None -> [])
       | _ -> [])
   | Il.UnE (`NotOp, _, e) -> (
       match try_eval e with
-      | Some v -> (
-          match prov_of_val v with
-          | Some path ->
-              [
-                {
-                  target_path = Some path;
-                  suggestion = ToConst (`EqOp, Il.Value.bool false);
-                };
-              ]
-          | None -> [])
+      | Some v ->
+          let paths = provs_of_val v in
+          List.map
+            (fun path ->
+              {
+                target_path = Some path;
+                suggestion = ToConst (`EqOp, Il.Value.bool false);
+              })
+            paths
       | None -> [])
   | _ -> (
       match try_eval exp with
-      | Some v -> (
-          match prov_of_val v with
-          | Some path ->
-              [
-                {
-                  target_path = Some path;
-                  suggestion = ToConst (`EqOp, Il.Value.bool true);
-                };
-              ]
-          | None -> [])
+      | Some v ->
+          let paths = provs_of_val v in
+          List.map
+            (fun path ->
+              {
+                target_path = Some path;
+                suggestion = ToConst (`EqOp, Il.Value.bool true);
+              })
+            paths
       | None -> [])
 
 (* Check if premise is an if-premise (possibly wrapped in IterPr) *)
@@ -431,32 +437,28 @@ let strip_bool_eq (exp : Il.exp) : Il.exp * bool =
 let diagnose_no_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp) : string
     =
   let try_eval e = try Some (eval e) with _ -> None in
+  let val_info e =
+    match try_eval e with
+    | None -> "eval=false"
+    | Some v ->
+        let prov = v.note.provenance <> [] in
+        let vstr = Il.Print.string_of_value v in
+        (* Truncate long values *)
+        let vstr =
+          if String.length vstr > 40 then String.sub vstr 0 40 ^ "..." else vstr
+        in
+        if prov then Printf.sprintf "eval=true,prov=true,val=%s" vstr
+        else Printf.sprintf "eval=true,prov=false,val=%s" vstr
+  in
   match exp.it with
-  | Il.CmpE (_, _, lhs, rhs) ->
-      let lhs_prov =
-        match try_eval (strip_len lhs) with
-        | Some v -> v.note.provenance <> None
-        | None -> false
-      in
-      let rhs_prov =
-        match try_eval (strip_len rhs) with
-        | Some v -> v.note.provenance <> None
-        | None -> false
-      in
-      let lhs_eval = try_eval lhs <> None in
-      let rhs_eval = try_eval rhs <> None in
-      Printf.sprintf "CmpE: lhs(eval=%b,prov=%b) rhs(eval=%b,prov=%b)" lhs_eval
-        lhs_prov rhs_eval rhs_prov
+  | Il.CmpE (op, _, lhs, rhs) ->
+      Printf.sprintf "CmpE(%s): lhs(%s) rhs(%s)" (string_of_cmp_op op)
+        (val_info (strip_len lhs))
+        (val_info (strip_len rhs))
   | Il.CallE _ -> "CallE: all args prov=NONE or eval failed"
-  | Il.MatchE _ -> "MatchE: no provenance on matched value"
-  | Il.UnE (`NotOp, _, _) ->
-      let v = try_eval exp in
-      Printf.sprintf "UnE(NotOp): eval=%b, prov=%b" (v <> None)
-        (match v with Some v -> v.note.provenance <> None | None -> false)
-  | _ ->
-      let v = try_eval exp in
-      Printf.sprintf "Other: eval=%b, prov=%b" (v <> None)
-        (match v with Some v -> v.note.provenance <> None | None -> false)
+  | Il.MatchE (inner, _) -> Printf.sprintf "MatchE: inner(%s)" (val_info inner)
+  | Il.UnE (`NotOp, _, e) -> Printf.sprintf "UnE(NotOp): inner(%s)" (val_info e)
+  | _ -> Printf.sprintf "Other: exp(%s)" (val_info exp)
 
 (** Extract mutations from an if-expression, adjust for negation, and record. *)
 let extract_and_record_if_mutations (eval : Il.exp -> Il.Value.t) (uid : int)
@@ -604,11 +606,17 @@ module M : Instrumentation_core.Handler.S = struct
         sorted;
     Format.pp_print_flush !fmt ();
 
-    (* Print no-mutation diagnostics to stderr for visibility *)
+    (* Print no-mutation diagnostics to stderr for visibility.
+       Use uids_with_mutations (persists across clear_large_state) so that
+       the final report is accurate even after checkpoint clearing. *)
     let no_mut_uids =
       List.filter_map
         (fun (uid, tests) ->
-          if Hashtbl.length tests = 0 then Some uid else None)
+          if
+            Hashtbl.length tests = 0
+            && not (Hashtbl.mem State.uids_with_mutations uid)
+          then Some uid
+          else None)
         sorted
     in
     if no_mut_uids <> [] then (
