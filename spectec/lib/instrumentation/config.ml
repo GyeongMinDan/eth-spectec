@@ -10,7 +10,6 @@ module Branch_coverage = Instrumentation_handlers.Branch_coverage
 module Node_coverage_il = Instrumentation_handlers.Node_coverage_il
 module Node_coverage_sl = Instrumentation_handlers.Node_coverage_sl
 module Positive = Instrumentation_dependency.Positive
-module Negative = Instrumentation_dependency.Negative
 module Output = Instrumentation_core.Output
 
 (* Shared level type for node coverage and field deps *)
@@ -22,7 +21,6 @@ type t = {
   branch_coverage : Branch_coverage.config option;
   node_coverage : Node_coverage_il.config option;
   dep_pos : Positive.config option;
-  dep_neg : Negative.config option;
 }
 
 let default =
@@ -32,7 +30,6 @@ let default =
     branch_coverage = None;
     node_coverage = None;
     dep_pos = None;
-    dep_neg = None;
   }
 
 (* Convert config to handler list *)
@@ -51,10 +48,7 @@ let to_handlers config =
           (* Both IL and SL handlers share the same config;
            they self-select based on spec type at init() *)
           [ Node_coverage_il.make cfg; Node_coverage_sl.make cfg ])
-    @ (match config.dep_pos with
-      | None -> []
-      | Some cfg -> [ Positive.make cfg ])
-    @ match config.dep_neg with None -> [] | Some cfg -> [ Negative.make cfg ]
+    @ match config.dep_pos with None -> [] | Some cfg -> [ Positive.make cfg ]
   in
   (* Auto-collect and register static dependencies from all active handlers *)
   List.iter
@@ -76,5 +70,4 @@ let close_outputs config =
   Option.iter
     (fun c -> Output.close c.Node_coverage_il.output)
     config.node_coverage;
-  Option.iter (fun c -> Output.close c.Positive.output) config.dep_pos;
-  Option.iter (fun c -> Output.close c.Negative.output) config.dep_neg
+  Option.iter (fun c -> Output.close c.Positive.output) config.dep_pos

@@ -13,7 +13,6 @@
    Dependency analysis (from instrumentation_dependency):
    - Dep_common: Shared types for dependency analysis
    - Positive: Positive dependency (per-test mutation suggestions)
-   - Negative: Negative dependency (per-premise blacklists)
 
    Config module (local):
    - Config: Configuration type and handler factory

@@ -1,6 +1,7 @@
 (* Common types and utilities for dependency analysis.
 
-   Shared between positive (mutation suggestion) and negative (blacklist) analysis.
+   Shared between positive (mutation suggestion) analysis and the runner
+   (json_mutator, testgen).
 
    Key components:
    - input_source: Tracks which top-level input a path comes from (State/Block)
@@ -9,7 +10,6 @@
    - eth_whitelist: Centralized list of relations to analyze
 *)
 
-open Common.Source
 module Il = Lang.Il
 
 (* === Types === *)

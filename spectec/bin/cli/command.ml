@@ -367,7 +367,7 @@ module Make (Tgt : Runner.Target.S) = struct
          let open Runner.Testgen in
          try
            (* Load coverage checkpoint *)
-           let _checkpoint, coverage, _dependency, _path_condition =
+           let _checkpoint, coverage, _dependency =
              load_checkpoint coverage_file
            in
 
