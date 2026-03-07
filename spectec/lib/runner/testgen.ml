@@ -427,6 +427,33 @@ let is_valid_target (path : field_path) : bool =
   (not (path.source = Dep.Unknown))
   && not (path.source = Dep.State && path.steps = [])
 
+(* Diagnose why a sym_mutation was filtered out. Returns None if it wasn't filtered. *)
+let diagnose_filtered_mutation (sym_mut : Pos.sym_mutation) : string option =
+  let truncate s n =
+    if String.length s > n then String.sub s 0 n ^ "..." else s
+  in
+  match sym_mut.target_path with
+  | None -> Some "no target path"
+  | Some target_path when not (is_valid_target target_path) ->
+      Some
+        (Printf.sprintf "invalid target: %s"
+           (Dep.string_of_field_path target_path))
+  | Some target_path ->
+      let is_list = is_list_path target_path.steps in
+      let strategies =
+        strategies_for_sym_mutation target_path sym_mut.suggestion
+        |> deduplicate_strategies
+      in
+      if strategies = [] then
+        let kind_str =
+          truncate (Pos.string_of_mutation_kind sym_mut.suggestion) 60
+        in
+        Some
+          (Printf.sprintf "no strategies (is_list=%b, kind=%s, path=%s)" is_list
+             kind_str
+             (Dep.string_of_field_path target_path))
+      else None
+
 (* Convert a symbolic mutation from the dependency analysis into a mutation constraint.
    Returns None if the target is invalid or no strategies apply. *)
 let sym_mutation_to_constraint (sym_mut : Pos.sym_mutation) :
@@ -734,15 +761,9 @@ let get_mutation_suggestions_for_premises (puids : premise_uid list)
 let is_blacklisted (path : field_path) (blacklist : field_path list) : bool =
   List.mem path blacklist
 
-let get_blacklisted_fields (puid : premise_uid)
-    (_coverage : Node_cov.result option)
-    (path_condition : Instrumentation.Dependency.Negative.result option) =
-  match path_condition with
-  | None -> []
-  | Some pc -> (
-      match List.assoc_opt puid pc.blacklists with
-      | None -> []
-      | Some pcs -> List.flatten pcs)
+let get_blacklisted_fields (_puid : premise_uid)
+    (_coverage : Node_cov.result option) =
+  []
 
 (* ===== File I/O ===== *)
 
@@ -819,10 +840,14 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
       if muts = [] then prem_no_muts := puid :: !prem_no_muts
       else
         let any_constraint = ref false in
+        let filtered_reasons = ref [] in
         List.iter
           (fun sym_mut ->
             match sym_mutation_to_constraint sym_mut with
-            | None -> ()
+            | None -> (
+                match diagnose_filtered_mutation sym_mut with
+                | Some reason -> filtered_reasons := reason :: !filtered_reasons
+                | None -> ())
             | Some c -> (
                 any_constraint := true;
                 let k = constraint_key c in
@@ -832,8 +857,13 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                     Hashtbl.replace constraint_map k (c, puid :: puids)
                 | _ -> ()))
           muts;
-        if not !any_constraint then
-          prem_no_constraints := puid :: !prem_no_constraints)
+        if not !any_constraint then (
+          prem_no_constraints := puid :: !prem_no_constraints;
+          Format.eprintf
+            "[Testgen] uid=%d: %d mutations but ALL filtered: %s\n%!" puid
+            (List.length muts)
+            (String.concat "; "
+               (List.sort_uniq String.compare !filtered_reasons))))
     prem_uids;
 
   (* Collect all constraints for this seed. The same constraint key may appear
@@ -1023,9 +1053,7 @@ let infer_mutation_constraints (puid : premise_uid)
    Returns list of (mut_id, out_pre_path, out_block_path). *)
 let generate_test_case ~(test_dir : string) ~(output_dir : string)
     (puid : premise_uid) (coverage : Node_cov.result option)
-    (dependency : Pos.result option)
-    (_path_condition : Instrumentation.Dependency.Negative.result option)
-    (base_test_case_id : test_case_id option) =
+    (dependency : Pos.result option) (base_test_case_id : test_case_id option) =
   let constraints = infer_mutation_constraints puid coverage dependency in
   let test_id_opt =
     match base_test_case_id with
@@ -1083,20 +1111,18 @@ let generate_test_case ~(test_dir : string) ~(output_dir : string)
 (* Run generate_test_case for each premise in puids. *)
 let generate_test_cases ~(test_dir : string) ~(output_dir : string)
     (puids : premise_uid list) (coverage : Node_cov.result option)
-    (dependency : Pos.result option)
-    (path_condition : Instrumentation.Dependency.Negative.result option) =
+    (dependency : Pos.result option) =
   List.map
     (fun uid ->
       let results =
-        generate_test_case ~test_dir ~output_dir uid coverage dependency
-          path_condition None
+        generate_test_case ~test_dir ~output_dir uid coverage dependency None
       in
       (uid, results))
     puids
 
 (* ===== Checkpoint utilities ===== *)
 
-(* Load a coverage checkpoint and extract its coverage, dependency, and path_condition fields. *)
+(* Load a coverage checkpoint and extract its coverage and dependency fields. *)
 let load_checkpoint (checkpoint_file : string) =
   let checkpoint =
     match Checkpoint.load_from_file ~file:checkpoint_file with
@@ -1108,13 +1134,10 @@ let load_checkpoint (checkpoint_file : string) =
   in
   let coverage = checkpoint.Checkpoint.coverage.node_il in
   let dependency = checkpoint.Checkpoint.coverage.dependency in
-  let path_condition = checkpoint.Checkpoint.coverage.path_condition in
-  (checkpoint, coverage, dependency, path_condition)
+  (checkpoint, coverage, dependency)
 
 let checkpoint_summary (checkpoint_file : string) =
-  let checkpoint, coverage, dependency, path_condition =
-    load_checkpoint checkpoint_file
-  in
+  let checkpoint, coverage, dependency = load_checkpoint checkpoint_file in
   let buf = Buffer.create 256 in
   let fmt = Format.formatter_of_buffer buf in
   Format.fprintf fmt "Checkpoint: %s\n" checkpoint_file;
@@ -1156,13 +1179,6 @@ let checkpoint_summary (checkpoint_file : string) =
       in
       Format.fprintf fmt "    Total mutation suggestions: %d\n" total_mutations
   | None -> ());
-  Format.fprintf fmt "  Path condition data: %s\n"
-    (if Option.is_some path_condition then "present" else "missing");
-  (match path_condition with
-  | Some pc ->
-      Format.fprintf fmt "    Premises with blacklists: %d\n"
-        (List.length pc.blacklists)
-  | None -> ());
   Format.pp_print_flush fmt ();
   Buffer.contents buf
 
@@ -1188,7 +1204,6 @@ let save_testgen_checkpoint ~(file : string option) ~(analyzed : string list)
           node_il = None;
           node_sl = None;
           dependency = Some positive_result;
-          path_condition = None;
           testgen = Some testgen_data;
         }
       in
@@ -1370,7 +1385,7 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
            | Some r ->
                save_testgen_checkpoint ~file:checkpoint_file ~analyzed:!analyzed
                  ~positive_result:r;
-               Instrumentation.Dependency.Positive.clear_memory ()
+               Instrumentation.Dependency.Positive.clear_large_state ()
            | None -> ());
 
         match result_opt with

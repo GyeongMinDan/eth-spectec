@@ -18,7 +18,6 @@ type coverage = {
   node_il : Instrumentation.Node_coverage_il.result option;
   node_sl : Instrumentation.Node_coverage_sl.result option;
   dependency : Instrumentation.Dependency.Positive.result option;
-  path_condition : Instrumentation.Dependency.Negative.result option;
   testgen : Testgen_data.t option;
 }
 

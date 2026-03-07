@@ -8,6 +8,12 @@ open Error
 open Attempt
 module F = Format
 
+(* Provenance propagation: copy provenance from source value to result value *)
+let propagate_provenance (source : value) (result : value) : value =
+  match source.note.provenance with
+  | None -> result
+  | Some p -> Value.with_provenance p result
+
 (* Assignments *)
 
 (* Assigning a value to an expression *)
@@ -169,7 +175,7 @@ let rec upcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
   match typ.it with
   | NumT `IntT -> (
       match value.it with
-      | NumV (`Nat n) -> Value.int n
+      | NumV (`Nat n) -> Value.int n |> propagate_provenance value
       | NumV (`Int _) -> value
       | _ -> assert false)
   | VarT (tid, targs) -> (
@@ -190,7 +196,7 @@ let rec upcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
                 values @ [ value ])
               [] typs values
           in
-          Value.Make.tuple typ.it values
+          Value.Make.tuple typ.it values |> propagate_provenance value
       | _ -> assert false)
   | _ -> value
 
@@ -199,7 +205,8 @@ let rec downcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
   | NumT `NatT -> (
       match value.it with
       | NumV (`Nat _) -> value
-      | NumV (`Int i) when Bigint.(i >= zero) -> Value.nat i
+      | NumV (`Int i) when Bigint.(i >= zero) ->
+          Value.nat i |> propagate_provenance value
       | _ -> assert false)
   | VarT (tid, targs) -> (
       let tparams, deftyp = Ctx.find_typdef ctx tid in
@@ -219,7 +226,7 @@ let rec downcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
                 values @ [ value ])
               [] typs values
           in
-          Value.Make.tuple typ.it values
+          Value.Make.tuple typ.it values |> propagate_provenance value
       | _ -> assert false)
   | _ -> value
 
@@ -513,7 +520,7 @@ and eval_len_exp (note : typ') (ctx : Ctx.t) (exp : exp) : Ctx.t * value =
   let ctx, value = eval_exp ctx exp in
   let len = value |> Value.get_list |> List.length |> Bigint.of_int in
   let value_res = Value.Make.nat note len in
-  (ctx, value_res)
+  (ctx, propagate_provenance value value_res)
 
 (* Dot expression evaluation *)
 

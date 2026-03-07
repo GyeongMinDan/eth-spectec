@@ -47,14 +47,11 @@ let rec get_field (json : t) (path : field_step list) : t option =
           | Some (_, nested) ->
               if rest = [] then Some nested else get_field nested rest
           | None -> None))
-  | `List items, Dep.IndexAccess idx :: rest -> (
-      match idx with
-      | Dep.ConstInt i ->
-          if i >= 0 && i < List.length items then
-            let item = List.nth items i in
-            if rest = [] then Some item else get_field item rest
-          else None
-      | Dep.PathRef _ -> None (* Cannot handle dynamic paths here yet *))
+  | `List items, Dep.IndexAccess i :: rest ->
+      if i >= 0 && i < List.length items then
+        let item = List.nth items i in
+        if rest = [] then Some item else get_field item rest
+      else None
   | _, [] -> Some json
   | _ -> None
 
@@ -106,25 +103,14 @@ let rec set_field (json : t) (path : field_step list) (value : t) : t =
           (* Create nested structure *)
           let new_nested = set_field (`Assoc []) rest value in
           `Assoc ((clean_field_name, new_nested) :: fields))
-  | `List items, [ Dep.IndexAccess (Dep.PathRef _) ] ->
-      (* Wildcard leaf: update all items to value - assuming PathRef here is used as wildcard/iterator *)
-      (* note: usage of PathRef as wildcard is a bit of an overload here, but fits the pattern *)
-      let updated_items = List.map (fun _ -> value) items in
-      `List updated_items
-  | `List items, Dep.IndexAccess (Dep.PathRef _) :: rest ->
-      (* Wildcard traversal: recurse on all items *)
-      let updated_items =
-        List.map (fun item -> set_field item rest value) items
-      in
-      `List updated_items
-  | `List items, [ Dep.IndexAccess (Dep.ConstInt i) ] ->
+  | `List items, [ Dep.IndexAccess i ] ->
       if i >= 0 && i < List.length items then
         let updated_items =
           List.mapi (fun idx v -> if idx = i then value else v) items
         in
         `List updated_items
       else json
-  | `List items, Dep.IndexAccess (Dep.ConstInt i) :: rest ->
+  | `List items, Dep.IndexAccess i :: rest ->
       if i >= 0 && i < List.length items then
         let updated_item = set_field (List.nth items i) rest value in
         let updated_items =

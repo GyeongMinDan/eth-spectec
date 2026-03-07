@@ -62,30 +62,44 @@ let hex_string_to_bytes (s : string) : (Bigint.t * int, error) result =
     with Failure _ ->
       TypeError ("invalid hex string", NumT `NatT, `String s) |> Result.error
 
-let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
-    : parse_result =
+(* Provenance helpers *)
+let extend_provenance (prov : json_provenance option) (step : json_step) :
+    json_provenance option =
+  match prov with
+  | None -> None
+  | Some (src, steps) -> Some (src, steps @ [ step ])
+
+let apply_provenance (prov : json_provenance option) (v : Value.t) : Value.t =
+  match prov with None -> v | Some p -> Value.with_provenance p v
+
+let rec json_to_value ?(provenance : json_provenance option = None)
+    (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t) : parse_result =
+  let apply_prov v = apply_provenance provenance v in
+  let extend step = extend_provenance provenance step in
   match (expected, json) with
-  | BoolT, `Bool b -> Value.bool b |> Result.ok
+  | BoolT, `Bool b -> Value.bool b |> apply_prov |> Result.ok
   | NumT `IntT, `String s when String.length s >= 2 && String.sub s 0 2 = "0x"
     ->
       (* Hex string for bytes type (int) - convert to BytesV *)
       let* num, len = hex_string_to_bytes s in
       let bytes_value' = BytesV { num; len } in
-      Value.Make.value expected bytes_value' |> Result.ok
+      Value.Make.value expected bytes_value' |> apply_prov |> Result.ok
   | NumT `IntT, `String s -> (
       try
         let i = Bigint.of_string s in
-        Value.int i |> Result.ok
+        Value.int i |> apply_prov |> Result.ok
       with Failure _ ->
         TypeError ("int string", expected, json) |> Result.error)
   | NumT `NatT, `Int i ->
       let n = Bigint.of_int i in
-      if Bigint.compare n Bigint.zero >= 0 then Value.nat n |> Result.ok
+      if Bigint.compare n Bigint.zero >= 0 then
+        Value.nat n |> apply_prov |> Result.ok
       else TypeError ("non-negative nat", expected, json) |> Result.error
   | NumT `NatT, `Intlit s -> (
       try
         let n = Bigint.of_string s in
-        if Bigint.compare n Bigint.zero >= 0 then Value.nat n |> Result.ok
+        if Bigint.compare n Bigint.zero >= 0 then
+          Value.nat n |> apply_prov |> Result.ok
         else TypeError ("non-negative nat", expected, json) |> Result.error
       with Failure _ ->
         TypeError ("nat string", expected, json) |> Result.error)
@@ -94,15 +108,18 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
       (* Hex string for bytes type - convert to BytesV *)
       let* num, len = hex_string_to_bytes s in
       let bytes_value' = BytesV { num; len } in
-      Value.Make.value expected bytes_value' |> Result.ok
+      Value.Make.value expected bytes_value' |> apply_prov |> Result.ok
   | IterT (elem_typ, List), `List json_list ->
-      let rec parse_elements acc = function
-        | [] -> Value.list elem_typ (List.rev acc) |> Result.ok
+      let rec parse_elements acc i = function
+        | [] -> Value.list elem_typ (List.rev acc) |> apply_prov |> Result.ok
         | json_elem :: rest ->
-            let* elem_value = json_to_value tdenv elem_typ.it json_elem in
-            parse_elements (elem_value :: acc) rest
+            let elem_prov = extend (IndexAccess i) in
+            let* elem_value =
+              json_to_value ~provenance:elem_prov tdenv elem_typ.it json_elem
+            in
+            parse_elements (elem_value :: acc) (i + 1) rest
       in
-      parse_elements [] json_list
+      parse_elements [] 0 json_list
   | IterT ({ it = BoolT; _ }, List), `String s ->
       let int = Z.of_string s in
       let bit_length = Z.numbits int in
@@ -110,7 +127,8 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
         List.init bit_length (fun bit_index ->
             Z.testbit int bit_index |> Value.bool)
       in
-      Value.list (Lang.Il.Typ.bool $ no_region) bool_list |> Result.ok
+      Value.list (Lang.Il.Typ.bool $ no_region) bool_list
+      |> apply_prov |> Result.ok
   | VarT (tid, []), _ -> (
       match (TDEnv.find_opt tid tdenv, json) with
       | Some (_, { it = StructT typfields; _ }), `Assoc fields ->
@@ -125,12 +143,18 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
           let parse_typefield (atom, typ) =
             match find_field atom with
             | Some (_, value) ->
-                let* field = json_to_value tdenv typ.it value in
+                let field_name =
+                  Atom.string_of_atom atom.it |> String.lowercase_ascii
+                in
+                let field_prov = extend (FieldAccess field_name) in
+                let* field =
+                  json_to_value ~provenance:field_prov tdenv typ.it value
+                in
                 Ok (atom, field)
             | None -> Error (FieldMissing (Atom.string_of_atom atom.it, tid.it))
           in
           let* typfields = result_all (List.map parse_typefield typfields) in
-          Value.record tid.it typfields |> Result.ok
+          Value.record tid.it typfields |> apply_prov |> Result.ok
       | Some (_, { it = PlainT typ; _ }), _ -> (
           (* Check if it's a bytes type and JSON is a hex string *)
           match (typ.it, json) with
@@ -139,8 +163,8 @@ let rec json_to_value (tdenv : TDEnv.t) (expected : typ') (json : Yojson.Safe.t)
               (* bytes type with hex string - convert to BytesV *)
               let* num, len = hex_string_to_bytes s in
               let bytes_value' = BytesV { num; len } in
-              Value.Make.value typ.it bytes_value' |> Result.ok
-          | _ -> json_to_value tdenv typ.it json)
+              Value.Make.value typ.it bytes_value' |> apply_prov |> Result.ok
+          | _ -> json_to_value ~provenance tdenv typ.it json)
       | None, _ ->
           TypeError ("typedef not found", expected, json) |> Result.error
       | _, _ -> TypeError ("type mismatch", expected, json) |> Result.error)

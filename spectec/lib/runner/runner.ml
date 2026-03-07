@@ -299,7 +299,7 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
     Checkpoint.save ~spec_files ~completed_inputs:!all_completed_inputs
       ~output_file:checkpoint_config.output_file;
     (* Clear large state after checkpoint to prevent OOM *)
-    Instrumentation.Dependency.Positive.clear_memory ()
+    Instrumentation.Dependency.Positive.clear_large_state ()
   in
 
   let results =

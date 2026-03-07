@@ -536,17 +536,22 @@ module Make (Tgt : Runner.Target.S) = struct
                                | _ -> tdenv)
                              Envs.Il.TDEnv.empty spec_il
                          in
-                         let parse_file f t =
+                         let parse_file ~provenance f t =
                            try
                              let json = Yojson.Safe.from_file f in
-                             Interface.JSON.Parse.json_to_value tdenv t.it json
+                             Interface.JSON.Parse.json_to_value ~provenance
+                               tdenv t.it json
                              |> Result.to_option
                            with _ -> None
                          in
 
                          match
-                           ( parse_file pre_path type_pre,
-                             parse_file block_path type_block )
+                           ( parse_file
+                               ~provenance:(Some (Lang.Il.JsonState, []))
+                               pre_path type_pre,
+                             parse_file
+                               ~provenance:(Some (Lang.Il.JsonBlock, []))
+                               block_path type_block )
                          with
                          | Some val_pre, Some val_block ->
                              (* Synthesize 3rd arg: true *)
