@@ -177,6 +177,57 @@ let is_list_path (steps : Dep.field_step list) : bool =
   | Dep.IndexAccess _ :: _ -> true
   | [] -> false
 
+(* Walk a type tree node following field_step list. Case-insensitive field name match. *)
+let rec type_at_steps (typ : Type_tree.typ) (steps : Dep.field_step list) :
+    Type_tree.typ option =
+  match steps with
+  | [] -> Some typ
+  | Dep.FieldAccess name :: rest -> (
+      match typ with
+      | Type_tree.StructT fields -> (
+          match
+            List.find_opt
+              (fun f ->
+                String.lowercase_ascii f.Type_tree.fname
+                = String.lowercase_ascii name)
+              fields
+          with
+          | Some field -> type_at_steps field.Type_tree.ftyp rest
+          | None -> None)
+      | _ -> None)
+  | Dep.IndexAccess _ :: rest -> (
+      match typ with
+      | Type_tree.IterT (elem_typ, Type_tree.List) ->
+          type_at_steps elem_typ rest
+      | _ -> None)
+
+(* Map a Dep.source to the root type name in the type tree.
+   Block paths start with 'message', consistent with signedBeaconBlock. *)
+let source_root_type_name = function
+  | Dep.State -> Some "beaconState"
+  | Dep.Block -> Some "signedBeaconBlock"
+  | Dep.Local name -> Some name
+  | Dep.Unknown -> None
+
+(* Resolve the expanded type at a full field path via the type tree.
+   Returns None when the root type is unknown or the path cannot be walked
+   (falls back to the name heuristic in is_list_field). *)
+let field_path_type (path : field_path) : Type_tree.typ option =
+  match source_root_type_name path.source with
+  | None -> None
+  | Some root_name -> (
+      match Type_tree.lookup_ci root_name with
+      | None -> None
+      | Some root_typ -> type_at_steps root_typ path.steps)
+
+(* Returns true if the field at path is list-typed.
+   Primary: type tree resolution. Fallback: name heuristic (is_list_path). *)
+let is_list_field (path : field_path) : bool =
+  match field_path_type path with
+  | Some (Type_tree.IterT (_, Type_tree.List)) -> true
+  | Some _ -> false (* known non-list type *)
+  | None -> is_list_path path.steps (* type tree unavailable *)
+
 (* Look up element type for a list field name.
    Tries singularizing (drop trailing 's'), then well-known aliases. *)
 let lookup_list_elem_type (field_name : string) : Type_tree.typ option =
@@ -226,6 +277,24 @@ let extract_numeric_value (v : Il.Value.t) : Bigint.t option =
   match v.it with Il.NumV (`Nat n) | Il.NumV (`Int n) -> Some n | _ -> None
 
 let bigint_to_intlit (n : Bigint.t) : string = Bigint.to_string n
+
+(* Extract a string key from an IL atom (lowercase). *)
+let atom_key (atom : Il.atom) : string =
+  match atom.it with
+  | Lang.Xl.Atom.Atom s | Lang.Xl.Atom.SilentAtom s -> String.lowercase_ascii s
+  | other -> String.lowercase_ascii (Lang.Xl.Atom.string_of_atom other)
+
+(* Replace a field in a JSON object by (case-insensitive) key. *)
+let replace_json_field (json : Yojson.Safe.t) (key : string)
+    (new_val : Yojson.Safe.t) : Yojson.Safe.t =
+  match json with
+  | `Assoc fields ->
+      `Assoc
+        (List.map
+           (fun (k, v) ->
+             if String.lowercase_ascii k = key then (k, new_val) else (k, v))
+           fields)
+  | _ -> json
 
 let value_to_json (v : Il.Value.t) : (Yojson.Safe.t, string) result =
   match Interface.JSON.Print.value_to_json v with
@@ -330,7 +399,7 @@ let generate_tolength_strategies (op : Il.cmpop) (value : Il.Value.t) :
               else [ Json_mutator.SetLength (n_int + 1) ]))
 
 (* Strategies for Unknown hints carrying a concrete IL value (boundary + complement). *)
-let strategies_from_il_value (v : Il.Value.t) :
+let rec strategies_from_il_value (v : Il.Value.t) :
     Json_mutator.mutation_strategy list =
   match v.it with
   | Il.NumV (`Nat _) | Il.NumV (`Int _) ->
@@ -351,6 +420,21 @@ let strategies_from_il_value (v : Il.Value.t) :
       let n = List.length items in
       if n = 0 then []
       else [ Json_mutator.SetLength (2 * n); Json_mutator.SetLength 0 ]
+  | Il.StructV valuefield_list -> (
+      match value_to_json v with
+      | Error _ -> []
+      | Ok struct_json ->
+          List.filter_map
+            (fun (atom, field_val) ->
+              let key = atom_key atom in
+              match strategies_from_il_value field_val with
+              | Json_mutator.SetValue new_scalar :: _ ->
+                  Some
+                    (Json_mutator.SetValue
+                       (replace_json_field struct_json key new_scalar))
+              | _ -> None)
+            valuefield_list
+          |> fun strats -> List.filteri (fun i _ -> i < 3) strats)
   | _ -> []
 
 (* Strategies for Unknown hints carrying only a type name (boundary values per type). *)
@@ -539,11 +623,18 @@ let strategies_for_sym_mutation (target_path : field_path)
     (suggestion : Pos.mutation_kind) =
   match suggestion with
   | Pos.ToConst (op, v) ->
-      if is_list_path target_path.steps then []
+      if is_list_field target_path then
+        match v.it with
+        | Il.ListV items ->
+            let n = List.length items in
+            let len_val : Il.Value.t =
+              { v with it = Il.NumV (`Nat (Bigint.of_int n)) }
+            in
+            generate_tolength_strategies op len_val
+        | _ -> []
       else generate_toconst_strategies op v None
   | Pos.ToLength (op, v) -> generate_tolength_strategies op v
-  | Pos.Unknown hint ->
-      if is_list_path target_path.steps then [] else strategies_from_hint hint
+  | Pos.Unknown hint -> strategies_from_hint hint
 
 (* A target path is valid if it names a specific field rather than the whole state or an unknown source. *)
 let is_valid_target (path : field_path) : bool =
@@ -562,7 +653,7 @@ let diagnose_filtered_mutation (sym_mut : Pos.sym_mutation) : string option =
         (Printf.sprintf "invalid target: %s"
            (Dep.string_of_field_path target_path))
   | Some target_path ->
-      let is_list = is_list_path target_path.steps in
+      let is_list = is_list_field target_path in
       let strategies =
         strategies_for_sym_mutation target_path sym_mut.suggestion
         |> deduplicate_strategies
@@ -645,7 +736,7 @@ let list_strategies_from_source (fp : field_path) source_value =
 (* Compute the valid, adjusted strategies for a constraint given the current source value. *)
 let resolve_strategies (constraint_ : mutation_constraint)
     (source_value : Yojson.Safe.t) : Json_mutator.mutation_strategy list =
-  let is_list = is_list_path constraint_.field_path.steps in
+  let is_list = is_list_field constraint_.field_path in
   let base =
     if source_value = `List [] then []
     else
@@ -1377,7 +1468,7 @@ let write_suggestions_log ~output_dir ~test_id (diag : process_diag) =
        always filtered by strategies_for_sym_mutation anyway. *)
     |> List.filter (fun (_, m) ->
            match (m.Pos.target_path, m.Pos.suggestion) with
-           | Some p, Pos.ToConst _ -> not (is_list_path p.steps)
+           | Some p, Pos.ToConst _ -> not (is_list_field p)
            | _ -> true)
   in
   let display_key (m : Pos.sym_mutation) =
