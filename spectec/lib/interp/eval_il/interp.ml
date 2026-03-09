@@ -14,6 +14,36 @@ let propagate_provenance (source : value) (result : value) : value =
   | [] -> result
   | provs -> { result with note = { result.note with provenance = provs } }
 
+(* Create a record value and derive per-field provenance from the struct's provenance.
+   Fields that already carry provenance are left untouched; fields without provenance
+   are stamped with (src, steps @ [FieldAccess field_name]) for each struct provenance.
+   The struct itself is stamped with struct_provs. *)
+let make_record_with_field_provs (note : typ') (fields : valuefield list)
+    (struct_provs : json_provenance list) : value =
+  let fields =
+    List.map
+      (fun (atom, value_f) ->
+        if value_f.note.provenance <> [] || struct_provs = [] then
+          (atom, value_f)
+        else
+          let field_name =
+            Atom.string_of_atom atom.it |> String.lowercase_ascii
+          in
+          let field_provs =
+            List.map
+              (fun (src, steps) -> (src, steps @ [ FieldAccess field_name ]))
+              struct_provs
+          in
+          ( atom,
+            {
+              value_f with
+              note = { value_f.note with provenance = field_provs };
+            } ))
+      fields
+  in
+  let v = Value.Make.record note fields in
+  { v with note = { v.note with provenance = struct_provs } }
+
 (* Assignments *)
 
 (* Assigning a value to an expression *)
@@ -632,8 +662,9 @@ and eval_upd_exp (_note : typ') (ctx : Ctx.t) (exp_b : exp) (path : path)
               else (atom_f, value_f))
             fields
         in
-        let value_updated = Value.Make.record path.note fields in
-        let value_updated = propagate_provenance value value_updated in
+        let value_updated =
+          make_record_with_field_provs path.note fields value.note.provenance
+        in
         eval_update_path ctx value_b path value_updated
     | IdxP (path, exp) ->
         let ctx, value_base = eval_access_path ctx value_b path in
