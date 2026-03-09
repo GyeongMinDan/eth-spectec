@@ -52,6 +52,7 @@ type mutation_ok = {
       (* sampling group size before sampling; 1 = not grouped *)
   from_val : string;
   to_vals : string list; (* one entry per successfully applied strategy *)
+  mut_ids : string list; (* parallel to to_vals — the mut_... directory name *)
 }
 
 (* Outcome of one (constraint × all-strategies) attempt, for reporting only. *)
@@ -1083,6 +1084,7 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
             (* Apply all strategies for this constraint; accumulate to_vals
                so the report shows one grouped entry per constraint. *)
             let to_vals = ref [] in
+            let mut_ids = ref [] in
             List.iteri
               (fun s_idx strategy ->
                 let mut_id =
@@ -1098,7 +1100,8 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                     (fun uid -> Hashtbl.replace local_covered uid ())
                     puids_for_constraint;
                   generated := (mut_id, out_pre, out_block) :: !generated;
-                  to_vals := strategy_to_display_string strategy :: !to_vals))
+                  to_vals := strategy_to_display_string strategy :: !to_vals;
+                  mut_ids := mut_id :: !mut_ids))
               strats;
             if !to_vals <> [] then
               outcomes :=
@@ -1116,6 +1119,7 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                           Printf.sprintf "(%d items)" (List.length items)
                       | _ -> Yojson.Safe.to_string src);
                     to_vals = List.rev !to_vals;
+                    mut_ids = List.rev !mut_ids;
                   }
                 :: !outcomes
             else
@@ -1212,7 +1216,7 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
   (* Extract the "kind" part of a suggestion string (after " → ").
      The arrow is UTF-8 U+2192 = bytes \xe2\x86\x92. *)
   let suggestion_kind s =
-    let sep = " \xe2\x86\x92 " in
+    let sep = " -> " in
     let sep_len = String.length sep in
     let s_len = String.length s in
     let rec find i =
@@ -1236,10 +1240,6 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
         List.filter_map
           (function MutationOk r -> Some r | _ -> None)
           outcomes_for_key
-      in
-      (* Union of all premises across the structural group *)
-      let all_prems =
-        List.sort_uniq compare (List.concat_map (fun r -> r.prems) ok_entries)
       in
       (* Does any entry in this group have a concrete index in its path? *)
       let has_index =
@@ -1280,9 +1280,6 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
         else struct_str
       in
       Printf.fprintf report_ch "  - Field: %s\n" field_header;
-      if all_prems <> [] then
-        Printf.fprintf report_ch "    Premises: %s\n"
-          (String.concat ", " (List.map string_of_int all_prems));
       (* Sub-group by sampling_key so that different ops on the same field
          (e.g. ">= 33" and "!= 1") appear as separate labelled blocks. *)
       let sub_seen = Hashtbl.create 4 in
@@ -1311,8 +1308,17 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
           let sub_total =
             match sub_entries with r :: _ -> r.total_variants | [] -> 1
           in
+          (* Print per-sub-group premises *)
+          let sub_prems =
+            List.sort_uniq compare
+              (List.concat_map (fun r -> r.prems) sub_entries)
+          in
+          if sub_prems <> [] then
+            Printf.fprintf report_ch "    Premises: %s\n"
+              (String.concat ", " (List.map string_of_int sub_prems));
           (* Print each instance — no sub-group label; the kind string on each
-             line already makes the suggestion clear. *)
+             line already makes the suggestion clear. Each (mut_id, to_val)
+             pair gets its own line. *)
           List.iter
             (fun r ->
               let kind_str =
@@ -1320,11 +1326,11 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
                 | Some s -> suggestion_kind s
                 | None -> "?"
               in
-              let to_str = String.concat ", " r.to_vals in
               let variant_suffix =
                 if sub_total > 1 then Printf.sprintf "  (group: %d)" sub_total
                 else ""
               in
+              let pairs = List.combine r.mut_ids r.to_vals in
               if has_index then
                 let idx =
                   match
@@ -1335,11 +1341,17 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
                   | Some i -> i
                   | None -> -1
                 in
-                Printf.fprintf report_ch "    [i=%-4d] %s%s  →  %s\n" idx
-                  kind_str variant_suffix to_str
+                List.iter
+                  (fun (mid, tval) ->
+                    Printf.fprintf report_ch "    [i=%-4d] [%s]  %s%s  →  %s\n"
+                      idx mid kind_str variant_suffix tval)
+                  pairs
               else
-                Printf.fprintf report_ch "    %s%s  From: %s  →  %s\n" kind_str
-                  variant_suffix (truncate_val r.from_val) to_str)
+                List.iter
+                  (fun (mid, tval) ->
+                    Printf.fprintf report_ch "    [%s]  %s%s  From: %s  →  %s\n"
+                      mid kind_str variant_suffix (truncate_val r.from_val) tval)
+                  pairs)
             sub_entries)
         (List.rev !sub_order);
       (* Append non-MutationOk failures for this group *)
