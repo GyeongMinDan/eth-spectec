@@ -612,19 +612,7 @@ module Make (Tgt : Runner.Target.S) = struct
                  ~coverage_level ~max_slot_gap uids_to_generate coverage
                  analyze_test_case
              in
-
-             (* Print summary *)
-             Format.printf "\nGeneration complete:\n";
-             List.iter
-               (fun (test_id, premise_results) ->
-                 Format.printf "  Test case: %s\n" test_id;
-                 List.iter
-                   (fun (prem_uid, mutations) ->
-                     Format.printf "    Premise %d: %d mutations\n" prem_uid
-                       (List.length mutations))
-                   premise_results)
-               results;
-             Format.printf "\n";
+             ignore results;
 
              (* Verification if requested *)
              if verify then
