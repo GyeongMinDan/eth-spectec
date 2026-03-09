@@ -99,7 +99,10 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
       in
       let ctxs = List.rev ctxs_rev in
       (* Per iterated variable, collect its elementwise value,
-         then make a sequence out of them *)
+         then make a sequence out of them.
+         Propagate provenance from the source list (value) so that downstream
+         MatchE/LenE premises can trace back to the originating JSON field
+         even after destructuring. *)
       List.fold_left
         (fun ctx (id, typ, iters) ->
           let values =
@@ -107,7 +110,8 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
           in
           let value_sub =
             let typ = Lang.Il.Typ.iterate typ (iters @ [ List ]) in
-            values |> Value.Make.list typ.it
+            let lst = values |> Value.Make.list typ.it in
+            Value.with_merged_provenance [ value ] lst
           in
           Ctx.add_value ctx (id, iters @ [ List ]) value_sub)
         ctx vars
@@ -1030,6 +1034,15 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
     let* values_output =
       invoke |> Cache.with_rel_cache ctx.cache (id.it, values_input)
     in
+    (* Fallback: propagate from all relation inputs when an output has no provenance. *)
+    let values_output =
+      List.map
+        (fun v ->
+          if v.note.provenance = [] then
+            Value.with_merged_provenance values_input v
+          else v)
+        values_output
+    in
     Ok (ctx, values_output)
   in
   let result = invoke_rel' () in
@@ -1163,6 +1176,14 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       if targs <> [] || is_anonymous id || is_high_order values_input then
         invoke_func' ()
       else invoke_func' |> Cache.with_func_cache ctx.cache (id.it, values_input)
+    in
+    (* Fallback provenance propagation: when the output has no provenance but
+       inputs do, merge all input provenances into the output.
+       Necessary for builtins where output provenances are computed empty. *)
+    let value_output =
+      if value_output.note.provenance = [] then
+        Value.with_merged_provenance values_input value_output
+      else value_output
     in
     Ok (ctx, value_output)
   in
