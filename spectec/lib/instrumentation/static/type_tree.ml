@@ -187,13 +187,44 @@ type export_data = (string * typ) list
 
 let name = "type_tree"
 
+(* === Debug pretty-printer === *)
+
+let rec string_of_typ ?(indent = 0) (t : typ) : string =
+  let pad = String.make (indent * 2) ' ' in
+  match t with
+  | BoolT -> "bool"
+  | NumT `NatT -> "nat"
+  | NumT `IntT -> "int"
+  | TextT -> "text"
+  | BytesT 0 -> "bytes"
+  | BytesT n -> Printf.sprintf "bytes%d" n
+  | StructT fs ->
+      let inner =
+        String.concat ",\n"
+          (List.map
+             (fun f ->
+               Printf.sprintf "%s  %s: %s" pad f.fname
+                 (string_of_typ ~indent:(indent + 1) f.ftyp))
+             fs)
+      in
+      Printf.sprintf "{\n%s\n%s}" inner pad
+  | IterT (t, List) -> string_of_typ ~indent t ^ "*"
+  | IterT (t, Opt) -> string_of_typ ~indent t ^ "?"
+  | OpaqueT s -> Printf.sprintf "<%s>" s
+
 let init (spec : Static.spec) =
   State.reset ();
-  match spec with
+  (match spec with
   | Static.IlSpec il_spec ->
       let built = build_type_map il_spec in
       Hashtbl.iter (Hashtbl.replace State.tbl) built
-  | _ -> ()
+  | _ -> ());
+  let names =
+    Hashtbl.fold (fun k _ acc -> k :: acc) State.tbl []
+    |> List.sort String.compare
+  in
+  Format.eprintf "[TypeTree] Loaded %d types: %s\n%!" (Hashtbl.length State.tbl)
+    (String.concat ", " names)
 
 let reset () = State.reset ()
 
@@ -225,28 +256,3 @@ let lookup_ci (name : string) : typ option =
 
 let all_type_names () : string list =
   Hashtbl.fold (fun k _ acc -> k :: acc) State.tbl []
-
-(* === Debug pretty-printer === *)
-
-let rec string_of_typ ?(indent = 0) (t : typ) : string =
-  let pad = String.make (indent * 2) ' ' in
-  match t with
-  | BoolT -> "bool"
-  | NumT `NatT -> "nat"
-  | NumT `IntT -> "int"
-  | TextT -> "text"
-  | BytesT 0 -> "bytes"
-  | BytesT n -> Printf.sprintf "bytes%d" n
-  | StructT fs ->
-      let inner =
-        String.concat ",\n"
-          (List.map
-             (fun f ->
-               Printf.sprintf "%s  %s: %s" pad f.fname
-                 (string_of_typ ~indent:(indent + 1) f.ftyp))
-             fs)
-      in
-      Printf.sprintf "{\n%s\n%s}" inner pad
-  | IterT (t, List) -> string_of_typ ~indent t ^ "*"
-  | IterT (t, Opt) -> string_of_typ ~indent t ^ "?"
-  | OpaqueT s -> Printf.sprintf "<%s>" s

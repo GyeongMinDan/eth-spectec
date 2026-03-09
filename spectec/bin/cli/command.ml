@@ -461,8 +461,9 @@ module Make (Tgt : Runner.Target.S) = struct
              (* best effort *)
 
              (* Initialize static analysis for positive dependency handler *)
-             Instrumentation_static.Mutator_analysis.init
-               (Instrumentation_static.Static.IlSpec spec_il);
+             let static_spec = Instrumentation_static.Static.IlSpec spec_il in
+             Instrumentation_static.Type_tree.init static_spec;
+             Instrumentation_static.Mutator_analysis.init static_spec;
 
              let _find_relation_for_uid uid =
                match get_premise_info uid coverage with

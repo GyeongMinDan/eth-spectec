@@ -40,9 +40,7 @@ type premise_info = {
   content : string;
 }
 
-(* Payload of a successful mutation outcome — kept as a named record so it
-   can be extracted from the variant without triggering OCaml's "inline record
-   cannot escape" restriction. *)
+(* Successful mutation outcome *)
 type mutation_ok = {
   field : field_path;
   prems : premise_uid list;
@@ -142,41 +140,6 @@ let cap_slot_gap ~(max_slot_gap : int) (pre_json : Yojson.Safe.t)
       Json_mutator.set_field block_json slot_path capped
   | _ -> block_json
 
-(* ===== List-field utilities ===== *)
-
-(* Ethereum beacon-chain fields that are known to be lists. *)
-let known_list_fields =
-  [
-    "validators";
-    "attestations";
-    "attester_slashings";
-    "proposer_slashings";
-    "deposits";
-    "voluntary_exits";
-    "bls_to_execution_changes";
-    "sync_committee";
-    "historical_roots";
-    "historical_summaries";
-    "randao_mixes";
-    "balances";
-    "inactivity_scores";
-    "previous_epoch_participation";
-    "current_epoch_participation";
-    "slashings";
-  ]
-
-let is_list_field_name (name : string) : bool =
-  let lower = String.lowercase_ascii name in
-  List.mem lower known_list_fields
-  || (String.ends_with ~suffix:"s" lower && String.length lower > 1)
-
-(* Returns true if the path's final step points at a list field or index. *)
-let is_list_path (steps : Dep.field_step list) : bool =
-  match List.rev steps with
-  | Dep.FieldAccess name :: _ -> is_list_field_name name
-  | Dep.IndexAccess _ :: _ -> true
-  | [] -> false
-
 (* Walk a type tree node following field_step list. Case-insensitive field name match. *)
 let rec type_at_steps (typ : Type_tree.typ) (steps : Dep.field_step list) :
     Type_tree.typ option =
@@ -206,8 +169,6 @@ let rec type_at_steps (typ : Type_tree.typ) (steps : Dep.field_step list) :
 let source_root_type_name = function
   | Dep.State -> Some "beaconState"
   | Dep.Block -> Some "signedBeaconBlock"
-  | Dep.Local name -> Some name
-  | Dep.Unknown -> None
 
 (* Resolve the expanded type at a full field path via the type tree.
    Returns None when the root type is unknown or the path cannot be walked
@@ -220,45 +181,28 @@ let field_path_type (path : field_path) : Type_tree.typ option =
       | None -> None
       | Some root_typ -> type_at_steps root_typ path.steps)
 
-(* Returns true if the field at path is list-typed.
-   Primary: type tree resolution. Fallback: name heuristic (is_list_path). *)
+(* Returns true if the field at path is list-typed, using type tree resolution. *)
 let is_list_field (path : field_path) : bool =
   match field_path_type path with
   | Some (Type_tree.IterT (_, Type_tree.List)) -> true
   | Some _ -> false (* known non-list type *)
-  | None -> is_list_path path.steps (* type tree unavailable *)
-
-(* Look up element type for a list field name.
-   Tries singularizing (drop trailing 's'), then well-known aliases. *)
-let lookup_list_elem_type (field_name : string) : Type_tree.typ option =
-  let name = String.lowercase_ascii field_name in
-  let singular =
-    if String.length name > 1 && name.[String.length name - 1] = 's' then
-      String.sub name 0 (String.length name - 1)
-    else name
-  in
-  let well_known =
-    [
-      ("randao_mixes", "bytes32");
-      ("historical_roots", "root");
-      ("balances", "uint64");
-      ("inactivity_scores", "uint64");
-      ("previous_epoch_participation", "participationflags");
-      ("current_epoch_participation", "participationflags");
-      ("slashings", "gwei");
-    ]
-  in
-  match List.assoc_opt name well_known with
-  | Some type_name -> Type_tree.lookup_ci type_name
-  | None -> (
-      match Type_tree.lookup_ci singular with
-      | Some _ as r -> r
-      | None -> Type_tree.lookup_ci name)
+  | None ->
+      let root_opt = source_root_type_name path.source in
+      let root_found = Option.bind root_opt Type_tree.lookup_ci in
+      Format.eprintf
+        "[Testgen] is_list_field: type tree returned None for path %s\n\
+        \  source root name: %s\n\
+        \  root lookup: %s\n\
+         %!"
+        (Dep.string_of_field_path path)
+        (Option.value ~default:"<none>" root_opt)
+        (match root_found with Some _ -> "found" | None -> "NOT FOUND");
+      assert false
 
 (* Build an AppendRandom strategy using the type tree, templated from the first existing element. *)
 let make_append_random_strategy (field_name : string)
     (source_value : Yojson.Safe.t) : Json_mutator.mutation_strategy option =
-  match lookup_list_elem_type field_name with
+  match Type_tree.lookup_ci field_name with
   | None -> None
   | Some elem_typ ->
       let new_elem =
@@ -526,11 +470,7 @@ let structural_field_path (path : field_path) : field_path =
 (* Human-readable structural path: show [*] in place of concrete indices. *)
 let string_of_structural_field_path (path : field_path) : string =
   let source_str =
-    match path.source with
-    | Dep.State -> "STATE"
-    | Dep.Block -> "BLOCK"
-    | Dep.Local s -> s
-    | Dep.Unknown -> "?"
+    match path.source with Dep.State -> "STATE" | Dep.Block -> "BLOCK"
   in
   let step_str = function
     | Dep.FieldAccess f -> "." ^ f
@@ -638,8 +578,7 @@ let strategies_for_sym_mutation (target_path : field_path)
 
 (* A target path is valid if it names a specific field rather than the whole state or an unknown source. *)
 let is_valid_target (path : field_path) : bool =
-  (not (path.source = Dep.Unknown))
-  && not (path.source = Dep.State && path.steps = [])
+  not (path.source = Dep.State && path.steps = [])
 
 (* Diagnose why a sym_mutation was filtered out. Returns None if it wasn't filtered. *)
 let diagnose_filtered_mutation (sym_mut : Pos.sym_mutation) : string option =
@@ -760,12 +699,6 @@ let source_value_of_constraint (constraint_ : mutation_constraint)
       Json_mutator.get_value_at_path pre constraint_.field_path
   | Dep.Block, _, Some blk ->
       Json_mutator.get_value_at_path blk constraint_.field_path
-  | Dep.Local _, Some pre, _ -> (
-      match Json_mutator.get_value_at_path pre constraint_.field_path with
-      | Some _ as v -> v
-      | None ->
-          Option.bind block_json_opt (fun blk ->
-              Json_mutator.get_value_at_path blk constraint_.field_path))
   | _ -> None
 
 (* ===== Constraint deduplication helpers ===== *)
@@ -1132,7 +1065,6 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
               match constraint_.field_path.source with
               | Dep.State -> "<not found in state>"
               | Dep.Block -> "<not found in block>"
-              | _ -> "<not found>"
             in
             outcomes :=
               FieldNotFound

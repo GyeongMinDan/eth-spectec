@@ -17,7 +17,7 @@ module Il = Lang.Il
 (* === Types === *)
 
 (* Input source: tracks which top-level input a path comes from *)
-type input_source = State | Block | Local of string | Unknown
+type input_source = State | Block
 
 (* A single step in a path.
    Type equation with Il.json_step: values of this type are identical to
@@ -69,11 +69,7 @@ let is_whitelisted (rel : string) : bool = List.mem rel eth_whitelist
 
 (* === String Formatting === *)
 
-let string_of_input_source = function
-  | State -> "STATE"
-  | Block -> "BLOCK"
-  | Local name -> name
-  | Unknown -> "?"
+let string_of_input_source = function State -> "STATE" | Block -> "BLOCK"
 
 let string_of_field_step (step : field_step) : string =
   match step with
@@ -83,6 +79,4 @@ let string_of_field_step (step : field_step) : string =
 let string_of_field_path (path : field_path) : string =
   let base = string_of_input_source path.source in
   let steps_str = String.concat "" (List.map string_of_field_step path.steps) in
-  match path.source with
-  | Local _ when path.steps = [] -> "?"
-  | _ -> base ^ steps_str
+  base ^ steps_str

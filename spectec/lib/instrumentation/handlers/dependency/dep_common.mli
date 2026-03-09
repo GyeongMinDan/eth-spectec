@@ -4,7 +4,7 @@ module Il = Lang.Il
 
 (* === Types === *)
 
-type input_source = State | Block | Local of string | Unknown
+type input_source = State | Block
 
 (* Type equation with Il.json_step — values of these types are identical. *)
 type field_step = Il.json_step = FieldAccess of string | IndexAccess of int
