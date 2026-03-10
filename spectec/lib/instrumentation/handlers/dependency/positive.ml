@@ -313,7 +313,18 @@ let extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp) :
                 match constraint_val with
                 | Some cv ->
                     if is_len then ToLength (effective_op, cv)
-                    else ToConst (effective_op, cv)
+                    else
+                      (* If the target is a bytes field but the constraint is a
+                         plain integer, coerce the constraint to BytesV so that
+                         testgen produces a length-preserving hex string mutation
+                         instead of an integer that would fail SSZ conversion. *)
+                      let cv' =
+                        match (tv.it, cv.it) with
+                        | Il.BytesV { len; _ }, Il.NumV (`Nat n) ->
+                            Il.Value.make_bytes ~num:n ~len
+                        | _ -> cv
+                      in
+                      ToConst (effective_op, cv')
                 | None -> assert false
               in
               { target_path = Some path; suggestion })

@@ -16,15 +16,8 @@ module Il = Lang.Il
 
 (* === Types === *)
 
-(* Input source: tracks which top-level input a path comes from *)
 type input_source = State | Block
-
-(* A single step in a path.
-   Type equation with Il.json_step: values of this type are identical to
-   Il.json_step values — no conversion needed between provenance and field_path. *)
 type field_step = Il.json_step = FieldAccess of string | IndexAccess of int
-
-(* Complete path to a mutable location *)
 type field_path = { source : input_source; steps : field_step list }
 
 (* === Centralized Whitelist === *)

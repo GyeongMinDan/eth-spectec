@@ -30,6 +30,8 @@ type mutation_constraint = {
          same class_key but different ops → different sampling_key *)
   group_total : int;
       (* how many sym_mutations were in this sampling group before sampling *)
+  is_fallback : bool;
+      (* true when strategies come from Unknown or type-mismatch fallback *)
 }
 
 type premise_info = {
@@ -54,6 +56,8 @@ type mutation_ok = {
   applied : Json_mutator.mutation_strategy list;
       (* one entry per successfully applied strategy *)
   mut_ids : string list; (* parallel to applied — the mut_... directory name *)
+  is_fallback : bool;
+      (* true when the applied strategies were fallback-generated *)
 }
 
 (* Outcome of one (constraint × all-strategies) attempt, for reporting only. *)
@@ -91,14 +95,12 @@ let json_get_int (json : Yojson.Safe.t) (path : Dep.field_step list) :
 
 let state_slot_path = [ Dep.FieldAccess "slot" ]
 let block_msg_slot_path = [ Dep.FieldAccess "message"; Dep.FieldAccess "slot" ]
-let block_slot_path = [ Dep.FieldAccess "slot" ]
 let get_state_slot (json : Yojson.Safe.t) = json_get_int json state_slot_path
 
-(* Tries message.slot first (signed block envelope), then slot directly. *)
 let get_block_slot (json : Yojson.Safe.t) =
   match json_get_int json block_msg_slot_path with
   | Some _ as r -> r
-  | None -> json_get_int json block_slot_path
+  | None -> assert false
 
 let get_slot_gap (pre_json : Yojson.Safe.t) (block_json : Yojson.Safe.t) :
     int option =
@@ -134,12 +136,7 @@ let cap_slot_gap ~(max_slot_gap : int) (pre_json : Yojson.Safe.t)
   match (get_slot_gap pre_json block_json, get_state_slot pre_json) with
   | Some gap, Some state_slot when gap > max_slot_gap ->
       let capped = `Intlit (string_of_int (state_slot + max_slot_gap)) in
-      let slot_path =
-        if Option.is_some (json_get_int block_json block_msg_slot_path) then
-          block_msg_slot_path
-        else block_slot_path
-      in
-      Json_mutator.set_field block_json slot_path capped
+      Json_mutator.set_field block_json block_msg_slot_path capped
   | _ -> block_json
 
 (* Walk a type tree node following field_step list. Case-insensitive field name match. *)
@@ -392,20 +389,48 @@ and generate_tolength_strategies (op : Il.cmpop) (value : Il.Value.t) :
                 ]
               else [ Json_mutator.SetLength (n_int + 1) ]))
 
-(* Strategies for Unknown hints carrying a concrete IL value (boundary + complement). *)
+(* Strategies for Unknown hints carrying a concrete IL value.
+   For NumV/BytesV/ListV produces: min, max, v-1, v+1 (with v itself added separately
+   as hint_strat in strategies_for_sym_mutation).  BytesV preserves the IL byte length. *)
 let rec strategies_from_il_value (v : Il.Value.t) :
     Json_mutator.mutation_strategy list =
   match v.it with
-  | Il.NumV (`Nat _) | Il.NumV (`Int _) ->
+  | Il.NumV (`Nat n) | Il.NumV (`Int n) ->
+      let pred =
+        if Bigint.compare n (Bigint.of_int 0) > 0 then
+          [
+            Json_mutator.SetValue
+              (`Intlit (bigint_to_intlit Bigint.(n - of_int 1)));
+          ]
+        else []
+      in
+      let succ =
+        [
+          Json_mutator.SetValue
+            (`Intlit (bigint_to_intlit Bigint.(n + of_int 1)));
+        ]
+      in
       [
         Json_mutator.SetValue (`Intlit "0");
         Json_mutator.SetValue (`Intlit "18446744073709551615");
       ]
-  | Il.BytesV { len; _ } ->
-      [
-        Json_mutator.SetValue (`String ("0x" ^ String.make (len * 2) '0'));
-        Json_mutator.SetValue (`String ("0x" ^ String.make (len * 2) 'f'));
-      ]
+      @ pred @ succ
+  | Il.BytesV { num; len } ->
+      let sv b =
+        Json_mutator.SetValue
+          (`String (Interface.JSON.Print.bytes_to_hex_string b len))
+      in
+      let bit_width = 8 * len in
+      let max_n = Bigint.(shift_left (of_int 1) bit_width - of_int 1) in
+      let min_n = Bigint.of_int 0 in
+      let pred_n =
+        if Bigint.compare num min_n > 0 then Bigint.(num - of_int 1) else min_n
+      in
+      let succ_n =
+        let s = Bigint.(num + of_int 1) in
+        if Bigint.compare s max_n > 0 then max_n else s
+      in
+      [ sv min_n; sv max_n; sv pred_n; sv succ_n ]
   | Il.BoolV _ ->
       [
         Json_mutator.SetValue (`Bool true); Json_mutator.SetValue (`Bool false);
@@ -413,7 +438,11 @@ let rec strategies_from_il_value (v : Il.Value.t) :
   | Il.ListV items ->
       let n = List.length items in
       if n = 0 then []
-      else [ Json_mutator.SetLength (2 * n); Json_mutator.SetLength 0 ]
+      else
+        let pred = [ Json_mutator.SetLength (n - 1) ] in
+        let succ = [ Json_mutator.SetLength (n + 1) ] in
+        [ Json_mutator.SetLength 0; Json_mutator.SetLength (2 * n) ]
+        @ pred @ succ
   | Il.StructV valuefield_list -> (
       match value_to_json v with
       | Error _ -> []
@@ -429,6 +458,91 @@ let rec strategies_from_il_value (v : Il.Value.t) :
               | _ -> None)
             valuefield_list
           |> fun strats -> List.filteri (fun i _ -> i < 3) strats)
+  | _ -> []
+
+(* Generate type-accurate fallback strategies directly from the source JSON value.
+   Used when all IL-derived strategies are type-incompatible or when the suggestion
+   is Unknown.  Produces min / max / pred / succ for scalars and lengths for lists. *)
+let rec fallback_strategies_from_source (source : Yojson.Safe.t) :
+    Json_mutator.mutation_strategy list =
+  match source with
+  | `Int n ->
+      let pred =
+        if n > 0 then [ Json_mutator.SetValue (`Int (n - 1)) ] else []
+      in
+      [
+        Json_mutator.SetValue (`Int 0);
+        Json_mutator.SetValue (`Intlit (bigint_to_intlit max_uint64));
+      ]
+      @ pred
+      @ [ Json_mutator.SetValue (`Int (n + 1)) ]
+  | `Intlit n_str ->
+      let n = Bigint.of_string n_str in
+      let pred =
+        if Bigint.compare n (Bigint.of_int 0) > 0 then
+          [
+            Json_mutator.SetValue
+              (`Intlit (bigint_to_intlit Bigint.(n - of_int 1)));
+          ]
+        else []
+      in
+      [
+        Json_mutator.SetValue (`Intlit "0");
+        Json_mutator.SetValue (`Intlit (bigint_to_intlit max_uint64));
+      ]
+      @ pred
+      @ [
+          Json_mutator.SetValue
+            (`Intlit (bigint_to_intlit Bigint.(n + of_int 1)));
+        ]
+  | `String s when String.length s >= 2 && String.sub s 0 2 = "0x" ->
+      (* BytesV hex string — preserve byte length *)
+      let hex = String.sub s 2 (String.length s - 2) in
+      let byte_len = String.length hex / 2 in
+      let n = Bigint.of_string ("0x" ^ if hex = "" then "0" else hex) in
+      let bit_width = 8 * byte_len in
+      let max_n =
+        if byte_len = 0 then Bigint.of_int 0
+        else Bigint.(shift_left (of_int 1) bit_width - of_int 1)
+      in
+      let sv b =
+        Json_mutator.SetValue
+          (`String (Interface.JSON.Print.bytes_to_hex_string b byte_len))
+      in
+      let pred_n =
+        if Bigint.compare n (Bigint.of_int 0) > 0 then Bigint.(n - of_int 1)
+        else Bigint.of_int 0
+      in
+      let succ_n =
+        let s = Bigint.(n + of_int 1) in
+        if Bigint.compare s max_n > 0 then max_n else s
+      in
+      [ sv (Bigint.of_int 0); sv max_n; sv pred_n; sv succ_n ]
+  | `List lst ->
+      let n = List.length lst in
+      let pred = if n > 0 then [ Json_mutator.SetLength (n - 1) ] else [] in
+      [ Json_mutator.SetLength 0; Json_mutator.SetLength (2 * n) ]
+      @ pred
+      @ [ Json_mutator.SetLength (n + 1) ]
+  | `Bool b -> [ Json_mutator.SetValue (`Bool (not b)) ]
+  | `Assoc fields ->
+      (* For struct fields: pick up to 3 fields from the SOURCE and mutate each one.
+         Each strategy sets the whole struct to a copy of the source with one field changed. *)
+      fields
+      |> List.filter_map (fun (k, fv) ->
+             match fallback_strategies_from_source fv with
+             | [] -> None
+             | Json_mutator.SetValue new_fv :: _ ->
+                 let new_struct =
+                   `Assoc
+                     (List.map
+                        (fun (k2, v2) ->
+                          if k2 = k then (k2, new_fv) else (k2, v2))
+                        fields)
+                 in
+                 Some (Json_mutator.SetValue new_struct)
+             | _ -> None)
+      |> List.filteri (fun i _ -> i < 3)
   | _ -> []
 
 let deduplicate_strategies (strategies : Json_mutator.mutation_strategy list) :
@@ -563,7 +677,13 @@ let strategies_for_sym_mutation (target_path : field_path)
         | _ -> []
       else generate_toconst_strategies op v None
   | Pos.ToLength (op, v) -> generate_tolength_strategies op v
-  | Pos.Unknown v -> strategies_from_il_value v
+  | Pos.Unknown v ->
+      let hint_strat =
+        match value_to_json v with
+        | Ok j -> [ Json_mutator.SetValue j ]
+        | Error _ -> []
+      in
+      hint_strat @ strategies_from_il_value v
 
 (* A target path is valid if it names a specific field rather than the whole state or an unknown source. *)
 let is_valid_target (path : field_path) : bool =
@@ -609,7 +729,22 @@ let sym_mutation_to_constraint ?(group_total = 1) (sym_mut : Pos.sym_mutation) :
         strategies_for_sym_mutation target_path sym_mut.suggestion
         |> deduplicate_strategies
       in
-      if strategies = [] then None
+      let is_fallback =
+        match sym_mut.suggestion with Pos.Unknown _ -> true | _ -> false
+      in
+      if strategies = [] && not is_fallback then None
+      else if strategies = [] && is_fallback then
+        (* Unknown with no IL strategies still needs a constraint for fallback *)
+        Some
+          {
+            field_path = target_path;
+            strategies = [];
+            suggestion_str = Some (Pos.string_of_sym_mutation sym_mut);
+            class_key = structural_path_key target_path;
+            sampling_key = sym_mutation_sampling_key sym_mut;
+            group_total;
+            is_fallback;
+          }
       else
         Some
           {
@@ -619,6 +754,7 @@ let sym_mutation_to_constraint ?(group_total = 1) (sym_mut : Pos.sym_mutation) :
             class_key = structural_path_key target_path;
             sampling_key = sym_mutation_sampling_key sym_mut;
             group_total;
+            is_fallback;
           }
 
 (* ===== Strategy application ===== *)
@@ -674,23 +810,97 @@ let list_strategies_from_source (fp : field_path) source_value =
       len_strats @ Option.to_list append_strat
   | _ -> []
 
-(* Compute the valid, adjusted strategies for a constraint given the current source value. *)
+(* Return the byte length of a "0x..." hex string, or None if not a hex string. *)
+let hex_byte_len (s : string) : int option =
+  if String.length s >= 2 && String.sub s 0 2 = "0x" then
+    Some ((String.length s - 2) / 2)
+  else None
+
+(* True if a SetValue strategy's hex byte length is compatible with the source value.
+   Filters out strategies that would set a hex field to a string of the wrong length. *)
+let strategy_byte_len_ok (source_value : Yojson.Safe.t)
+    (strategy : Json_mutator.mutation_strategy) : bool =
+  match (source_value, strategy) with
+  | `String src, Json_mutator.SetValue (`String tgt) -> (
+      match (hex_byte_len src, hex_byte_len tgt) with
+      | Some src_len, Some tgt_len -> src_len = tgt_len
+      | _ -> true)
+  | _ -> true
+
+(* Classify a JSON value's type for mismatch detection. *)
+let json_type : Yojson.Safe.t -> string = function
+  | `String _ -> "string"
+  | `List _ -> "array"
+  | `Assoc _ -> "object"
+  | `Bool _ -> "bool"
+  | `Int _ | `Intlit _ | `Float _ -> "number"
+  | `Null -> "null"
+
+(* Expected source type for a mutation strategy. *)
+let strategy_source_type : Json_mutator.mutation_strategy -> string = function
+  | Json_mutator.SetValue v -> json_type v
+  | Json_mutator.SetLength _ | Json_mutator.AppendItem | Json_mutator.RemoveItem
+  | Json_mutator.AppendRandom _ ->
+      "array"
+  | Json_mutator.Increment _ | Json_mutator.Decrement _
+  | Json_mutator.SetBoundary ->
+      "number"
+
+(* Compute the valid, adjusted strategies for a constraint given the current source value.
+   Returns (strategies, is_fallback_used) where is_fallback_used is true when fallback
+   strategies were generated due to type mismatch or Unknown suggestion. *)
 let resolve_strategies (constraint_ : mutation_constraint)
-    (source_value : Yojson.Safe.t) : Json_mutator.mutation_strategy list =
+    (source_value : Yojson.Safe.t) : Json_mutator.mutation_strategy list * bool
+    =
   let is_list = is_list_field constraint_.field_path in
-  let base =
-    if source_value = `List [] then []
-    else
-      List.filter
-        (fun s -> not (is_identity_strategy source_value s))
-        constraint_.strategies
+  let struct_keys_ok s =
+    match (source_value, s) with
+    | `Assoc src_fields, Json_mutator.SetValue (`Assoc tgt_fields) ->
+        let src_keys = List.sort String.compare (List.map fst src_fields) in
+        let tgt_keys = List.sort String.compare (List.map fst tgt_fields) in
+        src_keys = tgt_keys
+    | _ -> true
   in
-  let extra =
-    if is_list && (source_value = `List [] || constraint_.strategies = []) then
-      list_strategies_from_source constraint_.field_path source_value
-    else []
+  let type_ok s =
+    strategy_source_type s = json_type source_value && struct_keys_ok s
   in
-  List.map (adjust_bool_strategy source_value) (base @ extra)
+  let byte_len_ok s = strategy_byte_len_ok source_value s in
+  let had_type_mismatch =
+    constraint_.strategies <> []
+    && List.for_all
+         (fun s -> (not (type_ok s)) || not (byte_len_ok s))
+         constraint_.strategies
+  in
+  (* Use source-based fallback when suggestion is unusable: either all strategies
+     have the wrong type, or the Unknown hint produced no IL-derivable strategies. *)
+  let use_source_fallback =
+    had_type_mismatch || (constraint_.is_fallback && constraint_.strategies = [])
+  in
+  if use_source_fallback then
+    let fallback =
+      fallback_strategies_from_source source_value
+      |> List.filter (fun s -> not (is_identity_strategy source_value s))
+    in
+    (deduplicate_strategies fallback, true)
+  else
+    let base =
+      if source_value = `List [] then []
+      else
+        List.filter
+          (fun s ->
+            type_ok s && byte_len_ok s
+            && not (is_identity_strategy source_value s))
+          constraint_.strategies
+    in
+    let extra =
+      if is_list && (source_value = `List [] || constraint_.strategies = [])
+      then list_strategies_from_source constraint_.field_path source_value
+      else []
+    in
+    let combined =
+      List.map (adjust_bool_strategy source_value) (base @ extra)
+    in
+    (deduplicate_strategies combined, constraint_.is_fallback)
 
 (* Look up the current value at the constraint's target path in the appropriate JSON. *)
 let source_value_of_constraint (constraint_ : mutation_constraint)
@@ -1058,7 +1268,7 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                 }
               :: !outcomes
         | Some src ->
-            let strats = resolve_strategies constraint_ src in
+            let strats, is_fallback_used = resolve_strategies constraint_ src in
             let prem_str =
               String.concat "_"
                 (List.map (Printf.sprintf "prem%d") puids_for_constraint)
@@ -1115,6 +1325,7 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                     from_json = src;
                     applied = List.rev !applied;
                     mut_ids = List.rev !mut_ids;
+                    is_fallback = is_fallback_used;
                   }
                 :: !outcomes
             else if strats <> [] && not !had_non_dupe_strategy then
@@ -1182,25 +1393,6 @@ let display_strategy_value _from_json strategy =
       Printf.sprintf "(%d item%s)" n (if n = 1 then "" else "s")
   | _ -> strategy_to_display_string strategy
 
-(* Classify a JSON value's type for mismatch detection. *)
-let json_type : Yojson.Safe.t -> string = function
-  | `String _ -> "string"
-  | `List _ -> "array"
-  | `Assoc _ -> "object"
-  | `Bool _ -> "bool"
-  | `Int _ | `Intlit _ | `Float _ -> "number"
-  | `Null -> "null"
-
-(* Expected source type for a mutation strategy. *)
-let strategy_source_type : Json_mutator.mutation_strategy -> string = function
-  | Json_mutator.SetValue v -> json_type v
-  | Json_mutator.SetLength _ | Json_mutator.AppendItem | Json_mutator.RemoveItem
-  | Json_mutator.AppendRandom _ ->
-      "array"
-  | Json_mutator.Increment _ | Json_mutator.Decrement _
-  | Json_mutator.SetBoundary ->
-      "number"
-
 (* Flag when the source JSON type is incompatible with the strategy. *)
 let type_mismatch_flag from_json strategy =
   let ft = json_type from_json in
@@ -1213,6 +1405,7 @@ let write_mutation_line ch has_index kind_str sub_total (r : mutation_ok)
   let variant_suffix =
     if sub_total > 1 then Printf.sprintf "  (group: %d)" sub_total else ""
   in
+  let fallback_flag = if r.is_fallback then " [FALLBACK]" else "" in
   let from_s = display_from_json r.from_json in
   if has_index then
     let idx =
@@ -1224,14 +1417,14 @@ let write_mutation_line ch has_index kind_str sub_total (r : mutation_ok)
       | Some i -> i
       | None -> -1
     in
-    Printf.fprintf ch "      [i=%-4d] [%s]  %s%s%s  From: %s  →  %s\n" idx mid
-      kind_str variant_suffix
+    Printf.fprintf ch "      [i=%-4d] [%s]  %s%s%s%s  From: %s  →  %s\n" idx mid
+      kind_str variant_suffix fallback_flag
       (type_mismatch_flag r.from_json strategy)
       from_s
       (display_strategy_value r.from_json strategy)
   else
-    Printf.fprintf ch "      [%s]  %s%s%s  From: %s  →  %s\n" mid kind_str
-      variant_suffix
+    Printf.fprintf ch "      [%s]  %s%s%s%s  From: %s  →  %s\n" mid kind_str
+      variant_suffix fallback_flag
       (type_mismatch_flag r.from_json strategy)
       from_s
       (display_strategy_value r.from_json strategy)
