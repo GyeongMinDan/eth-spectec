@@ -201,19 +201,6 @@ let is_list_field (path : field_path) : bool =
         (match root_found with Some _ -> "found" | None -> "NOT FOUND");
       assert false
 
-(* Build an AppendRandom strategy using the type tree, templated from the first existing element. *)
-let make_append_random_strategy (field_name : string)
-    (source_value : Yojson.Safe.t) : Json_mutator.mutation_strategy option =
-  match Type_tree.lookup_ci field_name with
-  | None -> None
-  | Some elem_typ ->
-      let new_elem =
-        match source_value with
-        | `List (first :: _) -> Type_tree.template_fill elem_typ first
-        | _ -> Type_tree.random_value elem_typ
-      in
-      Some (Json_mutator.AppendRandom new_elem)
-
 (* ===== Strategy generation ===== *)
 
 let max_uint64 = Bigint.of_string "18446744073709551615"
@@ -717,21 +704,34 @@ let adjust_bool_strategy (source_value : Yojson.Safe.t)
       Json_mutator.SetValue (`Bool (not src))
   | _ -> strategy
 
+(* Build an AppendRandom strategy using the field path's resolved list type.
+   Uses an existing element as a template when available, otherwise generates randomly. *)
+let make_append_random_strategy_for_path (fp : field_path)
+    (source_value : Yojson.Safe.t) : Json_mutator.mutation_strategy option =
+  match field_path_type fp with
+  | Some (Type_tree.IterT _ as list_typ) ->
+      let new_elem =
+        match source_value with
+        | `List (first :: _) ->
+            Option.value ~default:`Null
+              (Type_tree.random_element_from list_typ first)
+        | _ -> Option.value ~default:`Null (Type_tree.random_element list_typ)
+      in
+      Some (Json_mutator.AppendRandom new_elem)
+  | _ -> None
+
 (* For list paths with no pre-computed strategies, derive strategies from the source length. *)
 let list_strategies_from_source (fp : field_path) source_value =
   match source_value with
-  | `List [] -> []
+  | `List [] ->
+      (* Empty list: can only grow by appending a new element via type tree *)
+      Option.to_list (make_append_random_strategy_for_path fp (`List []))
   | `List lst ->
       let n = List.length lst in
       let len_strats =
         [ Json_mutator.SetLength (2 * n); Json_mutator.SetLength 0 ]
       in
-      let append_strat =
-        match List.rev fp.steps with
-        | Dep.FieldAccess name :: _ ->
-            make_append_random_strategy name source_value
-        | _ -> None
-      in
+      let append_strat = make_append_random_strategy_for_path fp source_value in
       len_strats @ Option.to_list append_strat
   | _ -> []
 
@@ -747,7 +747,7 @@ let resolve_strategies (constraint_ : mutation_constraint)
         constraint_.strategies
   in
   let extra =
-    if is_list && constraint_.strategies = [] then
+    if is_list && (source_value = `List [] || constraint_.strategies = []) then
       list_strategies_from_source constraint_.field_path source_value
     else []
   in
