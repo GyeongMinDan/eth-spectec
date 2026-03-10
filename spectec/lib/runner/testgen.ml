@@ -241,6 +241,14 @@ let replace_json_field (json : Yojson.Safe.t) (key : string)
            fields)
   | _ -> json
 
+(* Replace the element at index i in a JSON array. *)
+let replace_json_item (json : Yojson.Safe.t) (i : int) (new_val : Yojson.Safe.t)
+    : Yojson.Safe.t =
+  match json with
+  | `List items ->
+      `List (List.mapi (fun idx v -> if idx = i then new_val else v) items)
+  | _ -> json
+
 let value_to_json (v : Il.Value.t) : (Yojson.Safe.t, string) result =
   match Interface.JSON.Print.value_to_json v with
   | Ok json -> Ok json
@@ -248,7 +256,7 @@ let value_to_json (v : Il.Value.t) : (Yojson.Safe.t, string) result =
 
 (* Generate mutation strategies for a ToConst constraint.
    For each comparison operator, produces values that satisfy the constraint (e.g., >= n → [n, MAX]). *)
-let generate_toconst_strategies (op : Il.cmpop) (value : Il.Value.t)
+let rec generate_toconst_strategies (op : Il.cmpop) (value : Il.Value.t)
     (source_value_opt : Yojson.Safe.t option) :
     Json_mutator.mutation_strategy list =
   match value.it with
@@ -256,59 +264,112 @@ let generate_toconst_strategies (op : Il.cmpop) (value : Il.Value.t)
       match source_value_opt with
       | Some (`Bool src) -> [ Json_mutator.SetValue (`Bool (not src)) ]
       | _ -> [ Json_mutator.SetValue (`Bool (not b)) ])
-  | _ -> (
-      match extract_numeric_value value with
-      | Some n -> (
-          let n_str = bigint_to_intlit n in
-          let max_str = bigint_to_intlit max_uint64 in
-          let min_str = bigint_to_intlit min_value in
-          match op with
-          | `GeOp ->
+  | Il.NumV (`Nat n) | Il.NumV (`Int n) -> (
+      let n_str = bigint_to_intlit n in
+      let max_str = bigint_to_intlit max_uint64 in
+      let min_str = bigint_to_intlit min_value in
+      match op with
+      | `GeOp ->
+          [
+            Json_mutator.SetValue (`Intlit n_str);
+            Json_mutator.SetValue (`Intlit max_str);
+          ]
+      | `LeOp ->
+          [
+            Json_mutator.SetValue (`Intlit n_str);
+            Json_mutator.SetValue (`Intlit min_str);
+          ]
+      | `GtOp -> (
+          match Bigint.to_int n with
+          | Some i ->
               [
-                Json_mutator.SetValue (`Intlit n_str);
+                Json_mutator.SetValue
+                  (`Intlit (bigint_to_intlit (Bigint.of_int (i + 1))));
                 Json_mutator.SetValue (`Intlit max_str);
               ]
-          | `LeOp ->
+          | None -> [ Json_mutator.SetValue (`Intlit max_str) ])
+      | `LtOp -> (
+          match Bigint.to_int n with
+          | Some i when i > 0 ->
               [
-                Json_mutator.SetValue (`Intlit n_str);
-                Json_mutator.SetValue (`Intlit min_str);
+                Json_mutator.SetValue
+                  (`Intlit (bigint_to_intlit (Bigint.of_int (i - 1))));
+                Json_mutator.SetValue (`Intlit max_str);
               ]
-          | `GtOp -> (
-              match Bigint.to_int n with
-              | Some i ->
-                  [
-                    Json_mutator.SetValue
-                      (`Intlit (bigint_to_intlit (Bigint.of_int (i + 1))));
-                    Json_mutator.SetValue (`Intlit max_str);
-                  ]
-              | None -> [ Json_mutator.SetValue (`Intlit max_str) ])
-          | `LtOp -> (
-              match Bigint.to_int n with
-              | Some i when i > 0 ->
-                  [
-                    Json_mutator.SetValue
-                      (`Intlit (bigint_to_intlit (Bigint.of_int (i - 1))));
-                    Json_mutator.SetValue (`Intlit max_str);
-                  ]
-              | _ -> [ Json_mutator.SetValue (`Intlit max_str) ])
-          | `EqOp -> [ Json_mutator.SetValue (`Intlit n_str) ]
-          | `NeOp -> (
-              match Bigint.to_int n with
-              | Some i ->
-                  let lo = if i > 0 then Bigint.of_int (i - 1) else min_value in
-                  [
-                    Json_mutator.SetValue (`Intlit (bigint_to_intlit lo));
-                    Json_mutator.SetValue
-                      (`Intlit (bigint_to_intlit (Bigint.of_int (i + 1))));
-                  ]
-              | None -> [ Json_mutator.SetValue (`Intlit n_str) ]))
-      | None -> (
+          | _ -> [ Json_mutator.SetValue (`Intlit max_str) ])
+      | `EqOp -> [ Json_mutator.SetValue (`Intlit n_str) ]
+      | `NeOp -> (
+          match Bigint.to_int n with
+          | Some i ->
+              let lo = if i > 0 then Bigint.of_int (i - 1) else min_value in
+              [
+                Json_mutator.SetValue (`Intlit (bigint_to_intlit lo));
+                Json_mutator.SetValue
+                  (`Intlit (bigint_to_intlit (Bigint.of_int (i + 1))));
+              ]
+          | None -> [ Json_mutator.SetValue (`Intlit n_str) ]))
+  | Il.ListV items -> (
+      (* List value: only EqOp and NeOp are meaningful. *)
+      match op with
+      | `EqOp ->
+          let n = List.length items in
+          let len_val = { value with it = Il.NumV (`Nat (Bigint.of_int n)) } in
+          generate_tolength_strategies `EqOp len_val
+      | `NeOp -> (
+          (* Mutate the first element so the list differs in content, not length.
+             Mirror the StructV approach: convert to JSON, patch index 0, return SetValue. *)
+          match items with
+          | [] -> []
+          | first_item :: _ -> (
+              match value_to_json value with
+              | Error _ -> []
+              | Ok list_json ->
+                  generate_toconst_strategies `NeOp first_item None
+                  |> List.filter_map (function
+                       | Json_mutator.SetValue new_elem ->
+                           Some
+                             (Json_mutator.SetValue
+                                (replace_json_item list_json 0 new_elem))
+                       | _ -> None)))
+      | _ -> [])
+  | Il.BytesV { num; len } -> (
+      let sv n =
+        Json_mutator.SetValue
+          (`String (Interface.JSON.Print.bytes_to_hex_string n len))
+      in
+      let bit_width = 8 * len in
+      let max_n = Bigint.(shift_left (of_int 1) bit_width - of_int 1) in
+      let min_n = Bigint.of_int 0 in
+      let pred_n =
+        if Bigint.compare num min_n > 0 then Bigint.(num - of_int 1) else min_n
+      in
+      let succ_n =
+        let s = Bigint.(num + of_int 1) in
+        if Bigint.compare s max_n > 0 then max_n else s
+      in
+      match op with
+      | `EqOp -> [ sv num ]
+      | `NeOp ->
+          (if Bigint.compare num min_n > 0 then [ sv pred_n ] else [])
+          @ if Bigint.compare num max_n < 0 then [ sv succ_n ] else []
+      | `GeOp -> [ sv num; sv max_n ]
+      | `LeOp -> [ sv num; sv min_n ]
+      | `GtOp -> [ sv succ_n; sv max_n ]
+      | `LtOp ->
+          if Bigint.compare num min_n > 0 then [ sv pred_n; sv min_n ] else [])
+  | _ -> (
+      (* For EqOp: set the field to exactly this value.
+                 For other ops we have no way to produce a different
+                 non-numeric value, so skip to avoid identity mutations. *)
+      match op with
+      | `EqOp -> (
           match value_to_json value with
           | Ok json -> [ Json_mutator.SetValue json ]
-          | Error _ -> []))
+          | Error _ -> [])
+      | _ -> [])
 
 (* Generate mutation strategies for a ToLength constraint (list-length variant of ToConst). *)
-let generate_tolength_strategies (op : Il.cmpop) (value : Il.Value.t) :
+and generate_tolength_strategies (op : Il.cmpop) (value : Il.Value.t) :
     Json_mutator.mutation_strategy list =
   match extract_numeric_value value with
   | None -> [ Json_mutator.SetLength 0; Json_mutator.SetLength 1 ]
