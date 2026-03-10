@@ -48,17 +48,11 @@ module FieldPathSet = Set.Make (struct
   let compare = compare
 end)
 
-(* Type hint for unknown mutations when value can't be evaluated *)
-type unknown_hint =
-  | ValueHint of Il.Value.t (* We have the actual value *)
-  | TypeHint of Il.typ' (* We only have the type (unwrapped) *)
-  | NoHint (* No information available *)
-
 (* Mutation suggestion types *)
 type mutation_kind =
   | ToConst of Il.cmpop * Il.Value.t (* path <op> value *)
   | ToLength of Il.cmpop * Il.Value.t (* collection length constraint *)
-  | Unknown of unknown_hint (* over-approximation with value or type hint *)
+  | Unknown of Il.Value.t (* over-approximation with value or type hint *)
 
 type sym_mutation = {
   target_path : field_path option;
@@ -285,15 +279,7 @@ let string_of_mutation_kind = function
   | ToLength (op, v) ->
       Printf.sprintf "len %s %s" (string_of_cmp_op op)
         (Il.Print.string_of_value v)
-  | Unknown hint ->
-      Printf.sprintf "UNKNOWN%s"
-        (match hint with
-        | ValueHint v -> Printf.sprintf "(%s)" (Il.Print.string_of_value v)
-        | TypeHint t ->
-            Printf.sprintf "[%s]"
-              (Il.Print.string_of_typ
-                 { it = t; at = Common.Source.no_region; note = () })
-        | NoHint -> "")
+  | Unknown v -> Printf.sprintf "UNKNOWN(%s)" (Il.Print.string_of_value v)
 
 let string_of_sym_mutation (mut : sym_mutation) : string =
   let target_str =
@@ -328,9 +314,7 @@ let extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp) :
                 | Some cv ->
                     if is_len then ToLength (effective_op, cv)
                     else ToConst (effective_op, cv)
-                | None ->
-                    let hint = TypeHint target_exp.note in
-                    Unknown hint
+                | None -> assert false
               in
               { target_path = Some path; suggestion })
             paths
@@ -355,10 +339,9 @@ let extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp) :
               match try_eval e with
               | Some v ->
                   let paths = provs_of_val v in
-                  let hint = ValueHint v in
                   List.map
                     (fun path ->
-                      { target_path = Some path; suggestion = Unknown hint })
+                      { target_path = Some path; suggestion = Unknown v })
                     paths
               | None -> [])
           | Il.DefA _ -> [])

@@ -431,49 +431,6 @@ let rec strategies_from_il_value (v : Il.Value.t) :
           |> fun strats -> List.filteri (fun i _ -> i < 3) strats)
   | _ -> []
 
-(* Boundary values for a fully-resolved type-tree node. *)
-let boundary_values_for_type (t : Type_tree.typ) :
-    Json_mutator.mutation_strategy list =
-  match t with
-  | Type_tree.BoolT ->
-      [
-        Json_mutator.SetValue (`Bool true); Json_mutator.SetValue (`Bool false);
-      ]
-  | Type_tree.NumT _ ->
-      [
-        Json_mutator.SetValue (`Intlit "0");
-        Json_mutator.SetValue (`Intlit "18446744073709551615");
-      ]
-  | Type_tree.TextT ->
-      [
-        Json_mutator.SetValue (`String "");
-        Json_mutator.SetValue (`String "mutated_string");
-      ]
-  | Type_tree.BytesT 0 ->
-      (* variable-length bytes: use 32-byte boundary values as default *)
-      [
-        Json_mutator.SetValue (`String ("0x" ^ String.make 64 '0'));
-        Json_mutator.SetValue (`String ("0x" ^ String.make 64 'f'));
-      ]
-  | Type_tree.BytesT n ->
-      [
-        Json_mutator.SetValue (`String ("0x" ^ String.make (n * 2) '0'));
-        Json_mutator.SetValue (`String ("0x" ^ String.make (n * 2) 'f'));
-      ]
-  | _ -> []
-
-(* Strategies for Unknown hints carrying only a type name (boundary values per type). *)
-let strategies_from_il_type (t : Il.typ') : Json_mutator.mutation_strategy list
-    =
-  boundary_values_for_type (Type_tree.resolve_il_typ t)
-
-let strategies_from_hint (hint : Pos.unknown_hint) :
-    Json_mutator.mutation_strategy list =
-  match hint with
-  | Pos.ValueHint v -> strategies_from_il_value v
-  | Pos.TypeHint t -> strategies_from_il_type t
-  | Pos.NoHint -> []
-
 let deduplicate_strategies (strategies : Json_mutator.mutation_strategy list) :
     Json_mutator.mutation_strategy list =
   List.sort_uniq
@@ -606,7 +563,7 @@ let strategies_for_sym_mutation (target_path : field_path)
         | _ -> []
       else generate_toconst_strategies op v None
   | Pos.ToLength (op, v) -> generate_tolength_strategies op v
-  | Pos.Unknown hint -> strategies_from_hint hint
+  | Pos.Unknown v -> strategies_from_il_value v
 
 (* A target path is valid if it names a specific field rather than the whole state or an unknown source. *)
 let is_valid_target (path : field_path) : bool =
