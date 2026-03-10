@@ -237,7 +237,11 @@ module Make (Tgt : Runner.Target.S) = struct
         (let open Core.Command.Let_syntax in
          let open Core.Command.Param in
          let%map checkpoint_file = anon ("checkpoint-file" %: string)
-         and instrumentation_config = Cli_args.config_flags in
+         and instrumentation_config = Cli_args.config_flags
+         and ignore_spec_mismatch =
+           flag "--ignore-spec-mismatch" no_arg
+             ~doc:" Skip spec version check (use when spec has changed)"
+         in
          fun () ->
            let open Runner in
            let run () =
@@ -246,7 +250,7 @@ module Make (Tgt : Runner.Target.S) = struct
              let* spec_il = elaborate spec in
              let* checkpoint =
                Checkpoint.verify_and_load ~file:checkpoint_file ~spec_files
-                 ~verbose:true
+                 ~verbose:true ~ignore_spec_mismatch ()
              in
              Checkpoint.display_report ~spec:spec_il
                ~config:instrumentation_config checkpoint;
@@ -274,11 +278,11 @@ module Make (Tgt : Runner.Target.S) = struct
              let spec_files = collect_spec_files Tgt.spec_dir in
              let* checkpoint1 =
                Checkpoint.verify_and_load ~file:checkpoint_file1 ~spec_files
-                 ~verbose:false
+                 ~verbose:false ()
              in
              let* checkpoint2 =
                Checkpoint.verify_and_load ~file:checkpoint_file2 ~spec_files
-                 ~verbose:false
+                 ~verbose:false ()
              in
              let* merged = Checkpoint.merge checkpoint1 checkpoint2 in
              Checkpoint.save_to_file ~file:output_file merged;

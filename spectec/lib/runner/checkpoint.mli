@@ -38,7 +38,12 @@ val save_to_file : file:string -> t -> unit
 
 (* Load and verify checkpoint from file *)
 val verify_and_load :
-  file:string -> spec_files:string list -> verbose:bool -> (t, Error.t) result
+  file:string ->
+  spec_files:string list ->
+  verbose:bool ->
+  ?ignore_spec_mismatch:bool ->
+  unit ->
+  (t, Error.t) result
 
 (* Filter out already-completed inputs *)
 val filter_remaining : t -> 'a list -> get_id:('a -> string) -> 'a list

@@ -254,8 +254,10 @@ let restore_coverage checkpoint =
    ============================================================================ *)
 
 (* Load and verify checkpoint from file.
-   Returns Ok checkpoint if valid, Error if file cannot be loaded or spec mismatch. *)
-let verify_and_load ~file ~spec_files ~verbose =
+   Returns Ok checkpoint if valid, Error if file cannot be loaded or spec mismatch.
+   If ignore_spec_mismatch is true, skips the spec hash check and prints a warning. *)
+let verify_and_load ~file ~spec_files ~verbose ?(ignore_spec_mismatch = false)
+    () =
   let ( let* ) = Result.bind in
   let* checkpoint = load_from_file ~file in
   match verify_spec checkpoint ~spec_files with
@@ -263,6 +265,13 @@ let verify_and_load ~file ~spec_files ~verbose =
       if verbose then
         Format.printf "Resuming from checkpoint: %s\n"
           (format_summary checkpoint);
+      Ok checkpoint
+  | Error (Error.SpecMismatchError _ as e) when ignore_spec_mismatch ->
+      Format.printf
+        "Warning: spec version mismatch ignored (--ignore-spec-mismatch).\n";
+      if verbose then
+        Format.printf "Loading checkpoint: %s\n" (format_summary checkpoint);
+      ignore e;
       Ok checkpoint
   | Error e -> Error e
 
