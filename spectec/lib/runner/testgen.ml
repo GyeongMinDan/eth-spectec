@@ -431,59 +431,41 @@ let rec strategies_from_il_value (v : Il.Value.t) :
           |> fun strats -> List.filteri (fun i _ -> i < 3) strats)
   | _ -> []
 
-(* Strategies for Unknown hints carrying only a type name (boundary values per type). *)
-let strategies_from_il_type (t : Il.typ') : Json_mutator.mutation_strategy list
-    =
+(* Boundary values for a fully-resolved type-tree node. *)
+let boundary_values_for_type (t : Type_tree.typ) :
+    Json_mutator.mutation_strategy list =
   match t with
-  | Il.NumT (`NatT | `IntT) ->
+  | Type_tree.BoolT ->
+      [
+        Json_mutator.SetValue (`Bool true); Json_mutator.SetValue (`Bool false);
+      ]
+  | Type_tree.NumT _ ->
       [
         Json_mutator.SetValue (`Intlit "0");
         Json_mutator.SetValue (`Intlit "18446744073709551615");
       ]
-  | Il.BoolT ->
-      [
-        Json_mutator.SetValue (`Bool true); Json_mutator.SetValue (`Bool false);
-      ]
-  | Il.TextT ->
+  | Type_tree.TextT ->
       [
         Json_mutator.SetValue (`String "");
         Json_mutator.SetValue (`String "mutated_string");
       ]
-  | Il.VarT (id, _) ->
-      let name = String.lowercase_ascii id.it in
-      if String.length name >= 5 && String.sub name 0 5 = "bytes" then
-        let len =
-          try int_of_string (String.sub name 5 (String.length name - 5))
-          with _ -> 32
-        in
-        [
-          Json_mutator.SetValue (`String ("0x" ^ String.make (len * 2) '0'));
-          Json_mutator.SetValue (`String ("0x" ^ String.make (len * 2) 'f'));
-        ]
-      else if name = "boolean" || name = "bool" then
-        [
-          Json_mutator.SetValue (`Bool true);
-          Json_mutator.SetValue (`Bool false);
-        ]
-      else if
-        List.mem name
-          [ "uint64"; "slot"; "epoch"; "validatorindex"; "nat"; "int" ]
-      then
-        [
-          Json_mutator.SetValue (`Intlit "0");
-          Json_mutator.SetValue (`Intlit "18446744073709551615");
-        ]
-      else if List.mem name [ "root"; "hash32"; "blspubkey"; "blssignature" ]
-      then
-        let len =
-          if name = "blspubkey" || name = "blssignature" then 48 else 32
-        in
-        [
-          Json_mutator.SetValue (`String ("0x" ^ String.make (len * 2) '0'));
-          Json_mutator.SetValue (`String ("0x" ^ String.make (len * 2) 'f'));
-        ]
-      else []
+  | Type_tree.BytesT 0 ->
+      (* variable-length bytes: use 32-byte boundary values as default *)
+      [
+        Json_mutator.SetValue (`String ("0x" ^ String.make 64 '0'));
+        Json_mutator.SetValue (`String ("0x" ^ String.make 64 'f'));
+      ]
+  | Type_tree.BytesT n ->
+      [
+        Json_mutator.SetValue (`String ("0x" ^ String.make (n * 2) '0'));
+        Json_mutator.SetValue (`String ("0x" ^ String.make (n * 2) 'f'));
+      ]
   | _ -> []
+
+(* Strategies for Unknown hints carrying only a type name (boundary values per type). *)
+let strategies_from_il_type (t : Il.typ') : Json_mutator.mutation_strategy list
+    =
+  boundary_values_for_type (Type_tree.resolve_il_typ t)
 
 let strategies_from_hint (hint : Pos.unknown_hint) :
     Json_mutator.mutation_strategy list =
@@ -841,29 +823,6 @@ let get_test_cases_for_premise (puid : premise_uid)
           let key_to_tests = List.to_seq cov.prem_to_test |> Hashtbl.of_seq in
           Hashtbl.find_opt key_to_tests key |> Option.value ~default:[])
 
-let get_premise_info (puid : premise_uid) (coverage : Node_cov.result option) =
-  match coverage with
-  | None -> None
-  | Some cov -> (
-      let key =
-        List.find_map
-          (fun (uid, k) -> if uid = puid then Some k else None)
-          cov.uid_to_prem
-      in
-      match key with
-      | None -> None
-      | Some ((_, content_str) as k) ->
-          let test_cases = get_test_cases_for_premise puid coverage in
-          Some
-            ( {
-                uid = puid;
-                key = k;
-                relation = "unknown";
-                rule = "unknown";
-                content = content_str;
-              },
-              test_cases ))
-
 (* Build a mapping from test_id to the subset of target_uids that covered it. *)
 let get_test_to_premises (target_uids : premise_uid list)
     (coverage : Node_cov.result option) =
@@ -1209,6 +1168,200 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
     in
     (result, diag)
 
+(* Extract the "kind" part of a suggestion string (after " -> "). *)
+let suggestion_kind s =
+  let sep = " -> " in
+  let sep_len = String.length sep in
+  let s_len = String.length s in
+  let rec find i =
+    if i + sep_len > s_len then s
+    else if String.sub s i sep_len = sep then
+      String.sub s (i + sep_len) (s_len - i - sep_len)
+    else find (i + 1)
+  in
+  find 0
+
+let truncate_val s =
+  let max = 60 in
+  if String.length s <= max then s else String.sub s 0 max ^ "..."
+
+(* Display the source JSON value: lists show count instead of content. *)
+let display_from_json json =
+  match json with
+  | `List items ->
+      Printf.sprintf "(%d item%s)" (List.length items)
+        (if List.length items = 1 then "" else "s")
+  | _ -> truncate_val (Yojson.Safe.to_string json)
+
+(* Display the target value with list-aware formatting. *)
+let display_strategy_value _from_json strategy =
+  match strategy with
+  | Json_mutator.SetLength n ->
+      Printf.sprintf "(%d item%s)" n (if n = 1 then "" else "s")
+  | _ -> strategy_to_display_string strategy
+
+(* Classify a JSON value's type for mismatch detection. *)
+let json_type : Yojson.Safe.t -> string = function
+  | `String _ -> "string"
+  | `List _ -> "array"
+  | `Assoc _ -> "object"
+  | `Bool _ -> "bool"
+  | `Int _ | `Intlit _ | `Float _ -> "number"
+  | `Null -> "null"
+
+(* Expected source type for a mutation strategy. *)
+let strategy_source_type : Json_mutator.mutation_strategy -> string = function
+  | Json_mutator.SetValue v -> json_type v
+  | Json_mutator.SetLength _ | Json_mutator.AppendItem | Json_mutator.RemoveItem
+  | Json_mutator.AppendRandom _ ->
+      "array"
+  | Json_mutator.Increment _ | Json_mutator.Decrement _
+  | Json_mutator.SetBoundary ->
+      "number"
+
+(* Flag when the source JSON type is incompatible with the strategy. *)
+let type_mismatch_flag from_json strategy =
+  let ft = json_type from_json in
+  let st = strategy_source_type strategy in
+  if ft = st then "" else Printf.sprintf " [!type: %s→%s]" ft st
+
+(* Print one [mid] line; has_index selects the "[i=N]" variant. *)
+let write_mutation_line ch has_index kind_str sub_total (r : mutation_ok)
+    (mid, strategy) =
+  let variant_suffix =
+    if sub_total > 1 then Printf.sprintf "  (group: %d)" sub_total else ""
+  in
+  let from_s = display_from_json r.from_json in
+  if has_index then
+    let idx =
+      match
+        List.find_map
+          (function Dep.IndexAccess i -> Some i | _ -> None)
+          r.field.steps
+      with
+      | Some i -> i
+      | None -> -1
+    in
+    Printf.fprintf ch "      [i=%-4d] [%s]  %s%s%s  From: %s  →  %s\n" idx mid
+      kind_str variant_suffix
+      (type_mismatch_flag r.from_json strategy)
+      from_s
+      (display_strategy_value r.from_json strategy)
+  else
+    Printf.fprintf ch "      [%s]  %s%s%s  From: %s  →  %s\n" mid kind_str
+      variant_suffix
+      (type_mismatch_flag r.from_json strategy)
+      from_s
+      (display_strategy_value r.from_json strategy)
+
+(* Write premise list + all mutation lines for one sampling_key sub-group. *)
+let write_sub_group ch has_index (sub_entries : mutation_ok list) =
+  let sub_total =
+    match sub_entries with r :: _ -> r.total_variants | [] -> 1
+  in
+  let sub_prems =
+    List.sort_uniq compare (List.concat_map (fun r -> r.prems) sub_entries)
+  in
+  if sub_prems <> [] then
+    Printf.fprintf ch "    Premises: %s\n"
+      (String.concat ", " (List.map string_of_int sub_prems));
+  List.iter
+    (fun r ->
+      let kind_str =
+        match r.suggestion with Some s -> suggestion_kind s | None -> "?"
+      in
+      let pairs = List.combine r.mut_ids r.applied in
+      List.iter (write_mutation_line ch has_index kind_str sub_total r) pairs)
+    sub_entries
+
+(* Write the "- Field:" header + sub-groups + failure lines for one class_key group. *)
+let write_field_group ch (outcomes_for_key : constraint_outcome list) =
+  let ok_entries =
+    List.filter_map
+      (function MutationOk r -> Some r | _ -> None)
+      outcomes_for_key
+  in
+  let has_index =
+    List.exists
+      (fun r ->
+        List.exists
+          (function Dep.IndexAccess _ -> true | _ -> false)
+          r.field.steps)
+      ok_entries
+  in
+  let struct_str =
+    match List.find_map (fun r -> Some r.field) ok_entries with
+    | Some f -> string_of_structural_field_path f
+    | None -> (
+        match outcomes_for_key with
+        | o :: _ -> (
+            match o with
+            | MutationOk r -> structural_path_key r.field
+            | FieldNotFound { field; _ } -> structural_path_key field
+            | JsonLoadFailed { field; _ } -> structural_path_key field)
+        | [] -> "")
+  in
+  let sampled_indices =
+    if has_index then
+      List.filter_map
+        (fun r ->
+          List.find_map
+            (function Dep.IndexAccess i -> Some i | _ -> None)
+            r.field.steps)
+        ok_entries
+      |> List.sort_uniq compare
+    else []
+  in
+  let group_total_for_index =
+    match ok_entries with r :: _ -> r.total_variants | [] -> 1
+  in
+  let field_header =
+    if has_index && List.length sampled_indices > 1 then
+      Printf.sprintf "%s  (i = %s; %d total)" struct_str
+        (String.concat ", " (List.map string_of_int sampled_indices))
+        group_total_for_index
+    else struct_str
+  in
+  Printf.fprintf ch "  - Field: %s\n" field_header;
+  let sub_seen = Hashtbl.create 4 in
+  let sub_order = ref [] in
+  List.iter
+    (fun r ->
+      if not (Hashtbl.mem sub_seen r.sampling_key) then (
+        Hashtbl.replace sub_seen r.sampling_key ();
+        sub_order := r.sampling_key :: !sub_order))
+    ok_entries;
+  let sub_grouped = Hashtbl.create 4 in
+  List.iter
+    (fun r ->
+      let xs =
+        Option.value ~default:[] (Hashtbl.find_opt sub_grouped r.sampling_key)
+      in
+      Hashtbl.replace sub_grouped r.sampling_key (r :: xs))
+    ok_entries;
+  List.iter
+    (fun sk ->
+      let sub_entries =
+        List.rev (Option.value ~default:[] (Hashtbl.find_opt sub_grouped sk))
+      in
+      write_sub_group ch has_index sub_entries)
+    (List.rev !sub_order);
+  List.iter
+    (fun outcome ->
+      match outcome with
+      | FieldNotFound { field; prems; src_label } ->
+          Printf.fprintf ch
+            "      [FAILED] field %s not found (%s)  prems: %s\n"
+            (Dep.string_of_field_path field)
+            src_label
+            (String.concat ", " (List.map string_of_int prems))
+      | JsonLoadFailed { field; prems } ->
+          Printf.fprintf ch "      [FAILED] JSON load: %s  prems: %s\n"
+            (Dep.string_of_field_path field)
+            (String.concat ", " (List.map string_of_int prems))
+      | MutationOk _ -> ())
+    outcomes_for_key
+
 (* Write a report.txt file for a processed seed.
    Pure presentation: reads only from diag, performs no branching on diag data. *)
 let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
@@ -1271,216 +1424,12 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
       let existing = Option.value ~default:[] (Hashtbl.find_opt grouped k) in
       Hashtbl.replace grouped k (o :: existing))
     diag.constraint_outcomes;
-  (* Extract the "kind" part of a suggestion string (after " → ").
-     The arrow is UTF-8 U+2192 = bytes \xe2\x86\x92. *)
-  let suggestion_kind s =
-    let sep = " -> " in
-    let sep_len = String.length sep in
-    let s_len = String.length s in
-    let rec find i =
-      if i + sep_len > s_len then s
-      else if String.sub s i sep_len = sep then
-        String.sub s (i + sep_len) (s_len - i - sep_len)
-      else find (i + 1)
-    in
-    find 0
-  in
-  let truncate_val s =
-    let max = 60 in
-    if String.length s <= max then s else String.sub s 0 max ^ "..."
-  in
   List.iter
     (fun key ->
       let outcomes_for_key =
         List.rev (Option.value ~default:[] (Hashtbl.find_opt grouped key))
       in
-      let ok_entries =
-        List.filter_map
-          (function MutationOk r -> Some r | _ -> None)
-          outcomes_for_key
-      in
-      (* Does any entry in this group have a concrete index in its path? *)
-      let has_index =
-        List.exists
-          (fun r ->
-            List.exists
-              (function Dep.IndexAccess _ -> true | _ -> false)
-              r.field.steps)
-          ok_entries
-      in
-      (* Structural display string and sampled index list *)
-      let struct_str =
-        match List.find_map (fun r -> Some r.field) ok_entries with
-        | Some f -> string_of_structural_field_path f
-        | None -> key
-      in
-      let sampled_indices =
-        if has_index then
-          List.filter_map
-            (fun r ->
-              List.find_map
-                (function Dep.IndexAccess i -> Some i | _ -> None)
-                r.field.steps)
-            ok_entries
-          |> List.sort_uniq compare
-        else []
-      in
-      (* Group total from the first entry (all entries in one sampling key
-         share the same group_total value since they were sampled together). *)
-      let group_total_for_index =
-        match ok_entries with r :: _ -> r.total_variants | [] -> 1
-      in
-      let field_header =
-        if has_index && List.length sampled_indices > 1 then
-          Printf.sprintf "%s  (i = %s; %d total)" struct_str
-            (String.concat ", " (List.map string_of_int sampled_indices))
-            group_total_for_index
-        else struct_str
-      in
-      Printf.fprintf report_ch "  - Field: %s\n" field_header;
-      (* Sub-group by sampling_key so that different ops on the same field
-         (e.g. ">= 33" and "!= 1") appear as separate labelled blocks. *)
-      let sub_seen = Hashtbl.create 4 in
-      let sub_order = ref [] in
-      List.iter
-        (fun r ->
-          if not (Hashtbl.mem sub_seen r.sampling_key) then (
-            Hashtbl.replace sub_seen r.sampling_key ();
-            sub_order := r.sampling_key :: !sub_order))
-        ok_entries;
-      let sub_grouped = Hashtbl.create 4 in
-      List.iter
-        (fun r ->
-          let xs =
-            Option.value ~default:[]
-              (Hashtbl.find_opt sub_grouped r.sampling_key)
-          in
-          Hashtbl.replace sub_grouped r.sampling_key (r :: xs))
-        ok_entries;
-      List.iter
-        (fun sk ->
-          let sub_entries =
-            List.rev
-              (Option.value ~default:[] (Hashtbl.find_opt sub_grouped sk))
-          in
-          let sub_total =
-            match sub_entries with r :: _ -> r.total_variants | [] -> 1
-          in
-          (* Print per-sub-group premises *)
-          let sub_prems =
-            List.sort_uniq compare
-              (List.concat_map (fun r -> r.prems) sub_entries)
-          in
-          if sub_prems <> [] then
-            Printf.fprintf report_ch "    Premises: %s\n"
-              (String.concat ", " (List.map string_of_int sub_prems));
-          (* Print each instance — no sub-group label; the kind string on each
-             line already makes the suggestion clear. Each (mut_id, strategy)
-             pair gets its own line. *)
-          (* Display the source JSON value; lists show count instead of content. *)
-          let display_from json =
-            match json with
-            | `List items ->
-                Printf.sprintf "(%d item%s)" (List.length items)
-                  (if List.length items = 1 then "" else "s")
-            | _ -> truncate_val (Yojson.Safe.to_string json)
-          in
-          (* Display the target value with list-aware formatting. *)
-          let display_strategy from_json strategy =
-            match strategy with
-            | Json_mutator.SetLength n ->
-                (* Both sides are lists: show "(N items)" for the target too. *)
-                let _ = from_json in
-                Printf.sprintf "(%d item%s)" n (if n = 1 then "" else "s")
-            | _ -> strategy_to_display_string strategy
-          in
-          (* Classify a JSON value's type for mismatch detection. *)
-          let json_type : Yojson.Safe.t -> string = function
-            | `String _ -> "string"
-            | `List _ -> "array"
-            | `Assoc _ -> "object"
-            | `Bool _ -> "bool"
-            | `Int _ | `Intlit _ | `Float _ -> "number"
-            | `Null -> "null"
-          in
-          (* Expected source type for a mutation strategy. *)
-          let strategy_source_type : Json_mutator.mutation_strategy -> string =
-            function
-            | Json_mutator.SetValue v -> json_type v
-            | Json_mutator.SetLength _ | Json_mutator.AppendItem
-            | Json_mutator.RemoveItem | Json_mutator.AppendRandom _ ->
-                "array"
-            | Json_mutator.Increment _ | Json_mutator.Decrement _
-            | Json_mutator.SetBoundary ->
-                "number"
-          in
-          (* Flag when the source JSON type is incompatible with the strategy. *)
-          let type_mismatch_flag from_json strategy =
-            let ft = json_type from_json in
-            let st = strategy_source_type strategy in
-            if ft = st then "" else Printf.sprintf " [!type: %s→%s]" ft st
-          in
-          List.iter
-            (fun r ->
-              let kind_str =
-                match r.suggestion with
-                | Some s -> suggestion_kind s
-                | None -> "?"
-              in
-              let variant_suffix =
-                if sub_total > 1 then Printf.sprintf "  (group: %d)" sub_total
-                else ""
-              in
-              let from_s = display_from r.from_json in
-              let pairs = List.combine r.mut_ids r.applied in
-              if has_index then
-                let idx =
-                  match
-                    List.find_map
-                      (function Dep.IndexAccess i -> Some i | _ -> None)
-                      r.field.steps
-                  with
-                  | Some i -> i
-                  | None -> -1
-                in
-                List.iter
-                  (fun (mid, strategy) ->
-                    Printf.fprintf report_ch
-                      "      [i=%-4d] [%s]  %s%s%s  From: %s  →  %s\n" idx mid
-                      kind_str variant_suffix
-                      (type_mismatch_flag r.from_json strategy)
-                      from_s
-                      (display_strategy r.from_json strategy))
-                  pairs
-              else
-                List.iter
-                  (fun (mid, strategy) ->
-                    Printf.fprintf report_ch
-                      "      [%s]  %s%s%s  From: %s  →  %s\n" mid kind_str
-                      variant_suffix
-                      (type_mismatch_flag r.from_json strategy)
-                      from_s
-                      (display_strategy r.from_json strategy))
-                  pairs)
-            sub_entries)
-        (List.rev !sub_order);
-      (* Append non-MutationOk failures for this group *)
-      List.iter
-        (fun outcome ->
-          match outcome with
-          | FieldNotFound { field; prems; src_label } ->
-              Printf.fprintf report_ch
-                "      [FAILED] field %s not found (%s)  prems: %s\n"
-                (Dep.string_of_field_path field)
-                src_label
-                (String.concat ", " (List.map string_of_int prems))
-          | JsonLoadFailed { field; prems } ->
-              Printf.fprintf report_ch
-                "      [FAILED] JSON load: %s  prems: %s\n"
-                (Dep.string_of_field_path field)
-                (String.concat ", " (List.map string_of_int prems))
-          | MutationOk _ -> ())
-        outcomes_for_key)
+      write_field_group report_ch outcomes_for_key)
     (List.rev !key_order);
   let mutation_count =
     List.fold_left
@@ -1667,89 +1616,6 @@ let write_suggestions_log ~output_dir ~test_id (diag : process_diag) =
     (List.rev !grp_order);
   close_out ch
 
-(* ===== Legacy premise-centric generation ===== *)
-
-(* Convert sym_mutations for a premise into a deduplicated mutation_constraint list. *)
-let infer_mutation_constraints (puid : premise_uid)
-    (_coverage : Node_cov.result option) (dependency : Pos.result option) :
-    mutation_constraint list =
-  get_mutation_suggestions_for_premise puid dependency
-  |> group_and_sample_sym_mutations
-  |> List.filter_map (fun (sym_mut, group_total) ->
-         sym_mutation_to_constraint ~group_total sym_mut)
-  |> deduplicate_constraints
-
-(* Generate mutations for a single premise using one base test case.
-   Returns list of (mut_id, out_pre_path, out_block_path). *)
-let generate_test_case ~(test_dir : string) ~(output_dir : string)
-    (puid : premise_uid) (coverage : Node_cov.result option)
-    (dependency : Pos.result option) (base_test_case_id : test_case_id option) =
-  let constraints = infer_mutation_constraints puid coverage dependency in
-  let test_id_opt =
-    match base_test_case_id with
-    | Some id -> Some id
-    | None -> (
-        match get_test_cases_for_premise puid coverage with
-        | [] -> None
-        | first :: _ -> Some first)
-  in
-  match test_id_opt with
-  | None -> []
-  | Some test_id_raw ->
-      let test_id = test_id_to_dir test_id_raw in
-      let pre_path = Filename.concat test_dir (test_id ^ "_pre.json") in
-      let block_path = Filename.concat test_dir (test_id ^ "_block.json") in
-      let premise_output_dir =
-        Filename.concat output_dir (Printf.sprintf "premise_%d" puid)
-      in
-      mkdir_p premise_output_dir;
-
-      let report_ch =
-        open_out (Filename.concat premise_output_dir "report.txt")
-      in
-      Printf.fprintf report_ch
-        "Mutation Report for Premise UID %d\nBase Test Case: %s\n\n" puid
-        test_id;
-
-      let generated = ref [] in
-      List.iteri
-        (fun c_idx constraint_ ->
-          List.iteri
-            (fun s_idx strategy ->
-              let mut_id =
-                Printf.sprintf "%s_mut%d_%d"
-                  (String.map (fun c -> if c = '/' then '_' else c) test_id)
-                  c_idx s_idx
-              in
-              let single = { constraint_ with strategies = [ strategy ] } in
-              let out_pre, out_block =
-                mutate_json_input ~output_dir:premise_output_dir mut_id
-                  [ single ] [] pre_path block_path
-              in
-              if out_pre <> pre_path then (
-                generated := (mut_id, out_pre, out_block) :: !generated;
-                Printf.fprintf report_ch
-                  "Mutation ID: %s\n  Field Path: %s\n  Strategy: %s\n\n" mut_id
-                  (Dep.string_of_field_path constraint_.field_path)
-                  (strategy_to_display_string strategy)))
-            constraint_.strategies)
-        constraints;
-
-      close_out report_ch;
-      List.rev !generated
-
-(* Run generate_test_case for each premise in puids. *)
-let generate_test_cases ~(test_dir : string) ~(output_dir : string)
-    (puids : premise_uid list) (coverage : Node_cov.result option)
-    (dependency : Pos.result option) =
-  List.map
-    (fun uid ->
-      let results =
-        generate_test_case ~test_dir ~output_dir uid coverage dependency None
-      in
-      (uid, results))
-    puids
-
 (* ===== Checkpoint utilities ===== *)
 
 (* Load a coverage checkpoint and extract its coverage and dependency fields. *)
@@ -1870,33 +1736,200 @@ let filter_by_seed_type (seed_filter : string option)
 
 (* ===== Test-case-centric generation ===== *)
 
-(* Generate mutations for each test case in test_to_prems using an on-demand
-   dependency analysis callback. No checkpoint support or global dedup. *)
-let generate_tests_by_test_case ~(test_dir : string) ~(output_dir : string)
-    (premise_uids : premise_uid list) (coverage : Node_cov.result option)
-    (analyze_test_case : test_case_id -> premise_uid list -> Pos.result option)
-    =
-  let test_to_prems = get_test_to_premises premise_uids coverage in
-  List.filter_map
-    (fun (test_id, prem_uids) ->
-      Format.printf "Processing test case: %s (premises: %s)\n%!" test_id
-        (String.concat ", " (List.map string_of_int prem_uids));
-      match analyze_test_case test_id prem_uids with
-      | None ->
-          Format.printf "  Skipped: analysis failed\n%!";
-          None
-      | Some dependency_result ->
-          let result_opt, diag =
-            process_test_case ~test_dir ~output_dir test_id prem_uids
-              dependency_result
-          in
-          (match result_opt with
-          | Some _ ->
-              write_seed_report ~output_dir ~test_id ~prem_uids diag;
-              write_suggestions_log ~output_dir ~test_id diag
-          | None -> ());
-          result_opt)
-    test_to_prems
+(* Classify a seed test id as sanity / finality / random / other. *)
+let seed_kind_of_id id =
+  let lower = String.lowercase_ascii id in
+  let contains s =
+    try
+      let _ = Str.search_forward (Str.regexp_string s) lower 0 in
+      true
+    with Not_found -> false
+  in
+  if contains "sanity" then `Sanity
+  else if contains "finality" then `Finality
+  else if contains "random" then `Random
+  else `Other
+
+(* Seed-type filter + slot-gap filter + K-cover selection.
+   Returns the list of (test_id, prem_uids) to process. *)
+let filter_and_select_seeds ~test_dir ~max_slot_gap ~coverage_level
+    ~filter_seeds premise_uids
+    (all_test_to_prems : (test_case_id * premise_uid list) list) =
+  let seed_filtered = filter_by_seed_type filter_seeds all_test_to_prems in
+  let slot_filtered =
+    let before = List.length seed_filtered in
+    let result =
+      List.filter
+        (fun (tid, _) -> slot_gap_within_limit ~test_dir ~max_slot_gap tid)
+        seed_filtered
+    in
+    let after = List.length result in
+    if before <> after then
+      Format.printf "Slot-gap filter (max %d): %d → %d tests\n%!" max_slot_gap
+        before after;
+    result
+  in
+  if coverage_level = 0 then slot_filtered
+  else (
+    Format.printf "Selecting seeds with K-cover (k=%d, greedy set cover)...\n%!"
+      coverage_level;
+    let prem_to_tests = Hashtbl.create 256 in
+    let test_to_prems_tbl = Hashtbl.create 256 in
+    List.iter
+      (fun (tid, prems) ->
+        Hashtbl.replace test_to_prems_tbl tid prems;
+        List.iter
+          (fun p ->
+            let existing =
+              Hashtbl.find_opt prem_to_tests p |> Option.value ~default:[]
+            in
+            if not (List.mem tid existing) then
+              Hashtbl.replace prem_to_tests p (tid :: existing))
+          prems)
+      slot_filtered;
+    let selected =
+      Source_selector.select_k_cover_tests ~k:coverage_level premise_uids
+        prem_to_tests test_to_prems_tbl
+    in
+    Format.printf
+      "Selected %d tests (from %d candidates) covering %d premises (k=%d)\n%!"
+      (List.length selected)
+      (List.length slot_filtered)
+      (List.length premise_uids) coverage_level;
+    List.sort
+      (fun (t1, _) (t2, _) ->
+        let p1 =
+          match seed_kind_of_id t1 with `Sanity -> 0 | `Random -> 2 | _ -> 1
+        in
+        let p2 =
+          match seed_kind_of_id t2 with `Sanity -> 0 | `Random -> 2 | _ -> 1
+        in
+        if p1 <> p2 then compare p1 p2 else String.compare t1 t2)
+      selected)
+
+(* Process one seed in the main loop; returns tc_result option.
+   Mutates analyzed, last_dep_result, analysis_failed_count, all_diags. *)
+let process_one_seed ~test_dir ~output_dir ~checkpoint_file ~save_interval ~idx
+    ~total ~already_completed ~analyzed ~last_dep_result ~analysis_failed_count
+    ~all_diags analyze_test_case (test_id, prem_uids) =
+  Format.printf "[%d/%d] Processing test case: %s\n%!"
+    (already_completed + idx + 1)
+    total test_id;
+  let result_opt = analyze_test_case test_id prem_uids in
+  (match result_opt with Some r -> last_dep_result := Some r | None -> ());
+  analyzed := test_id :: !analyzed;
+  (if (idx + 1) mod save_interval = 0 then
+     match result_opt with
+     | Some r ->
+         save_testgen_checkpoint ~file:checkpoint_file ~analyzed:!analyzed
+           ~positive_result:r;
+         Instrumentation.Dependency.Positive.clear_large_state ()
+     | None -> ());
+  match result_opt with
+  | None ->
+      analysis_failed_count := !analysis_failed_count + 1;
+      Format.printf "  Skipped: analysis failed\n%!";
+      None
+  | Some dep_result ->
+      let tc_result, diag =
+        process_test_case ~test_dir ~output_dir test_id prem_uids dep_result
+      in
+      all_diags := diag :: !all_diags;
+      (match tc_result with
+      | Some _ ->
+          write_seed_report ~output_dir ~test_id ~prem_uids diag;
+          write_suggestions_log ~output_dir ~test_id diag
+      | None -> ());
+      tc_result
+
+(* Compute all summary stats, print to stdout, and write summary.txt. *)
+let build_and_write_summary ~output_dir ~total_selected ~already_completed
+    ~seeds_analyzed ~analysis_failed_count ~test_to_prems ~premise_uids
+    ~all_diags =
+  let seeds_with_mutations =
+    List.length (List.filter (fun d -> d.covered_prems <> []) all_diags)
+  in
+  let all_covered_prems =
+    List.sort_uniq compare
+      (List.concat_map (fun d -> d.covered_prems) all_diags)
+  in
+  let total_mutations =
+    List.fold_left
+      (fun acc d ->
+        acc
+        + List.length
+            (List.filter
+               (function MutationOk _ -> true | _ -> false)
+               d.constraint_outcomes))
+      0 all_diags
+  in
+  let n_sanity, n_finality, n_random, n_other =
+    List.fold_left
+      (fun (s, f, r, o) (tid, _) ->
+        match seed_kind_of_id tid with
+        | `Sanity -> (s + 1, f, r, o)
+        | `Finality -> (s, f + 1, r, o)
+        | `Random -> (s, f, r + 1, o)
+        | `Other -> (s, f, r, o + 1))
+      (0, 0, 0, 0) test_to_prems
+  in
+  let covered_by_seeds =
+    List.fold_left
+      (fun acc (_, prems) ->
+        List.fold_left (fun a p -> if List.mem p a then a else p :: a) acc prems)
+      [] test_to_prems
+  in
+  let no_seed_coverage =
+    List.filter (fun uid -> not (List.mem uid covered_by_seeds)) premise_uids
+  in
+  let no_mutations =
+    List.filter
+      (fun uid -> not (List.mem uid all_covered_prems))
+      covered_by_seeds
+  in
+  let seeds_no_mutations =
+    seeds_analyzed - analysis_failed_count - seeds_with_mutations
+  in
+  let summary_lines =
+    let buf = Buffer.create 512 in
+    let pr fmt = Printf.bprintf buf (fmt ^^ "\n") in
+    pr "=== Test Generation Summary ===";
+    pr "";
+    pr "Seeds:";
+    pr "  Selected: %d  (Sanity: %d | Finality: %d | Random: %d | Other: %d)"
+      total_selected n_sanity n_finality n_random n_other;
+    if already_completed > 0 then
+      pr "  Already analyzed (checkpoint): %d" already_completed;
+    pr "  Analyzed this run: %d  (failed: %d)" seeds_analyzed
+      analysis_failed_count;
+    pr "  Generated mutations: %d seeds  |  No new mutations: %d seeds"
+      seeds_with_mutations seeds_no_mutations;
+    pr "";
+    pr "Mutations: %d total" total_mutations;
+    if seeds_with_mutations > 0 then
+      pr "  Avg per seed: %.1f"
+        (float_of_int total_mutations /. float_of_int seeds_with_mutations);
+    pr "";
+    pr "Premise coverage (%d targeted):" (List.length premise_uids);
+    pr "  Covered by seeds:  %d" (List.length covered_by_seeds);
+    pr "  Got >=1 mutation:  %d" (List.length all_covered_prems);
+    if no_seed_coverage <> [] then
+      pr "  No seed coverage:  %d  (UIDs: %s)"
+        (List.length no_seed_coverage)
+        (String.concat ", "
+           (List.map string_of_int (List.sort compare no_seed_coverage)));
+    if no_mutations <> [] then
+      pr "  No mutations:      %d  (UIDs: %s)" (List.length no_mutations)
+        (String.concat ", "
+           (List.map string_of_int (List.sort compare no_mutations)));
+    Buffer.contents buf
+  in
+  Format.printf "\n%s%!" summary_lines;
+  let summary_path = Filename.concat output_dir "summary.txt" in
+  let ch = open_out summary_path in
+  output_string ch summary_lines;
+  close_out ch;
+  Format.printf "Summary written to: %s\n%!" summary_path
 
 (* Generate mutations for each test case with checkpoint support.
    Supports resuming from a prior run, seed-type filtering, slot-gap filtering,
@@ -1917,66 +1950,9 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
   in
 
   let all_test_to_prems = get_test_to_premises premise_uids coverage in
-  let seed_filtered = filter_by_seed_type filter_seeds all_test_to_prems in
-
-  let slot_filtered =
-    let before = List.length seed_filtered in
-    let result =
-      List.filter
-        (fun (tid, _) -> slot_gap_within_limit ~test_dir ~max_slot_gap tid)
-        seed_filtered
-    in
-    let after = List.length result in
-    if before <> after then
-      Format.printf "Slot-gap filter (max %d): %d → %d tests\n%!" max_slot_gap
-        before after;
-    result
-  in
-
   let test_to_prems =
-    if coverage_level = 0 then slot_filtered
-    else (
-      Format.printf
-        "Selecting seeds with K-cover (k=%d, greedy set cover)...\n%!"
-        coverage_level;
-      let prem_to_tests = Hashtbl.create 256 in
-      let test_to_prems_tbl = Hashtbl.create 256 in
-      List.iter
-        (fun (tid, prems) ->
-          Hashtbl.replace test_to_prems_tbl tid prems;
-          List.iter
-            (fun p ->
-              let existing =
-                Hashtbl.find_opt prem_to_tests p |> Option.value ~default:[]
-              in
-              if not (List.mem tid existing) then
-                Hashtbl.replace prem_to_tests p (tid :: existing))
-            prems)
-        slot_filtered;
-      let selected =
-        Source_selector.select_k_cover_tests ~k:coverage_level premise_uids
-          prem_to_tests test_to_prems_tbl
-      in
-      Format.printf
-        "Selected %d tests (from %d candidates) covering %d premises (k=%d)\n%!"
-        (List.length selected)
-        (List.length slot_filtered)
-        (List.length premise_uids) coverage_level;
-      let test_priority (test_id, _) =
-        let lower = String.lowercase_ascii test_id in
-        let contains s =
-          try
-            let _ = Str.search_forward (Str.regexp_string s) lower 0 in
-            true
-          with Not_found -> false
-        in
-        if contains "sanity" then 0 else if contains "random" then 2 else 1
-      in
-      List.sort
-        (fun t1 t2 ->
-          let p1 = test_priority t1 and p2 = test_priority t2 in
-          if p1 <> p2 then compare p1 p2 else String.compare (fst t1) (fst t2))
-        selected)
+    filter_and_select_seeds ~test_dir ~max_slot_gap ~coverage_level
+      ~filter_seeds premise_uids all_test_to_prems
   in
 
   let all_test_ids = List.map fst test_to_prems in
@@ -2001,42 +1977,10 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
 
   let results =
     List.mapi
-      (fun idx (test_id, prem_uids) ->
-        Format.printf "[%d/%d] Processing test case: %s\n%!"
-          (already_completed + idx + 1)
-          total test_id;
-
-        let result_opt = analyze_test_case test_id prem_uids in
-        (match result_opt with
-        | Some r -> last_dep_result := Some r
-        | None -> ());
-        analyzed := test_id :: !analyzed;
-
-        (if (idx + 1) mod save_interval = 0 then
-           match result_opt with
-           | Some r ->
-               save_testgen_checkpoint ~file:checkpoint_file ~analyzed:!analyzed
-                 ~positive_result:r;
-               Instrumentation.Dependency.Positive.clear_large_state ()
-           | None -> ());
-
-        match result_opt with
-        | None ->
-            analysis_failed_count := !analysis_failed_count + 1;
-            Format.printf "  Skipped: analysis failed\n%!";
-            None
-        | Some dep_result ->
-            let tc_result, diag =
-              process_test_case ~test_dir ~output_dir test_id prem_uids
-                dep_result
-            in
-            all_diags := diag :: !all_diags;
-            (match tc_result with
-            | Some _ ->
-                write_seed_report ~output_dir ~test_id ~prem_uids diag;
-                write_suggestions_log ~output_dir ~test_id diag
-            | None -> ());
-            tc_result)
+      (fun idx seed ->
+        process_one_seed ~test_dir ~output_dir ~checkpoint_file ~save_interval
+          ~idx ~total ~already_completed ~analyzed ~last_dep_result
+          ~analysis_failed_count ~all_diags analyze_test_case seed)
       remaining
     |> List.filter_map Fun.id
   in
@@ -2051,100 +1995,10 @@ let generate_tests_with_checkpoint ~(test_dir : string) ~(output_dir : string)
       | None -> ())
   | _ -> ());
 
-  (* ===== Comprehensive summary ===== *)
-  let seeds_with_mutations =
-    List.length (List.filter (fun d -> d.covered_prems <> []) !all_diags)
-  in
-  let all_covered_prems =
-    List.sort_uniq compare
-      (List.concat_map (fun d -> d.covered_prems) !all_diags)
-  in
-  let total_mutations =
-    List.fold_left
-      (fun acc d ->
-        acc
-        + List.length
-            (List.filter
-               (function MutationOk _ -> true | _ -> false)
-               d.constraint_outcomes))
-      0 !all_diags
-  in
-  (* Seed type breakdown *)
-  let n_sanity, n_finality, n_random, n_other =
-    List.fold_left
-      (fun (s, f, r, o) (tid, _) ->
-        let lower = String.lowercase_ascii tid in
-        let contains str =
-          try
-            let _ = Str.search_forward (Str.regexp_string str) lower 0 in
-            true
-          with Not_found -> false
-        in
-        if contains "sanity" then (s + 1, f, r, o)
-        else if contains "finality" then (s, f + 1, r, o)
-        else if contains "random" then (s, f, r + 1, o)
-        else (s, f, r, o + 1))
-      (0, 0, 0, 0) test_to_prems
-  in
-  (* Premise coverage *)
-  let covered_by_seeds =
-    List.fold_left
-      (fun acc (_, prems) ->
-        List.fold_left (fun a p -> if List.mem p a then a else p :: a) acc prems)
-      [] test_to_prems
-  in
-  let no_seed_coverage =
-    List.filter (fun uid -> not (List.mem uid covered_by_seeds)) premise_uids
-  in
-  let no_mutations =
-    List.filter
-      (fun uid -> not (List.mem uid all_covered_prems))
-      covered_by_seeds
-  in
-  let seeds_analyzed = List.length remaining in
-  let seeds_no_mutations =
-    seeds_analyzed - !analysis_failed_count - seeds_with_mutations
-  in
-  let summary_lines =
-    let buf = Buffer.create 512 in
-    let pr fmt = Printf.bprintf buf (fmt ^^ "\n") in
-    pr "=== Test Generation Summary ===";
-    pr "";
-    pr "Seeds:";
-    pr "  Selected: %d  (Sanity: %d | Finality: %d | Random: %d | Other: %d)"
-      (List.length test_to_prems)
-      n_sanity n_finality n_random n_other;
-    if already_completed > 0 then
-      pr "  Already analyzed (checkpoint): %d" already_completed;
-    pr "  Analyzed this run: %d  (failed: %d)" seeds_analyzed
-      !analysis_failed_count;
-    pr "  Generated mutations: %d seeds  |  No new mutations: %d seeds"
-      seeds_with_mutations seeds_no_mutations;
-    pr "";
-    pr "Mutations: %d total" total_mutations;
-    if seeds_with_mutations > 0 then
-      pr "  Avg per seed: %.1f"
-        (float_of_int total_mutations /. float_of_int seeds_with_mutations);
-    pr "";
-    pr "Premise coverage (%d targeted):" (List.length premise_uids);
-    pr "  Covered by seeds:  %d" (List.length covered_by_seeds);
-    pr "  Got >=1 mutation:  %d" (List.length all_covered_prems);
-    if no_seed_coverage <> [] then
-      pr "  No seed coverage:  %d  (UIDs: %s)"
-        (List.length no_seed_coverage)
-        (String.concat ", "
-           (List.map string_of_int (List.sort compare no_seed_coverage)));
-    if no_mutations <> [] then
-      pr "  No mutations:      %d  (UIDs: %s)" (List.length no_mutations)
-        (String.concat ", "
-           (List.map string_of_int (List.sort compare no_mutations)));
-    Buffer.contents buf
-  in
-  Format.printf "\n%s%!" summary_lines;
-  (let summary_path = Filename.concat output_dir "summary.txt" in
-   let ch = open_out summary_path in
-   output_string ch summary_lines;
-   close_out ch;
-   Format.printf "Summary written to: %s\n%!" summary_path);
+  build_and_write_summary ~output_dir
+    ~total_selected:(List.length test_to_prems)
+    ~already_completed ~seeds_analyzed:(List.length remaining)
+    ~analysis_failed_count:!analysis_failed_count ~test_to_prems ~premise_uids
+    ~all_diags:!all_diags;
 
   results

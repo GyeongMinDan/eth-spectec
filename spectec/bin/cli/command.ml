@@ -465,32 +465,6 @@ module Make (Tgt : Runner.Target.S) = struct
              Instrumentation_static.Type_tree.init static_spec;
              Instrumentation_static.Mutator_analysis.init static_spec;
 
-             let _find_relation_for_uid uid =
-               match get_premise_info uid coverage with
-               | Some ({ key = region, _; _ }, _) ->
-                   (* Scan spec for this region *)
-                   let found = ref None in
-                   let open Common.Source in
-                   let open Lang.Il in
-                   List.iter
-                     (fun def ->
-                       match def.it with
-                       | RelD (id, sig_, _, rules) ->
-                           List.iter
-                             (fun rule ->
-                               let _, _, prems = rule.it in
-                               List.iter
-                                 (fun prem ->
-                                   if prem.at = region then
-                                     found := Some (id.it, sig_))
-                                 prems)
-                             rules
-                       | _ -> ())
-                     spec_il;
-                   !found
-               | None -> None
-             in
-
              (* Helper to run positive analysis on a specific test case *)
              let analyze_test_case test_id target_uids =
                let open Instrumentation in
