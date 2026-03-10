@@ -50,9 +50,10 @@ type mutation_ok = {
       (* structural path + op class — inner grouping within class_key *)
   total_variants : int;
       (* sampling group size before sampling; 1 = not grouped *)
-  from_val : string;
-  to_vals : string list; (* one entry per successfully applied strategy *)
-  mut_ids : string list; (* parallel to to_vals — the mut_... directory name *)
+  from_json : Yojson.Safe.t;
+  applied : Json_mutator.mutation_strategy list;
+      (* one entry per successfully applied strategy *)
+  mut_ids : string list; (* parallel to applied — the mut_... directory name *)
 }
 
 (* Outcome of one (constraint × all-strategies) attempt, for reporting only. *)
@@ -1142,9 +1143,9 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
               String.concat "_"
                 (List.map (Printf.sprintf "prem%d") puids_for_constraint)
             in
-            (* Apply all strategies for this constraint; accumulate to_vals
-               so the report shows one grouped entry per constraint. *)
-            let to_vals = ref [] in
+            (* Apply all strategies for this constraint; accumulate applied
+               strategies so the report shows one grouped entry per constraint. *)
+            let applied = ref [] in
             let mut_ids = ref [] in
             List.iteri
               (fun s_idx strategy ->
@@ -1161,10 +1162,10 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                     (fun uid -> Hashtbl.replace local_covered uid ())
                     puids_for_constraint;
                   generated := (mut_id, out_pre, out_block) :: !generated;
-                  to_vals := strategy_to_display_string strategy :: !to_vals;
+                  applied := strategy :: !applied;
                   mut_ids := mut_id :: !mut_ids))
               strats;
-            if !to_vals <> [] then
+            if !applied <> [] then
               outcomes :=
                 MutationOk
                   {
@@ -1174,12 +1175,8 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                     class_key = constraint_.class_key;
                     sampling_key = constraint_.sampling_key;
                     total_variants = constraint_.group_total;
-                    from_val =
-                      (match src with
-                      | `List items ->
-                          Printf.sprintf "(%d items)" (List.length items)
-                      | _ -> Yojson.Safe.to_string src);
-                    to_vals = List.rev !to_vals;
+                    from_json = src;
+                    applied = List.rev !applied;
                     mut_ids = List.rev !mut_ids;
                   }
                 :: !outcomes
@@ -1378,8 +1375,51 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
             Printf.fprintf report_ch "    Premises: %s\n"
               (String.concat ", " (List.map string_of_int sub_prems));
           (* Print each instance — no sub-group label; the kind string on each
-             line already makes the suggestion clear. Each (mut_id, to_val)
+             line already makes the suggestion clear. Each (mut_id, strategy)
              pair gets its own line. *)
+          (* Display the source JSON value; lists show count instead of content. *)
+          let display_from json =
+            match json with
+            | `List items ->
+                Printf.sprintf "(%d item%s)" (List.length items)
+                  (if List.length items = 1 then "" else "s")
+            | _ -> truncate_val (Yojson.Safe.to_string json)
+          in
+          (* Display the target value with list-aware formatting. *)
+          let display_strategy from_json strategy =
+            match strategy with
+            | Json_mutator.SetLength n ->
+                (* Both sides are lists: show "(N items)" for the target too. *)
+                let _ = from_json in
+                Printf.sprintf "(%d item%s)" n (if n = 1 then "" else "s")
+            | _ -> strategy_to_display_string strategy
+          in
+          (* Classify a JSON value's type for mismatch detection. *)
+          let json_type : Yojson.Safe.t -> string = function
+            | `String _ -> "string"
+            | `List _ -> "array"
+            | `Assoc _ -> "object"
+            | `Bool _ -> "bool"
+            | `Int _ | `Intlit _ | `Float _ -> "number"
+            | `Null -> "null"
+          in
+          (* Expected source type for a mutation strategy. *)
+          let strategy_source_type : Json_mutator.mutation_strategy -> string =
+            function
+            | Json_mutator.SetValue v -> json_type v
+            | Json_mutator.SetLength _ | Json_mutator.AppendItem
+            | Json_mutator.RemoveItem | Json_mutator.AppendRandom _ ->
+                "array"
+            | Json_mutator.Increment _ | Json_mutator.Decrement _
+            | Json_mutator.SetBoundary ->
+                "number"
+          in
+          (* Flag when the source JSON type is incompatible with the strategy. *)
+          let type_mismatch_flag from_json strategy =
+            let ft = json_type from_json in
+            let st = strategy_source_type strategy in
+            if ft = st then "" else Printf.sprintf " [!type: %s→%s]" ft st
+          in
           List.iter
             (fun r ->
               let kind_str =
@@ -1391,7 +1431,8 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
                 if sub_total > 1 then Printf.sprintf "  (group: %d)" sub_total
                 else ""
               in
-              let pairs = List.combine r.mut_ids r.to_vals in
+              let from_s = display_from r.from_json in
+              let pairs = List.combine r.mut_ids r.applied in
               if has_index then
                 let idx =
                   match
@@ -1403,15 +1444,23 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
                   | None -> -1
                 in
                 List.iter
-                  (fun (mid, tval) ->
-                    Printf.fprintf report_ch "    [i=%-4d] [%s]  %s%s  →  %s\n"
-                      idx mid kind_str variant_suffix tval)
+                  (fun (mid, strategy) ->
+                    Printf.fprintf report_ch
+                      "      [i=%-4d] [%s]  %s%s%s  From: %s  →  %s\n" idx mid
+                      kind_str variant_suffix
+                      (type_mismatch_flag r.from_json strategy)
+                      from_s
+                      (display_strategy r.from_json strategy))
                   pairs
               else
                 List.iter
-                  (fun (mid, tval) ->
-                    Printf.fprintf report_ch "    [%s]  %s%s  From: %s  →  %s\n"
-                      mid kind_str variant_suffix (truncate_val r.from_val) tval)
+                  (fun (mid, strategy) ->
+                    Printf.fprintf report_ch
+                      "      [%s]  %s%s%s  From: %s  →  %s\n" mid kind_str
+                      variant_suffix
+                      (type_mismatch_flag r.from_json strategy)
+                      from_s
+                      (display_strategy r.from_json strategy))
                   pairs)
             sub_entries)
         (List.rev !sub_order);
@@ -1421,12 +1470,13 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
           match outcome with
           | FieldNotFound { field; prems; src_label } ->
               Printf.fprintf report_ch
-                "    [FAILED] field %s not found (%s)  prems: %s\n"
+                "      [FAILED] field %s not found (%s)  prems: %s\n"
                 (Dep.string_of_field_path field)
                 src_label
                 (String.concat ", " (List.map string_of_int prems))
           | JsonLoadFailed { field; prems } ->
-              Printf.fprintf report_ch "    [FAILED] JSON load: %s  prems: %s\n"
+              Printf.fprintf report_ch
+                "      [FAILED] JSON load: %s  prems: %s\n"
                 (Dep.string_of_field_path field)
                 (String.concat ", " (List.map string_of_int prems))
           | MutationOk _ -> ())
@@ -1435,7 +1485,7 @@ let write_seed_report ~output_dir ~test_id ~prem_uids (diag : process_diag) =
   let mutation_count =
     List.fold_left
       (fun acc -> function
-        | MutationOk { to_vals; _ } -> acc + List.length to_vals | _ -> acc)
+        | MutationOk { applied; _ } -> acc + List.length applied | _ -> acc)
       0 diag.constraint_outcomes
   in
   let field_not_found_count =
