@@ -1034,6 +1034,10 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
     let outcomes = ref [] in
     let local_covered : (premise_uid, unit) Hashtbl.t = Hashtbl.create 16 in
     let generated = ref [] in
+    (* Track (field_path, strategy) pairs already written this seed so that
+       different suggestions producing the same mutation (e.g. len<=0 and
+       len<=255 both generating SetLength 0) are deduplicated. *)
+    let seen_field_strategies : (string, unit) Hashtbl.t = Hashtbl.create 64 in
     List.iteri
       (fun c_idx (constraint_, puids_for_constraint) ->
         match
@@ -1063,23 +1067,40 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                strategies so the report shows one grouped entry per constraint. *)
             let applied = ref [] in
             let mut_ids = ref [] in
+            (* True once a strategy for this constraint was not a cross-constraint
+               duplicate, regardless of whether it ultimately produced a file. *)
+            let had_non_dupe_strategy = ref false in
             List.iteri
               (fun s_idx strategy ->
-                let mut_id =
-                  Printf.sprintf "mut_%s_%d_%d" prem_str c_idx s_idx
+                let fp_strat_key =
+                  Dep.string_of_field_path constraint_.field_path
+                  ^ "|" ^ strategy_key strategy
                 in
-                let single = { constraint_ with strategies = [ strategy ] } in
-                let out_pre, out_block =
-                  mutate_json_input ~output_dir:out_dir mut_id [ single ] []
-                    pre_path block_path
-                in
-                if out_pre <> pre_path then (
+                if Hashtbl.mem seen_field_strategies fp_strat_key then
+                  (* Duplicate of an already-written mutation: mark premises
+                     covered (the earlier file serves the same purpose) but
+                     don't write a second identical file. *)
                   List.iter
                     (fun uid -> Hashtbl.replace local_covered uid ())
-                    puids_for_constraint;
-                  generated := (mut_id, out_pre, out_block) :: !generated;
-                  applied := strategy :: !applied;
-                  mut_ids := mut_id :: !mut_ids))
+                    puids_for_constraint
+                else (
+                  had_non_dupe_strategy := true;
+                  Hashtbl.replace seen_field_strategies fp_strat_key ();
+                  let mut_id =
+                    Printf.sprintf "mut_%s_%d_%d" prem_str c_idx s_idx
+                  in
+                  let single = { constraint_ with strategies = [ strategy ] } in
+                  let out_pre, out_block =
+                    mutate_json_input ~output_dir:out_dir mut_id [ single ] []
+                      pre_path block_path
+                  in
+                  if out_pre <> pre_path then (
+                    List.iter
+                      (fun uid -> Hashtbl.replace local_covered uid ())
+                      puids_for_constraint;
+                    generated := (mut_id, out_pre, out_block) :: !generated;
+                    applied := strategy :: !applied;
+                    mut_ids := mut_id :: !mut_ids)))
               strats;
             if !applied <> [] then
               outcomes :=
@@ -1096,6 +1117,10 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                     mut_ids = List.rev !mut_ids;
                   }
                 :: !outcomes
+            else if strats <> [] && not !had_non_dupe_strategy then
+              (* Every strategy for this constraint was already written by a
+                 prior constraint — premises are covered, no new outcome needed. *)
+              ()
             else
               outcomes :=
                 JsonLoadFailed
