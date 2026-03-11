@@ -140,7 +140,11 @@ let rec random_value (t : typ) : Yojson.Safe.t =
   | TextT -> `String ""
   | BytesT 0 -> `String (random_hex 32) (* variable-length: default 32 bytes *)
   | BytesT n -> `String (random_hex n)
-  | StructT fs -> `Assoc (List.map (fun f -> (f.fname, random_value f.ftyp)) fs)
+  | StructT fs ->
+      `Assoc
+        (List.map
+           (fun f -> (String.lowercase_ascii f.fname, random_value f.ftyp))
+           fs)
   | IterT (_, _) -> `List [] (* callers append elements explicitly *)
   | OpaqueT _ -> `Null
 
@@ -159,7 +163,7 @@ let rec template_fill (t : typ) (json : Yojson.Safe.t) : Yojson.Safe.t =
                List.assoc_opt (String.lowercase_ascii f.fname) lower_existing
              with
              | Some (orig_k, v) -> (orig_k, template_fill f.ftyp v)
-             | None -> (f.fname, random_value f.ftyp))
+             | None -> (String.lowercase_ascii f.fname, random_value f.ftyp))
            fields)
   | IterT (elem_t, _), `List items ->
       `List (List.map (template_fill elem_t) items)
