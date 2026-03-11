@@ -291,8 +291,8 @@ let string_of_sym_mutation (mut : sym_mutation) : string =
 
 (* === Provenance-based Mutation Extraction === *)
 
-let extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp) :
-    sym_mutation list =
+let rec extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp)
+    : sym_mutation list =
   let try_eval e = try Some (eval e) with _ -> None in
   (* For a (target_exp, constraint_exp, op) triple:
      evaluate target for provenance, constraint for concrete value.
@@ -359,7 +359,23 @@ let extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp) :
         args
   | Il.MatchE (inner, pat) -> (
       match pat with
-      | Il.ListP `Nil -> []
+      | Il.ListP `Nil -> (
+          (* Inner has provenance and is empty list → mutate length to >0 to violate matches [] *)
+          match try_eval inner with
+          | Some v ->
+              let paths = provs_of_val v in
+              List.map
+                (fun path ->
+                  {
+                    target_path = Some path;
+                    suggestion =
+                      ToLength
+                        ( `GtOp,
+                          Il.Value.Make.num Il.Typ.nat (`Nat (Bigint.of_int 0))
+                        );
+                  })
+                paths
+          | None -> [])
       | Il.ListP `Cons -> (
           (* Evaluate the inner expression (the list), not the MatchE bool result *)
           match try_eval inner with
@@ -390,6 +406,9 @@ let extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp) :
               })
             paths
       | None -> [])
+  | Il.BinE (`AndOp, _, e1, e2) ->
+      (* Recurse into each conjunct independently *)
+      extract_symbolic_mutations eval e1 @ extract_symbolic_mutations eval e2
   | _ -> (
       match try_eval exp with
       | Some v ->

@@ -978,6 +978,11 @@ and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
           Ok (ctx, values_binding)
     in
     (* Finally, bind the resulting binding batches *)
+    let source_list_values =
+      List.map
+        (fun (id, _typ, iters) -> Ctx.find_value ctx (id, iters @ [ List ]))
+        vars_bound
+    in
     let ctx =
       List.fold_left2
         (fun ctx (id_binding, typ_binding, iters_binding) values_binding ->
@@ -986,6 +991,7 @@ and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
               Lang.Il.Typ.iterate typ_binding (iters_binding @ [ List ])
             in
             values_binding |> Value.Make.list typ.it
+            |> Value.with_merged_provenance source_list_values
           in
           Ctx.add_value ctx (id_binding, iters_binding @ [ List ]) value_binding)
         ctx vars_binding values_binding
