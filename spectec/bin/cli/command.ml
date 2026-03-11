@@ -192,13 +192,20 @@ module Make (Tgt : Runner.Target.S) = struct
          flag "--save-interval"
            (optional_with_default 100 int)
            ~doc:"N save checkpoint every N tests (default: 100)"
+       and spec_dir_arg =
+         flag "--spec-dir" (optional string)
+           ~doc:
+             "DIR directory containing spec files (default: target's spec dir)"
        and instrumentation_config = Cli_args.config_flags in
        fun () ->
          let open Runner in
          (* Handle --show-checkpoint: decode and display, then exit *)
          (* Normal coverage run *)
          let run () =
-           let spec_files = collect_spec_files Tgt.spec_dir in
+           let spec_files =
+             let dir = Option.value spec_dir_arg ~default:Tgt.spec_dir in
+             collect_spec_files dir
+           in
            (* Build checkpoint configuration from CLI flags *)
            let checkpoint_config : Checkpoint.config =
              {
@@ -241,11 +248,19 @@ module Make (Tgt : Runner.Target.S) = struct
          and ignore_spec_mismatch =
            flag "--ignore-spec-mismatch" no_arg
              ~doc:" Skip spec version check (use when spec has changed)"
+         and spec_dir_arg =
+           flag "--spec-dir" (optional string)
+             ~doc:
+               "DIR directory containing spec files (default: target's spec \
+                dir)"
          in
          fun () ->
            let open Runner in
            let run () =
-             let spec_files = collect_spec_files Tgt.spec_dir in
+             let spec_files =
+               let dir = Option.value spec_dir_arg ~default:Tgt.spec_dir in
+               collect_spec_files dir
+             in
              let* spec = parse_spec_files spec_files in
              let* spec_il = elaborate spec in
              let* checkpoint =
@@ -271,11 +286,19 @@ module Make (Tgt : Runner.Target.S) = struct
          and output_file =
            flag "--output" (required string)
              ~doc:"FILE output file for merged checkpoint"
+         and spec_dir_arg =
+           flag "--spec-dir" (optional string)
+             ~doc:
+               "DIR directory containing spec files (default: target's spec \
+                dir)"
          in
          fun () ->
            let open Runner in
            let run () =
-             let spec_files = collect_spec_files Tgt.spec_dir in
+             let spec_files =
+               let dir = Option.value spec_dir_arg ~default:Tgt.spec_dir in
+               collect_spec_files dir
+             in
              let* checkpoint1 =
                Checkpoint.verify_and_load ~file:checkpoint_file1 ~spec_files
                  ~verbose:false ()
@@ -366,6 +389,10 @@ module Make (Tgt : Runner.Target.S) = struct
            ~doc:
              "N max slot gap between state and block (default: 32, 0 to \
               disable)"
+       and spec_dir_arg =
+         flag "--spec-dir" (optional string)
+           ~doc:
+             "DIR directory containing spec files (default: target's spec dir)"
        in
        fun () ->
          let open Runner.Testgen in
@@ -454,7 +481,10 @@ module Make (Tgt : Runner.Target.S) = struct
              (try Unix.mkdir output_path 0o755 with Unix.Unix_error _ -> ());
 
              (* Helper to lookup relation name/sig from premise region *)
-             let spec_files = collect_spec_files Tgt.spec_dir in
+             let spec_files =
+               let dir = Option.value spec_dir_arg ~default:Tgt.spec_dir in
+               collect_spec_files dir
+             in
              let spec_result =
                let open Result in
                let ( let* ) = bind in
