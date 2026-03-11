@@ -203,6 +203,9 @@ let is_list_field (path : field_path) : bool =
 let max_uint64 = Bigint.of_string "18446744073709551615"
 let min_value = Bigint.of_int 0
 
+(* Max number of list elements / struct fields to generate mutations for *)
+let max_list_struct_mutations = 3
+
 let extract_numeric_value (v : Il.Value.t) : Bigint.t option =
   match v.it with Il.NumV (`Nat n) | Il.NumV (`Int n) -> Some n | _ -> None
 
@@ -225,6 +228,11 @@ let replace_json_field (json : Yojson.Safe.t) (key : string)
              if String.lowercase_ascii k = key then (k, new_val) else (k, v))
            fields)
   | _ -> json
+
+(* Spread `count` indices evenly across a list of length `n`. *)
+let spread_indices n count =
+  let count = min count n in
+  List.init count (fun i -> i * n / count) |> List.sort_uniq compare
 
 (* Replace the element at index i in a JSON array. *)
 let replace_json_item (json : Yojson.Safe.t) (i : int) (new_val : Yojson.Safe.t)
@@ -427,29 +435,24 @@ let rec generate_toconst_strategies (op : Il.cmpop) (value : Il.Value.t)
   | Il.NumV (`Nat n) | Il.NumV (`Int n) ->
       generate_combined_numeric_strategies [ (op, n) ] []
   | Il.ListV items -> (
-      (* List value: only EqOp and NeOp are meaningful. *)
-      match op with
-      | `EqOp ->
+      match value_to_json value with
+      | Error _ -> []
+      | Ok list_json ->
           let n = List.length items in
-          let len_val = { value with it = Il.NumV (`Nat (Bigint.of_int n)) } in
-          generate_tolength_strategies `EqOp len_val
-      | `NeOp -> (
-          (* Mutate the first element so the list differs in content, not length.
-             Mirror the StructV approach: convert to JSON, patch index 0, return SetValue. *)
-          match items with
-          | [] -> []
-          | first_item :: _ -> (
-              match value_to_json value with
-              | Error _ -> []
-              | Ok list_json ->
-                  generate_toconst_strategies `NeOp first_item None
-                  |> List.filter_map (function
-                       | Json_mutator.SetValue new_elem ->
-                           Some
-                             (Json_mutator.SetValue
-                                (replace_json_item list_json 0 new_elem))
-                       | _ -> None)))
-      | _ -> [])
+          if n = 0 then []
+          else
+            spread_indices n max_list_struct_mutations
+            |> List.filter_map (fun i ->
+                   let il_elem = List.nth items i in
+                   generate_toconst_strategies op il_elem None
+                   |> List.find_opt (function
+                        | Json_mutator.SetValue _ -> true
+                        | _ -> false)
+                   |> Option.map (function
+                        | Json_mutator.SetValue new_elem ->
+                            Json_mutator.SetValue
+                              (replace_json_item list_json i new_elem)
+                        | s -> s)))
   | Il.BytesV { num; len } -> (
       let sv n =
         Json_mutator.SetValue
@@ -475,6 +478,33 @@ let rec generate_toconst_strategies (op : Il.cmpop) (value : Il.Value.t)
       | `GtOp -> [ sv succ_n; sv max_n ]
       | `LtOp ->
           if Bigint.compare num min_n > 0 then [ sv pred_n; sv min_n ] else [])
+  | Il.StructV valuefield_list -> (
+      match op with
+      | `EqOp -> (
+          match value_to_json value with
+          | Ok json -> [ Json_mutator.SetValue json ]
+          | Error _ -> [])
+      | `NeOp -> (
+          match value_to_json value with
+          | Error _ -> []
+          | Ok struct_json ->
+              let n = List.length valuefield_list in
+              if n = 0 then []
+              else
+                spread_indices n max_list_struct_mutations
+                |> List.filter_map (fun i ->
+                       let atom, field_val = List.nth valuefield_list i in
+                       let key = atom_key atom in
+                       generate_toconst_strategies `NeOp field_val None
+                       |> List.find_opt (function
+                            | Json_mutator.SetValue _ -> true
+                            | _ -> false)
+                       |> Option.map (function
+                            | Json_mutator.SetValue new_fv ->
+                                Json_mutator.SetValue
+                                  (replace_json_field struct_json key new_fv)
+                            | s -> s)))
+      | _ -> [])
   | _ -> (
       (* For EqOp: set the field to exactly this value.
                  For other ops we have no way to produce a different
@@ -627,29 +657,38 @@ let rec fallback_strategies_from_source (source : Yojson.Safe.t) :
       [ sv (Bigint.of_int 0); sv max_n; sv pred_n; sv succ_n ]
   | `List lst ->
       let n = List.length lst in
-      let pred = if n > 0 then [ Json_mutator.SetLength (n - 1) ] else [] in
-      [ Json_mutator.SetLength 0; Json_mutator.SetLength (2 * n) ]
-      @ pred
-      @ [ Json_mutator.SetLength (n + 1) ]
+      if n = 0 then []
+      else
+        spread_indices n max_list_struct_mutations
+        |> List.filter_map (fun i ->
+               let elem = List.nth lst i in
+               match fallback_strategies_from_source elem with
+               | Json_mutator.SetValue new_elem :: _ ->
+                   Some
+                     (Json_mutator.SetValue
+                        (replace_json_item (`List lst) i new_elem))
+               | _ -> None)
   | `Bool b -> [ Json_mutator.SetValue (`Bool (not b)) ]
   | `Assoc fields ->
-      (* For struct fields: pick up to 3 fields from the SOURCE and mutate each one.
+      (* For struct fields: pick spread indices and mutate each one.
          Each strategy sets the whole struct to a copy of the source with one field changed. *)
-      fields
-      |> List.filter_map (fun (k, fv) ->
-             match fallback_strategies_from_source fv with
-             | [] -> None
-             | Json_mutator.SetValue new_fv :: _ ->
-                 let new_struct =
-                   `Assoc
-                     (List.map
-                        (fun (k2, v2) ->
-                          if k2 = k then (k2, new_fv) else (k2, v2))
-                        fields)
-                 in
-                 Some (Json_mutator.SetValue new_struct)
-             | _ -> None)
-      |> List.filteri (fun i _ -> i < 3)
+      let n = List.length fields in
+      if n = 0 then []
+      else
+        spread_indices n max_list_struct_mutations
+        |> List.filter_map (fun i ->
+               let k, fv = List.nth fields i in
+               match fallback_strategies_from_source fv with
+               | Json_mutator.SetValue new_fv :: _ ->
+                   let new_struct =
+                     `Assoc
+                       (List.map
+                          (fun (k2, v2) ->
+                            if k2 = k then (k2, new_fv) else (k2, v2))
+                          fields)
+                   in
+                   Some (Json_mutator.SetValue new_struct)
+               | _ -> None)
   | _ -> []
 
 let deduplicate_strategies (strategies : Json_mutator.mutation_strategy list) :
