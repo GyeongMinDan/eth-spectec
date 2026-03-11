@@ -239,6 +239,181 @@ let value_to_json (v : Il.Value.t) : (Yojson.Safe.t, string) result =
   | Ok json -> Ok json
   | Error err -> Error (Interface.JSON.Print.string_of_error err)
 
+(* ===== Interval-based strategy generation ===== *)
+
+let min_interval_for_interior = Bigint.of_int 16
+
+(* Compute interval(s) representing the valid range for a comparison constraint. *)
+let intervals_of_numop (op : Il.cmpop) (n : Bigint.t) (min_v : Bigint.t)
+    (max_v : Bigint.t) : (Bigint.t * Bigint.t) list =
+  let clamp_iv lo hi =
+    let lo' = if Bigint.compare lo min_v < 0 then min_v else lo in
+    let hi' = if Bigint.compare hi max_v > 0 then max_v else hi in
+    if Bigint.compare lo' hi' > 0 then [] else [ (lo', hi') ]
+  in
+  match op with
+  | `LtOp -> clamp_iv min_v Bigint.(n - of_int 1)
+  | `LeOp -> clamp_iv min_v n
+  | `GtOp -> clamp_iv Bigint.(n + of_int 1) max_v
+  | `GeOp -> clamp_iv n max_v
+  | `EqOp -> clamp_iv n n
+  | `NeOp ->
+      clamp_iv min_v Bigint.(n - of_int 1)
+      @ clamp_iv Bigint.(n + of_int 1) max_v
+
+(* Merge overlapping or adjacent intervals (input need not be sorted). *)
+let simple_merge_intervals (ivs : (Bigint.t * Bigint.t) list) :
+    (Bigint.t * Bigint.t) list =
+  let sorted = List.sort (fun (a, _) (b, _) -> Bigint.compare a b) ivs in
+  List.fold_left
+    (fun acc (lo, hi) ->
+      match acc with
+      | [] -> [ (lo, hi) ]
+      | (alo, ahi) :: rest ->
+          if Bigint.compare Bigint.(ahi + of_int 1) lo >= 0 then
+            let merged_hi = if Bigint.compare ahi hi >= 0 then ahi else hi in
+            (alo, merged_hi) :: rest
+          else (lo, hi) :: acc)
+    [] sorted
+  |> List.rev
+
+(* One-outside values: just below first interval, gap endpoints between non-adjacent
+   intervals, and just above last interval. *)
+let one_outside_values (ivs : (Bigint.t * Bigint.t) list) (min_v : Bigint.t)
+    (max_v : Bigint.t) : Bigint.t list =
+  match ivs with
+  | [] -> []
+  | _ ->
+      let first_lo = fst (List.hd ivs) in
+      let last_hi = snd (List.nth ivs (List.length ivs - 1)) in
+      let below =
+        if Bigint.compare first_lo min_v > 0 then
+          [ Bigint.(first_lo - of_int 1) ]
+        else []
+      in
+      let above =
+        if Bigint.compare last_hi max_v < 0 then [ Bigint.(last_hi + of_int 1) ]
+        else []
+      in
+      let rec gap_pts = function
+        | [] | [ _ ] -> []
+        | (_, hi_i) :: ((lo_next, _) :: _ as rest) ->
+            let pts = gap_pts rest in
+            if Bigint.compare lo_next Bigint.(hi_i + of_int 1) > 0 then
+              Bigint.(hi_i + of_int 1) :: Bigint.(lo_next - of_int 1) :: pts
+            else pts
+      in
+      below @ gap_pts ivs @ above
+
+(* Compute count equally-spaced interior points in [lo, hi], if width >= threshold. *)
+let interior_points (lo : Bigint.t) (hi : Bigint.t) ~(count : int) :
+    Bigint.t list =
+  let width = Bigint.(hi - lo) in
+  if Bigint.compare width min_interval_for_interior < 0 then []
+  else
+    let denom = count + 1 in
+    List.init count (fun k ->
+        let numer = k + 1 in
+        let num = Bigint.(width * of_int numer) in
+        Bigint.(lo + (num / of_int denom)))
+
+(* Full interval-based mutation value pipeline. *)
+let values_from_suggestions ~(min_v : Bigint.t) ~(max_v : Bigint.t)
+    ~(known : (Il.cmpop * Bigint.t) list) ~(unknown_vals : Bigint.t list) :
+    Bigint.t list =
+  let known_intervals =
+    List.concat_map (fun (op, n) -> intervals_of_numop op n min_v max_v) known
+  in
+  if known <> [] && known_intervals = [] then []
+  else
+    let base =
+      if known_intervals = [] then [ (min_v, max_v) ]
+      else simple_merge_intervals known_intervals
+    in
+    let clamp v =
+      if Bigint.compare v min_v < 0 then min_v
+      else if Bigint.compare v max_v > 0 then max_v
+      else v
+    in
+    let interval_boundaries ivs =
+      List.concat_map (fun (lo, hi) -> [ lo; hi ]) ivs
+    in
+    let slice_pts =
+      List.concat_map
+        (fun k ->
+          [ clamp Bigint.(k - of_int 1); k; clamp Bigint.(k + of_int 1) ])
+        unknown_vals
+    in
+    let all_pts =
+      List.sort_uniq Bigint.compare
+        (interval_boundaries known_intervals
+        @ interval_boundaries base @ slice_pts)
+    in
+    let is_subinterval (lo, hi) =
+      List.exists
+        (fun (blo, bhi) ->
+          Bigint.compare lo blo >= 0 && Bigint.compare hi bhi <= 0)
+        base
+    in
+    let final_intervals =
+      match all_pts with
+      | [] -> []
+      | [ p ] -> if is_subinterval (p, p) then [ (p, p) ] else []
+      | _ ->
+          let rec mk_pairs = function
+            | [] | [ _ ] -> []
+            | a :: (b :: _ as rest) -> (a, b) :: mk_pairs rest
+          in
+          List.filter is_subinterval (mk_pairs all_pts)
+    in
+    let boundaries = interval_boundaries final_intervals in
+    let outside = one_outside_values final_intervals min_v max_v in
+    let n_final = List.length final_intervals in
+    let interior =
+      List.concat_map
+        (fun (lo, hi) ->
+          let count = if n_final = 1 then 2 else 1 in
+          interior_points lo hi ~count)
+        final_intervals
+    in
+    let all =
+      List.filter
+        (fun v -> Bigint.compare v min_v >= 0 && Bigint.compare v max_v <= 0)
+        (boundaries @ outside @ interior)
+    in
+    List.sort_uniq Bigint.compare all
+
+(* Generate combined numeric mutation strategies from known constraints and unknown hints. *)
+let generate_combined_numeric_strategies (known : (Il.cmpop * Bigint.t) list)
+    (unknown_vals : Bigint.t list) : Json_mutator.mutation_strategy list =
+  values_from_suggestions ~min_v:min_value ~max_v:max_uint64 ~known
+    ~unknown_vals
+  |> List.map (fun n -> Json_mutator.SetValue (`Intlit (bigint_to_intlit n)))
+
+(* Generate combined length mutation strategies from known constraints and unknown hints. *)
+let generate_combined_length_strategies (known : (Il.cmpop * int) list)
+    (unknown_vals : int list) : Json_mutator.mutation_strategy list =
+  let known_big = List.map (fun (op, n) -> (op, Bigint.of_int n)) known in
+  let unknown_big = List.map Bigint.of_int unknown_vals in
+  let all_n = List.map snd known_big @ unknown_big in
+  let max_n =
+    List.fold_left
+      (fun acc n -> if Bigint.compare n acc > 0 then n else acc)
+      (Bigint.of_int 1) all_n
+  in
+  let max_v = Bigint.(of_int 2 * max_n) in
+  let max_v =
+    if Bigint.compare max_v (Bigint.of_int 2) < 0 then Bigint.of_int 2
+    else max_v
+  in
+  let min_v = Bigint.of_int 0 in
+  values_from_suggestions ~min_v ~max_v ~known:known_big
+    ~unknown_vals:unknown_big
+  |> List.filter_map (fun n ->
+         match Bigint.to_int n with
+         | Some n_int -> Some (Json_mutator.SetLength n_int)
+         | None -> None)
+
 (* Generate mutation strategies for a ToConst constraint.
    For each comparison operator, produces values that satisfy the constraint (e.g., >= n → [n, MAX]). *)
 let rec generate_toconst_strategies (op : Il.cmpop) (value : Il.Value.t)
@@ -249,50 +424,8 @@ let rec generate_toconst_strategies (op : Il.cmpop) (value : Il.Value.t)
       match source_value_opt with
       | Some (`Bool src) -> [ Json_mutator.SetValue (`Bool (not src)) ]
       | _ -> [ Json_mutator.SetValue (`Bool (not b)) ])
-  | Il.NumV (`Nat n) | Il.NumV (`Int n) -> (
-      let n_str = bigint_to_intlit n in
-      let max_str = bigint_to_intlit max_uint64 in
-      let min_str = bigint_to_intlit min_value in
-      match op with
-      | `GeOp ->
-          [
-            Json_mutator.SetValue (`Intlit n_str);
-            Json_mutator.SetValue (`Intlit max_str);
-          ]
-      | `LeOp ->
-          [
-            Json_mutator.SetValue (`Intlit n_str);
-            Json_mutator.SetValue (`Intlit min_str);
-          ]
-      | `GtOp -> (
-          match Bigint.to_int n with
-          | Some i ->
-              [
-                Json_mutator.SetValue
-                  (`Intlit (bigint_to_intlit (Bigint.of_int (i + 1))));
-                Json_mutator.SetValue (`Intlit max_str);
-              ]
-          | None -> [ Json_mutator.SetValue (`Intlit max_str) ])
-      | `LtOp -> (
-          match Bigint.to_int n with
-          | Some i when i > 0 ->
-              [
-                Json_mutator.SetValue
-                  (`Intlit (bigint_to_intlit (Bigint.of_int (i - 1))));
-                Json_mutator.SetValue (`Intlit max_str);
-              ]
-          | _ -> [ Json_mutator.SetValue (`Intlit max_str) ])
-      | `EqOp -> [ Json_mutator.SetValue (`Intlit n_str) ]
-      | `NeOp -> (
-          match Bigint.to_int n with
-          | Some i ->
-              let lo = if i > 0 then Bigint.of_int (i - 1) else min_value in
-              [
-                Json_mutator.SetValue (`Intlit (bigint_to_intlit lo));
-                Json_mutator.SetValue
-                  (`Intlit (bigint_to_intlit (Bigint.of_int (i + 1))));
-              ]
-          | None -> [ Json_mutator.SetValue (`Intlit n_str) ]))
+  | Il.NumV (`Nat n) | Il.NumV (`Int n) ->
+      generate_combined_numeric_strategies [ (op, n) ] []
   | Il.ListV items -> (
       (* List value: only EqOp and NeOp are meaningful. *)
       match op with
@@ -361,33 +494,7 @@ and generate_tolength_strategies (op : Il.cmpop) (value : Il.Value.t) :
   | Some n -> (
       match Bigint.to_int n with
       | None -> [ Json_mutator.SetLength 0; Json_mutator.SetLength 1 ]
-      | Some n_int -> (
-          match op with
-          | `GeOp ->
-              [
-                Json_mutator.SetLength n_int; Json_mutator.SetLength (2 * n_int);
-              ]
-          | `LeOp -> [ Json_mutator.SetLength n_int; Json_mutator.SetLength 0 ]
-          | `GtOp ->
-              [
-                Json_mutator.SetLength (n_int + 1);
-                Json_mutator.SetLength (2 * n_int);
-              ]
-          | `LtOp ->
-              if n_int > 0 then
-                [
-                  Json_mutator.SetLength (n_int - 1);
-                  Json_mutator.SetLength (2 * n_int);
-                ]
-              else [ Json_mutator.SetLength (2 * n_int) ]
-          | `EqOp -> [ Json_mutator.SetLength n_int ]
-          | `NeOp ->
-              if n_int > 0 then
-                [
-                  Json_mutator.SetLength (n_int - 1);
-                  Json_mutator.SetLength (n_int + 1);
-                ]
-              else [ Json_mutator.SetLength (n_int + 1) ]))
+      | Some n_int -> generate_combined_length_strategies [ (op, n_int) ] [])
 
 (* Strategies for Unknown hints carrying a concrete IL value.
    For NumV/BytesV/ListV produces: min, max, v-1, v+1 (with v itself added separately
@@ -1158,6 +1265,100 @@ let mutate_json_input ~output_dir ?(max_slot_gap : int option) (mut_id : string)
       Json_mutator.save_json out_block mutated_block;
       (out_pre, out_block)
 
+(* ===== Combined constraint builders ===== *)
+
+(* Returns Some (op, n) if this suggestion is a ToConst NumV. *)
+let numeric_known_suggestion (sugg : Pos.mutation_kind) :
+    (Il.cmpop * Bigint.t) option =
+  match sugg with
+  | Pos.ToConst (op, v) -> (
+      match v.it with
+      | Il.NumV (`Nat n) | Il.NumV (`Int n) -> Some (op, n)
+      | _ -> None)
+  | _ -> None
+
+(* Returns Some n if this suggestion is an Unknown NumV. *)
+let numeric_unknown_val (sugg : Pos.mutation_kind) : Bigint.t option =
+  match sugg with
+  | Pos.Unknown v -> (
+      match v.it with
+      | Il.NumV (`Nat n) | Il.NumV (`Int n) -> Some n
+      | _ -> None)
+  | _ -> None
+
+(* Returns Some (op, n) if this suggestion is a ToLength or ToConst ListV. *)
+let length_known_suggestion (sugg : Pos.mutation_kind) : (Il.cmpop * int) option
+    =
+  match sugg with
+  | Pos.ToLength (op, v) -> (
+      match extract_numeric_value v with
+      | Some n -> Option.map (fun n_int -> (op, n_int)) (Bigint.to_int n)
+      | None -> None)
+  | Pos.ToConst (op, v) -> (
+      match v.it with
+      | Il.ListV items -> Some (op, List.length items)
+      | _ -> None)
+  | _ -> None
+
+(* Returns Some n if this suggestion is an Unknown ListV. *)
+let length_unknown_val (sugg : Pos.mutation_kind) : int option =
+  match sugg with
+  | Pos.Unknown v -> (
+      match v.it with Il.ListV items -> Some (List.length items) | _ -> None)
+  | _ -> None
+
+let build_combined_numeric_constraint (path : field_path)
+    (known : (Il.cmpop * Bigint.t) list) (unknown_vals : Bigint.t list)
+    (sym_muts : Pos.sym_mutation list) (group_total : int) :
+    mutation_constraint option =
+  if not (is_valid_target path) then None
+  else
+    let strategies =
+      generate_combined_numeric_strategies known unknown_vals
+      |> deduplicate_strategies
+    in
+    if strategies = [] then None
+    else
+      Some
+        {
+          field_path = path;
+          strategies;
+          suggestion_str =
+            Some
+              (String.concat "; "
+                 (List.map Pos.string_of_sym_mutation sym_muts));
+          class_key = structural_path_key path;
+          sampling_key = structural_path_key path ^ "|combined";
+          group_total;
+          is_fallback = false;
+        }
+
+let build_combined_length_constraint (path : field_path)
+    (known : (Il.cmpop * int) list) (unknown_vals : int list)
+    (sym_muts : Pos.sym_mutation list) (group_total : int) :
+    mutation_constraint option =
+  if not (is_valid_target path) then None
+  else
+    let strategies =
+      generate_combined_length_strategies known unknown_vals
+      |> deduplicate_strategies
+    in
+    if strategies = [] then None
+    else
+      Some
+        {
+          field_path = path;
+          strategies;
+          suggestion_str =
+            Some
+              (String.concat "; "
+                 (List.map Pos.string_of_sym_mutation sym_muts));
+          class_key = structural_path_key path;
+          sampling_key = structural_path_key path ^ "|combined";
+          group_total;
+          is_fallback = false;
+        }
+
 (* ===== Core test-case processing ===== *)
 
 (* Apply constraints to a test case, writing mutation files.
@@ -1173,41 +1374,186 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
   let prem_no_muts = ref [] in
   let prem_no_constraints = ref [] in
   let raw_sugg_acc = ref [] in
+  (* Phase 1: Collect sampled sym_mutations from all puids, tagged with their puid. *)
+  let all_tagged : (premise_uid * Pos.sym_mutation * int) list ref = ref [] in
   List.iter
     (fun puid ->
       let muts =
         get_mutation_suggestions_for_premise puid (Some dependency_result)
       in
       if muts = [] then prem_no_muts := puid :: !prem_no_muts
-      else
-        let any_constraint = ref false in
-        let filtered_reasons = ref [] in
+      else (
         raw_sugg_acc := (puid, muts) :: !raw_sugg_acc;
         let muts_sampled = group_and_sample_sym_mutations muts in
         List.iter
-          (fun (sym_mut, group_total) ->
-            match sym_mutation_to_constraint ~group_total sym_mut with
-            | None -> (
-                match diagnose_filtered_mutation sym_mut with
-                | Some reason -> filtered_reasons := reason :: !filtered_reasons
-                | None -> ())
-            | Some c -> (
-                any_constraint := true;
-                let k = constraint_key c in
-                match Hashtbl.find_opt constraint_map k with
-                | None -> Hashtbl.replace constraint_map k (c, [ puid ])
-                | Some (_, puids) when not (List.mem puid puids) ->
-                    Hashtbl.replace constraint_map k (c, puid :: puids)
-                | _ -> ()))
-          muts_sampled;
-        if not !any_constraint then (
-          prem_no_constraints := puid :: !prem_no_constraints;
-          Format.eprintf
-            "[Testgen] uid=%d: %d mutations (%d sampled) but ALL filtered: %s\n\
-             %!"
-            puid (List.length muts) (List.length muts_sampled)
-            (String.concat "; "
-               (List.sort_uniq String.compare !filtered_reasons))))
+          (fun (sym_mut, gt) ->
+            all_tagged := (puid, sym_mut, gt) :: !all_tagged)
+          muts_sampled))
+    prem_uids;
+
+  (* Phase 2: Globally classify and group by concrete field_path. *)
+  let numeric_by_path :
+      (string, (premise_uid * Pos.sym_mutation * int) list) Hashtbl.t =
+    Hashtbl.create 8
+  in
+  let length_by_path :
+      (string, (premise_uid * Pos.sym_mutation * int) list) Hashtbl.t =
+    Hashtbl.create 8
+  in
+  let other_muts_list : (premise_uid * Pos.sym_mutation * int) list ref =
+    ref []
+  in
+  List.iter
+    (fun (puid, (sym_mut : Pos.sym_mutation), gt) ->
+      match sym_mut.target_path with
+      | None -> other_muts_list := (puid, sym_mut, gt) :: !other_muts_list
+      | Some path ->
+          let is_list = is_list_field path in
+          let sugg = sym_mut.suggestion in
+          let path_key = Dep.string_of_field_path path in
+          if
+            (not is_list)
+            && (Option.is_some (numeric_known_suggestion sugg)
+               || Option.is_some (numeric_unknown_val sugg))
+          then
+            let existing =
+              Option.value ~default:[]
+                (Hashtbl.find_opt numeric_by_path path_key)
+            in
+            Hashtbl.replace numeric_by_path path_key
+              ((puid, sym_mut, gt) :: existing)
+          else if
+            Option.is_some (length_known_suggestion sugg)
+            || (is_list && Option.is_some (length_unknown_val sugg))
+          then
+            let existing =
+              Option.value ~default:[]
+                (Hashtbl.find_opt length_by_path path_key)
+            in
+            Hashtbl.replace length_by_path path_key
+              ((puid, sym_mut, gt) :: existing)
+          else other_muts_list := (puid, sym_mut, gt) :: !other_muts_list)
+    !all_tagged;
+
+  (* Track which puids got at least one constraint (for prem_no_constraints). *)
+  let puids_with_constraint : (premise_uid, unit) Hashtbl.t =
+    Hashtbl.create 16
+  in
+  let add_constraint_for_puids c puids_list =
+    List.iter (fun p -> Hashtbl.replace puids_with_constraint p ()) puids_list;
+    let k = constraint_key c in
+    match Hashtbl.find_opt constraint_map k with
+    | None -> Hashtbl.replace constraint_map k (c, puids_list)
+    | Some (_, existing) ->
+        let merged = List.sort_uniq compare (puids_list @ existing) in
+        Hashtbl.replace constraint_map k (c, merged)
+  in
+
+  (* Phase 3: Build one combined constraint per field_path (globally). *)
+  let process_numeric_group _path_key entries =
+    match entries with
+    | [] -> ()
+    | (_, first_sym_mut, _) :: _ -> (
+        match first_sym_mut.Pos.target_path with
+        | None -> ()
+        | Some path -> (
+            let known =
+              List.filter_map
+                (fun (_, m, _) -> numeric_known_suggestion m.Pos.suggestion)
+                entries
+            in
+            let unknown_vals =
+              List.filter_map
+                (fun (_, m, _) -> numeric_unknown_val m.Pos.suggestion)
+                entries
+            in
+            let sym_muts_list = List.map (fun (_, m, _) -> m) entries in
+            let all_puids =
+              List.sort_uniq compare (List.map (fun (p, _, _) -> p) entries)
+            in
+            let group_total =
+              List.fold_left (fun acc (_, _, gt) -> max acc gt) 1 entries
+            in
+            match
+              build_combined_numeric_constraint path known unknown_vals
+                sym_muts_list group_total
+            with
+            | None ->
+                List.iter
+                  (fun (puid, sym_mut, gt) ->
+                    match
+                      sym_mutation_to_constraint ~group_total:gt sym_mut
+                    with
+                    | None -> ()
+                    | Some c -> add_constraint_for_puids c [ puid ])
+                  entries
+            | Some c -> add_constraint_for_puids c all_puids))
+  in
+  Hashtbl.iter process_numeric_group numeric_by_path;
+
+  let process_length_group _path_key entries =
+    match entries with
+    | [] -> ()
+    | (_, first_sym_mut, _) :: _ -> (
+        match first_sym_mut.Pos.target_path with
+        | None -> ()
+        | Some path -> (
+            let known =
+              List.filter_map
+                (fun (_, m, _) -> length_known_suggestion m.Pos.suggestion)
+                entries
+            in
+            let unknown_vals =
+              List.filter_map
+                (fun (_, m, _) -> length_unknown_val m.Pos.suggestion)
+                entries
+            in
+            let sym_muts_list = List.map (fun (_, m, _) -> m) entries in
+            let all_puids =
+              List.sort_uniq compare (List.map (fun (p, _, _) -> p) entries)
+            in
+            let group_total =
+              List.fold_left (fun acc (_, _, gt) -> max acc gt) 1 entries
+            in
+            match
+              build_combined_length_constraint path known unknown_vals
+                sym_muts_list group_total
+            with
+            | None ->
+                List.iter
+                  (fun (puid, sym_mut, gt) ->
+                    match
+                      sym_mutation_to_constraint ~group_total:gt sym_mut
+                    with
+                    | None -> ()
+                    | Some c -> add_constraint_for_puids c [ puid ])
+                  entries
+            | Some c -> add_constraint_for_puids c all_puids))
+  in
+  Hashtbl.iter process_length_group length_by_path;
+
+  let filtered_reasons = ref [] in
+  List.iter
+    (fun (puid, sym_mut, gt) ->
+      match sym_mutation_to_constraint ~group_total:gt sym_mut with
+      | None -> (
+          match diagnose_filtered_mutation sym_mut with
+          | Some reason -> filtered_reasons := reason :: !filtered_reasons
+          | None -> ())
+      | Some c -> add_constraint_for_puids c [ puid ])
+    !other_muts_list;
+
+  (* Populate prem_no_constraints for puids that had muts but no constraint. *)
+  List.iter
+    (fun puid ->
+      if
+        (not (List.mem puid !prem_no_muts))
+        && not (Hashtbl.mem puids_with_constraint puid)
+      then (
+        prem_no_constraints := puid :: !prem_no_constraints;
+        Format.eprintf
+          "[Testgen] uid=%d: had mutations but all filtered: %s\n%!" puid
+          (String.concat "; " (List.sort_uniq String.compare !filtered_reasons))))
     prem_uids;
 
   (* Collect all constraints for this seed. The same constraint key may appear
@@ -1393,63 +1739,91 @@ let display_strategy_value _from_json strategy =
       Printf.sprintf "(%d item%s)" n (if n = 1 then "" else "s")
   | _ -> strategy_to_display_string strategy
 
-(* Flag when the source JSON type is incompatible with the strategy. *)
-let type_mismatch_flag from_json strategy =
-  let ft = json_type from_json in
-  let st = strategy_source_type strategy in
-  if ft = st then "" else Printf.sprintf " [!type: %s→%s]" ft st
+(* Extract suggestion kinds from a (possibly combined "; "-joined) suggestion string.
+   Each part has the form "PATH -> KIND"; we extract KIND and deduplicate in order. *)
+let suggestion_kinds_display (suggestion : string option) : string =
+  match suggestion with
+  | None -> "?"
+  | Some s ->
+      let parts = String.split_on_char ';' s in
+      let seen = Hashtbl.create 4 in
+      let kinds =
+        List.filter_map
+          (fun part ->
+            let t = String.trim part in
+            if t = "" then None
+            else
+              let k = suggestion_kind t in
+              if k = t then None (* no " -> " found — skip *)
+              else if Hashtbl.mem seen k then None
+              else (
+                Hashtbl.replace seen k ();
+                Some k))
+          parts
+      in
+      if kinds = [] then suggestion_kind s (* fallback: no " -> " anywhere *)
+      else String.concat "; " kinds
 
-(* Print one [mid] line; has_index selects the "[i=N]" variant. *)
-let write_mutation_line ch has_index kind_str sub_total (r : mutation_ok)
-    (mid, strategy) =
-  let variant_suffix =
-    if sub_total > 1 then Printf.sprintf "  (group: %d)" sub_total else ""
-  in
-  let fallback_flag = if r.is_fallback then " [FALLBACK]" else "" in
-  let from_s = display_from_json r.from_json in
-  if has_index then
-    let idx =
-      match
-        List.find_map
-          (function Dep.IndexAccess i -> Some i | _ -> None)
-          r.field.steps
-      with
-      | Some i -> i
-      | None -> -1
-    in
-    Printf.fprintf ch "      [i=%-4d] [%s]  %s%s%s%s  From: %s  →  %s\n" idx mid
-      kind_str variant_suffix fallback_flag
-      (type_mismatch_flag r.from_json strategy)
-      from_s
-      (display_strategy_value r.from_json strategy)
-  else
-    Printf.fprintf ch "      [%s]  %s%s%s%s  From: %s  →  %s\n" mid kind_str
-      variant_suffix fallback_flag
-      (type_mismatch_flag r.from_json strategy)
-      from_s
-      (display_strategy_value r.from_json strategy)
+(* Get the concrete IndexAccess value from a mutation_ok field path, if any. *)
+let entry_index (r : mutation_ok) : int option =
+  List.find_map
+    (function Dep.IndexAccess i -> Some i | _ -> None)
+    r.field.steps
 
-(* Write premise list + all mutation lines for one sampling_key sub-group. *)
-let write_sub_group ch has_index (sub_entries : mutation_ok list) =
-  let sub_total =
-    match sub_entries with r :: _ -> r.total_variants | [] -> 1
+(* Write one content block: premises, suggestion groups, and mutation list.
+   [ind] is the indentation prefix for this block's content lines. *)
+let write_block ch ~ind (entries : mutation_ok list) =
+  let prems =
+    List.sort_uniq compare (List.concat_map (fun r -> r.prems) entries)
   in
-  let sub_prems =
-    List.sort_uniq compare (List.concat_map (fun r -> r.prems) sub_entries)
-  in
-  if sub_prems <> [] then
-    Printf.fprintf ch "    Premises: %s\n"
-      (String.concat ", " (List.map string_of_int sub_prems));
+  if prems <> [] then
+    Printf.fprintf ch "%sPremises: %s\n" ind
+      (String.concat ", " (List.map string_of_int prems));
+  (* Sub-group by sampling_key to handle multiple suggestion groups per block. *)
+  let seen_sk = Hashtbl.create 4 in
+  let sk_order = ref [] in
   List.iter
     (fun r ->
-      let kind_str =
-        match r.suggestion with Some s -> suggestion_kind s | None -> "?"
+      if not (Hashtbl.mem seen_sk r.sampling_key) then (
+        Hashtbl.replace seen_sk r.sampling_key ();
+        sk_order := r.sampling_key :: !sk_order))
+    entries;
+  let sk_grouped = Hashtbl.create 4 in
+  List.iter
+    (fun r ->
+      let xs =
+        Option.value ~default:[] (Hashtbl.find_opt sk_grouped r.sampling_key)
       in
-      let pairs = List.combine r.mut_ids r.applied in
-      List.iter (write_mutation_line ch has_index kind_str sub_total r) pairs)
-    sub_entries
+      Hashtbl.replace sk_grouped r.sampling_key (r :: xs))
+    entries;
+  List.iter
+    (fun sk ->
+      let sub =
+        List.rev (Option.value ~default:[] (Hashtbl.find_opt sk_grouped sk))
+      in
+      let kinds =
+        suggestion_kinds_display
+          (match sub with r :: _ -> r.suggestion | [] -> None)
+      in
+      let fallback_flag =
+        if List.exists (fun r -> r.is_fallback) sub then " [FALLBACK]" else ""
+      in
+      Printf.fprintf ch "%s%s%s\n" ind kinds fallback_flag;
+      let inner_ind = ind ^ "  " in
+      List.iter
+        (fun r ->
+          let from_s = display_from_json r.from_json in
+          let pairs = List.combine r.mut_ids r.applied in
+          List.iter
+            (fun (mid, strategy) ->
+              let to_s = display_strategy_value r.from_json strategy in
+              Printf.fprintf ch "%s- [%s]  %s  →  %s\n" inner_ind mid from_s
+                to_s)
+            pairs)
+        sub)
+    (List.rev !sk_order)
 
-(* Write the "- Field:" header + sub-groups + failure lines for one class_key group. *)
+(* Write the "  - Field:" section for one class_key group. *)
 let write_field_group ch (outcomes_for_key : constraint_outcome list) =
   let ok_entries =
     List.filter_map
@@ -1476,62 +1850,44 @@ let write_field_group ch (outcomes_for_key : constraint_outcome list) =
             | JsonLoadFailed { field; _ } -> structural_path_key field)
         | [] -> "")
   in
-  let sampled_indices =
-    if has_index then
-      List.filter_map
-        (fun r ->
-          List.find_map
-            (function Dep.IndexAccess i -> Some i | _ -> None)
-            r.field.steps)
-        ok_entries
-      |> List.sort_uniq compare
-    else []
-  in
-  let group_total_for_index =
-    match ok_entries with r :: _ -> r.total_variants | [] -> 1
-  in
-  let field_header =
-    if has_index && List.length sampled_indices > 1 then
-      Printf.sprintf "%s  (i = %s; %d total)" struct_str
-        (String.concat ", " (List.map string_of_int sampled_indices))
-        group_total_for_index
-    else struct_str
-  in
-  Printf.fprintf ch "  - Field: %s\n" field_header;
-  let sub_seen = Hashtbl.create 4 in
-  let sub_order = ref [] in
-  List.iter
-    (fun r ->
-      if not (Hashtbl.mem sub_seen r.sampling_key) then (
-        Hashtbl.replace sub_seen r.sampling_key ();
-        sub_order := r.sampling_key :: !sub_order))
-    ok_entries;
-  let sub_grouped = Hashtbl.create 4 in
-  List.iter
-    (fun r ->
-      let xs =
-        Option.value ~default:[] (Hashtbl.find_opt sub_grouped r.sampling_key)
-      in
-      Hashtbl.replace sub_grouped r.sampling_key (r :: xs))
-    ok_entries;
-  List.iter
-    (fun sk ->
-      let sub_entries =
-        List.rev (Option.value ~default:[] (Hashtbl.find_opt sub_grouped sk))
-      in
-      write_sub_group ch has_index sub_entries)
-    (List.rev !sub_order);
+  Printf.fprintf ch "  - Field: %s\n" struct_str;
+  if has_index then (
+    (* Group by concrete index, then write one sub-block per index. *)
+    let idx_seen = Hashtbl.create 8 in
+    let idx_order = ref [] in
+    List.iter
+      (fun r ->
+        let idx = Option.value ~default:(-1) (entry_index r) in
+        if not (Hashtbl.mem idx_seen idx) then (
+          Hashtbl.replace idx_seen idx ();
+          idx_order := idx :: !idx_order))
+      ok_entries;
+    let idx_grouped = Hashtbl.create 8 in
+    List.iter
+      (fun r ->
+        let idx = Option.value ~default:(-1) (entry_index r) in
+        let xs = Option.value ~default:[] (Hashtbl.find_opt idx_grouped idx) in
+        Hashtbl.replace idx_grouped idx (r :: xs))
+      ok_entries;
+    List.iter
+      (fun idx ->
+        let idx_entries =
+          List.rev (Option.value ~default:[] (Hashtbl.find_opt idx_grouped idx))
+        in
+        Printf.fprintf ch "    [i=%-4d]\n" idx;
+        write_block ch ~ind:"      " idx_entries)
+      (List.sort compare (List.rev !idx_order)))
+  else write_block ch ~ind:"    " ok_entries;
   List.iter
     (fun outcome ->
       match outcome with
       | FieldNotFound { field; prems; src_label } ->
-          Printf.fprintf ch
-            "      [FAILED] field %s not found (%s)  prems: %s\n"
+          Printf.fprintf ch "    [FAILED] field %s not found (%s)  prems: %s\n"
             (Dep.string_of_field_path field)
             src_label
             (String.concat ", " (List.map string_of_int prems))
       | JsonLoadFailed { field; prems } ->
-          Printf.fprintf ch "      [FAILED] JSON load: %s  prems: %s\n"
+          Printf.fprintf ch "    [FAILED] JSON load: %s  prems: %s\n"
             (Dep.string_of_field_path field)
             (String.concat ", " (List.map string_of_int prems))
       | MutationOk _ -> ())
