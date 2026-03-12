@@ -66,11 +66,11 @@ let rec resolve (lookup : string -> typ option) (t : Il.typ') : typ =
   | Il.IterT (inner, Il.Opt) -> IterT (resolve lookup inner.it, Opt)
   | Il.VarT (id, _) -> (
       let name = id.it in
-      match lookup name with
-      | Some resolved -> resolved
+      match List.assoc_opt (String.lowercase_ascii name) bytes_widths with
+      | Some w -> BytesT w
       | None -> (
-          match List.assoc_opt (String.lowercase_ascii name) bytes_widths with
-          | Some w -> BytesT w
+          match lookup name with
+          | Some resolved -> resolved
           | None -> OpaqueT name))
 
 (* Expand an Il.deftyp' into our typ *)
