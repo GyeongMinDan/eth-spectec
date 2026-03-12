@@ -48,10 +48,6 @@ let config_flags =
   and dep_pos_targets_file =
     flag "--dep-pos.targets-file" (optional string)
       ~doc:"FILE file containing premise UIDs (one per line)"
-  and dep_neg_level =
-    flag "--dep-neg.level" (optional string) ~doc:"LEVEL summary|full"
-  and dep_neg_output =
-    flag "--dep-neg.output" (optional string) ~doc:"FILE output file"
   in
   Config.
     {
@@ -96,10 +92,4 @@ let config_flags =
                 target_uids =
                   (if all_targets = [] then None else Some all_targets);
               });
-      dep_neg =
-        make_config
-          ~level_opt:
-            (parse_named_level ~summary:Negative.Summary ~full:Negative.Full
-               dep_neg_level) ~output:dep_neg_output
-          ~make_cfg:(fun ~level ~output -> Negative.{ level; output });
     }

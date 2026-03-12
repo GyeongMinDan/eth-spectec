@@ -18,7 +18,6 @@ type coverage = {
   node_il : Instrumentation.Node_coverage_il.result option;
   node_sl : Instrumentation.Node_coverage_sl.result option;
   dependency : Instrumentation.Dependency.Positive.result option;
-  path_condition : Instrumentation.Dependency.Negative.result option;
   testgen : Testgen_data.t option;
 }
 
@@ -179,8 +178,6 @@ let merge_coverage coverage1 coverage2 =
     (* TODO: merge SL node coverage *)
     dependency = coverage1.dependency;
     (* TODO: merge dependency coverage *)
-    path_condition = coverage1.path_condition;
-    (* TODO: merge path condition coverage *)
     testgen;
   }
 
@@ -231,7 +228,6 @@ let snapshot_coverage () =
     node_il = Some (Instrumentation.Node_coverage_il.get_result ());
     node_sl = Some (Instrumentation.Node_coverage_sl.get_result ());
     dependency = Some (Instrumentation.Dependency.Positive.get_result ());
-    path_condition = Some (Instrumentation.Dependency.Negative.get_result ());
     testgen = None;
     (* Testgen data is managed separately *)
   }
@@ -249,11 +245,8 @@ let restore_coverage checkpoint =
   (match checkpoint.coverage.node_sl with
   | Some node_result -> Instrumentation.Node_coverage_sl.restore node_result
   | None -> ());
-  (match checkpoint.coverage.dependency with
+  match checkpoint.coverage.dependency with
   | Some dep_result -> Instrumentation.Dependency.Positive.restore dep_result
-  | None -> ());
-  match checkpoint.coverage.path_condition with
-  | Some pc_result -> Instrumentation.Dependency.Negative.restore pc_result
   | None -> ()
 
 (* ============================================================================
@@ -261,8 +254,10 @@ let restore_coverage checkpoint =
    ============================================================================ *)
 
 (* Load and verify checkpoint from file.
-   Returns Ok checkpoint if valid, Error if file cannot be loaded or spec mismatch. *)
-let verify_and_load ~file ~spec_files ~verbose =
+   Returns Ok checkpoint if valid, Error if file cannot be loaded or spec mismatch.
+   If ignore_spec_mismatch is true, skips the spec hash check and prints a warning. *)
+let verify_and_load ~file ~spec_files ~verbose ?(ignore_spec_mismatch = false)
+    () =
   let ( let* ) = Result.bind in
   let* checkpoint = load_from_file ~file in
   match verify_spec checkpoint ~spec_files with
@@ -270,6 +265,13 @@ let verify_and_load ~file ~spec_files ~verbose =
       if verbose then
         Format.printf "Resuming from checkpoint: %s\n"
           (format_summary checkpoint);
+      Ok checkpoint
+  | Error (Error.SpecMismatchError _ as e) when ignore_spec_mismatch ->
+      Format.printf
+        "Warning: spec version mismatch ignored (--ignore-spec-mismatch).\n";
+      if verbose then
+        Format.printf "Loading checkpoint: %s\n" (format_summary checkpoint);
+      ignore e;
       Ok checkpoint
   | Error e -> Error e
 
@@ -317,11 +319,6 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
     | Some cfg -> cfg
     | None -> Instrumentation.Dependency.Positive.default_config
   in
-  let dep_neg_cfg =
-    match config.dep_neg with
-    | Some cfg -> cfg
-    | None -> Instrumentation.Dependency.Negative.default_config
-  in
   (* Create handlers with configured outputs *)
   let handlers =
     [
@@ -329,7 +326,6 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
       Instrumentation.Node_coverage_il.make node_il_cfg;
       Instrumentation.Node_coverage_sl.make node_il_cfg;
       Instrumentation.Dependency.Positive.make dep_pos_cfg;
-      Instrumentation.Dependency.Negative.make dep_neg_cfg;
     ]
   in
   (* Register static dependencies from all handlers *)

@@ -4,6 +4,7 @@
 include module type of Types
 module Eq : module type of Eq
 module Free : module type of Free
+module Traverse : module type of Traverse
 module Utils : module type of Utils
 module Print : module type of Print
 module Print_debug : module type of Print_debug

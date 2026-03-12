@@ -4,6 +4,7 @@ module Eq = Eq
 module Utils = Utils
 module Print_debug = Print_debug
 module Free = Free
+module Traverse = Traverse
 
 module Value = struct
   include Value

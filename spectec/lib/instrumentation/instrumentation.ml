@@ -13,7 +13,6 @@
    Dependency analysis (from instrumentation_dependency):
    - Dep_common: Shared types for dependency analysis
    - Positive: Positive dependency (per-test mutation suggestions)
-   - Negative: Negative dependency (per-premise blacklists)
 
    Config module (local):
    - Config: Configuration type and handler factory
@@ -29,6 +28,7 @@ module Util = Instrumentation_core.Util
 (* Re-export static analysis modules *)
 module Static = Instrumentation_static.Static
 module Premise_uid = Instrumentation_static.Premise_uid
+module Type_tree = Instrumentation_static.Type_tree
 
 (* Re-export handler implementations *)
 module Branch_coverage = Instrumentation_handlers.Branch_coverage

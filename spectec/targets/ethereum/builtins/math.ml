@@ -40,5 +40,7 @@ let pow2 ~at (width : Bigint.t) : Value.t result =
   Ok (Value.int (pow2' width))
 
 let builtins : (string * Define.t) list =
-  [ ("integer_square_root", Define.T0.a1 Arg.num integer_square_root);
-    ("pow2", Define.T0.a1 Arg.nat pow2) ]
+  [
+    ("integer_square_root", Define.T0.a1 Arg.num integer_square_root);
+    ("pow2", Define.T0.a1 Arg.nat pow2);
+  ]

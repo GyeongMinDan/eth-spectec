@@ -36,7 +36,14 @@ let build_tdenv spec =
 let parse_json ~spec filename input_type =
   let tdenv = build_tdenv spec in
   let json_data = Yojson.Safe.from_file filename in
-  Interface.JSON.Parse.json_to_value tdenv (Il.Typ.var input_type []) json_data
+  let provenance =
+    match String.lowercase_ascii input_type with
+    | "beaconstate" -> Some (Il.JsonState, [])
+    | "signedbeaconblock" -> Some (Il.JsonBlock, [])
+    | _ -> None
+  in
+  Interface.JSON.Parse.json_to_value ~provenance tdenv
+    (Il.Typ.var input_type []) json_data
   |> Result.map_error (fun err ->
          let msg = Interface.JSON.Parse.string_of_error err in
          Runner.Error.TaskParseError (Common.Source.no_region, msg))
@@ -50,7 +57,11 @@ let parse_string ~spec ~filename:_ content =
   let json = Yojson.Safe.from_string content in
   (* Try parsing as beaconState by default; callers should use parse_json
      directly when they know the type *)
-  Interface.JSON.Parse.json_to_value tdenv (Il.Typ.var "beaconState" []) json
+  Interface.JSON.Parse.json_to_value
+    ~provenance:(Some (Il.JsonState, []))
+    tdenv
+    (Il.Typ.var "beaconState" [])
+    json
   |> Result.map (fun v -> [ v ])
   |> Result.map_error (fun err ->
          let msg = Interface.JSON.Parse.string_of_error err in

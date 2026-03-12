@@ -192,13 +192,20 @@ module Make (Tgt : Runner.Target.S) = struct
          flag "--save-interval"
            (optional_with_default 100 int)
            ~doc:"N save checkpoint every N tests (default: 100)"
+       and spec_dir_arg =
+         flag "--spec-dir" (optional string)
+           ~doc:
+             "DIR directory containing spec files (default: target's spec dir)"
        and instrumentation_config = Cli_args.config_flags in
        fun () ->
          let open Runner in
          (* Handle --show-checkpoint: decode and display, then exit *)
          (* Normal coverage run *)
          let run () =
-           let spec_files = collect_spec_files Tgt.spec_dir in
+           let spec_files =
+             let dir = Option.value spec_dir_arg ~default:Tgt.spec_dir in
+             collect_spec_files dir
+           in
            (* Build checkpoint configuration from CLI flags *)
            let checkpoint_config : Checkpoint.config =
              {
@@ -237,16 +244,28 @@ module Make (Tgt : Runner.Target.S) = struct
         (let open Core.Command.Let_syntax in
          let open Core.Command.Param in
          let%map checkpoint_file = anon ("checkpoint-file" %: string)
-         and instrumentation_config = Cli_args.config_flags in
+         and instrumentation_config = Cli_args.config_flags
+         and ignore_spec_mismatch =
+           flag "--ignore-spec-mismatch" no_arg
+             ~doc:" Skip spec version check (use when spec has changed)"
+         and spec_dir_arg =
+           flag "--spec-dir" (optional string)
+             ~doc:
+               "DIR directory containing spec files (default: target's spec \
+                dir)"
+         in
          fun () ->
            let open Runner in
            let run () =
-             let spec_files = collect_spec_files Tgt.spec_dir in
+             let spec_files =
+               let dir = Option.value spec_dir_arg ~default:Tgt.spec_dir in
+               collect_spec_files dir
+             in
              let* spec = parse_spec_files spec_files in
              let* spec_il = elaborate spec in
              let* checkpoint =
                Checkpoint.verify_and_load ~file:checkpoint_file ~spec_files
-                 ~verbose:true
+                 ~verbose:true ~ignore_spec_mismatch ()
              in
              Checkpoint.display_report ~spec:spec_il
                ~config:instrumentation_config checkpoint;
@@ -267,18 +286,26 @@ module Make (Tgt : Runner.Target.S) = struct
          and output_file =
            flag "--output" (required string)
              ~doc:"FILE output file for merged checkpoint"
+         and spec_dir_arg =
+           flag "--spec-dir" (optional string)
+             ~doc:
+               "DIR directory containing spec files (default: target's spec \
+                dir)"
          in
          fun () ->
            let open Runner in
            let run () =
-             let spec_files = collect_spec_files Tgt.spec_dir in
+             let spec_files =
+               let dir = Option.value spec_dir_arg ~default:Tgt.spec_dir in
+               collect_spec_files dir
+             in
              let* checkpoint1 =
                Checkpoint.verify_and_load ~file:checkpoint_file1 ~spec_files
-                 ~verbose:false
+                 ~verbose:false ()
              in
              let* checkpoint2 =
                Checkpoint.verify_and_load ~file:checkpoint_file2 ~spec_files
-                 ~verbose:false
+                 ~verbose:false ()
              in
              let* merged = Checkpoint.merge checkpoint1 checkpoint2 in
              Checkpoint.save_to_file ~file:output_file merged;
@@ -350,17 +377,28 @@ module Make (Tgt : Runner.Target.S) = struct
        and filter_seeds =
          flag "--filter-seeds" (optional string)
            ~doc:"TYPE only process seeds of TYPE (sanity|finality|random)"
-       and select_minimal =
-         flag "--select-minimal" no_arg
+       and coverage_level_flag =
+         flag "--coverage-level"
+           (optional_with_default 0 int)
            ~doc:
-             " select minimal set of tests covering all premises (greedy set \
-              cover)"
+             "N select seeds with K-cover: each premise covered by at least N \
+              seeds (0 = all, 1 = minimal/greedy)"
+       and max_slot_gap =
+         flag "--max-slot-gap"
+           (optional_with_default 32 int)
+           ~doc:
+             "N max slot gap between state and block (default: 32, 0 to \
+              disable)"
+       and spec_dir_arg =
+         flag "--spec-dir" (optional string)
+           ~doc:
+             "DIR directory containing spec files (default: target's spec dir)"
        in
        fun () ->
          let open Runner.Testgen in
          try
            (* Load coverage checkpoint *)
-           let _checkpoint, coverage, _dependency, _path_condition =
+           let _checkpoint, coverage, _dependency =
              load_checkpoint coverage_file
            in
 
@@ -443,7 +481,10 @@ module Make (Tgt : Runner.Target.S) = struct
              (try Unix.mkdir output_path 0o755 with Unix.Unix_error _ -> ());
 
              (* Helper to lookup relation name/sig from premise region *)
-             let spec_files = collect_spec_files Tgt.spec_dir in
+             let spec_files =
+               let dir = Option.value spec_dir_arg ~default:Tgt.spec_dir in
+               collect_spec_files dir
+             in
              let spec_result =
                let open Result in
                let ( let* ) = bind in
@@ -454,34 +495,9 @@ module Make (Tgt : Runner.Target.S) = struct
              (* best effort *)
 
              (* Initialize static analysis for positive dependency handler *)
-             Instrumentation_static.Mutator_analysis.init
-               (Instrumentation_static.Static.IlSpec spec_il);
-
-             let _find_relation_for_uid uid =
-               match get_premise_info uid coverage with
-               | Some ({ key = region, _; _ }, _) ->
-                   (* Scan spec for this region *)
-                   let found = ref None in
-                   let open Common.Source in
-                   let open Lang.Il in
-                   List.iter
-                     (fun def ->
-                       match def.it with
-                       | RelD (id, sig_, _, rules) ->
-                           List.iter
-                             (fun rule ->
-                               let _, _, prems = rule.it in
-                               List.iter
-                                 (fun prem ->
-                                   if prem.at = region then
-                                     found := Some (id.it, sig_))
-                                 prems)
-                             rules
-                       | _ -> ())
-                     spec_il;
-                   !found
-               | None -> None
-             in
+             let static_spec = Instrumentation_static.Static.IlSpec spec_il in
+             Instrumentation_static.Type_tree.init static_spec;
+             Instrumentation_static.Mutator_analysis.init static_spec;
 
              (* Helper to run positive analysis on a specific test case *)
              let analyze_test_case test_id target_uids =
@@ -529,17 +545,22 @@ module Make (Tgt : Runner.Target.S) = struct
                                | _ -> tdenv)
                              Envs.Il.TDEnv.empty spec_il
                          in
-                         let parse_file f t =
+                         let parse_file ~provenance f t =
                            try
                              let json = Yojson.Safe.from_file f in
-                             Interface.JSON.Parse.json_to_value tdenv t.it json
+                             Interface.JSON.Parse.json_to_value ~provenance
+                               tdenv t.it json
                              |> Result.to_option
                            with _ -> None
                          in
 
                          match
-                           ( parse_file pre_path type_pre,
-                             parse_file block_path type_block )
+                           ( parse_file
+                               ~provenance:(Some (Lang.Il.JsonState, []))
+                               pre_path type_pre,
+                             parse_file
+                               ~provenance:(Some (Lang.Il.JsonBlock, []))
+                               block_path type_block )
                          with
                          | Some val_pre, Some val_block ->
                              (* Synthesize 3rd arg: true *)
@@ -585,27 +606,21 @@ module Make (Tgt : Runner.Target.S) = struct
                          | _ -> None))
              in
 
+             (* Resolve coverage_level: --coverage-level wins over --select-minimal *)
+             let coverage_level =
+               if coverage_level_flag > 0 then coverage_level_flag else 0
+             in
+
              (* Use test-case-centric generation with checkpoint support *)
              Format.printf "Starting test-case-centric generation...\n%!";
              let results =
                Runner.Testgen.generate_tests_with_checkpoint ~test_dir:test_path
                  ~output_dir:output_path ~checkpoint_file:testgen_checkpoint
                  ~resume_file:testgen_resume ~save_interval ~filter_seeds
-                 ~select_minimal uids_to_generate coverage analyze_test_case
+                 ~coverage_level ~max_slot_gap uids_to_generate coverage
+                 analyze_test_case
              in
-
-             (* Print summary *)
-             Format.printf "\nGeneration complete:\n";
-             List.iter
-               (fun (test_id, premise_results) ->
-                 Format.printf "  Test case: %s\n" test_id;
-                 List.iter
-                   (fun (prem_uid, mutations) ->
-                     Format.printf "    Premise %d: %d mutations\n" prem_uid
-                       (List.length mutations))
-                   premise_results)
-               results;
-             Format.printf "\n";
+             ignore results;
 
              (* Verification if requested *)
              if verify then

@@ -132,11 +132,20 @@ module MakeWithVid (VidProvider : VidProvider) = struct
 
   let with_fresh_vid (typ : typ') (vhash : int) : vnote =
     let vid = VidProvider.fresh () in
-    { vid; vhash; typ }
+    { vid; vhash; typ; provenance = [] }
 
   let make_val (typ : typ') (v : value') : t =
     let vhash = hash_of v in
     v $$$ with_fresh_vid typ vhash
+
+  let with_provenance (p : json_provenance) (v : t) : t =
+    { v with note = { v.note with provenance = [ p ] } }
+
+  let with_merged_provenance (sources : t list) (result : t) : t =
+    let provs = List.concat_map (fun v -> v.note.provenance) sources in
+    let deduped = List.sort_uniq Stdlib.compare provs in
+    if deduped = [] then result
+    else { result with note = { result.note with provenance = deduped } }
 
   module Make = struct
     let value (t' : typ') (v : value') : t = make_val t' v

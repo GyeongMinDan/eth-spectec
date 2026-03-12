@@ -68,10 +68,18 @@ and deftyp' =
 and typfield = atom * typ
 and typcase = nottyp * hint list
 
+(* JSON provenance: tracks which top-level JSON input a value came from,
+   and the typed path taken to reach it. Mirrored by dep_common.field_step
+   via a type equation so no conversion is needed in the analysis layer. *)
+
+type json_source = JsonState | JsonBlock
+type json_step = FieldAccess of string | IndexAccess of int
+type json_provenance = json_source * json_step list
+
 (* Values *)
 
 type vid = int
-and vnote = { vid : vid; vhash : int; typ : typ' }
+and vnote = { vid : vid; vhash : int; typ : typ'; provenance : json_provenance list }
 
 (* not exp....... is in the value...*)
 and value = (value', vnote) note

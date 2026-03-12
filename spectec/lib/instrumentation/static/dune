@@ -1,5 +1,5 @@
 (library
  (public_name spectec.instrumentation_static)
  (name instrumentation_static)
- (libraries lang common)
- (modules static premise_uid mutator_analysis))
+ (libraries lang common yojson)
+ (modules static premise_uid mutator_analysis type_tree))

@@ -8,6 +8,42 @@ open Error
 open Attempt
 module F = Format
 
+(* Provenance propagation: copy provenance from source value to result value *)
+let propagate_provenance (source : value) (result : value) : value =
+  match source.note.provenance with
+  | [] -> result
+  | provs -> { result with note = { result.note with provenance = provs } }
+
+(* Create a record value and derive per-field provenance from the struct's provenance.
+   Fields that already carry provenance are left untouched; fields without provenance
+   are stamped with (src, steps @ [FieldAccess field_name]) for each struct provenance.
+   The struct itself is stamped with struct_provs. *)
+let make_record_with_field_provs (note : typ') (fields : valuefield list)
+    (struct_provs : json_provenance list) : value =
+  let fields =
+    List.map
+      (fun (atom, value_f) ->
+        if value_f.note.provenance <> [] || struct_provs = [] then
+          (atom, value_f)
+        else
+          let field_name =
+            Atom.string_of_atom atom.it |> String.lowercase_ascii
+          in
+          let field_provs =
+            List.map
+              (fun (src, steps) -> (src, steps @ [ FieldAccess field_name ]))
+              struct_provs
+          in
+          ( atom,
+            {
+              value_f with
+              note = { value_f.note with provenance = field_provs };
+            } ))
+      fields
+  in
+  let v = Value.Make.record note fields in
+  { v with note = { v.note with provenance = struct_provs } }
+
 (* Assignments *)
 
 (* Assigning a value to an expression *)
@@ -93,7 +129,10 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
       in
       let ctxs = List.rev ctxs_rev in
       (* Per iterated variable, collect its elementwise value,
-         then make a sequence out of them *)
+         then make a sequence out of them.
+         Propagate provenance from the source list (value) so that downstream
+         MatchE/LenE premises can trace back to the originating JSON field
+         even after destructuring. *)
       List.fold_left
         (fun ctx (id, typ, iters) ->
           let values =
@@ -101,7 +140,8 @@ let rec assign_exp (ctx : Ctx.t) (exp : exp) (value : value) : Ctx.t =
           in
           let value_sub =
             let typ = Lang.Il.Typ.iterate typ (iters @ [ List ]) in
-            values |> Value.Make.list typ.it
+            let lst = values |> Value.Make.list typ.it in
+            Value.with_merged_provenance [ value ] lst
           in
           Ctx.add_value ctx (id, iters @ [ List ]) value_sub)
         ctx vars
@@ -169,7 +209,7 @@ let rec upcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
   match typ.it with
   | NumT `IntT -> (
       match value.it with
-      | NumV (`Nat n) -> Value.int n
+      | NumV (`Nat n) -> Value.int n |> propagate_provenance value
       | NumV (`Int _) -> value
       | _ -> assert false)
   | VarT (tid, targs) -> (
@@ -190,7 +230,7 @@ let rec upcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
                 values @ [ value ])
               [] typs values
           in
-          Value.Make.tuple typ.it values
+          Value.Make.tuple typ.it values |> propagate_provenance value
       | _ -> assert false)
   | _ -> value
 
@@ -199,7 +239,8 @@ let rec downcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
   | NumT `NatT -> (
       match value.it with
       | NumV (`Nat _) -> value
-      | NumV (`Int i) when Bigint.(i >= zero) -> Value.nat i
+      | NumV (`Int i) when Bigint.(i >= zero) ->
+          Value.nat i |> propagate_provenance value
       | _ -> assert false)
   | VarT (tid, targs) -> (
       let tparams, deftyp = Ctx.find_typdef ctx tid in
@@ -219,7 +260,7 @@ let rec downcast (ctx : Ctx.t) (typ : typ) (value : value) : value =
                 values @ [ value ])
               [] typs values
           in
-          Value.Make.tuple typ.it values
+          Value.Make.tuple typ.it values |> propagate_provenance value
       | _ -> assert false)
   | _ -> value
 
@@ -350,6 +391,7 @@ and eval_bin_exp (note : typ') (ctx : Ctx.t) (binop : binop) (_optyp : optyp)
     | #Bool.binop as binop -> eval_bin_bool note binop value_l value_r
     | #Num.binop as binop -> eval_bin_num note binop value_l value_r
   in
+  let value_res = Value.with_merged_provenance [ value_l; value_r ] value_res in
   (ctx, value_res)
 
 (* Comparison expression evaluation *)
@@ -513,7 +555,7 @@ and eval_len_exp (note : typ') (ctx : Ctx.t) (exp : exp) : Ctx.t * value =
   let ctx, value = eval_exp ctx exp in
   let len = value |> Value.get_list |> List.length |> Bigint.of_int in
   let value_res = Value.Make.nat note len in
-  (ctx, value_res)
+  (ctx, propagate_provenance value value_res)
 
 (* Dot expression evaluation *)
 
@@ -620,7 +662,9 @@ and eval_upd_exp (_note : typ') (ctx : Ctx.t) (exp_b : exp) (path : path)
               else (atom_f, value_f))
             fields
         in
-        let value_updated = Value.Make.record path.note fields in
+        let value_updated =
+          make_record_with_field_provs path.note fields value.note.provenance
+        in
         eval_update_path ctx value_b path value_updated
     | IdxP (path, exp) ->
         let ctx, value_base = eval_access_path ctx value_b path in
@@ -644,6 +688,7 @@ and eval_upd_exp (_note : typ') (ctx : Ctx.t) (exp_b : exp) (path : path)
           List.rev_append prefix_rev (value_n :: suffix)
           |> Value.Make.list path.note
         in
+        let values_updated = propagate_provenance value_base values_updated in
         eval_update_path ctx value_b path values_updated
     | SliceP (_path, _exp_l, _exp_h) ->
         failwith "(TODO) update: SliceP update not yet implemented"
@@ -699,6 +744,27 @@ and eval_iter_exp (note : typ') (ctx : Ctx.t) (exp : exp) (iterexp : iterexp) :
         (ctx, []) ctxs_sub
     in
     let value_res = values_rev |> List.rev |> Value.Make.list note in
+    (* Propagate provenance from source list variables to the container *)
+    let source_provs =
+      List.concat_map
+        (fun (id, _typ, iters) ->
+          match Ctx.find_value_opt ctx (id, iters @ [ List ]) with
+          | Some v -> v.note.provenance
+          | None -> [])
+        vars
+    in
+    let value_res =
+      if source_provs = [] then value_res
+      else
+        {
+          value_res with
+          note =
+            {
+              value_res.note with
+              provenance = List.sort_uniq compare source_provs;
+            };
+        }
+    in
     (ctx, value_res)
   in
   let iter, vars = iterexp in
@@ -912,6 +978,11 @@ and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
           Ok (ctx, values_binding)
     in
     (* Finally, bind the resulting binding batches *)
+    let source_list_values =
+      List.map
+        (fun (id, _typ, iters) -> Ctx.find_value ctx (id, iters @ [ List ]))
+        vars_bound
+    in
     let ctx =
       List.fold_left2
         (fun ctx (id_binding, typ_binding, iters_binding) values_binding ->
@@ -920,6 +991,7 @@ and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
               Lang.Il.Typ.iterate typ_binding (iters_binding @ [ List ])
             in
             values_binding |> Value.Make.list typ.it
+            |> Value.with_merged_provenance source_list_values
           in
           Ctx.add_value ctx (id_binding, iters_binding @ [ List ]) value_binding)
         ctx vars_binding values_binding
@@ -998,6 +1070,15 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
     in
     let* values_output =
       invoke |> Cache.with_rel_cache ctx.cache (id.it, values_input)
+    in
+    (* Fallback: propagate from all relation inputs when an output has no provenance. *)
+    let values_output =
+      List.map
+        (fun v ->
+          if v.note.provenance = [] then
+            Value.with_merged_provenance values_input v
+          else v)
+        values_output
     in
     Ok (ctx, values_output)
   in
@@ -1132,6 +1213,14 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       if targs <> [] || is_anonymous id || is_high_order values_input then
         invoke_func' ()
       else invoke_func' |> Cache.with_func_cache ctx.cache (id.it, values_input)
+    in
+    (* Fallback provenance propagation: when the output has no provenance but
+       inputs do, merge all input provenances into the output.
+       Necessary for builtins where output provenances are computed empty. *)
+    let value_output =
+      if value_output.note.provenance = [] then
+        Value.with_merged_provenance values_input value_output
+      else value_output
     in
     Ok (ctx, value_output)
   in
