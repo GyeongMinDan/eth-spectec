@@ -18,6 +18,8 @@ import os
 import sys
 import subprocess
 import argparse
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -52,9 +54,6 @@ def convert_json_to_ssz(json_path, ssz_path, conversion_script, type_module, typ
     if not os.path.exists(json_path):
         print(f"[!] JSON file not found: {json_path}")
         return False
-    
-    # Ensure output directory exists
-    os.makedirs(os.path.dirname(ssz_path), exist_ok=True)
     
     # Build command
     cmd = [
@@ -173,32 +172,38 @@ def process_testgen_directory(input_testgen_dir, output_base_dir, fork: ForkName
             print(f"  {block_json} -> {block_ssz}")
             print(f"  (from {test_group_name})")
             continue
-        
-        # Convert pre.json to pre.ssz
-        if convert_json_to_ssz(
-            pre_json,
-            pre_ssz,
-            state_converter,
-            type_module=type_module,
-            type_name="BeaconState"
-        ):
-            # Convert block.json to blocks_0.ssz
+
+        # Convert into an OS temp directory so failed cases don't leave any folders behind.
+        with tempfile.TemporaryDirectory(prefix="ssz-convert-") as td:
+            tmp_mut_dir = Path(td)
+            tmp_pre_ssz = tmp_mut_dir / "pre.ssz"
+            tmp_block_ssz = tmp_mut_dir / "blocks_0.ssz"
+
+            # Convert pre.json to pre.ssz
             if convert_json_to_ssz(
-                block_json,
-                block_ssz,
-                block_converter,
+                pre_json,
+                tmp_pre_ssz,
+                state_converter,
                 type_module=type_module,
-                type_name="SignedBeaconBlock"
+                type_name="BeaconState"
             ):
-                success_count += 1
-                print(f"[+] Successfully converted test case: {test_group_name}/{mut_name}")
+                # Convert block.json to blocks_0.ssz
+                if convert_json_to_ssz(
+                    block_json,
+                    tmp_block_ssz,
+                    block_converter,
+                    type_module=type_module,
+                    type_name="SignedBeaconBlock"
+                ):
+                    output_mut_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(tmp_pre_ssz), str(pre_ssz))
+                    shutil.move(str(tmp_block_ssz), str(block_ssz))
+                    success_count += 1
+                    print(f"[+] Successfully converted test case: {test_group_name}/{mut_name}")
+                else:
+                    fail_count += 1
             else:
                 fail_count += 1
-                # Remove partial output
-                if pre_ssz.exists():
-                    os.remove(pre_ssz)
-        else:
-            fail_count += 1
     
     print(f"\n[+] Conversion complete:")
     print(f"    Success: {success_count}")
