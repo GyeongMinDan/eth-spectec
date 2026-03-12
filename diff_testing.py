@@ -831,7 +831,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             "Lodestar",
             "/usr/bin/node",
             [
-                "--max-old-space-size=4096",
+                "--max-old-space-size=16384",
                 str(lodestar_transition),
                 "state-transition",  # Command name
                 state,
@@ -1195,7 +1195,7 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
             "Lodestar",
             "/usr/bin/node",
             [
-                "--max-old-space-size=4096",
+                "--max-old-space-size=16384",
                 str(lodestar_transition),
                 "sanity-slots",
                 f"--pre-state-path={state}",
@@ -1488,7 +1488,7 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
 
     # Build Lodestar command arguments
     lodestar_args = [
-        "--max-old-space-size=4096",
+        "--max-old-space-size=16384",
         str(lodestar_transition),
         "operation",
         f"--pre-state-path={state}",
@@ -1844,7 +1844,7 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
             "Lodestar",
             "/usr/bin/node",
             [
-                "--max-old-space-size=4096",
+                "--max-old-space-size=16384",
                 str(lodestar_transition),
                 "epoch-processing",
                 f"--pre-state-path={state}",
@@ -3895,7 +3895,7 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
             # Read JSON files from temp-directory to generate report
             # Increase Node.js memory limit for large JSON file processing
             env = os.environ.copy()
-            env["NODE_OPTIONS"] = "--max-old-space-size=8192"  # 8GB heap size
+            env["NODE_OPTIONS"] = "--max-old-space-size=16384"  # 8GB heap size
             subprocess.run(
                 [
                     "npx", "c8", "report",
@@ -4481,7 +4481,7 @@ def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_cli
         # Use absolute paths since c8 runs from lodestar directory
         # Increase Node.js memory limit for large JSON file processing (1822+ files)
         env = os.environ.copy()
-        env["NODE_OPTIONS"] = "--max-old-space-size=8192"  # 8GB heap size
+        env["NODE_OPTIONS"] = "--max-old-space-size=16384"  # 8GB heap size
         subprocess.run(
             [
                 "npx", "c8", "report",
@@ -5055,7 +5055,7 @@ def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
         # Merge and generate report using c8
         # Increase Node.js memory limit for large JSON file processing
         env = os.environ.copy()
-        env["NODE_OPTIONS"] = "--max-old-space-size=8192"  # 8GB heap size
+        env["NODE_OPTIONS"] = "--max-old-space-size=16384"  # 8GB heap size
         subprocess.run(
             [
                 "npx", "c8", "report",
