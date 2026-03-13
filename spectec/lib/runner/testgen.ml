@@ -1280,9 +1280,9 @@ let test_case_paths ~(test_dir : string) (test_id : string) : string * string =
 
 (* Write mutated pre/block JSON files for a single mutation into a subdirectory.
    Returns output file paths, or input paths if mutation could not be applied. *)
-let mutate_json_input ~output_dir ?(max_slot_gap : int option) (mut_id : string)
-    (constraints : mutation_constraint list) (blacklisted : field_path list)
-    (pre_path : string) (block_path : string) =
+let mutate_json_input ~output_dir ?(max_slot_gap : int option = Some 32)
+    (mut_id : string) (constraints : mutation_constraint list)
+    (blacklisted : field_path list) (pre_path : string) (block_path : string) =
   let flat_id = String.map (fun c -> if c = '/' then '_' else c) mut_id in
   let mut_dir = Filename.concat output_dir flat_id in
   mkdir_p mut_dir;
