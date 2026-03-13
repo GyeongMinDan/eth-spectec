@@ -30,6 +30,7 @@ let print_outcome (type i) (module T : Runner.Task.S with type input = i) source
   | Task.UnexpectedPass values ->
       Format.printf "Unexpected pass (failed): %s\n  %s\n\n" source
         (T.format_output values)
+  | Task.Skipped -> Format.printf "Skipped: %s\n\n" source
 
 (* Run interpreter on a single input and print result *)
 let run_single (type i) (module T : Runner.Task.S with type input = i) ~config
@@ -231,8 +232,13 @@ module Make (Tgt : Runner.Target.S) = struct
              (fun { task_name; summary } ->
                let passed = Runner.summary_passed summary in
                let failed = Runner.summary_failed summary in
-               Format.printf "%s: %d/%d passed, %d failed\n" task_name passed
-                 summary.total failed)
+               let skipped_str =
+                 if summary.skipped > 0 then
+                   Printf.sprintf ", %d skipped" summary.skipped
+                 else ""
+               in
+               Format.printf "%s: %d/%d passed, %d failed%s\n" task_name passed
+                 summary.total failed skipped_str)
              results;
            Ok ()
          in

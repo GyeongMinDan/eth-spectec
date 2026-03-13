@@ -197,7 +197,8 @@ let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
            | Task.Pass _ -> Format.printf "PASS\n%!"
            | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
            | Task.Fail _ -> Format.printf "FAIL\n%!"
-           | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!");
+           | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!"
+           | Task.Skipped -> Format.printf "SKIPPED\n%!");
         { input; source; outcome })
       inputs
   in
@@ -209,6 +210,7 @@ type suite_summary = {
   expected_fail : int; (* Negative test failed as expected *)
   fail : int; (* Positive test failed *)
   unexpected_pass : int; (* Negative test succeeded unexpectedly *)
+  skipped : int; (* Filtered before execution *)
   total : int;
 }
 
@@ -217,17 +219,25 @@ let summary_passed s = s.pass + s.expected_fail
 let summary_failed s = s.fail + s.unexpected_pass
 
 let summarize_outcomes results =
-  let pass, expected_fail, fail, unexpected_pass =
+  let pass, expected_fail, fail, unexpected_pass, skipped =
     List.fold_left
-      (fun (p, ef, f, up) { outcome; _ } ->
+      (fun (p, ef, f, up, sk) { outcome; _ } ->
         match outcome with
-        | Task.Pass _ -> (p + 1, ef, f, up)
-        | Task.ExpectedFail _ -> (p, ef + 1, f, up)
-        | Task.Fail _ -> (p, ef, f + 1, up)
-        | Task.UnexpectedPass _ -> (p, ef, f, up + 1))
-      (0, 0, 0, 0) results
+        | Task.Pass _ -> (p + 1, ef, f, up, sk)
+        | Task.ExpectedFail _ -> (p, ef + 1, f, up, sk)
+        | Task.Fail _ -> (p, ef, f + 1, up, sk)
+        | Task.UnexpectedPass _ -> (p, ef, f, up + 1, sk)
+        | Task.Skipped -> (p, ef, f, up, sk + 1))
+      (0, 0, 0, 0, 0) results
   in
-  { pass; expected_fail; fail; unexpected_pass; total = List.length results }
+  {
+    pass;
+    expected_fail;
+    fail;
+    unexpected_pass;
+    skipped;
+    total = List.length results;
+  }
 
 (* Result for one input spec in coverage run *)
 type task_result = { task_name : string; summary : suite_summary }
@@ -316,25 +326,16 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                 expected_fail = 0;
                 fail = 0;
                 unexpected_pass = 0;
+                skipped = 0;
               };
           }
         else
           let task_result =
             (* Each task discovers its own inputs *)
             let all_inputs =
-              let collected =
-                match test_dir with
-                | Some dir -> T.collect ~dir ()
-                | None -> T.collect ()
-              in
-              match max_slot_gap with
-              | None -> collected
-              | Some limit ->
-                  List.filter
-                    (fun input ->
-                      Testgen.slot_gap_within_limit_for_source
-                        ~max_slot_gap:limit (T.source input))
-                    collected
+              match test_dir with
+              | Some dir -> T.collect ~dir ()
+              | None -> T.collect ()
             in
             let total_all = List.length all_inputs in
             (* Filter out completed inputs if resuming *)
@@ -365,99 +366,118 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                     { input; source; outcome = Task.Pass [] })
                   else
                     let source = T.source input in
-                    (* Record start time *)
-                    let start_time = Unix.gettimeofday () in
-                    let start_time_str =
-                      let tm = Unix.localtime (Unix.time ()) in
-                      Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d"
-                        (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1)
-                        tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
-                        tm.Unix.tm_sec
-                    in
-                    if verbose then (
-                      (* Show absolute progress: [completed+1/total] with timestamp *)
-                      Format.printf "  [%d/%d] %s [started: %s]... %!"
-                        (completed_count + index + 1)
-                        total_all source start_time_str;
-                      flush stdout);
-                    (* Use no_lifecycle version - init/finish managed at coverage level *)
-                    let outcome =
-                      try
-                        (* Check if skip was requested before starting *)
-                        if !skip_current_test then (
-                          skip_current_test := false;
-                          ignore (Unix.alarm 0);
-                          (* Cancel any alarm *)
-                          raise SkipCurrentTest);
-                        (* Start periodic alarm checks (every 1 second) to detect interrupts *)
-                        ignore (Unix.alarm 1);
-                        let result =
-                          run_with_outcome_no_lifecycle
-                            (module T)
-                            ~sl_mode ~spec_il input
-                        in
-                        (* Cancel alarm on successful completion *)
-                        ignore (Unix.alarm 0);
-                        result
-                      with
-                      | SkipCurrentTest ->
-                          (* Test was interrupted by signal - treat as FAIL *)
-                          skip_current_test := false;
-                          ignore (Unix.alarm 0);
-                          (* Cancel any pending alarm *)
-                          if verbose then
-                            Format.printf "INTERRUPTED (treated as FAIL)\n%!";
-                          Task.compute_outcome (T.expectation input)
-                            (Error
-                               (Error.EvalIlError
-                                  ( Common.Source.no_region,
-                                    "Test interrupted by SIGUSR2" )))
-                      | exception_value ->
-                          ignore (Unix.alarm 0);
-                          (* Cancel any pending alarm *)
-                          (* Check if skip was requested during execution *)
+                    if
+                      match max_slot_gap with
+                      | Some limit ->
+                          not
+                            (Testgen.slot_gap_within_limit_for_source
+                               ~max_slot_gap:limit source)
+                      | None -> false
+                    then (
+                      if verbose then
+                        Format.printf "  [%d/%d] %s... SKIPPED (slot gap)\n%!"
+                          (completed_count + index + 1)
+                          total_all source;
+                      { input; source; outcome = Task.Skipped })
+                    else
+                      (* Record start time *)
+                      let start_time = Unix.gettimeofday () in
+                      let start_time_str =
+                        let tm = Unix.localtime (Unix.time ()) in
+                        Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d"
+                          (tm.Unix.tm_year + 1900) (tm.Unix.tm_mon + 1)
+                          tm.Unix.tm_mday tm.Unix.tm_hour tm.Unix.tm_min
+                          tm.Unix.tm_sec
+                      in
+                      if verbose then (
+                        (* Show absolute progress: [completed+1/total] with timestamp *)
+                        Format.printf "  [%d/%d] %s [started: %s]... %!"
+                          (completed_count + index + 1)
+                          total_all source start_time_str;
+                        flush stdout);
+                      (* Use no_lifecycle version - init/finish managed at coverage level *)
+                      let outcome =
+                        try
+                          (* Check if skip was requested before starting *)
                           if !skip_current_test then (
                             skip_current_test := false;
+                            ignore (Unix.alarm 0);
+                            (* Cancel any alarm *)
+                            raise SkipCurrentTest);
+                          (* Start periodic alarm checks (every 1 second) to detect interrupts *)
+                          ignore (Unix.alarm 1);
+                          let result =
+                            run_with_outcome_no_lifecycle
+                              (module T)
+                              ~sl_mode ~spec_il input
+                          in
+                          (* Cancel alarm on successful completion *)
+                          ignore (Unix.alarm 0);
+                          result
+                        with
+                        | SkipCurrentTest ->
+                            (* Test was interrupted by signal - treat as FAIL *)
+                            skip_current_test := false;
+                            ignore (Unix.alarm 0);
+                            (* Cancel any pending alarm *)
                             if verbose then
                               Format.printf "INTERRUPTED (treated as FAIL)\n%!";
                             Task.compute_outcome (T.expectation input)
                               (Error
                                  (Error.EvalIlError
                                     ( Common.Source.no_region,
-                                      "Test interrupted by SIGUSR2" ))))
-                          else
-                            let error =
-                              Error.EvalIlError
-                                ( Common.Source.no_region,
-                                  Printexc.to_string exception_value )
-                            in
-                            Task.compute_outcome (T.expectation input)
-                              (Error error)
-                    in
-                    (* Show elapsed time if verbose *)
-                    (if verbose then
-                       let elapsed = Unix.gettimeofday () -. start_time in
-                       match outcome with
-                       | Task.Pass _ -> Format.printf "PASS (%.2fs)\n%!" elapsed
-                       | Task.ExpectedFail _ ->
-                           Format.printf "EXPECTED FAIL (%.2fs)\n%!" elapsed
-                       | Task.Fail _ -> Format.printf "FAIL (%.2fs)\n%!" elapsed
-                       | Task.UnexpectedPass _ ->
-                           Format.printf "UNEXPECTED PASS (%.2fs)\n%!" elapsed
-                     else
-                       match outcome with
-                       | Task.Pass _ -> Format.printf "PASS\n%!"
-                       | Task.ExpectedFail _ ->
-                           Format.printf "EXPECTED FAIL\n%!"
-                       | Task.Fail _ -> Format.printf "FAIL\n%!"
-                       | Task.UnexpectedPass _ ->
-                           Format.printf "UNEXPECTED PASS\n%!");
-                    (* Track completion *)
-                    all_completed_inputs := source :: !all_completed_inputs;
-                    (* Periodic checkpoint save *)
-                    if (index + 1) mod checkpoint_config.save_interval = 0 then
-                      save_current_checkpoint ();
-                    { input; source; outcome })
+                                      "Test interrupted by SIGUSR2" )))
+                        | exception_value ->
+                            ignore (Unix.alarm 0);
+                            (* Cancel any pending alarm *)
+                            (* Check if skip was requested during execution *)
+                            if !skip_current_test then (
+                              skip_current_test := false;
+                              if verbose then
+                                Format.printf
+                                  "INTERRUPTED (treated as FAIL)\n%!";
+                              Task.compute_outcome (T.expectation input)
+                                (Error
+                                   (Error.EvalIlError
+                                      ( Common.Source.no_region,
+                                        "Test interrupted by SIGUSR2" ))))
+                            else
+                              let error =
+                                Error.EvalIlError
+                                  ( Common.Source.no_region,
+                                    Printexc.to_string exception_value )
+                              in
+                              Task.compute_outcome (T.expectation input)
+                                (Error error)
+                      in
+                      (* Show elapsed time if verbose *)
+                      (if verbose then
+                         let elapsed = Unix.gettimeofday () -. start_time in
+                         match outcome with
+                         | Task.Pass _ ->
+                             Format.printf "PASS (%.2fs)\n%!" elapsed
+                         | Task.ExpectedFail _ ->
+                             Format.printf "EXPECTED FAIL (%.2fs)\n%!" elapsed
+                         | Task.Fail _ ->
+                             Format.printf "FAIL (%.2fs)\n%!" elapsed
+                         | Task.UnexpectedPass _ ->
+                             Format.printf "UNEXPECTED PASS (%.2fs)\n%!" elapsed
+                         | Task.Skipped -> Format.printf "SKIPPED\n%!"
+                       else
+                         match outcome with
+                         | Task.Pass _ -> Format.printf "PASS\n%!"
+                         | Task.ExpectedFail _ ->
+                             Format.printf "EXPECTED FAIL\n%!"
+                         | Task.Fail _ -> Format.printf "FAIL\n%!"
+                         | Task.UnexpectedPass _ ->
+                             Format.printf "UNEXPECTED PASS\n%!"
+                         | Task.Skipped -> Format.printf "SKIPPED\n%!");
+                      (* Track completion *)
+                      all_completed_inputs := source :: !all_completed_inputs;
+                      (* Periodic checkpoint save *)
+                      if (index + 1) mod checkpoint_config.save_interval = 0
+                      then save_current_checkpoint ();
+                      { input; source; outcome })
                 inputs
             in
             { task_name = T.name; summary = summarize_outcomes task_results }

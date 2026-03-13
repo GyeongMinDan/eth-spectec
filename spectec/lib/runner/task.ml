@@ -23,6 +23,7 @@ type test_outcome =
   | Fail of Error.t
   | ExpectedFail of Error.t
   | UnexpectedPass of Il.Value.t list
+  | Skipped
 
 (** Compute test outcome from expectation and result *)
 let compute_outcome expectation result =
