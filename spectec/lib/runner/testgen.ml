@@ -55,6 +55,8 @@ type mutation_ok = {
   from_json : Yojson.Safe.t;
   applied : Json_mutator.mutation_strategy list;
       (* one entry per successfully applied strategy *)
+  actual_values : Yojson.Safe.t option list;
+      (* actual post-cap value written to disk, parallel to applied *)
   mut_ids : string list; (* parallel to applied — the mut_... directory name *)
   is_fallback : bool;
       (* true when the applied strategies were fallback-generated *)
@@ -152,19 +154,21 @@ let cap_slot_gap ~(max_slot_gap : int) (pre_json : Yojson.Safe.t)
       Json_mutator.set_field block_json block_msg_slot_path capped
   | _ -> block_json
 
-(* Cap state_slot so that block_slot - state_slot >= 0 (state must not be after block).
-   Also handles the case where state_slot overflowed OCaml int (get_state_slot = None). *)
-let cap_pre_slot_gap (pre_json : Yojson.Safe.t) (block_json : Yojson.Safe.t) :
-    Yojson.Safe.t =
+(* Cap state_slot so that state_slot >= block_slot - max_slot_gap *)
+let cap_pre_slot_gap ~(max_slot_gap : int) (pre_json : Yojson.Safe.t)
+    (block_json : Yojson.Safe.t) : Yojson.Safe.t =
   match get_block_slot block_json with
   | None -> pre_json
   | Some block_slot -> (
+      let lower = max 0 (block_slot - max_slot_gap) in
       match get_state_slot pre_json with
-      | Some state_slot when state_slot <= block_slot -> pre_json
-      | _ ->
-          (* state_slot > block_slot or unparseable: clamp to block_slot *)
-          let capped = `Intlit (string_of_int block_slot) in
-          Json_mutator.set_field pre_json state_slot_path capped)
+      | Some state_slot when state_slot <= lower ->
+          pre_json (* gap within limit *)
+      | Some _ ->
+          (* state_slot too far below block_slot: clamp up to lower bound *)
+          let capped = `Intlit (string_of_int lower) in
+          Json_mutator.set_field pre_json state_slot_path capped
+      | None -> pre_json (* unparseable — leave as-is *))
 
 (* Walk a type tree node following field_step list. Case-insensitive field name match. *)
 let rec type_at_steps (typ : Type_tree.typ) (steps : Dep.field_step list) :
@@ -1301,7 +1305,7 @@ let mutate_json_input ~output_dir ?(max_slot_gap : int option = Some 32)
   let mut_dir = Filename.concat output_dir flat_id in
   mkdir_p mut_dir;
   match (load_json_opt pre_path, load_json_opt block_path) with
-  | None, _ | _, None -> (pre_path, block_path)
+  | None, _ | _, None -> (pre_path, block_path, None)
   | Some pre, Some block ->
       let apply_matching src_tag json =
         List.fold_left
@@ -1319,22 +1323,47 @@ let mutate_json_input ~output_dir ?(max_slot_gap : int option = Some 32)
       in
       let mutated_pre_raw = apply_matching "state" pre in
       let mutated_block_raw = apply_matching "block" block in
+      (* Determine which sources are actually being mutated so we cap only in
+         the direction of the mutation: state mutations clamp state.slot up
+         (preserving block.slot); block mutations clamp block.slot down
+         (preserving state.slot). *)
+      let mutates_state =
+        List.exists
+          (fun c ->
+            c.field_path.source = Dep.State
+            && (not (is_blacklisted c.field_path blacklisted))
+            && c.strategies <> [])
+          constraints
+      in
+      let mutates_block =
+        List.exists
+          (fun c ->
+            c.field_path.source = Dep.Block
+            && (not (is_blacklisted c.field_path blacklisted))
+            && c.strategies <> [])
+          constraints
+      in
       let mutated_block =
         match max_slot_gap with
-        | Some max_gap ->
+        | Some max_gap when mutates_block ->
             cap_slot_gap ~max_slot_gap:max_gap mutated_pre_raw mutated_block_raw
-        | None -> mutated_block_raw
+        | _ -> mutated_block_raw
       in
       let mutated_pre =
         match max_slot_gap with
-        | Some _ -> cap_pre_slot_gap mutated_pre_raw mutated_block
-        | None -> mutated_pre_raw
+        | Some max_gap when mutates_state ->
+            (* Use mutated_block_raw (original block.slot) as the reference so
+               we clamp state.slot relative to the intended block slot, not a
+               block.slot that cap_slot_gap may have already lowered. *)
+            cap_pre_slot_gap ~max_slot_gap:max_gap mutated_pre_raw
+              mutated_block_raw
+        | _ -> mutated_pre_raw
       in
       let out_pre = Filename.concat mut_dir "pre.json" in
       let out_block = Filename.concat mut_dir "block.json" in
       Json_mutator.save_json out_pre mutated_pre;
       Json_mutator.save_json out_block mutated_block;
-      (out_pre, out_block)
+      (out_pre, out_block, Some (mutated_pre, mutated_block))
 
 (* ===== Combined constraint builders ===== *)
 
@@ -1665,6 +1694,11 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
        different suggestions producing the same mutation (e.g. len<=0 and
        len<=255 both generating SetLength 0) are deduplicated. *)
     let seen_field_strategies : (string, unit) Hashtbl.t = Hashtbl.create 64 in
+    (* Track (field_path, actual_post_cap_value) pairs to deduplicate mutations
+       that produce the same written value after capping. *)
+    let seen_actual_field_values : (string, unit) Hashtbl.t =
+      Hashtbl.create 64
+    in
     List.iteri
       (fun c_idx (constraint_, puids_for_constraint) ->
         match
@@ -1693,6 +1727,7 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
             (* Apply all strategies for this constraint; accumulate applied
                strategies so the report shows one grouped entry per constraint. *)
             let applied = ref [] in
+            let actual_values = ref [] in
             let mut_ids = ref [] in
             (* True once a strategy for this constraint was not a cross-constraint
                duplicate, regardless of whether it ultimately produced a file. *)
@@ -1717,17 +1752,48 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                     Printf.sprintf "mut_%s_%d_%d" prem_str c_idx s_idx
                   in
                   let single = { constraint_ with strategies = [ strategy ] } in
-                  let out_pre, out_block =
+                  let out_pre, out_block, mutated_opt =
                     mutate_json_input ~output_dir:out_dir mut_id [ single ] []
                       pre_path block_path
                   in
                   if out_pre <> pre_path then (
+                    let actual_val =
+                      match mutated_opt with
+                      | None -> None
+                      | Some (mpre, mblock) ->
+                          let json =
+                            match constraint_.field_path.source with
+                            | Dep.State -> mpre
+                            | Dep.Block -> mblock
+                          in
+                          Json_mutator.get_field json
+                            constraint_.field_path.steps
+                    in
+                    (* Post-cap deduplication: skip if this field already has
+                       a mutation with the same actual written value. *)
+                    let is_actual_dup =
+                      match actual_val with
+                      | None -> false
+                      | Some v ->
+                          let actual_key =
+                            Dep.string_of_field_path constraint_.field_path
+                            ^ "|" ^ Yojson.Safe.to_string v
+                          in
+                          if Hashtbl.mem seen_actual_field_values actual_key
+                          then true
+                          else (
+                            Hashtbl.replace seen_actual_field_values actual_key
+                              ();
+                            false)
+                    in
                     List.iter
                       (fun uid -> Hashtbl.replace local_covered uid ())
                       puids_for_constraint;
-                    generated := (mut_id, out_pre, out_block) :: !generated;
-                    applied := strategy :: !applied;
-                    mut_ids := mut_id :: !mut_ids)))
+                    if not is_actual_dup then (
+                      generated := (mut_id, out_pre, out_block) :: !generated;
+                      actual_values := actual_val :: !actual_values;
+                      applied := strategy :: !applied;
+                      mut_ids := mut_id :: !mut_ids))))
               strats;
             if !applied <> [] then
               outcomes :=
@@ -1741,6 +1807,7 @@ let process_test_case ~test_dir ~output_dir test_id prem_uids
                     total_variants = constraint_.group_total;
                     from_json = src;
                     applied = List.rev !applied;
+                    actual_values = List.rev !actual_values;
                     mut_ids = List.rev !mut_ids;
                     is_fallback = is_fallback_used;
                   }
@@ -1884,13 +1951,19 @@ let write_block ch ~ind (entries : mutation_ok list) =
       List.iter
         (fun r ->
           let from_s = display_from_json r.from_json in
-          let pairs = List.combine r.mut_ids r.applied in
+          let triples =
+            List.combine (List.combine r.mut_ids r.applied) r.actual_values
+          in
           List.iter
-            (fun (mid, strategy) ->
-              let to_s = display_strategy_value r.from_json strategy in
+            (fun ((mid, strategy), actual_val) ->
+              let to_s =
+                match actual_val with
+                | Some v -> truncate_val (Yojson.Safe.to_string v)
+                | None -> display_strategy_value r.from_json strategy
+              in
               Printf.fprintf ch "%s- [%s]  %s  →  %s\n" inner_ind mid from_s
                 to_s)
-            pairs)
+            triples)
         sub)
     (List.rev !sk_order)
 
