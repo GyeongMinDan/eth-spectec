@@ -130,6 +130,19 @@ let slot_gap_within_limit ~(test_dir : string) ~(max_slot_gap : int)
       | None -> true)
   | _ -> true
 
+(* Check slot gap using an absolute pre.json path (as returned by T.source).
+   Derives block.json from the same directory. Returns true when within limit. *)
+let slot_gap_within_limit_for_source ~(max_slot_gap : int) (pre_path : string) :
+    bool =
+  let block_path = Filename.concat (Filename.dirname pre_path) "block.json" in
+  let load f = try Some (Json_mutator.load_json f) with _ -> None in
+  match (load pre_path, load block_path) with
+  | Some pre, Some block -> (
+      match get_slot_gap pre block with
+      | Some gap -> gap <= max_slot_gap
+      | None -> true)
+  | _ -> true
+
 (* Cap block_slot so that block_slot - state_slot <= max_slot_gap. *)
 let cap_slot_gap ~(max_slot_gap : int) (pre_json : Yojson.Safe.t)
     (block_json : Yojson.Safe.t) : Yojson.Safe.t =

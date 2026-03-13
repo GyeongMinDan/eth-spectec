@@ -239,8 +239,8 @@ type task_result = { task_name : string; summary : suite_summary }
 exception SkipCurrentTest
 
 let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
-    ~(checkpoint_config : Checkpoint.config) ~verbose ~sl_mode ~spec_files
-    spec_il tasks =
+    ?max_slot_gap ~(checkpoint_config : Checkpoint.config) ~verbose ~sl_mode
+    ~spec_files spec_il tasks =
   (* Initialize instrumentation once for the entire coverage run *)
   let handlers = Instrumentation.Config.to_handlers config in
   Instrumentation.Static.reset_all ();
@@ -322,9 +322,19 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
           let task_result =
             (* Each task discovers its own inputs *)
             let all_inputs =
-              match test_dir with
-              | Some dir -> T.collect ~dir ()
-              | None -> T.collect ()
+              let collected =
+                match test_dir with
+                | Some dir -> T.collect ~dir ()
+                | None -> T.collect ()
+              in
+              match max_slot_gap with
+              | None -> collected
+              | Some limit ->
+                  List.filter
+                    (fun input ->
+                      Testgen.slot_gap_within_limit_for_source
+                        ~max_slot_gap:limit (T.source input))
+                    collected
             in
             let total_all = List.length all_inputs in
             (* Filter out completed inputs if resuming *)

@@ -196,6 +196,9 @@ module Make (Tgt : Runner.Target.S) = struct
          flag "--spec-dir" (optional string)
            ~doc:
              "DIR directory containing spec files (default: target's spec dir)"
+       and max_slot_gap =
+         flag "--max-slot-gap" (optional int)
+           ~doc:"N skip inputs where block.slot - state.slot > N (e.g. 32)"
        and instrumentation_config = Cli_args.config_flags in
        fun () ->
          let open Runner in
@@ -220,8 +223,8 @@ module Make (Tgt : Runner.Target.S) = struct
            let generic_tasks = List.map to_generic tasks in
            let results =
              run_target_coverage ~config:instrumentation_config ?test_dir
-               ~checkpoint_config ~verbose ~sl_mode ~spec_files spec_il
-               generic_tasks
+               ?max_slot_gap ~checkpoint_config ~verbose ~sl_mode ~spec_files
+               spec_il generic_tasks
            in
            (* Print summary for each input spec *)
            List.iter
