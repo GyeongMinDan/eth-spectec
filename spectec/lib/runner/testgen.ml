@@ -152,6 +152,20 @@ let cap_slot_gap ~(max_slot_gap : int) (pre_json : Yojson.Safe.t)
       Json_mutator.set_field block_json block_msg_slot_path capped
   | _ -> block_json
 
+(* Cap state_slot so that block_slot - state_slot >= 0 (state must not be after block).
+   Also handles the case where state_slot overflowed OCaml int (get_state_slot = None). *)
+let cap_pre_slot_gap (pre_json : Yojson.Safe.t) (block_json : Yojson.Safe.t) :
+    Yojson.Safe.t =
+  match get_block_slot block_json with
+  | None -> pre_json
+  | Some block_slot -> (
+      match get_state_slot pre_json with
+      | Some state_slot when state_slot <= block_slot -> pre_json
+      | _ ->
+          (* state_slot > block_slot or unparseable: clamp to block_slot *)
+          let capped = `Intlit (string_of_int block_slot) in
+          Json_mutator.set_field pre_json state_slot_path capped)
+
 (* Walk a type tree node following field_step list. Case-insensitive field name match. *)
 let rec type_at_steps (typ : Type_tree.typ) (steps : Dep.field_step list) :
     Type_tree.typ option =
@@ -1303,13 +1317,18 @@ let mutate_json_input ~output_dir ?(max_slot_gap : int option = Some 32)
               | _ -> acc)
           json constraints
       in
-      let mutated_pre = apply_matching "state" pre in
+      let mutated_pre_raw = apply_matching "state" pre in
       let mutated_block_raw = apply_matching "block" block in
       let mutated_block =
         match max_slot_gap with
         | Some max_gap ->
-            cap_slot_gap ~max_slot_gap:max_gap mutated_pre mutated_block_raw
+            cap_slot_gap ~max_slot_gap:max_gap mutated_pre_raw mutated_block_raw
         | None -> mutated_block_raw
+      in
+      let mutated_pre =
+        match max_slot_gap with
+        | Some _ -> cap_pre_slot_gap mutated_pre_raw mutated_block
+        | None -> mutated_pre_raw
       in
       let out_pre = Filename.concat mut_dir "pre.json" in
       let out_block = Filename.concat mut_dir "block.json" in
