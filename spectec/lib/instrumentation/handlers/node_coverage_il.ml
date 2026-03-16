@@ -20,10 +20,19 @@ open Instrumentation_static.Premise_uid
 type level = Summary | Full
 
 (* Handler configuration *)
-type config = { level : level; output : Instrumentation_core.Output.t }
+type config = {
+  level : level;
+  output : Instrumentation_core.Output.t;
+  track_seeds : bool;
+      (* false = skip prem_to_test, for large post-testgen runs *)
+}
 
 let default_config =
-  { level = Summary; output = Instrumentation_core.Output.stdout }
+  {
+    level = Summary;
+    output = Instrumentation_core.Output.stdout;
+    track_seeds = true;
+  }
 
 let config = ref default_config
 let fmt = ref Format.std_formatter
@@ -62,14 +71,15 @@ module State = struct
 
   (* Record that a premise was covered by the current test case *)
   let record_premise_coverage key =
-    match !current_test_case_id with
-    | Some test_id ->
-        let existing =
-          Hashtbl.find_opt prem_to_test key |> Option.value ~default:[]
-        in
-        if not (List.mem test_id existing) then
-          Hashtbl.replace prem_to_test key (test_id :: existing)
-    | None -> ()
+    if !config.track_seeds then
+      match !current_test_case_id with
+      | Some test_id ->
+          let existing =
+            Hashtbl.find_opt prem_to_test key |> Option.value ~default:[]
+          in
+          if not (List.mem test_id existing) then
+            Hashtbl.replace prem_to_test key (test_id :: existing)
+      | None -> ()
 
   let incr_count tbl key =
     let count = Hashtbl.find_opt tbl key |> Option.value ~default:0 in
@@ -380,7 +390,10 @@ let get_result () =
     prems_succeeded = State.prems_succeeded |> Hashtbl.to_seq |> List.of_seq;
     prem_to_uid = prem_to_uid_list;
     uid_to_prem = uid_to_prem_list;
-    prem_to_test = State.prem_to_test |> Hashtbl.to_seq |> List.of_seq;
+    prem_to_test =
+      (if !config.track_seeds then
+         State.prem_to_test |> Hashtbl.to_seq |> List.of_seq
+       else []);
     total_prems = !State.total_prems;
   }
 
@@ -409,9 +422,12 @@ let restore result =
       if failed_count > 0 then
         Hashtbl.replace State.prems_failed key failed_count)
     result.prems_attempted;
-  List.iter
-    (fun (key, test_cases) -> Hashtbl.replace State.prem_to_test key test_cases)
-    result.prem_to_test;
+  (* Only restore prem_to_test if track_seeds is on *)
+  if !config.track_seeds then
+    List.iter
+      (fun (key, test_cases) ->
+        Hashtbl.replace State.prem_to_test key test_cases)
+      result.prem_to_test;
   State.total_prems := result.total_prems
 
 (* Expose test case ID setter for use by runner *)

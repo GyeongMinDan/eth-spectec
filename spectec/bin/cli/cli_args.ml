@@ -38,6 +38,12 @@ let config_flags =
     flag "--node-coverage.level" (optional string) ~doc:"LEVEL summary|full"
   and node_output =
     flag "--node-coverage.output" (optional string) ~doc:"FILE output file"
+  and node_track_seeds =
+    flag "--node-coverage.track-seeds"
+      (optional_with_default true bool)
+      ~doc:
+        "BOOL track which tests cover each premise (default: true; set false \
+         for large post-testgen runs)"
   and dep_pos_level =
     flag "--dep-pos.level" (optional string) ~doc:"LEVEL summary|full"
   and dep_pos_output =
@@ -68,11 +74,19 @@ let config_flags =
                ~full:Branch_coverage.Full branch_level) ~output:branch_output
           ~make_cfg:(fun ~level ~output -> Branch_coverage.{ level; output });
       node_coverage =
-        make_config
-          ~level_opt:
-            (parse_named_level ~summary:Node_coverage_il.Summary
-               ~full:Node_coverage_il.Full node_level) ~output:node_output
-          ~make_cfg:(fun ~level ~output -> Node_coverage_il.{ level; output });
+        (match
+           parse_named_level ~summary:Node_coverage_il.Summary
+             ~full:Node_coverage_il.Full node_level
+         with
+        | None -> None
+        | Some level ->
+            Some
+              Node_coverage_il.
+                {
+                  level;
+                  output = output_of node_output;
+                  track_seeds = node_track_seeds;
+                });
       dep_pos =
         make_config
           ~level_opt:

@@ -350,9 +350,19 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
             if verbose then
               Format.printf "Running %s (%d tests, %d already completed)...\n%!"
                 T.name (List.length inputs) completed_count;
-            let task_results =
-              List.mapi
-                (fun index input ->
+            let empty_summary =
+              {
+                pass = 0;
+                expected_fail = 0;
+                fail = 0;
+                unexpected_pass = 0;
+                skipped = 0;
+                total = 0;
+              }
+            in
+            let summary, _ =
+              List.fold_left
+                (fun (summary, index) input ->
                   (* Check if skip was requested *)
                   if !skip_current_test then (
                     skip_current_test := false;
@@ -363,7 +373,12 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                         total_all source;
                     (* Track completion even if skipped *)
                     all_completed_inputs := source :: !all_completed_inputs;
-                    { input; source; outcome = Task.Pass [] })
+                    ( {
+                        summary with
+                        pass = summary.pass + 1;
+                        total = summary.total + 1;
+                      },
+                      index + 1 ))
                   else
                     let source = T.source input in
                     if
@@ -378,7 +393,12 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                         Format.printf "  [%d/%d] %s... SKIPPED (slot gap)\n%!"
                           (completed_count + index + 1)
                           total_all source;
-                      { input; source; outcome = Task.Skipped })
+                      ( {
+                          summary with
+                          skipped = summary.skipped + 1;
+                          total = summary.total + 1;
+                        },
+                        index + 1 ))
                     else
                       (* Record start time *)
                       let start_time = Unix.gettimeofday () in
@@ -477,10 +497,32 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                       (* Periodic checkpoint save *)
                       if (index + 1) mod checkpoint_config.save_interval = 0
                       then save_current_checkpoint ();
-                      { input; source; outcome })
-                inputs
+                      let summary' =
+                        { summary with total = summary.total + 1 }
+                      in
+                      let summary' =
+                        match outcome with
+                        | Task.Pass _ ->
+                            { summary' with pass = summary'.pass + 1 }
+                        | Task.ExpectedFail _ ->
+                            {
+                              summary' with
+                              expected_fail = summary'.expected_fail + 1;
+                            }
+                        | Task.Fail _ ->
+                            { summary' with fail = summary'.fail + 1 }
+                        | Task.UnexpectedPass _ ->
+                            {
+                              summary' with
+                              unexpected_pass = summary'.unexpected_pass + 1;
+                            }
+                        | Task.Skipped ->
+                            { summary' with skipped = summary'.skipped + 1 }
+                      in
+                      (summary', index + 1))
+                (empty_summary, 0) inputs
             in
-            { task_name = T.name; summary = summarize_outcomes task_results }
+            { task_name = T.name; summary }
           in
           task_result)
       tasks

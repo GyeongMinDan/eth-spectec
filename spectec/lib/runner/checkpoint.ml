@@ -277,9 +277,11 @@ let verify_and_load ~file ~spec_files ~verbose ?(ignore_spec_mismatch = false)
 
 (* Filter out already-completed inputs from a list *)
 let filter_remaining checkpoint inputs ~get_id =
-  List.filter
-    (fun input -> not (List.mem (get_id input) checkpoint.completed_inputs))
-    inputs
+  let completed = Hashtbl.create (List.length checkpoint.completed_inputs) in
+  List.iter
+    (fun id -> Hashtbl.replace completed id ())
+    checkpoint.completed_inputs;
+  List.filter (fun input -> not (Hashtbl.mem completed (get_id input))) inputs
 
 (* Capture current state and save checkpoint to file.
    Collects current coverage state and completed inputs, then saves to file if configured. *)

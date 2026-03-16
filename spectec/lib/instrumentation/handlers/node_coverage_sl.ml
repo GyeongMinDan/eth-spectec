@@ -22,6 +22,7 @@ type level = Node_coverage_il.level = Summary | Full
 type config = Node_coverage_il.config = {
   level : level;
   output : Instrumentation_core.Output.t;
+  track_seeds : bool;
 }
 
 let default_config = Node_coverage_il.default_config
