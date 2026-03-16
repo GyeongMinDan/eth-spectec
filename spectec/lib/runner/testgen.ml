@@ -2424,11 +2424,10 @@ let build_and_write_summary ~output_dir ~total_selected ~already_completed
   let total_mutations =
     List.fold_left
       (fun acc d ->
-        acc
-        + List.length
-            (List.filter
-               (function MutationOk _ -> true | _ -> false)
-               d.constraint_outcomes))
+        List.fold_left
+          (fun a -> function
+            | MutationOk { applied; _ } -> a + List.length applied | _ -> a)
+          acc d.constraint_outcomes)
       0 all_diags
   in
   let n_sanity, n_finality, n_random, n_other =
