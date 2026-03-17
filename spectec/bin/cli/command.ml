@@ -508,11 +508,54 @@ module Make (Tgt : Runner.Target.S) = struct
              Instrumentation_static.Type_tree.init static_spec;
              Instrumentation_static.Mutator_analysis.init static_spec;
 
+             (* Try to resolve test_id to an existing pre.json path.
+                1. Try test_id directly (handles absolute paths that still exist)
+                2. Try Filename.concat test_path test_id (handles relative IDs)
+                3. Try extracting relative portion after known category anchors
+                   ("sanity/blocks/", "random/", "finality/") and joining with test_path *)
+             let resolve_pre_path test_id test_path =
+               let contains_substring haystack needle =
+                 let hlen = String.length haystack in
+                 let nlen = String.length needle in
+                 if nlen = 0 then Some 0
+                 else
+                   let rec search i =
+                     if i > hlen - nlen then None
+                     else if String.sub haystack i nlen = needle then Some i
+                     else search (i + 1)
+                   in
+                   search 0
+               in
+               let anchored_candidates =
+                 let anchors = [ "sanity/blocks/"; "random/"; "finality/" ] in
+                 List.filter_map
+                   (fun anchor ->
+                     match contains_substring test_id anchor with
+                     | None -> None
+                     | Some pos ->
+                         let rel =
+                           String.sub test_id pos (String.length test_id - pos)
+                         in
+                         Some (Filename.concat test_path rel))
+                   anchors
+               in
+               let path_candidates =
+                 test_id
+                 :: Filename.concat test_path test_id
+                 :: anchored_candidates
+               in
+               List.find_opt Sys.file_exists path_candidates
+             in
+
              (* Helper to run positive analysis on a specific test case *)
              let analyze_test_case test_id target_uids =
                let open Instrumentation in
                (* Construct paths *)
-               let pre_path = Filename.concat test_path test_id in
+               let pre_path =
+                 match resolve_pre_path test_id test_path with
+                 | Some p -> p
+                 | None -> Filename.concat test_path test_id
+               in
                let test_dir_path = Filename.dirname pre_path in
                let block_path = Filename.concat test_dir_path "block.json" in
 
@@ -612,7 +655,18 @@ module Make (Tgt : Runner.Target.S) = struct
                              Dispatcher.notify_test_end ~test_case_id:test_id;
                              Dispatcher.finish ();
                              Some (get_result ())
-                         | _ -> None))
+                         | _ ->
+                             if not (Sys.file_exists pre_path) then
+                               Format.printf "  Skipped: file not found: %s\n%!"
+                                 pre_path
+                             else if not (Sys.file_exists block_path) then
+                               Format.printf "  Skipped: file not found: %s\n%!"
+                                 block_path
+                             else
+                               Format.printf
+                                 "  Skipped: JSON parse error for %s\n%!"
+                                 pre_path;
+                             None))
              in
 
              (* Resolve coverage_level: --coverage-level wins over --select-minimal *)

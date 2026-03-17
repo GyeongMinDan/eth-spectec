@@ -347,9 +347,15 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
               | None -> all_inputs
             in
             let completed_count = total_all - List.length inputs in
-            if verbose then
-              Format.printf "Running %s (%d tests, %d already completed)...\n%!"
-                T.name (List.length inputs) completed_count;
+            Format.printf
+              "Discovered %d tests total (%d remaining, %d already completed).\n\
+               %!"
+              total_all (List.length inputs) completed_count;
+            if total_all = 0 then
+              Format.printf
+                "WARNING: No tests found in test directory. Check --test-dir \
+                 path and directory structure.\n\
+                 %!";
             let empty_summary =
               {
                 pass = 0;

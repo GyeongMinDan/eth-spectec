@@ -35,6 +35,20 @@ module StateTransition = struct
     let existing_categories =
       List.filter (fun sub -> dir_exists (Filename.concat root sub)) categories
     in
+    let missing_categories =
+      List.filter
+        (fun sub -> not (dir_exists (Filename.concat root sub)))
+        categories
+    in
+    if missing_categories <> [] then
+      Format.printf
+        "Note: Expected subdirectories not found under %s: %s\n\
+         (will use %s)\n\
+         %!"
+        root
+        (String.concat ", " missing_categories)
+        (if existing_categories <> [] then "found categories"
+         else "recursive fallback scan");
     let collected =
       if existing_categories <> [] then
         List.concat_map
@@ -46,6 +60,10 @@ module StateTransition = struct
         (* Fallback: recursively scan the root for any pre.json/block.json pairs *)
         collect_block_tests ~dir:root ()
     in
+    if collected = [] then
+      Format.printf
+        "WARNING: No test cases found under %s. Verify directory structure.\n%!"
+        root;
     collected
     |> List.map (fun ((pre_file, block_file), expect) ->
            { pre_file; block_file; expect })
