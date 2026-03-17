@@ -8,10 +8,13 @@ import argparse
 import csv
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from time import perf_counter
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
+
+MERGE_CHUNK_SIZE = 500
 
 STATUS_LABEL = {
     0: "SUCCESS",
@@ -40,14 +43,14 @@ STATUS_LABEL = {
 #   - .cargo, rustc/  : Rust toolchain sources
 #
 LIGHTHOUSE_CORE_IGNORE_PATTERNS = [
-    "beacon_node/",           # Beacon node operational logic
-    "common/",                 # Infrastructure code
-    "lighthouse/environment/", # Environment setup code 
-    "lighthouse/(?!consensus/|crypto/|lcli/)",  # lighthouse/ but NOT lighthouse/consensus/, lighthouse/crypto/, lighthouse/lcli/
-    "target/",                 # Build artifacts
-    "\\.cargo",                 # Rust toolchain sources (.cargo directory)
-    "rustc/",                  # Rust toolchain sources (rustc directory)
-    "^root/",                  # Root directory (often contains .cargo registry)
+    ".*(/|^)lighthouse/beacon_node/.*",            # Beacon node operational logic
+    ".*(/|^)lighthouse/common/.*",                 # Top-level common/ infrastructure only
+    ".*(/|^)lighthouse/lighthouse/environment/.*", # Environment setup code
+    ".*(/|^)lighthouse/lighthouse/(?!consensus/|crypto/|lcli/).*",  # lighthouse/ but NOT lighthouse/consensus/, lighthouse/crypto/, lighthouse/lcli/
+    ".*(/|^)lighthouse/target/.*",                 # Build artifacts
+    ".*(/|^)\\.cargo/.*",                          # Rust toolchain sources (.cargo directory)
+    ".*(/|^)rustc/.*",                             # Rust toolchain sources
+    ".*(/|^)root/.*",                              # Root directory (often contains .cargo registry)
 ]
 
 # Teku coverage report scope (noise reduction)
@@ -831,7 +834,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             "Lodestar",
             "/usr/bin/node",
             [
-                "--max-old-space-size=8192",
+                "--max-old-space-size=16384",
                 str(lodestar_transition),
                 "state-transition",  # Command name
                 state,
@@ -1195,7 +1198,7 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
             "Lodestar",
             "/usr/bin/node",
             [
-                "--max-old-space-size=8192",
+                "--max-old-space-size=16384",
                 str(lodestar_transition),
                 "sanity-slots",
                 f"--pre-state-path={state}",
@@ -1488,7 +1491,7 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
 
     # Build Lodestar command arguments
     lodestar_args = [
-        "--max-old-space-size=8192",
+        "--max-old-space-size=16384",
         str(lodestar_transition),
         "operation",
         f"--pre-state-path={state}",
@@ -1844,7 +1847,7 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
             "Lodestar",
             "/usr/bin/node",
             [
-                "--max-old-space-size=8192",
+                "--max-old-space-size=16384",
                 str(lodestar_transition),
                 "epoch-processing",
                 f"--pre-state-path={state}",
@@ -3895,7 +3898,7 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
             # Read JSON files from temp-directory to generate report
             # Increase Node.js memory limit for large JSON file processing
             env = os.environ.copy()
-            env["NODE_OPTIONS"] = "--max-old-space-size=8192"  # 8GB heap size
+            env["NODE_OPTIONS"] = "--max-old-space-size=16384"  # 8GB heap size
             subprocess.run(
                 [
                     "npx", "c8", "report",
@@ -4106,21 +4109,7 @@ def _merge_final_prysm_coverage(merged_coverage_dirs, output_dir, testing_client
     final_merged_cov_dir.mkdir(exist_ok=True)
     
     try:
-        # Merge using go tool covdata merge - use merged directories directly
-        # Use absolute paths to avoid path resolution issues
-        # Note: -i option requires comma-separated directories, not multiple -i flags
-        input_dirs = [str(Path(d).resolve()) for d in merged_coverage_dirs]
-        abs_final_merged_cov_dir = Path(final_merged_cov_dir).resolve()
-        
-        # Join input directories with comma
-        input_dirs_str = ",".join(input_dirs)
-        
-        subprocess.run(
-            ["go", "tool", "covdata", "merge", f"-i={input_dirs_str}", f"-o={abs_final_merged_cov_dir}"],
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        _merge_prysm_cov_dirs(merged_coverage_dirs, final_merged_cov_dir)
         
         # Generate report from merged data
         _generate_prysm_report(final_merged_cov_dir, testing_clients_dir)
@@ -4195,13 +4184,7 @@ def _merge_final_lighthouse_coverage(merged_coverage_dirs, output_dir, testing_c
             print(f"    ✗ llvm-profdata not found")
             return
         
-        # Merge all profdata files
-        subprocess.run(
-            [str(llvm_profdata), "merge", "-sparse", "-o", str(final_merged_profdata)] + [str(f) for f in all_profdata_files],
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        _merge_lighthouse_profdata_inputs(all_profdata_files, final_merged_profdata, llvm_profdata)
         
         # Verify merged profdata was created
         if not final_merged_profdata.exists():
@@ -4310,13 +4293,7 @@ def _merge_final_teku_coverage(merged_coverage_dirs, output_dir, testing_clients
     try:
         # Merge exec files using JaCoCo CLI
         final_merged_exec = final_merged_cov_dir / "teku-coverage-merged.exec"
-        
-        subprocess.run(
-            ["java", "-jar", str(jacoco_cli), "merge"] + [str(f) for f in all_exec_files] + ["--destfile", str(final_merged_exec)],
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        _merge_teku_exec_files(all_exec_files, final_merged_exec, jacoco_cli)
         
         # Generate report from merged exec file
         teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
@@ -4398,18 +4375,7 @@ def _merge_final_nimbus_coverage(merged_coverage_dirs, output_dir, testing_clien
         report_dir.mkdir(exist_ok=True)
         final_merged_coverage_info = report_dir / "coverage.info"
         
-        # Merge coverage info files using lcov (preserve branch coverage)
-        lcov_args = ["lcov", "--rc", "lcov_branch_coverage=1"]
-        for info in all_coverage_infos:
-            lcov_args.extend(["-a", str(info)])
-        lcov_args.extend(["-o", str(final_merged_coverage_info)])
-        
-        subprocess.run(
-            lcov_args,
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        _merge_nimbus_info_files(all_coverage_infos, final_merged_coverage_info)
         
         # Filter to keep only core state-transition packages (beacon_chain/, ncli/)
         # This is done AFTER merging original coverage data, matching Lighthouse/TeKu/Prysm approach
@@ -4529,17 +4495,7 @@ def _merge_prysm_coverage(cov_dirs, output_dir, testing_clients_dir):
     
     # Merge using go tool covdata merge - use original directories directly
     try:
-        # Build input directories list.
-        # go tool covdata merge expects a single -i with comma-separated dirs.
-        input_dirs = [str(d) for d in all_cov_dirs]
-        input_dirs_str = ",".join(input_dirs)
-
-        subprocess.run(
-            ["go", "tool", "covdata", "merge", f"-i={input_dirs_str}", f"-o={merged_cov_dir}"],
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        _merge_prysm_cov_dirs(all_cov_dirs, merged_cov_dir)
         
         # Generate report from merged data (no filtering for test suite accumulation)
         prysm_report_dir = output_dir / "report"
@@ -4609,12 +4565,7 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
                 print(f"    ✗ llvm-profdata not found")
                 all_profdata_files = []  # Fall through to profraw approach
             else:
-                subprocess.run(
-                    [str(llvm_profdata), "merge", "-sparse", "-o", str(merged_profdata)] + [str(f) for f in all_profdata_files],
-                    check=True,
-                    capture_output=True,
-                    text=True
-                )
+                _merge_lighthouse_profdata_inputs(all_profdata_files, merged_profdata, llvm_profdata)
         except subprocess.CalledProcessError as e:
             print(f"    ⚠ Failed to merge profdata files, trying profraw approach: {e}")
             all_profdata_files = []
@@ -4654,12 +4605,7 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
                 print(f"    ✗ llvm-profdata not found")
                 return
             
-            subprocess.run(
-                [str(llvm_profdata), "merge", "-sparse", "-o", str(merged_profdata)] + [str(f) for f in all_profraw_files],
-                check=True,
-                capture_output=True,
-                text=True
-            )
+            _merge_lighthouse_profdata_inputs(all_profraw_files, merged_profdata, llvm_profdata)
         except subprocess.CalledProcessError as e:
             print(f"    ✗ Failed to merge profraw files: {e}")
             if e.stderr:
@@ -4705,35 +4651,45 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
         html_dir = report_dir / "html"
         html_dir.mkdir(exist_ok=True)
         
-        # Generate HTML report using llvm-cov with branch coverage (no filtering for test suite accumulation)
+        # Generate HTML report using llvm-cov with branch coverage.
+        # Apply the same filtering policy as final accumulated coverage so
+        # single-suite accumulated reports and final reports are consistent.
+        cmd_show = [
+            str(llvm_cov),
+            "show",
+            str(lighthouse_binary),
+            f"--instr-profile={merged_profdata}",
+            "--format=html",
+            f"--output-dir={html_dir}",
+            "--show-line-counts-or-regions",
+            "--show-branches=count",  # Show branch coverage with execution counts
+            "--show-instantiations",
+        ]
+        for pattern in LIGHTHOUSE_CORE_IGNORE_PATTERNS:
+            cmd_show.extend(["--ignore-filename-regex", pattern])
+
         subprocess.run(
-            [
-                str(llvm_cov),
-                "show",
-                str(lighthouse_binary),
-                f"--instr-profile={merged_profdata}",
-                "--format=html",
-                f"--output-dir={html_dir}",
-                "--show-line-counts-or-regions",
-                "--show-branches=count",  # Show branch coverage with execution counts
-                "--show-instantiations",
-            ],
+            cmd_show,
             check=True,
             capture_output=True,
             text=True,
             cwd=str(lighthouse_src)
         )
         
-        # Generate text summary with branch coverage (no filtering for test suite accumulation)
+        # Generate text summary with the same filtering policy.
         summary_file = report_dir / "summary.txt"
+        cmd_report = [
+            str(llvm_cov),
+            "report",
+            str(lighthouse_binary),
+            f"--instr-profile={merged_profdata}",
+            "--show-branch-summary",  # Show branch condition statistics in summary table
+        ]
+        for pattern in LIGHTHOUSE_CORE_IGNORE_PATTERNS:
+            cmd_report.extend(["--ignore-filename-regex", pattern])
+
         result = subprocess.run(
-            [
-                str(llvm_cov),
-                "report",
-                str(lighthouse_binary),
-                f"--instr-profile={merged_profdata}",
-                "--show-branch-summary",  # Show branch condition statistics in summary table
-            ],
+            cmd_report,
             check=True,
             capture_output=True,
             text=True,
@@ -4776,13 +4732,7 @@ def _merge_teku_coverage(cov_dirs, output_dir, testing_clients_dir):
     try:
         # Merge exec files using JaCoCo CLI
         merged_exec = merged_cov_dir / "teku-coverage-merged.exec"
-        
-        subprocess.run(
-            ["java", "-jar", str(jacoco_cli), "merge"] + [str(f) for f in all_exec_files] + ["--destfile", str(merged_exec)],
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        _merge_teku_exec_files(all_exec_files, merged_exec, jacoco_cli)
         
         # Generate report from merged exec file
         teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
@@ -4862,18 +4812,7 @@ def _merge_nimbus_coverage(cov_dirs, output_dir, testing_clients_dir):
             report_dir.mkdir(exist_ok=True)
             merged_coverage_info = report_dir / "coverage.info"
             
-            # Merge coverage info files using lcov (preserve branch coverage)
-            lcov_args = ["lcov", "--rc", "lcov_branch_coverage=1"]  # Preserve branch coverage during merge
-            for info in all_coverage_infos:
-                lcov_args.extend(["-a", str(info)])
-            lcov_args.extend(["-o", str(merged_coverage_info)])
-            
-            subprocess.run(
-                lcov_args,
-                check=True,
-                capture_output=True,
-                text=True
-            )
+            _merge_nimbus_info_files(all_coverage_infos, merged_coverage_info)
             
             # Filter to keep only core state-transition packages (exclude generated_not_to_break_here etc.)
             # genhtml fails if lcov references non-existent paths like Nim's generated_not_to_break_here
@@ -4926,76 +4865,39 @@ def _merge_nimbus_coverage(cov_dirs, output_dir, testing_clients_dir):
             print(f"    ✗ Original nimcache not found: {original_nimcache}")
             return
         
-        # Collect coverage from all directories and merge
+        # Collect coverage from all directories and merge.
+        # Each gcda_dir -> temp_coverage_i.info conversion is independent, so
+        # we parallelize only this phase and keep the final merge deterministic.
+        requested_jobs = int(os.environ.get("NIMBUS_COVERAGE_JOBS", "8"))
+        max_jobs = os.cpu_count() or 1
+        jobs = max(1, min(requested_jobs, max_jobs, len(all_gcda_dirs)))
+        print(f"    ℹ Nimbus coverage capture jobs: {jobs}")
+
         temp_info_files = []
-        for i, gcda_dir in enumerate(all_gcda_dirs):
-            temp_info = report_dir / f"temp_coverage_{i}.info"
-            
-            # Create a temporary directory with both .gcno and .gcda files
-            temp_capture_dir = report_dir / f"temp_capture_{i}"
-            if temp_capture_dir.exists():
-                shutil.rmtree(temp_capture_dir)
-            temp_capture_dir.mkdir(parents=True, exist_ok=True)
-            
-            try:
-                # Copy .gcno files from original nimcache to temp directory
-                for gcno_file in original_nimcache.rglob("*.gcno"):
-                    relative_path = gcno_file.relative_to(original_nimcache)
-                    target_gcno = temp_capture_dir / relative_path
-                    target_gcno.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(gcno_file, target_gcno)
-                
-                # Copy .gcda files from test case directory to temp directory (same relative path)
-                for gcda_file in gcda_dir.rglob("*.gcda"):
-                    relative_path = gcda_file.relative_to(gcda_dir)
-                    target_gcda = temp_capture_dir / relative_path
-                    target_gcda.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(gcda_file, target_gcda)
-                
-                # Now capture coverage from temp directory (has both .gcno and .gcda)
-                result = subprocess.run(
-                    [
-                        "lcov",
-                        "--capture",
-                        "--directory", str(temp_capture_dir),
-                        "--output-file", str(temp_info),  # Use --output-file instead of --output
-                        "--base-directory", str(nimbus_src),
-                        "--rc", "lcov_branch_coverage=1"  # Enable branch coverage
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            futures = [
+                executor.submit(
+                    _capture_nimbus_case_coverage,
+                    i,
+                    gcda_dir,
+                    original_nimcache,
+                    report_dir,
+                    nimbus_src,
                 )
-                
-                # Check if file was created and has content
-                if temp_info.exists() and temp_info.stat().st_size > 0:
+                for i, gcda_dir in enumerate(all_gcda_dirs)
+            ]
+
+            for future in as_completed(futures):
+                temp_info = future.result()
+                if temp_info is not None:
                     temp_info_files.append(temp_info)
-                else:
-                    print(f"    ⚠ Warning: Empty coverage info generated from {gcda_dir.name}")
-                
-                # Clean up temp directory
-                shutil.rmtree(temp_capture_dir, ignore_errors=True)
-            except subprocess.CalledProcessError as e:
-                print(f"    ⚠ Warning: Failed to capture coverage from {gcda_dir.name}: {e.stderr if e.stderr else 'Unknown error'}")
-                shutil.rmtree(temp_capture_dir, ignore_errors=True)
-                continue
         
         if not temp_info_files:
             print(f"    ✗ No valid coverage data collected")
             return
         
-        # Merge all temporary info files (preserve branch coverage)
-        lcov_args = ["lcov", "--rc", "lcov_branch_coverage=1"]  # Preserve branch coverage during merge
-        for info in temp_info_files:
-            lcov_args.extend(["-a", str(info)])
-        lcov_args.extend(["-o", str(coverage_info)])
-        
-        subprocess.run(
-            lcov_args,
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        temp_info_files = sorted(temp_info_files)
+        _merge_nimbus_info_files(temp_info_files, coverage_info)
         
         # Clean up temp files
         for temp_info in temp_info_files:
@@ -5024,6 +4926,263 @@ def _merge_nimbus_coverage(cov_dirs, output_dir, testing_clients_dir):
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
             print(f"    ℹ Error: {e.stderr}")
+
+
+def _chunk_list(items, chunk_size=MERGE_CHUNK_SIZE):
+    """Yield fixed-size chunks from a list-like sequence."""
+    for i in range(0, len(items), chunk_size):
+        yield items[i:i + chunk_size]
+
+
+def _merge_prysm_cov_dirs(input_dirs, output_dir):
+    """Merge Prysm coverage directories without exceeding ARG_MAX."""
+    current_inputs = [Path(d).resolve() for d in input_dirs]
+    output_dir = Path(output_dir).resolve()
+
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    temp_root = output_dir.parent / "_tmp_prysm_merge"
+    if temp_root.exists():
+        shutil.rmtree(temp_root)
+    temp_root.mkdir(parents=True, exist_ok=True)
+
+    try:
+        level = 0
+        while len(current_inputs) > MERGE_CHUNK_SIZE:
+            next_inputs = []
+            level_dir = temp_root / f"level_{level}"
+            level_dir.mkdir(parents=True, exist_ok=True)
+
+            for index, chunk in enumerate(_chunk_list(current_inputs)):
+                chunk_output = level_dir / f"merge_{index}"
+                chunk_output.mkdir(parents=True, exist_ok=True)
+                subprocess.run(
+                    [
+                        "go", "tool", "covdata", "merge",
+                        f"-i={','.join(str(d) for d in chunk)}",
+                        f"-o={chunk_output}"
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                next_inputs.append(chunk_output)
+
+            current_inputs = next_inputs
+            level += 1
+
+        subprocess.run(
+            [
+                "go", "tool", "covdata", "merge",
+                f"-i={','.join(str(d) for d in current_inputs)}",
+                f"-o={output_dir}"
+            ],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def _merge_lighthouse_profdata_inputs(input_files, output_file, llvm_profdata):
+    """Merge Lighthouse profraw/profdata inputs without exceeding ARG_MAX."""
+    current_inputs = [Path(f).resolve() for f in input_files]
+    output_file = Path(output_file).resolve()
+    llvm_profdata = Path(llvm_profdata).resolve()
+
+    if output_file.exists():
+        output_file.unlink()
+
+    temp_root = output_file.parent / "_tmp_lighthouse_merge"
+    if temp_root.exists():
+        shutil.rmtree(temp_root)
+    temp_root.mkdir(parents=True, exist_ok=True)
+
+    try:
+        level = 0
+        while len(current_inputs) > MERGE_CHUNK_SIZE:
+            next_inputs = []
+            level_dir = temp_root / f"level_{level}"
+            level_dir.mkdir(parents=True, exist_ok=True)
+
+            for index, chunk in enumerate(_chunk_list(current_inputs)):
+                chunk_output = level_dir / f"merge_{index}.profdata"
+                subprocess.run(
+                    [str(llvm_profdata), "merge", "-sparse", "-o", str(chunk_output)] +
+                    [str(f) for f in chunk],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                next_inputs.append(chunk_output)
+
+            current_inputs = next_inputs
+            level += 1
+
+        subprocess.run(
+            [str(llvm_profdata), "merge", "-sparse", "-o", str(output_file)] +
+            [str(f) for f in current_inputs],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def _merge_teku_exec_files(input_files, output_file, jacoco_cli):
+    """Merge Teku exec files without exceeding ARG_MAX."""
+    current_inputs = [Path(f).resolve() for f in input_files]
+    output_file = Path(output_file).resolve()
+    jacoco_cli = Path(jacoco_cli).resolve()
+
+    if output_file.exists():
+        output_file.unlink()
+
+    temp_root = output_file.parent / "_tmp_teku_merge"
+    if temp_root.exists():
+        shutil.rmtree(temp_root)
+    temp_root.mkdir(parents=True, exist_ok=True)
+
+    try:
+        level = 0
+        while len(current_inputs) > MERGE_CHUNK_SIZE:
+            next_inputs = []
+            level_dir = temp_root / f"level_{level}"
+            level_dir.mkdir(parents=True, exist_ok=True)
+
+            for index, chunk in enumerate(_chunk_list(current_inputs)):
+                chunk_output = level_dir / f"merge_{index}.exec"
+                subprocess.run(
+                    ["java", "-jar", str(jacoco_cli), "merge"] +
+                    [str(f) for f in chunk] +
+                    ["--destfile", str(chunk_output)],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                next_inputs.append(chunk_output)
+
+            current_inputs = next_inputs
+            level += 1
+
+        subprocess.run(
+            ["java", "-jar", str(jacoco_cli), "merge"] +
+            [str(f) for f in current_inputs] +
+            ["--destfile", str(output_file)],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def _merge_nimbus_info_files(info_files, output_file):
+    """Merge Nimbus lcov info files without exceeding ARG_MAX."""
+    current_inputs = [Path(f).resolve() for f in info_files]
+    output_file = Path(output_file).resolve()
+
+    if output_file.exists():
+        output_file.unlink()
+
+    temp_root = output_file.parent / "_tmp_nimbus_merge"
+    if temp_root.exists():
+        shutil.rmtree(temp_root)
+    temp_root.mkdir(parents=True, exist_ok=True)
+
+    try:
+        level = 0
+        while len(current_inputs) > MERGE_CHUNK_SIZE:
+            next_inputs = []
+            level_dir = temp_root / f"level_{level}"
+            level_dir.mkdir(parents=True, exist_ok=True)
+
+            for index, chunk in enumerate(_chunk_list(current_inputs)):
+                chunk_output = level_dir / f"merge_{index}.info"
+                lcov_args = ["lcov", "--rc", "lcov_branch_coverage=1"]
+                for info in chunk:
+                    lcov_args.extend(["-a", str(info)])
+                lcov_args.extend(["-o", str(chunk_output)])
+                subprocess.run(
+                    lcov_args,
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                next_inputs.append(chunk_output)
+
+            current_inputs = next_inputs
+            level += 1
+
+        lcov_args = ["lcov", "--rc", "lcov_branch_coverage=1"]
+        for info in current_inputs:
+            lcov_args.extend(["-a", str(info)])
+        lcov_args.extend(["-o", str(output_file)])
+        subprocess.run(
+            lcov_args,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
+
+
+def _capture_nimbus_case_coverage(index, gcda_dir, original_nimcache, report_dir, nimbus_src):
+    """Convert one Nimbus test case's gcda files into a temp lcov info file."""
+    gcda_dir = Path(gcda_dir).resolve()
+    original_nimcache = Path(original_nimcache).resolve()
+    report_dir = Path(report_dir).resolve()
+    nimbus_src = Path(nimbus_src).resolve()
+
+    temp_info = report_dir / f"temp_coverage_{index}.info"
+    temp_capture_dir = report_dir / f"temp_capture_{index}"
+
+    if temp_capture_dir.exists():
+        shutil.rmtree(temp_capture_dir)
+    temp_capture_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        for gcno_file in original_nimcache.rglob("*.gcno"):
+            relative_path = gcno_file.relative_to(original_nimcache)
+            target_gcno = temp_capture_dir / relative_path
+            target_gcno.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(gcno_file, target_gcno)
+
+        for gcda_file in gcda_dir.rglob("*.gcda"):
+            relative_path = gcda_file.relative_to(gcda_dir)
+            target_gcda = temp_capture_dir / relative_path
+            target_gcda.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(gcda_file, target_gcda)
+
+        subprocess.run(
+            [
+                "lcov",
+                "--capture",
+                "--directory", str(temp_capture_dir),
+                "--output-file", str(temp_info),
+                "--base-directory", str(nimbus_src),
+                "--rc", "lcov_branch_coverage=1"
+            ],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+
+        if temp_info.exists() and temp_info.stat().st_size > 0:
+            return temp_info
+
+        print(f"    ⚠ Warning: Empty coverage info generated from {gcda_dir.name}")
+        return None
+    except subprocess.CalledProcessError as e:
+        print(f"    ⚠ Warning: Failed to capture coverage from {gcda_dir.name}: {e.stderr if e.stderr else 'Unknown error'}")
+        return None
+    finally:
+        shutil.rmtree(temp_capture_dir, ignore_errors=True)
 
 
 def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
