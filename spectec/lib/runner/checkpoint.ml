@@ -192,6 +192,25 @@ let merge checkpoint1 checkpoint2 =
     Error
       (Error.SpecMismatchError (checkpoint1.spec_hash, checkpoint2.spec_hash))
   else
+    (* Warn if the two checkpoints share any completed inputs, as overlapping
+       runs will inflate per-premise hit counts in the merged result. *)
+    let () =
+      let seen = Hashtbl.create 256 in
+      List.iter
+        (fun id -> Hashtbl.replace seen id ())
+        checkpoint1.completed_inputs;
+      let overlap_count =
+        List.fold_left
+          (fun n id -> if Hashtbl.mem seen id then n + 1 else n)
+          0 checkpoint2.completed_inputs
+      in
+      if overlap_count > 0 then
+        Format.printf
+          "Warning: %d test(s) appear in both checkpoints. Per-premise hit \
+           counts will be inflated in the merged result. Ensure the two \
+           checkpoints were produced from non-overlapping test suites.\n"
+          overlap_count
+    in
     (* Merge completed inputs (union of both lists, removing duplicates) *)
     let completed_inputs =
       (* Use string -> unit hashtable to track seen IDs *)
