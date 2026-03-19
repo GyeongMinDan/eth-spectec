@@ -3902,6 +3902,7 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
             subprocess.run(
                 [
                     "npx", "c8", "report",
+                    "--merge-async",
                     f"--temp-directory={lodestar_temp_dir}",
                     "--reporter=html",
                     "--reporter=text",
@@ -4451,6 +4452,7 @@ def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_cli
         subprocess.run(
             [
                 "npx", "c8", "report",
+                "--merge-async",
                 f"--temp-directory={final_merged_cov_dir.resolve()}",
                 "--reporter=html",
                 "--reporter=text",
@@ -5218,6 +5220,7 @@ def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
         subprocess.run(
             [
                 "npx", "c8", "report",
+                "--merge-async",
                 f"--temp-directory={merged_cov_dir}",
                 "--reporter=html",
                 "--reporter=text",
