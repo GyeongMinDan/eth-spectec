@@ -186,12 +186,18 @@ let merge_coverage coverage1 coverage2 =
    - Merges coverage data (IL node coverage merged, others TODO)
    - Uses spec_hash from first checkpoint (they should match)
    - Creates new timestamp *)
-let merge checkpoint1 checkpoint2 =
+let merge ?(ignore_spec_mismatch = false) checkpoint1 checkpoint2 =
   (* Verify spec hashes match *)
-  if checkpoint1.spec_hash <> checkpoint2.spec_hash then
+  if checkpoint1.spec_hash <> checkpoint2.spec_hash && not ignore_spec_mismatch
+  then
     Error
       (Error.SpecMismatchError (checkpoint1.spec_hash, checkpoint2.spec_hash))
   else
+    let () =
+      if checkpoint1.spec_hash <> checkpoint2.spec_hash then
+        Format.printf
+          "Warning: spec version mismatch ignored (--ignore-spec-mismatch).\n"
+    in
     (* Warn if the two checkpoints share any completed inputs, as overlapping
        runs will inflate per-premise hit counts in the merged result. *)
     let () =

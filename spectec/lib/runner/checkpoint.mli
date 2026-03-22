@@ -66,6 +66,6 @@ val display_report :
 
 (* Merge two checkpoints into a new checkpoint.
    Merges completed_inputs (union) and coverage data.
-   Returns Error if spec hashes don't match.
+   Returns Error if spec hashes don't match (unless ignore_spec_mismatch is true).
    For now, only merges IL node coverage data. Other coverage types are TODO. *)
-val merge : t -> t -> (t, Error.t) result
+val merge : ?ignore_spec_mismatch:bool -> t -> t -> (t, Error.t) result

@@ -295,6 +295,9 @@ module Make (Tgt : Runner.Target.S) = struct
          and output_file =
            flag "--output" (required string)
              ~doc:"FILE output file for merged checkpoint"
+         and ignore_spec_mismatch =
+           flag "--ignore-spec-mismatch" no_arg
+             ~doc:" Skip spec version check (use when spec has changed)"
          and spec_dir_arg =
            flag "--spec-dir" (optional string)
              ~doc:
@@ -310,13 +313,15 @@ module Make (Tgt : Runner.Target.S) = struct
              in
              let* checkpoint1 =
                Checkpoint.verify_and_load ~file:checkpoint_file1 ~spec_files
-                 ~verbose:false ()
+                 ~verbose:false ~ignore_spec_mismatch ()
              in
              let* checkpoint2 =
                Checkpoint.verify_and_load ~file:checkpoint_file2 ~spec_files
-                 ~verbose:false ()
+                 ~verbose:false ~ignore_spec_mismatch ()
              in
-             let* merged = Checkpoint.merge checkpoint1 checkpoint2 in
+             let* merged =
+               Checkpoint.merge ~ignore_spec_mismatch checkpoint1 checkpoint2
+             in
              Checkpoint.save_to_file ~file:output_file merged;
              Format.printf "Merged checkpoint saved to: %s\n" output_file;
              Format.printf "  Checkpoint 1: %d tests\n"
