@@ -169,7 +169,8 @@ module Make (Tgt : Runner.Target.S) = struct
   let to_generic (Pack (module T)) = Runner.Task.Pack (module T)
 
   (* Generate "coverage" command *)
-  let make_coverage (tasks : packed_task list) =
+  let make_coverage ?(on_no_validate = fun () -> ()) (tasks : packed_task list)
+      =
     Core.Command.basic
       ~summary:("Run coverage for all " ^ Tgt.name ^ " input specs")
       (let open Core.Command.Let_syntax in
@@ -200,9 +201,13 @@ module Make (Tgt : Runner.Target.S) = struct
        and max_slot_gap =
          flag "--max-slot-gap" (optional int)
            ~doc:"N skip inputs where block.slot - state.slot > N (e.g. 32)"
+       and no_validate =
+         flag "--no-validate" no_arg
+           ~doc:" Skip state root validation (validate_result=false)"
        and instrumentation_config = Cli_args.config_flags in
        fun () ->
          let open Runner in
+         if no_validate then on_no_validate ();
          (* Handle --show-checkpoint: decode and display, then exit *)
          (* Normal coverage run *)
          let run () =

@@ -135,7 +135,11 @@ let eth_command =
   Core.Command.group ~summary:"Ethereum commands"
     [
       ("run", run_command);
-      ("coverage", Eth_Cmd.make_coverage tasks);
+      ( "coverage",
+        Eth_Cmd.make_coverage
+          ~on_no_validate:(fun () ->
+            Targets_eth.Eth.set_default_validate_result false)
+          tasks );
       ("checkpoint", Eth_Cmd.make_checkpoint ());
       ("testgen", Eth_Cmd.make_testgen ());
       ("parse", Targets.Eth.parse_command);

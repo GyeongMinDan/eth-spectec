@@ -13,8 +13,11 @@ module StateTransition_Cli :
       flag "--pre" (optional_with_default "" string) ~doc:"FILE pre-state JSON"
     and block =
       flag "--block" (optional_with_default "" string) ~doc:"FILE block JSON"
+    and no_validate =
+      flag "--no-validate" no_arg
+        ~doc:" Skip state root validation (validate_result=false)"
     in
-    make ~pre_file:pre ~block_file:block ()
+    make ~validate_result:(not no_validate) ~pre_file:pre ~block_file:block ()
 end
 
 (* ========================================================================== *)

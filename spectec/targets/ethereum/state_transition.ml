@@ -14,6 +14,10 @@ let collect_block_tests ?dir () =
   in
   collect_tests_from_dir_recursive ~base_dir ~file_checker ()
 
+(* Module-level override for validate_result (used by coverage command) *)
+let default_validate_result = ref true
+let set_default_validate_result v = default_validate_result := v
+
 (* State Transition task - full block processing *)
 module StateTransition = struct
   let name = "state_transition"
@@ -24,10 +28,17 @@ module StateTransition = struct
     pre_file : string;
     block_file : string;
     expect : Runner.Task.expectation;
+    validate_result : bool;
   }
 
-  let make ?(expect = Runner.Task.Positive) ~pre_file ~block_file () =
-    { pre_file; block_file; expect }
+  let make ?(expect = Runner.Task.Positive) ?validate_result ~pre_file
+      ~block_file () =
+    let validate_result =
+      match validate_result with
+      | Some v -> v
+      | None -> !default_validate_result
+    in
+    { pre_file; block_file; expect; validate_result }
 
   let collect ?dir () =
     let root = Option.value dir ~default:test_base_dir in
@@ -66,14 +77,21 @@ module StateTransition = struct
         root;
     collected
     |> List.map (fun ((pre_file, block_file), expect) ->
-           { pre_file; block_file; expect })
+           {
+             pre_file;
+             block_file;
+             expect;
+             validate_result = !default_validate_result;
+           })
 
   let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* block_il = parse_json ~spec input.block_file "signedBeaconBlock" in
     Ok
-      ("State_transition", [ beaconState_il; block_il; Lang.Il.Value.bool true ])
+      ( "State_transition",
+        [ beaconState_il; block_il; Lang.Il.Value.bool input.validate_result ]
+      )
 
   let parse_string = parse_string
   let unparse = unparse
