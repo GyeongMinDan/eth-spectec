@@ -13,7 +13,7 @@ EXESPEC = spectec/_build/default/bin/main.exe
 
 exe:
 	rm -f ./$(NAME)
-	$(DUNE) build bin/main.exe
+	$(DUNE) build bin/main.exe --profile=release
 	@echo
 	ln -f $(EXESPEC) ./$(NAME)
 
