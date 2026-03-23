@@ -35,3 +35,7 @@ testing_clients/
 *.log
 *.tmp
 .DS_Store
+
+# Improve caching
+Dockerfile
+.dockerignore
