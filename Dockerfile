@@ -216,10 +216,8 @@ RUN git clone https://github.com/status-im/nimbus-eth2.git && \
 WORKDIR /workspace/spectec-core/testing_clients
 RUN mkdir -p lodestar && \
     cd lodestar && \
-    echo '{\n  "dependencies": {\n    "@lodestar/state-transition": "1.36.0"\n  },\n  "type": "module"\n}' > package.json && \
-    npm install -g pnpm && \
-    pnpm i @lodestar/state-transition@1.36.0 && \
-    pnpm install
+    echo '{\n  "dependencies": {\n    "@lodestar/state-transition": "1.36.0",\n    "@lodestar/types": "1.36.0",\n    "@lodestar/config": "1.36.0"\n  },\n  "type": "module"\n}' > package.json && \
+    npm install
 
 # ============================================
 # Stage 10: Apply modified code
