@@ -4599,6 +4599,8 @@ def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_cli
     lodestar_dir = testing_clients_dir / "lodestar"
     report_dir = output_dir / "report"
     report_dir.mkdir(exist_ok=True)
+    report_json_dir = output_dir / "report_json"
+    report_json_dir.mkdir(exist_ok=True)
     
     # Create final merged coverage directory
     final_merged_cov_dir = output_dir / "merged_coverage"
@@ -4622,21 +4624,34 @@ def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_cli
         # Increase Node.js memory limit for large JSON file processing (1822+ files)
         env = os.environ.copy()
         env["NODE_OPTIONS"] = "--max-old-space-size=65536"  
+        common_args = [
+            "npx", "c8", "report",
+            "--merge-async",
+            f"--temp-directory={final_merged_cov_dir.resolve()}",
+            "--exclude-node-modules=false",
+            "--extension=.js",
+            "--include=node_modules/@lodestar/**/*.js",
+            "--include=node_modules/@chainsafe/**/*.js",
+            "--exclude=**/transition.js",
+            "--exclude=**/generateCachedStateCapella.js",
+            "--clean=false",
+        ]
         subprocess.run(
-            [
-                "npx", "c8", "report",
-                "--merge-async",
-                f"--temp-directory={final_merged_cov_dir.resolve()}",
+            common_args + [
                 "--reporter=html",
                 "--reporter=text",
                 f"--report-dir={report_dir.resolve()}",
-                "--exclude-node-modules=false",
-                "--extension=.js",
-                "--include=node_modules/@lodestar/**/*.js",
-                "--include=node_modules/@chainsafe/**/*.js",
-                "--exclude=**/transition.js",
-                "--exclude=**/generateCachedStateCapella.js",
-                "--clean=false",  # Don't delete temp files
+            ],
+            cwd=str(lodestar_dir),
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        subprocess.run(
+            common_args + [
+                "--reporter=json",
+                f"--report-dir={report_json_dir.resolve()}",
             ],
             cwd=str(lodestar_dir),
             env=env,
@@ -4646,6 +4661,7 @@ def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_cli
         )
         
         print(f"    ✓ Final accumulated report: {report_dir / 'index.html'}")
+        print(f"    ✓ Final accumulated JSON: {report_json_dir / 'coverage-final.json'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
@@ -5375,6 +5391,8 @@ def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
     lodestar_dir = testing_clients_dir / "lodestar"
     report_dir = output_dir / "report"
     report_dir.mkdir(exist_ok=True)
+    report_json_dir = output_dir / "report_json"
+    report_json_dir.mkdir(exist_ok=True)
     
     # Create merged coverage directory
     merged_cov_dir = output_dir / "merged_coverage"
@@ -5390,20 +5408,34 @@ def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
         # Increase Node.js memory limit for large JSON file processing
         env = os.environ.copy()
         env["NODE_OPTIONS"] = "--max-old-space-size=65536"  
+        common_args = [
+            "npx", "c8", "report",
+            "--merge-async",
+            f"--temp-directory={merged_cov_dir}",
+            "--exclude-node-modules=false",
+            "--extension=.js",
+            "--include=node_modules/@lodestar/**/*.js",
+            "--include=node_modules/@chainsafe/**/*.js",
+            "--exclude=**/transition.js",
+            "--exclude=**/generateCachedStateCapella.js",
+            "--clean=false",
+        ]
         subprocess.run(
-            [
-                "npx", "c8", "report",
-                "--merge-async",
-                f"--temp-directory={merged_cov_dir}",
+            common_args + [
                 "--reporter=html",
                 "--reporter=text",
                 f"--report-dir={report_dir}",
-                "--exclude-node-modules=false",
-                "--extension=.js",
-                "--include=node_modules/@lodestar/**/*.js",
-                "--include=node_modules/@chainsafe/**/*.js",
-                "--exclude=**/transition.js",
-                "--exclude=**/generateCachedStateCapella.js",
+            ],
+            cwd=str(lodestar_dir),
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        subprocess.run(
+            common_args + [
+                "--reporter=json",
+                f"--report-dir={report_json_dir}",
             ],
             cwd=str(lodestar_dir),
             env=env,
@@ -5413,6 +5445,7 @@ def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
         )
         
         print(f"    ✓ Accumulated report: {report_dir / 'index.html'}")
+        print(f"    ✓ Accumulated JSON: {report_json_dir / 'coverage-final.json'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
