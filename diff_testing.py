@@ -1,4 +1,4 @@
-# Note : This script is used to diff the coverage of 5 different clients.
+# Note : This script diffs the behavior and coverage of eth2 clients.
 
 import os
 import sys
@@ -21,6 +21,26 @@ STATUS_LABEL = {
     1: "FAIL",
     2: "UNHANDLED_EXCEPTION"
 }
+
+CLIENT_DISPLAY_ORDER = [
+    "Lighthouse",
+    "Prysm",
+    "Nimbus",
+    "Teku",
+    "Lodestar",
+    "Eth2spec",
+]
+
+BASE_CLIENT_TOOLS = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+STATE_TRANSITION_TOOLS = BASE_CLIENT_TOOLS + ["eth2spec"]
+
+
+def _client_csv_fieldnames(rows):
+    present = set()
+    for row in rows:
+        present.update(row.keys())
+    ordered_clients = [name for name in CLIENT_DISPLAY_ORDER if name in present]
+    return ["Pair #"] + ordered_clients
 
 # Lighthouse coverage report scope (noise reduction)
 # We intentionally apply filtering ONLY at report generation time (llvm-cov),
@@ -245,7 +265,7 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
     .ssz_snappy files are automatically converted to .ssz.
     Each block is processed independently from the original pre/state.
     """
-    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    tools = STATE_TRANSITION_TOOLS
     paths = {}
 
     for tool in tools:
@@ -425,7 +445,7 @@ def parse_operation(test_case_dir, output_parent_dir, converter_dir=None):
     
     .ssz_snappy files are automatically converted to .ssz.
     """
-    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    tools = STATE_TRANSITION_TOOLS
     paths = {}
     
     for tool in tools:
@@ -607,7 +627,7 @@ def parse_epoch_processing(test_case_dir, output_parent_dir, converter_dir=None)
     
     .ssz_snappy files are automatically converted to .ssz.
     """
-    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    tools = STATE_TRANSITION_TOOLS
     paths = {}
     
     for tool in tools:
@@ -694,7 +714,7 @@ def parse_sanity_slots(test_case_dir, output_parent_dir, converter_dir=None):
     """
     import yaml
     
-    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    tools = STATE_TRANSITION_TOOLS
     paths = {}
     
     for tool in tools:
@@ -790,9 +810,12 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
     if spectec_core_dir is None:
         script_dir = Path(__file__).parent.resolve()
         spectec_core_dir = script_dir
-    
+
     testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
-    
+    eth2spec_result = Path(spectec_core_dir) / "Converter" / "eth2specResult.py"
+    consensus_specs_path = Path(spectec_core_dir) / "consensus-specs" / "tests" / "core" / "pyspec"
+    eth2spec_mainnet = consensus_specs_path / "eth2spec" / fork_version / "mainnet.py"
+
     # Check Lodestar transition.js file path
     lodestar_transition = testing_clients_dir / "lodestar" / "transition.js"
     if not lodestar_transition.exists():
@@ -812,11 +835,11 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
     # Coverage data directory setup (from paths)
     coverage_dirs = {}
     if enable_coverage:
-        for client_name in ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]:
+        for client_name in STATE_TRANSITION_TOOLS:
             if client_name in paths and "cov_output" in paths[client_name]:
                 coverage_dirs[client_name] = Path(paths[client_name]["cov_output"])
                 coverage_dirs[client_name].mkdir(parents=True, exist_ok=True)
-    
+
     # Client binary paths: use separate binaries in coverage mode (single binary supports both capella and deneb)
     if enable_coverage:
         prysm_binary = testing_clients_dir / "prysm" / "pcli-cov"
@@ -901,13 +924,23 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 # State root: skipped in AbstractBlockProcessor.java (validatePostState commented out)
                 # RANDAO and attestation signatures: still verified via BLSSignatureVerifier.SIMPLE
             ]),
-
+        Clients(
+            "Eth2spec",
+            sys.executable,
+            [
+                str(eth2spec_result),
+                "--pre", state,
+                "--block", block,
+                "--out", paths["eth2spec"]["output"],
+                "--fork", fork_version,
+            ]),
     ]
 
     for client in clients:
+        cmd = [str(client.cmd_path)] + [str(arg) for arg in client.cmd_args]
         try:
             start_time = perf_counter()
-            
+
             print(f"\n[+] Running: {client.name}")
 
             if not client.available:
@@ -916,74 +949,59 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             client.state = state
             client.block = block
 
-            print(f"[+] Command: {client.cmd_path} {' '.join(str(arg) for arg in client.cmd_args)}")
-            # Convert all arguments to strings (Path objects may be included)
-            cmd = [str(client.cmd_path)] + [str(arg) for arg in client.cmd_args]
-
             # Setup coverage environment variables
             env = os.environ.copy()
-            # Set FORK_VERSION environment variable for Nimbus
             if client.name == "Nimbus":
                 env["FORK_VERSION"] = fork_version
+            elif client.name == "Eth2spec":
+                existing_pythonpath = env.get("PYTHONPATH")
+                env["PYTHONPATH"] = (
+                    str(consensus_specs_path)
+                    if not existing_pythonpath
+                    else str(consensus_specs_path) + os.pathsep + existing_pythonpath
+                )
+
             if enable_coverage:
-                client_name_lower = client.name.lower()
-                
                 if client.name == "Prysm":
-                    # Go: Set GOCOVERDIR environment variable
                     env["GOCOVERDIR"] = str(coverage_dirs["prysm"])
                     print(f"[+] Coverage enabled: GOCOVERDIR={env['GOCOVERDIR']}")
-                
+
                 elif client.name == "Lighthouse":
-                    # Rust: Set LLVM_PROFILE_FILE environment variable
                     profile_file = coverage_dirs["lighthouse"] / f"lighthouse-cov-%p-%m.profraw"
                     env["LLVM_PROFILE_FILE"] = str(profile_file)
                     print(f"[+] Coverage enabled: LLVM_PROFILE_FILE={env['LLVM_PROFILE_FILE']}")
-                
+
                 elif client.name == "Teku":
-                    # Java: Inject JaCoCo agent via JAVA_OPTS
                     jacoco_agent_path = testing_clients_dir / "jacoco" / "jacocoagent.jar"
                     jacoco_exec = coverage_dirs["teku"] / "teku-coverage.exec"
-                    
+
                     if jacoco_agent_path.exists():
                         env["JAVA_OPTS"] = f"-javaagent:{jacoco_agent_path}=destfile={jacoco_exec}"
                         print(f"[+] Coverage enabled: JAVA_OPTS={env['JAVA_OPTS']}")
                     else:
                         print(f"[!] Warning: JaCoCo agent not found at {jacoco_agent_path}")
-                        #print(f"[!] Download from: https://www.jacoco.org/jacoco/trunk/doc/agent.html")
-                
+
                 elif client.name == "Nimbus":
-                    # Nim/C: gcov automatically generates .gcda files, no special env var needed
-                    # For independent coverage per test case, initialize .gcda files before execution
-                    # and copy them after execution
                     nimbus_src = testing_clients_dir / "nimbus-eth2"
                     nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
-                    
-                    # Delete existing .gcda files before execution (for independent measurement)
+
                     if nimbus_gcda_dir.exists():
                         for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
                             try:
                                 gcda_file.unlink()
-                            except:
+                            except OSError:
                                 pass
                     print(f"[+] Coverage enabled: gcov will auto-generate .gcda files in build directory")
-                
+
                 elif client.name == "Lodestar":
-                    # Node.js: Use c8 for coverage measurement
-                    # c8 collects coverage at runtime, so wrap the command with c8
                     lodestar_dir = testing_clients_dir / "lodestar"
                     coverage_report_dir = coverage_dirs["lodestar"] / "report"
-                    coverage_temp_dir = coverage_dirs["lodestar"]  # JSON file storage location
+                    coverage_temp_dir = coverage_dirs["lodestar"]
                     coverage_report_dir.mkdir(parents=True, exist_ok=True)
                     coverage_temp_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    # Wrap original node command with c8
+
                     original_cmd_path = str(client.cmd_path)
                     original_cmd_args = [str(arg) for arg in client.cmd_args]
-                    
-                    # c8 options:
-                    # --exclude-node-modules=false: include node_modules (excluded by default)
-                    # --temp-directory: specify coverage JSON file storage location
-                    # --include: only include Lodestar code (exclude transition.js wrapper)
                     c8_args = [
                         "c8",
                         "--all",
@@ -997,19 +1015,36 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                         "--include=node_modules/@chainsafe/**/*.js",
                         "--exclude=**/transition.js",
                         "--exclude=**/generateCachedStateCapella.js",
-                        original_cmd_path,  # node path
-                    ] + original_cmd_args  # original arguments (all converted to strings)
-                    
-                    # Execute c8 using npx
+                        original_cmd_path,
+                    ] + original_cmd_args
+
                     client.cmd_path = "npx"
                     client.cmd_args = c8_args
                     cmd = ["npx"] + c8_args
-                    
+
                     print(f"[+] Coverage enabled: c8 with report-dir={coverage_report_dir}")
                     print(f"[+] Coverage temp-directory: {coverage_temp_dir}")
                     print(f"[+] Coverage command: npx {' '.join(c8_args)}")
 
-            # Set cwd (only for Lodestar coverage mode)
+                elif client.name == "Eth2spec":
+                    coverage_data = coverage_dirs["eth2spec"] / ".coverage"
+                    coverage_args = [
+                        "-m",
+                        "coverage",
+                        "run",
+                        "--branch",
+                        "--data-file",
+                        str(coverage_data),
+                        "--include",
+                        str(eth2spec_mainnet),
+                    ] + [str(arg) for arg in client.cmd_args]
+                    client.cmd_args = coverage_args
+                    cmd = [str(client.cmd_path)] + coverage_args
+                    print(f"[+] Coverage enabled: coverage.py data-file={coverage_data}")
+                    print(f"[+] Coverage include target: {eth2spec_mainnet}")
+
+            print(f"[+] Command: {client.cmd_path} {' '.join(str(arg) for arg in client.cmd_args)}")
+
             if client.name == "Lodestar" and enable_coverage:
                 cwd = str(testing_clients_dir / "lodestar")
             else:
@@ -1026,32 +1061,23 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             end_time = perf_counter()
 
             client.status_code = process.returncode
-            client.output = process 
+            client.output = process
             client.timestamp = end_time - start_time
-            
-            #print(client.status_code)
-            #print(client.output)
-            
+
             print(f"[+] Execution time: {client.timestamp}")
-            
-            # Apply correct classification criteria
+
             if process.returncode == 0:
-                client.status_code = 0  # SUCCESS
+                client.status_code = 0
             elif process.returncode < 0:
-                client.status_code = 2  # UNHANDLED_EXCEPTION (terminated by signal)
+                client.status_code = 2
             else:
-                client.status_code = 1  # FAIL (all positive error codes: 1, 2, 3, 4...)
-            
-            # Lodestar special handling: set to 2 if stderr parsing fails
+                client.status_code = 1
+
             if client.name == "Lodestar":
                 try:
-                    # Handled exception
-                    if client.output.stderr!='':
-                        #print(f"Are you sure? {client.output.stderr}")
-                        # Try to parse as JSON first (for stack traces)
+                    if client.output.stderr != '':
                         try:
                             import json
-                            # Find JSON object in stderr
                             json_start = client.output.stderr.find('{')
                             if json_start != -1:
                                 json_end = client.output.stderr.rfind('}') + 1
@@ -1060,54 +1086,44 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                                     error_obj = json.loads(json_str)
                                     status_code = error_obj.get('statusCode', 1)
                                     output_string = error_obj.get('output', '')
-                                    # Use statusCode parsed from stderr, but apply correct classification
                                     if status_code == 0:
-                                        client.status_code = 0  # SUCCESS
+                                        client.status_code = 0
                                     elif status_code < 0:
-                                        client.status_code = 2  # UNHANDLED_EXCEPTION
+                                        client.status_code = 2
                                     else:
-                                        client.status_code = 1  # FAIL
+                                        client.status_code = 1
                                     client.output.stderr = output_string
                                     continue
-                        except:
+                        except Exception:
                             pass
-                        
-                        # Fallback to old regex pattern
+
                         status_code_match = re.search(r"statusCode: \s*(\d+)", client.output.stderr)
                         if status_code_match:
                             status_code = int(status_code_match.group(1))
                             output_match = re.search(r"output: \s*'(.*?)'", client.output.stderr, re.DOTALL)
                             if output_match:
                                 output_string = output_match.group(1)
-                                # Use statusCode parsed from stderr, but apply correct classification
                                 if status_code == 0:
-                                    client.status_code = 0  # SUCCESS
+                                    client.status_code = 0
                                 elif status_code < 0:
-                                    client.status_code = 2  # UNHANDLED_EXCEPTION
+                                    client.status_code = 2
                                 else:
-                                    client.status_code = 1  # FAIL
+                                    client.status_code = 1
                                 client.output.stderr = output_string
-                        
-                # Unhandled exception
-                except Exception as e:
-                    #print(f"[!] Failed to extract Lodestar output: {e}")
+                except Exception:
                     client.status_code = 2
 
             client.log()
-            
-            # Nimbus: Copy .gcda files for independent coverage per test case
+
             if client.name == "Nimbus" and enable_coverage:
                 nimbus_src = testing_clients_dir / "nimbus-eth2"
                 nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
                 nimbus_coverage_dir = coverage_dirs.get("nimbus")
-                
+
                 if nimbus_coverage_dir and nimbus_gcda_dir.exists():
-                    # Copy nimcache structure to cov_output_{index} directory
                     target_gcda_dir = nimbus_coverage_dir / "nimcache" / "debug" / "ncli"
                     target_gcda_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    # Copy only .gcda files (independent per test case)
-                    # .gcno files are taken from original nimcache during report generation for consistent measurement scope
+
                     import shutil
                     for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
                         relative_path = gcda_file.relative_to(nimbus_gcda_dir)
@@ -1118,8 +1134,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                         except Exception as e:
                             print(f"[!] Failed to copy .gcda file {gcda_file}: {e}")
                     print(f"[+] Copied .gcda files to {target_gcda_dir} (will use original .gcno files for consistent measurement scope)")
-            
-            # Teku: Delete empty output files (Teku creates empty files on failure)
+
             if client.name == "Teku" and client.status_code != 0:
                 output_path = paths.get("teku", {}).get("output")
                 if output_path and os.path.exists(output_path):
@@ -1128,10 +1143,16 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                         os.remove(output_path)
                         print(f"[+] Removed empty Teku output file: {output_path}")
 
+            if client.name == "Eth2spec" and client.status_code != 0:
+                output_path = paths.get("eth2spec", {}).get("output")
+                if output_path and os.path.exists(output_path) and os.path.getsize(output_path) == 0:
+                    os.remove(output_path)
+                    print(f"[+] Removed empty Eth2spec output file: {output_path}")
+
         except Exception as e:
             end_time = perf_counter()
             client.timestamp = end_time - start_time
-            
+            client.status_code = 2
             if client.output is None:
                 client.output = subprocess.CompletedProcess(args=cmd, returncode=2, stdout='', stderr=str(e))
 
@@ -1139,7 +1160,6 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             print(f"[+] Exited with status code: {client.status_code} (Failure)")
             print(f"[+] {client.name} failed: {client.output.stderr}")
     return clients
-
 
 def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None, enable_coverage=False, fork_version="capella"):
     """
@@ -2114,7 +2134,7 @@ def create_report(clients, output_dir):
     # body
     results = ""
     for client in clients:
-        cmd = f"{client.cmd_path} {' '.join(client.cmd_args)}"
+        cmd = f"{client.cmd_path} {' '.join(str(arg) for arg in client.cmd_args)}"
         results += f"## {client.name}\n\n"
         results += f"### State: {client.state} \n###   Block: {client.block} \n\n"
         results += f"### Command\n\n```\n{cmd}\n```\n\n"
@@ -2209,23 +2229,23 @@ def create_csv_time(all_results, output_parent_dir):
 
     now = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
     csv_file_path = Path(output_parent_dir) / f'Output_Time_{now}.csv'
-    fieldnames = ['Pair #', 'Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']
 
     def _sort_key(item):
         idx = str(item['Pair #'])
         return (0, int(idx)) if idx.isdigit() else (1, idx.lower())
 
     all_results = sorted(all_results, key=_sort_key)
+    fieldnames = _client_csv_fieldnames(all_results)
+    client_columns = fieldnames[1:]
 
     total_times = defaultdict(float)
     for result in all_results:
-        for client in ['Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']:
-            if client in result and isinstance(result[client], (int, float)): 
+        for client in client_columns:
+            if client in result and isinstance(result[client], (int, float)):
                 total_times[client] += result[client]
 
-    # Append Total
     total_row = {'Pair #': 'Total'}
-    total_row.update({client: f"{total_times[client]:.{time_decimal_places}f}" for client in ['Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']})
+    total_row.update({client: f"{total_times[client]:.{time_decimal_places}f}" for client in client_columns})
 
     with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -2629,13 +2649,12 @@ def create_csv_status(all_status, output_parent_dir):
     now = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
     csv_file_path = Path(output_parent_dir) / f'Output_Status_{now}.csv'
 
-    fieldnames = ['Pair #', 'Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']
-
     def _sort_key(item):
         idx = str(item['Pair #'])
         return (0, int(idx)) if idx.isdigit() else (1, idx.lower())
 
     all_status = sorted(all_status, key=_sort_key)
+    fieldnames = _client_csv_fieldnames(all_status)
 
     with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -2661,7 +2680,7 @@ def compare_ssz_files_in_output(output_parent_dir, successful_clients_by_index=N
     - successful_clients_by_index: Dict mapping index to list of successful client names.
                                   If None, compares all existing files (backward compatibility).
     """
-    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    tools = STATE_TRANSITION_TOOLS
     output_dirs = {tool: os.path.join(output_parent_dir, tool, "output") for tool in tools}
 
     # Get all indices from the output directories
@@ -2751,7 +2770,7 @@ def generate_coverage_reports_per_testcase(output_dir, spectec_core_dir, cleanup
     print(f"{'='*60}\n")
     
     # Find and process cov_output_* directories for each client
-    clients = ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]
+    clients = BASE_CLIENT_TOOLS + ["eth2spec"]
     
     for client in clients:
         client_dir = output_path / client
@@ -2780,6 +2799,8 @@ def generate_coverage_reports_per_testcase(output_dir, spectec_core_dir, cleanup
                 _generate_nimbus_report(cov_dir, testing_clients_dir)
             elif client == "lodestar":
                 _generate_lodestar_report(cov_dir, testing_clients_dir)
+            elif client == "eth2spec":
+                _generate_eth2spec_report(cov_dir, testing_clients_dir)
             
             # Delete original data after report generation (optional)
             if cleanup_after_report:
@@ -3956,6 +3977,154 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
         print(f"    ✗ HTML report not found: {html_index}")
         print(f"    ℹ Check if coverage JSON files contain actual file paths (not just node:internal/*)")
 
+def _write_eth2spec_coverage_reports(coverage_data_file, report_dir):
+    """Generate text, HTML, and JSON coverage artifacts for eth2spec."""
+    report_dir.mkdir(parents=True, exist_ok=True)
+    html_dir = report_dir / "html"
+    html_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        report_result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "report",
+                "--data-file",
+                str(coverage_data_file),
+                "-m",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        (report_dir / "report.txt").write_text(report_result.stdout, encoding="utf-8")
+
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "html",
+                "--data-file",
+                str(coverage_data_file),
+                "-d",
+                str(html_dir),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "json",
+                "--data-file",
+                str(coverage_data_file),
+                "--pretty-print",
+                "-o",
+                str(report_dir / "coverage.json"),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        print(f"    ✓ Report: {report_dir / 'report.txt'}")
+        print(f"    ✓ HTML: {html_dir / 'index.html'}")
+        print(f"    ✓ JSON: {report_dir / 'coverage.json'}")
+    except FileNotFoundError:
+        print("    ✗ coverage.py not found. Install with: pip install coverage")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+
+def _generate_eth2spec_report(eth2spec_coverage_dir, testing_clients_dir):
+    """Generate eth2spec (Python) coverage report."""
+    coverage_file = eth2spec_coverage_dir / ".coverage"
+    if not coverage_file.exists():
+        return
+    _write_eth2spec_coverage_reports(coverage_file, eth2spec_coverage_dir / "report")
+
+
+
+def _merge_eth2spec_coverage(cov_dirs, output_dir, testing_clients_dir):
+    """Merge eth2spec coverage data from multiple test cases."""
+    coverage_files = [cov_dir / ".coverage" for cov_dir in cov_dirs if (cov_dir / ".coverage").exists()]
+    if not coverage_files:
+        print("    ✗ No eth2spec coverage data files found")
+        return
+
+    merged_cov_dir = output_dir / "merged_coverage"
+    merged_cov_dir.mkdir(exist_ok=True)
+    merged_data_file = merged_cov_dir / ".coverage"
+
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "combine",
+                "--keep",
+                "--data-file",
+                str(merged_data_file),
+            ] + [str(file) for file in coverage_files],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        _write_eth2spec_coverage_reports(merged_data_file, output_dir / "report")
+    except FileNotFoundError:
+        print("    ✗ coverage.py not found. Install with: pip install coverage")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+
+def _merge_final_eth2spec_coverage(merged_coverage_dirs, output_dir, testing_clients_dir):
+    """Merge eth2spec coverage data from multiple test suites."""
+    coverage_files = [merged_dir / ".coverage" for merged_dir in merged_coverage_dirs if (merged_dir / ".coverage").exists()]
+    if not coverage_files:
+        print("    ✗ No merged eth2spec coverage data files found")
+        return
+
+    final_merged_cov_dir = output_dir / "merged_coverage"
+    final_merged_cov_dir.mkdir(exist_ok=True)
+    final_merged_data = final_merged_cov_dir / ".coverage"
+
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "combine",
+                "--keep",
+                "--data-file",
+                str(final_merged_data),
+            ] + [str(file) for file in coverage_files],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        _write_eth2spec_coverage_reports(final_merged_data, output_dir / "report")
+    except FileNotFoundError:
+        print("    ✗ coverage.py not found. Install with: pip install coverage")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
 def generate_accumulated_coverage_report(output_base_dir, spectec_core_dir, cleanup_after_report=False):
     """
     Generate accumulated coverage report for entire test suite.
@@ -3977,7 +4146,7 @@ def generate_accumulated_coverage_report(output_base_dir, spectec_core_dir, clea
     total_coverage_dir = output_base_path / "total-node-coverage"
     total_coverage_dir.mkdir(exist_ok=True)
     
-    clients = ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]
+    clients = BASE_CLIENT_TOOLS + ["eth2spec"]
     
     for client in clients:
         print(f"\n[+] Processing accumulated {client.capitalize()} coverage...")
@@ -4014,6 +4183,8 @@ def generate_accumulated_coverage_report(output_base_dir, spectec_core_dir, clea
             _merge_nimbus_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
         elif client == "lodestar":
             _merge_lodestar_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
+        elif client == "eth2spec":
+            _merge_eth2spec_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
         
         # Cleanup original data if requested
         if cleanup_after_report:
@@ -4049,7 +4220,7 @@ def generate_final_accumulated_coverage_report(test_suite_output_dirs, final_out
         print(f"  - {suite_dir}")
     print(f"Final output: {final_output_path}\n")
     
-    clients = ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]
+    clients = BASE_CLIENT_TOOLS + ["eth2spec"]
     
     for client in clients:
         print(f"\n[+] Processing final accumulated {client.capitalize()} coverage...")
@@ -4093,6 +4264,8 @@ def generate_final_accumulated_coverage_report(test_suite_output_dirs, final_out
             _merge_final_nimbus_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
         elif client == "lodestar":
             _merge_final_lodestar_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
+        elif client == "eth2spec":
+            _merge_final_eth2spec_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
     
     print(f"\n{'='*60}")
     print(f"Final accumulated coverage reports saved in: {final_output_path}")
@@ -5296,6 +5469,12 @@ def _cleanup_coverage_data(cov_dir, client):
             for json_file in cov_dir.glob("coverage-*.json"):
                 json_file.unlink()
                 print(f"    ✓ Removed: {json_file.name}")
+
+        elif client == "eth2spec":
+            coverage_file = cov_dir / ".coverage"
+            if coverage_file.exists():
+                coverage_file.unlink()
+                print(f"    ✓ Removed: {coverage_file.name}")
     
     except Exception as e:
         print(f"    ⚠ Warning: Failed to cleanup coverage data: {e}")
