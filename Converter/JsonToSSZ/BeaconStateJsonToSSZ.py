@@ -26,7 +26,6 @@ def _from_hex(s: str) -> bytes:
     return bytes.fromhex(s[2:])
 
 def _elem_type_of(seq_type):
-    # remerkleable의 element_cls() 메서드 사용
     if hasattr(seq_type, 'element_cls') and callable(seq_type.element_cls):
         return seq_type.element_cls()
     for attr in ("elem_type", "element_type", "item_elem_type"):
@@ -77,7 +76,6 @@ def json_to_view(j: Any, typ) -> Any:
     if _issubclass_safe(typ, Bitvector) or _issubclass_safe(typ, Bitlist):
         if not isinstance(j, list) or not all(isinstance(x, bool) for x in j):
             raise TypeError(f"{typ.__name__} expects a JSON list of booleans, e.g. [true, false, ...]")
-        # remerkleable -> (길이·limit는 타입이 검증)
         return typ(j)
 
 
@@ -100,7 +98,6 @@ def json_to_view(j: Any, typ) -> Any:
     except (TypeError, AttributeError):
         pass
 
-    # 6) 기타 프리미티브 (bytes, str 등)
     if typ in (bytes, bytearray, memoryview):
         if isinstance(j, str):
             return _from_hex(j)

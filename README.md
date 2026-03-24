@@ -38,9 +38,6 @@ The Dockerfile provides a reproducible, isolated environment for building and te
 **Build Docker Images:**
 
 ```bash
-# Build base environment (clones and builds original clients)
-docker build -t eth2test:base --target base .
-
 # Build with coverage binaries (recommended for coverage testing)
 docker build -t eth2test:coverage --target coverage .
 ```
@@ -131,7 +128,7 @@ First, convert the ETH2SpecTec-generated JSON test cases to SSZ.
 ```bash
 cd /workspace/spectec-core
 python3 convert_testgen_json_to_ssz.py \
-  --input-dir ./testgen_01280645 \
+  --input-dir ./[your_spectec-generated test cases] \
   --fork capella \
   --output-dir ./your_path
 ```
