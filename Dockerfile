@@ -217,8 +217,9 @@ WORKDIR /workspace/spectec-core/testing_clients
 RUN mkdir -p lodestar && \
     cd lodestar && \
     echo '{\n  "dependencies": {\n    "@lodestar/state-transition": "1.36.0"\n  },\n  "type": "module"\n}' > package.json && \
-    npm i @lodestar/state-transition@1.36.0 && \
-    npm install
+    npm install -g pnpm && \
+    pnpm i @lodestar/state-transition@1.36.0 && \
+    pnpm install
 
 # ============================================
 # Stage 10: Apply modified code
