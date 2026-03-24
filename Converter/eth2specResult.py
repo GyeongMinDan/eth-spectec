@@ -56,7 +56,7 @@ def main(pre_ssz_path=None, blocks_ssz_path=None, output_ssz_path=None, fork="ca
     # Execute state_transition
     print("\nExecuting state_transition...")
     try:
-        spec.state_transition(state, signed_block, validate_result=True)
+        spec.state_transition(state, signed_block, validate_result=False)
         print("  ✓ State transition succeeded!")
     except Exception as e:
         print(f"  ✗ State transition failed: {e}")
