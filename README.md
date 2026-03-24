@@ -168,7 +168,7 @@ python3 check_results.py ./results/coverage_sanity_block_test
 python3 check_results.py ./results/coverage_ETH2SpecTec
 ```
 
-`check_results.py` reads the CSV header dynamically, so it is compatible with both the current 6-column output (`Lighthouse`, `Prysm`, `Nimbus`, `Teku`, `Lodestar`, `Eth2spec`) and 5-client result folders.
+`check_results.py` reads the CSV header dynamically, so it is compatible with both the current 6-column output. (`Lighthouse`, `Prysm`, `Nimbus`, `Teku`, `Lodestar`, `Eth2spec`)
 
 To compare accumulated coverage totals between a baseline run and a variant run, use `compare_state_transition_coverage.py`
 
