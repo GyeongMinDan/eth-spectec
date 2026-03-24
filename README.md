@@ -1,6 +1,6 @@
-# ETH2SpecTec
+# (tool name)
 
-ETH2SpecTec is a SpecTec implementation of the official Ethereum 2.0 Consensus Spec. It extends [SpecTec-Core](https://github.com/kaist-plrg/spectec-core) with support for large byte values, and includes python scripts for conversion as well as a diff-testing framework for Ethereum 2.0 clients.
+(tool name) is a specification guided test generation framework.
 
 ## Testing Scripts
 
@@ -163,9 +163,9 @@ python3 diff_testing.py \
   --final-output-dir ./results/accumulated_coverage_report
 ```
 
-**measure the ETH2SpecTec generated test cases:**
+**measure the Consensus-SpecTec generated test cases:**
 
-First, convert the ETH2SpecTec-generated JSON test cases to SSZ.
+First, convert the Consensus-SpecTec-generated JSON test cases to SSZ.
 
 ```bash
 cd /workspace/spectec-core
@@ -183,19 +183,19 @@ python3 diff_testing.py \
   --test-suite ./your_path/testgen/spectec-generated \
   --test-type state-transition \
   --fork-version capella \
-  --output-base ./results/coverage_ETH2SpecTec \
+  --output-base ./results/coverage_Consensus-SpecTec \
   --enable-coverage \
   --cleanup-after-report
 
 
-# Generate accumulated coverage report (baseline + ETH2SpecTec)
+# Generate accumulated coverage report (baseline + Consensus-SpecTec)
 python3 diff_testing.py \
   --generate-final-coverage \
   ./results/coverage_sanity_block_test \
   ./results/coverage_random_test \
   ./results/coverage_finality_test \
-  ./results/coverage_ETH2SpecTec \
-  --final-output-dir ./results/accumulated_coverage_report_with_ETH2SpecTec
+  ./results/coverage_Consensus-SpecTec \
+  --final-output-dir ./results/accumulated_coverage_report_with_Consensus-SpecTec
 ```
 **2. Process results with analysis scripts:**
 
@@ -207,7 +207,7 @@ cd /workspace/spectec-core
 
 # Check results for mismatches
 python3 check_results.py ./results/coverage_sanity_block_test
-python3 check_results.py ./results/coverage_ETH2SpecTec
+python3 check_results.py ./results/coverage_Consensus-SpecTec
 
 # Command to generate a coverage(branch) measurement graph for the results
 python3 make_coverage_figure.py \
@@ -218,14 +218,15 @@ python3 make_coverage_figure.py \
 # Command to generate a graph comparing coverage(branch) between result sets
 python3 make_compare_figure.py \
   --input-dir-1 ./results/accumulated_coverage_report \
-  --input-dir-2 ./results/accumulated_coverage_report_with_ETH2SpecTec \
+  --input-dir-2 ./results/accumulated_coverage_report_with_Consensus-SpecTec \
   --output-dir ./results/final_compare_result \
   --format png
 ```
 ![Branch coverage comparison(Example)](./example_compare_image.png)
 
 
+## Consensus-SpecTec
 
-### License
+Consensus-SpecTec is the SpecTec formalization of the official [Ethereum Consensus Spec](https://github.com/ethereum/consensus-specs/tree/master/specs).
+[consensus-spectec.md]
 
-ETH2SpecTec is released under the [Apache 2.0 license](LICENSE).

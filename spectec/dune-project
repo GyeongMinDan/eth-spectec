@@ -8,8 +8,7 @@
 (package
   (name spectec)
   (version 0.0.1)
-  (synopsis "SpecTec-Core: A spec mechanization framework")
-  (maintainers "kunjeong99@naver.com")
+  (maintainers "")
   (depends
     bignum
     core
