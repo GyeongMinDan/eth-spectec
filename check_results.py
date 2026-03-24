@@ -12,6 +12,28 @@ import json
 from pathlib import Path
 from collections import defaultdict
 
+PREFERRED_CLIENT_ORDER = [
+    "Lighthouse",
+    "Prysm",
+    "Nimbus",
+    "Teku",
+    "Lodestar",
+    "Eth2spec",
+]
+
+
+def get_client_columns(fieldnames):
+    """Return client columns in a stable display order from an Output_Status CSV header."""
+    if not fieldnames:
+        return []
+
+    excluded = {"Pair #"}
+    csv_columns = [name for name in fieldnames if name and name not in excluded]
+    ordered = [name for name in PREFERRED_CLIENT_ORDER if name in csv_columns]
+    extras = [name for name in csv_columns if name not in ordered]
+    return ordered + extras
+
+
 def parse_status_value(value):
     """Parse status value and return status code (0, 1, 2, etc.)"""
     if not value or value.strip() == '':
@@ -35,12 +57,11 @@ def check_mismatch_cases(base_dir):
     files = glob.glob(pattern, recursive=True)
     print(f"\n=== Checking Output_Status files (total {len(files)} files) ===\n")
     
-    clients = ['Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']
-    
     for file_path in sorted(files):
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
+                clients = get_client_columns(reader.fieldnames)
                 for row_num, row in enumerate(reader, start=2):  # Start from after header
                     pair_num = row.get('Pair #', '')
                     
@@ -314,7 +335,7 @@ if __name__ == "__main__":
             print("  python check_results.py <directory>  # Check mismatch cases in specified directory")
             print("")
             print("This script searches for Output_Status_*.csv files recursively in the specified")
-            print("directory and finds mismatch cases (where not all clients have the same status).")
+            print("directory and finds mismatch cases (where not all detected client columns have the same status).")
         else:
             # Treat first argument as directory path
             main(sys.argv[1])

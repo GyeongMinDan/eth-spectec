@@ -1,6 +1,6 @@
-# (tool name)
+# ETH2SpecTec
 
-(tool name) is a specification guided test generation framework.
+ETH2SpecTec is a SpecTec implementation of the official Ethereum 2.0 Consensus Spec. It extends [SpecTec-Core](https://github.com/kaist-plrg/spectec-core) with support for large byte values, and includes python scripts for conversion as well as a diff-testing framework for Ethereum 2.0 clients.
 
 ## Testing Scripts
 
@@ -11,7 +11,7 @@
 - **Requirements:** Docker installed on your system
 - **Platform:** Linux (x86_64), macOS, or Windows with WSL2
 
-The Dockerfile provides a reproducible, isolated environment for building and testing all Ethereum 2.0 client implementations (Lighthouse, Prysm, Nimbus, Teku, Lodestar) with coverage instrumentation support.
+The Dockerfile provides a reproducible, isolated environment for building and testing Ethereum 2.0 implementations used by `diff_testing.py` (Lighthouse, Prysm, Nimbus, Teku, Lodestar, plus the Python `eth2spec` executable spec) with coverage instrumentation support.
 
 **What it does:**
 1. Installs all required dependencies:
@@ -86,12 +86,12 @@ python3 Converter/generate_json_test_cases.py   Converter/OfficialTestSuite/cape
 
 ### 5. diff_testing.py
 
-Performs differential testing across multiple Ethereum 2.0 clients (Lighthouse, Prysm, Nimbus, Teku, Lodestar) by running state transitions and comparing results.
+Performs differential testing across six Ethereum 2.0 implementations (Lighthouse, Prysm, Nimbus, Teku, Lodestar, Eth2spec) by running state transitions and comparing results.
 
 **Features:**
 - Automatically decompresses `.ssz_snappy` files to `.ssz` (no manual conversion needed)
 - Supports both `OfficialTestSuite` directories (with `.ssz_snappy` files) and already-decompressed directories (with `.ssz` files)
-- Compares postState SSZ files across all successful clients
+- Compares postState SSZ files across all successful implementations
 - Generates detailed reports (Markdown) and CSV files (execution time, status, differences)
 - Supports two workflow modes: **independent** (default) and **sequential** (chained execution)
 
@@ -115,7 +115,7 @@ All operations run entirely inside the Docker container.
 
 **1. Run diff_testing.py (Differential Testing):**
 
-Execute differential testing with all client implementations. All clients receive the same input and produce state-transition results and coverage data.
+Execute differential testing with all six implementations. All implementations receive the same input and produce state-transition results and coverage data.
 
 Note : All this command is example, if you want to change, then check your command.
 **measure the baseline (official test suite):**
@@ -163,9 +163,9 @@ python3 diff_testing.py \
   --final-output-dir ./results/accumulated_coverage_report
 ```
 
-**measure the Consensus-SpecTec generated test cases:**
+**measure the ETH2SpecTec generated test cases:**
 
-First, convert the Consensus-SpecTec-generated JSON test cases to SSZ.
+First, convert the ETH2SpecTec-generated JSON test cases to SSZ.
 
 ```bash
 cd /workspace/spectec-core
@@ -183,50 +183,51 @@ python3 diff_testing.py \
   --test-suite ./your_path/testgen/spectec-generated \
   --test-type state-transition \
   --fork-version capella \
-  --output-base ./results/coverage_Consensus-SpecTec \
+  --output-base ./results/coverage_ETH2SpecTec \
   --enable-coverage \
   --cleanup-after-report
 
 
-# Generate accumulated coverage report (baseline + Consensus-SpecTec)
+# Generate accumulated coverage report (baseline + ETH2SpecTec)
 python3 diff_testing.py \
   --generate-final-coverage \
   ./results/coverage_sanity_block_test \
   ./results/coverage_random_test \
   ./results/coverage_finality_test \
-  ./results/coverage_Consensus-SpecTec \
-  --final-output-dir ./results/accumulated_coverage_report_with_Consensus-SpecTec
+  ./results/coverage_ETH2SpecTec \
+  --final-output-dir ./results/accumulated_coverage_report_with_ETH2SpecTec
 ```
 **2. Process results with analysis scripts:**
 
-All results are stored in `/workspace/spectec-core/results/` inside the container. You can process them using the analysis scripts:
+All results are stored in `/workspace/spectec-core/results/` inside the container. For the artifact branch, keep `check_results.py` as the analysis script used to inspect `Output_Status_*.csv` files produced by `diff_testing.py`.
 
 ```bash
 # Inside the container (continue from step 1):
 cd /workspace/spectec-core
 
-# Check results for mismatches
+# Check results for mismatches / crashes in the 6-implementation comparison
 python3 check_results.py ./results/coverage_sanity_block_test
-python3 check_results.py ./results/coverage_Consensus-SpecTec
-
-# Command to generate a coverage(branch) measurement graph for the results
-python3 make_coverage_figure.py \
-  --input-dir ./results/accumulated_coverage_report \
-  --output-dir ./results/coverage_figures \
-  --format png
-
-# Command to generate a graph comparing coverage(branch) between result sets
-python3 make_compare_figure.py \
-  --input-dir-1 ./results/accumulated_coverage_report \
-  --input-dir-2 ./results/accumulated_coverage_report_with_Consensus-SpecTec \
-  --output-dir ./results/final_compare_result \
-  --format png
+python3 check_results.py ./results/coverage_ETH2SpecTec
 ```
-![Branch coverage comparison(Example)](./example_compare_image.png)
+
+`check_results.py` reads the CSV header dynamically, so it is compatible with both the current 6-column output (`Lighthouse`, `Prysm`, `Nimbus`, `Teku`, `Lodestar`, `Eth2spec`) and 5-client result folders.
+
+To compare accumulated coverage totals between a baseline run and a variant run, use `compare_state_transition_coverage.py`. The two arguments should be the accumulated coverage root directories produced by `diff_testing.py` (for example, `./results/accumulated_coverage_report` and `./results/accumulated_coverage_report_with_ETH2SpecTec`). Under each root, the script reads the per-client coverage outputs from `total-node-coverage/<client>/...`, including `total-node-coverage/eth2spec/report/coverage.json` for the current `diff_testing.py` Eth2spec output.
+
+```bash
+# Compare baseline accumulated coverage vs baseline + ETH2SpecTec accumulated coverage
+python3 compare_state_transition_coverage.py   ./results/accumulated_coverage_report   ./results/accumulated_coverage_report_with_ETH2SpecTec
+```
+
+The text output format is:
+
+```text
+<Lighthouse>
+line coverage : A / B -> C / D (delta covered +X, delta total +Y)
+branch coverage : E / F -> G / H (delta covered +M, delta total +N)
+```
 
 
-## Consensus-SpecTec
+### License
 
-Consensus-SpecTec is the SpecTec formalization of the official [Ethereum Consensus Spec](https://github.com/ethereum/consensus-specs/tree/master/specs).
-[consensus-spectec.md]
-
+ETH2SpecTec is released under the [Apache 2.0 license](LICENSE).

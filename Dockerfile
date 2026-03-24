@@ -167,7 +167,7 @@ ENV PATH="/root/.local/bin:${PATH}"
 WORKDIR /workspace/spectec-core/consensus-specs
 RUN make _pyspec
 
-# Install Python dependencies (including snappy for decompression)
+# Install Python dependencies (including snappy for decompression and coverage for eth2spec profiling)
 WORKDIR /workspace/spectec-core
 RUN pip3 install --no-cache-dir -r requirements.txt
 
