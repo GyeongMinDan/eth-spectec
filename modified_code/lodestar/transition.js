@@ -5,7 +5,6 @@ import { isCachedBeaconState, stateTransition, DataAvailabilityStatus, Execution
 import { generateCachedState } from "./generateCachedStateCapella.js";
 import * as config from "@lodestar/config";
 
-// Lodestar 내 스펙 함수 import
 // Epoch processing functions
 import { beforeProcessEpoch } from "@lodestar/state-transition";
 import { processJustificationAndFinalization } from "@lodestar/state-transition/epoch";
