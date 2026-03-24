@@ -1,8 +1,0 @@
-syntax env
-
-syntax value =
-  | NumV int          ;; n
-  | CloV id expr env  ;; <λx.e, env>
-
-syntax env = map<id, value>
-dec $lookup_env(env, id): value?

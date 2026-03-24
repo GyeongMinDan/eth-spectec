@@ -1,8 +1,0 @@
-syntax envLayer = map<id, value>
-
-syntax env =
-  { GLOBAL envLayer,
-    LOCAL envLayer }
-dec $lookup_env(envLayer, id) : value?
-
-syntax sto = value*
