@@ -26,6 +26,7 @@ if str(PYSPEC) not in sys.path:
     sys.path.insert(0, str(PYSPEC))
 
 from eth2spec.capella.mainnet import BeaconState as CapellaBeaconState  # noqa: E402
+from eth2spec.deneb.mainnet import BeaconState as DenebBeaconState  # noqa: E402
 from remerkleable.basic import boolean, bit, uint8, uint16, uint32, uint64, uint128, uint256  # noqa: E402
 from remerkleable.byte_arrays import ByteVector, ByteList  # noqa: E402
 from remerkleable.bitfields import Bitlist, Bitvector  # noqa: E402
@@ -40,6 +41,12 @@ def parse_args() -> argparse.Namespace:
         description="Check postState mismatches from a single diff_testing result root, including Eth2spec."
     )
     parser.add_argument("base_dir", help="Root directory containing result folders with Output_Status_*.csv")
+    parser.add_argument(
+        "--fork-version",
+        choices=["capella", "deneb"],
+        default="capella",
+        help="Fork version used to decode BeaconState when structural diff is enabled",
+    )
     parser.add_argument(
         "--output-json",
         default=None,
@@ -155,10 +162,17 @@ def view_to_jsonable(v: Any) -> Any:
     return str(v)
 
 
-def decode_ssz(path: str) -> Any:
+def get_beacon_state_type(fork_version: str):
+    if fork_version == "deneb":
+        return DenebBeaconState
+    return CapellaBeaconState
+
+
+def decode_ssz(path: str, fork_version: str) -> Any:
     with open(path, "rb") as f:
         raw = f.read()
-    view = CapellaBeaconState.decode_bytes(raw)
+    beacon_state_type = get_beacon_state_type(fork_version)
+    view = beacon_state_type.decode_bytes(raw)
     return view_to_jsonable(view)
 
 
@@ -223,9 +237,15 @@ def diff_jsonable(a: Any, b: Any, path: str, out: list[str], max_reports: int, h
         out.append(f"  B: {_fmt_val(b, hex_max)}")
 
 
-def structural_diff_ssz_paths(path_a: str, path_b: str, max_diffs: int = 0, hex_max: int = 64) -> list[str]:
-    left = decode_ssz(path_a)
-    right = decode_ssz(path_b)
+def structural_diff_ssz_paths(
+    path_a: str,
+    path_b: str,
+    fork_version: str,
+    max_diffs: int = 0,
+    hex_max: int = 64,
+) -> list[str]:
+    left = decode_ssz(path_a, fork_version)
+    right = decode_ssz(path_b, fork_version)
     out: list[str] = []
     diff_jsonable(left, right, "", out, max_diffs, hex_max)
     return out
@@ -234,6 +254,7 @@ def structural_diff_ssz_paths(path_a: str, path_b: str, max_diffs: int = 0, hex_
 def build_case_record(
     case_dir: Path,
     index: str,
+    fork_version: str,
     max_structural_diffs: int,
     hex_max: int,
     skip_structural_diff: bool,
@@ -299,7 +320,7 @@ def build_case_record(
             }
             try:
                 entry["diff_lines"] = structural_diff_ssz_paths(
-                    str(ref_path), str(other_path), max_structural_diffs, hex_max
+                    str(ref_path), str(other_path), fork_version, max_structural_diffs, hex_max
                 )
                 entry["ok"] = True
                 entry["error"] = None
@@ -333,6 +354,7 @@ def main() -> None:
             record = build_case_record(
                 case_dir=case_dir,
                 index=index,
+                fork_version=args.fork_version,
                 max_structural_diffs=args.max_structural_diffs,
                 hex_max=args.hex_max,
                 skip_structural_diff=args.skip_structural_diff,
@@ -343,6 +365,7 @@ def main() -> None:
     payload = {
         "summary": {
             "base_dir": str(base_dir),
+            "fork_version": args.fork_version,
             "poststate_mismatch_count": len(records),
             "actors": [DISPLAY_NAMES[c] for c in CLIENT_DIRS],
             "structural_diff_enabled": not args.skip_structural_diff,
