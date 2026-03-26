@@ -20,7 +20,3 @@ ruamel.yaml==0.18.15
 
 # Dependencies for coverage measurement
 coverage>=7.6,<8
-
-# Dependencies for analysis scripts
-matplotlib>=3.5.0
-numpy>=1.21.0

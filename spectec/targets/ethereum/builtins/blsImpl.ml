@@ -71,7 +71,7 @@ let bls_verify ~at (bls_pubkey : Num.t) (root : Num.t) (bls_signature : Num.t) :
 
 let eth_aggregate_pubkeys ~at (pubkeys_num : Num.t list) : Value.t result =
   let pubkeys_int = List.map Num.to_int pubkeys_num in
-  (* 1) int -> bytes48 -> G1 (검증) *)
+  (* 1) int -> bytes48 -> G1 (validation) *)
   let conv_one n =
     let* () = ensure_fits_bytes ~at n ~len:48 in
     let b = be_of_bigint_fixed n ~len:48 in
@@ -89,13 +89,13 @@ let eth_aggregate_pubkeys ~at (pubkeys_num : Num.t list) : Value.t result =
   in
   let* points = mapM conv_one pubkeys_int in
 
-  (* 2) 누적 합 *)
+  (* 2) cumulative sum *)
   let agg = List.fold_left Bls12_381.G1.add Bls12_381.G1.zero points in
 
-  (* 3) 48B로 직렬화 -> BytesV (48 bytes) *)
+  (* 3) serialize to 48B -> BytesV (48 bytes) *)
   let out_b = Bls12_381.G1.to_compressed_bytes agg in
   let out_n = bigint_of_be_bytes out_b in
-  (* BLSPubkey는 48바이트이므로 BytesV로 반환 *)
+  (* BLSPubkey is 48 bytes, so return BytesV *)
   Ok (make_bytes ~num:out_n ~len:48)
 
 (* dec $bls_fast_aggregate_verify(blsPubkey*, bytes32, blsSignature) : boolean *)

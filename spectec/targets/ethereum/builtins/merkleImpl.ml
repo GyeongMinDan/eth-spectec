@@ -60,7 +60,7 @@ let merkle_hash_ (left : Bytes.t) (right : Bytes.t) : Bytes.t =
 
 let zero32 : Bytes.t = Bytes.make 32 '\x00'
 
-(* Python의 bit_length 함수 (int.bit_length()) *)
+(* Python bit_length  (int.bit_length()) *)
 let bit_length_of (v : int) : int =
   if v <= 0 then 0
   else if v = 1 then 1
@@ -68,7 +68,7 @@ let bit_length_of (v : int) : int =
     let rec go v acc = if v = 0 then acc else go (v lsr 1) (acc + 1) in
     go (v lsr 1) 1
 
-(* ZERO_HASHES: 각 높이별 완전한 zero 서브트리의 루트 *)
+(* ZERO_HASHES:    zero   *)
 (* ZERO_HASHES[0] = zero32 *)
 (* ZERO_HASHES[h+1] = H(ZERO_HASHES[h], ZERO_HASHES[h]) *)
 let compute_zero_hashes ~max_depth : Bytes.t array =
@@ -78,8 +78,8 @@ let compute_zero_hashes ~max_depth : Bytes.t array =
   done;
   arr
 
-(* Python의 merkleize_chunks와 동일한 알고리즘 구현 *)
-(* Vector의 경우 limit = count, List의 경우 limit은 별도로 지정 *)
+(* Python merkleize_chunks    *)
+(* Vector  limit = count, List  limit   *)
 let merkleize_chunks_with_limit (leaves : Bytes.t array) (limit : int) : Bytes.t
     =
   let n = Array.length leaves in
@@ -94,13 +94,10 @@ let merkleize_chunks_with_limit (leaves : Bytes.t array) (limit : int) : Bytes.t
     let depth = if count = 0 then 0 else bit_length_of (count - 1) in
     (* max_depth = (limit - 1).bit_length() *)
     let max_depth = if limit = 0 then 0 else bit_length_of (limit - 1) in
-    (* Python의 merge 알고리즘 시뮬레이션 *)
-    (* Python: tmp = [None for _ in range(max_depth + 1)] *)
-    (* OCaml에서는 option 타입을 사용하여 None을 정확히 표현 *)
     let tmp = Array.make (max_depth + 1) None in
     let zero_hashes = compute_zero_hashes ~max_depth in
-    (* Python의 merge 알고리즘을 정확히 재현 *)
-    (* Python 코드:
+    (* Python merge    *)
+    (* Python :
        def merge(h, i):
            j = 0
            while True:
@@ -119,7 +116,7 @@ let merkleize_chunks_with_limit (leaves : Bytes.t array) (limit : int) : Bytes.t
       let j = ref 0 in
       let should_break = ref false in
       while not !should_break do
-        (* i & (1 << j) 계산 *)
+        (* i & (1 << j)  *)
         let bit_mask = 1 lsl !j in
         let bit_set = i land bit_mask in
         (if bit_set = 0 then
@@ -133,9 +130,9 @@ let merkleize_chunks_with_limit (leaves : Bytes.t array) (limit : int) : Bytes.t
              (* break *)
              should_break := true
          else
-           (* i & (1 << j) != 0, 즉 비트가 설정됨 *)
+           (* i & (1 << j) != 0,    *)
            (* h = hash(tmp[j] + h) *)
-           (* tmp[j]는 이미 값이 설정되어 있어야 함 (Python의 None 체크와 동일) *)
+           (* tmp[j]      (Python None  ) *)
            match tmp.(!j) with
            | None ->
                invalid_arg
@@ -144,7 +141,7 @@ let merkleize_chunks_with_limit (leaves : Bytes.t array) (limit : int) : Bytes.t
                      j=%d"
                     !j i !j)
            | Some prev -> h := merkle_hash_ prev !h);
-        (* j += 1 (break할 때는 실행되지 않음) *)
+        (* j += 1 (break   ) *)
         if not !should_break then j := !j + 1
       done;
       (* tmp[j] = h *)
@@ -181,23 +178,18 @@ let merkleize_chunks_with_limit (leaves : Bytes.t array) (limit : int) : Bytes.t
     in
     final
 
-(* Vector의 경우: limit = count *)
 let merkleize_leaves (leaves : Bytes.t array) : Bytes.t =
   let n = Array.length leaves in
   merkleize_chunks_with_limit leaves n
 
-(* SSZ 규칙: List[T, N]은 최대 길이 N까지 zero-chunk로 패딩한 뒤 merkleize *)
-(* 메모리 효율: limit이 매우 큰 경우 (예: VALIDATOR_REGISTRY_LIMIT) 가상 패딩 사용 *)
-(* leaves: 각 요소의 32B root들 (컴포지트의 경우 요소별 HTR) *)
-(* limit: List[...]의 최대 길이 N *)
 let merkleize_list_composite_with_limit (leaves : Bytes.t array) (limit : int) :
     Bytes.t =
   let n = Array.length leaves in
-  (* limit이 0인 경우 *)
+  (* limit 0  *)
   if limit = 0 then zero32
   else if
-    (* Python의 merkleize_chunks 로직: depth = max(count-1, 0).bit_length(), max_depth = (limit-1).bit_length() *)
-    (* 빈 리스트의 경우 zerohashes[max_depth]를 반환 *)
+    (* Python merkleize_chunks : depth = max(count-1, 0).bit_length(), max_depth = (limit-1).bit_length() *)
+    (*    zerohashes[max_depth]  *)
     (* Python: max_depth = (limit-1).bit_length() *)
     n = 0
   then
@@ -205,23 +197,23 @@ let merkleize_list_composite_with_limit (leaves : Bytes.t array) (limit : int) :
     let zero_hashes = compute_zero_hashes ~max_depth in
     zero_hashes.(max_depth)
   else
-    (* 메모리 효율: limit이 매우 큰 경우 (1억 이상) 가상 패딩 사용 *)
+    (*  : limit    (1 )    *)
     let threshold = 100_000_000 in
-    (* 1억 *)
+    (* 1 *)
     if limit > threshold then
-      (* 큰 limit: 가상 패딩 방식 *)
-      (* 1) 요소 머클: len -> pow2(len)까지 zero32 패딩은 merkleize_leaves가 처리 *)
+      (*  limit:    *)
+      (* 1)  : len -> pow2(len) zero32  merkleize_leaves  *)
       let h0 = merkleize_leaves leaves in
-      (* 2) 깊이 보정: limit까지의 가상 패딩을 해시로만 "끌어올림" *)
+      (* 2)  : limit    "" *)
       (* Python: depth = max(count-1, 0).bit_length(), max_depth = (limit-1).bit_length() *)
       let depth = if n = 0 then 0 else bit_length_of (n - 1) in
       let max_depth = if limit <= 1 then 0 else bit_length_of (limit - 1) in
-      (* 각 레벨에 맞는 ZERO_HASHES를 사용하여 위로 끌어올리기 *)
+      (*    ZERO_HASHES    *)
       let zero_hashes = compute_zero_hashes ~max_depth in
       let rec lift h current_depth =
         if current_depth >= max_depth then h
         else
-          (* 현재 높이의 zero 서브트리 루트를 오른쪽 형제로 사용 *)
+          (*   zero      *)
           (* Python: tmp[j+1] = hash(tmp[j] + zerohashes[j]) *)
           let zero_at_depth = zero_hashes.(current_depth) in
           let h_next = merkle_hash_ h zero_at_depth in
@@ -229,7 +221,7 @@ let merkleize_list_composite_with_limit (leaves : Bytes.t array) (limit : int) :
       in
       lift h0 depth
     else
-      (* 작은 limit: 실제 배열로 패딩 (정확한 결과 보장) *)
+      (*  limit:    (  ) *)
       let arr =
         if limit <= n then leaves
         else
@@ -264,7 +256,7 @@ let chunkize_bytes_bytev (raw : Bytes.t) : Bytes.t array =
           c)
         else Bytes.make 32 '\x00')
 
-(* Basic 타입 시퀀스를 연속 바이트로 패킹 (LE) *)
+(* Basic      (LE) *)
 let pack_basic_le (items : (Bigint.t * int) list) : Bytes.t =
   let total = List.fold_left (fun acc (_, n) -> acc + n) 0 items in
   let buf = Bytes.make total '\x00' in
@@ -281,26 +273,26 @@ let pack_basic_le (items : (Bigint.t * int) list) : Bytes.t =
     items;
   buf
 
-(* Basic Vector: 연속 패킹 → 청크 → merkleize (mix_in_length 없음) *)
+(* Basic Vector:   →  → merkleize (mix_in_length ) *)
 let htr_basic_vector (items : (Bigint.t * int) list) : Bytes.t =
   let packed = pack_basic_le items in
   let chunks = chunkize_bytes_bytev packed in
   merkleize_leaves chunks
 
-(* Vector[bytes32, N] 전용: 각 32B를 그대로 리프로 사용 → 바로 merkleize *)
+(* Vector[bytes32, N] :  32B    →  merkleize *)
 let htr_bytes32_vector (items_be32 : Bytes.t list) : Bytes.t =
   let leaves =
     items_be32
     |> List.map (fun b ->
            if Bytes.length b <> 32 then
              invalid_arg "htr_bytes32_vector: elem size != 32";
-           (* 이미 32B라서 패딩/복사 불필요, 그대로 리프로 사용 *)
+           (*  32B / ,    *)
            b)
     |> Array.of_list
   in
   merkleize_leaves leaves
 
-(* Vector[ByteVector[elem_size], N] 전용: 원소 바이트를 그대로 이어붙여 청크 → merkleize *)
+(* Vector[ByteVector[elem_size], N] :      → merkleize *)
 let htr_fixed_bytevec_vector (items_be_bytes : Bytes.t list) ~(elem_size : int)
     : Bytes.t =
   let n = List.length items_be_bytes in
@@ -316,10 +308,10 @@ let htr_fixed_bytevec_vector (items_be_bytes : Bytes.t list) ~(elem_size : int)
     items_be_bytes;
   chunkize_bytes_bytev buf |> merkleize_leaves
 
-(* Basic List with limit: 연속 패킹 → 청크 → limit 기반 가상 패딩 → mix_in_length *)
+(* Basic List with limit:   →  → limit    → mix_in_length *)
 let htr_basic_list_with_limit (items : (Bigint.t * int) list)
     (limit_elems : int) (elem_size : int) : Bytes.t =
-  (* 원소 범위 검증: 각 원소가 해당 바이트 수에 맞는 범위인지 확인 *)
+  (*   :         *)
   let items_checked =
     List.map
       (fun (v, nbytes) ->
@@ -330,7 +322,7 @@ let htr_basic_list_with_limit (items : (Bigint.t * int) list)
   in
   let packed = pack_basic_le items_checked in
   let chunks = chunkize_bytes_bytev packed in
-  (* limit에 따른 '필요 청크 수' = ceil(limit_elems * elem_size / 32) *)
+  (* limit  '  ' = ceil(limit_elems * elem_size / 32) *)
   let need_chunks =
     let total_bytes = limit_elems * elem_size in
     if total_bytes = 0 then 0 else (total_bytes + 31) / 32
@@ -338,29 +330,29 @@ let htr_basic_list_with_limit (items : (Bigint.t * int) list)
   let root =
     if need_chunks = 0 then zero32
     else if Array.length chunks = 0 then
-      (* 빈 리스트: ZERO_HASHES[max_depth]에 해당. max_depth = (need_chunks-1).bit_length() *)
+      (*  : ZERO_HASHES[max_depth] . max_depth = (need_chunks-1).bit_length() *)
       let max_depth =
         if need_chunks <= 1 then 0 else bit_length_of (need_chunks - 1)
       in
       let zero_hashes = compute_zero_hashes ~max_depth in
       zero_hashes.(max_depth)
     else
-      (* Python의 merkleize_chunks(chunks, limit=need_chunks)를 직접 호출 *)
+      (* Python merkleize_chunks(chunks, limit=need_chunks)   *)
       merkleize_chunks_with_limit chunks need_chunks
   in
-  (* 마지막에 실제 길이 mix_in_length *)
-  (* SSZ 규칙: 모든 List 타입은 mix_in_length에 요소 개수를 넣어야 함 *)
+  (*    mix_in_length *)
+  (* SSZ :  List  mix_in_length     *)
   let elem_len = List.length items in
   mix_in_length root (Bigint.of_int elem_len)
 
-(* ByteVector[N] 리스트 (예: List[bytes32, L]) 전용:
-   - 각 원소를 "있는 그대로의 바이트열"로 이어붙임 (엔디언 변환 금지)
-   - 그 바이트 버퍼를 32B 청크로 쪼개 Merkleize
-   - limit 기반 가상 패딩(depth 고정) 후 mix_in_length 적용 *)
+(* ByteVector[N]  (: List[bytes32, L]) :
+   -   "  "  (  )
+   -    32B   Merkleize
+   - limit   (depth )  mix_in_length  *)
 let htr_bytevec_list_with_limit
-    (items_be_bytes : Bytes.t list) (* 각 원소는 길이 elem_size의 Bytes.t *)
+    (items_be_bytes : Bytes.t list) (*    elem_size Bytes.t *)
     (limit_elems : int) (elem_size : int) : Bytes.t =
-  (* 1) 원소 바이트들을 그대로 이어붙임 *)
+  (* 1)     *)
   let total = List.length items_be_bytes * elem_size in
   let buf = Bytes.make total '\x00' in
   let off = ref 0 in
@@ -370,9 +362,9 @@ let htr_bytevec_list_with_limit
       Bytes.blit b 0 buf !off elem_size;
       off := !off + elem_size)
     items_be_bytes;
-  (* 2) 32B 청크화 → Merkleize *)
+  (* 2) 32B  → Merkleize *)
   let chunks = chunkize_bytes_bytev buf in
-  (* 3) limit 기반 깊이 고정(가상 패딩) *)
+  (* 3) limit   ( ) *)
   let need_chunks =
     let total_bytes = limit_elems * elem_size in
     if total_bytes = 0 then 0 else (total_bytes + 31) / 32
@@ -401,14 +393,14 @@ let htr_bytevec_list_with_limit
       in
       lift h0 depth
   in
-  (* 4) 실제 길이 mix_in_length *)
-  (* SSZ 규칙: 모든 List 타입은 mix_in_length에 요소 개수를 넣어야 함 *)
+  (* 4)   mix_in_length *)
+  (* SSZ :  List  mix_in_length     *)
   let elem_len = List.length items_be_bytes in
   mix_in_length root (Bigint.of_int elem_len)
 
-(* Bitlist with limit: 비트 패킹 → 청크 수를 limit 기반으로 보정 → mix_in_length *)
+(* Bitlist with limit:   →   limit   → mix_in_length *)
 let htr_bitlist_with_limit (bits : bool list) (limit_bits : int) : Bytes.t =
-  (* 실제 비트들을 LSB-first 바이트로 패킹 *)
+  (*   LSB-first   *)
   let bitlen = List.length bits in
   let byte_len = (bitlen + 7) / 8 in
   let arr = Bytes.make byte_len '\x00' in
@@ -421,19 +413,19 @@ let htr_bitlist_with_limit (bits : bool list) (limit_bits : int) : Bytes.t =
         Bytes.set arr byte_idx (Stdlib.Char.chr (old_byte lor (1 lsl bit_pos))))
     bits;
   let chunks = chunkize_bytes_bytev arr in
-  (* limit 기반 '필요 청크 수' *)
+  (* limit  '  ' *)
   let need_chunks = (limit_bits + 255) / 256 in
   let root =
     if need_chunks = 0 then zero32
     else if Array.length chunks = 0 then
-      (* 빈 리스트: ZERO_HASHES[max_depth]에 해당. max_depth = (need_chunks-1).bit_length() *)
+      (*  : ZERO_HASHES[max_depth] . max_depth = (need_chunks-1).bit_length() *)
       let max_depth =
         if need_chunks <= 1 then 0 else bit_length_of (need_chunks - 1)
       in
       let zero_hashes = compute_zero_hashes ~max_depth in
       zero_hashes.(max_depth)
     else
-      (* 실제 청크들을 merkleize 한 다음, limit 깊이까지 "끌어올림" (가상 패딩 효과) *)
+      (*   merkleize  , limit  "" (  ) *)
       (* Python: depth = max(count-1, 0).bit_length(), max_depth = (limit-1).bit_length() *)
       let h0 = merkleize_leaves chunks in
       let chunk_count = Array.length chunks in
@@ -546,20 +538,20 @@ let is_valid_merkle_branch ~at (leaf : Num.t) (branch : Num.t list)
     Ok (Value.bool Bigint.(computed = root))
 
 (* ----- hash_tree_root_roots(root Vector) : root ----- *)
-(* Vector[Root, N] 타입을 처리: Vector는 mix_in_length를 적용하지 않음 *)
-(* hash_tree_root_beaconState에서 사용하는 htr_bytes32_vector와 동일한 로직 사용 *)
+(* Vector[Root, N]  : Vector mix_in_length   *)
+(* hash_tree_root_beaconState  htr_bytes32_vector    *)
 let hash_tree_root_roots ~at (lst : Num.t list) : Value.t result =
   let lst = List.map Num.to_int lst in
   at |> ignore;
-  (* Num.t list -> Bytes.t list 변환 (각 root를 32B로 변환) *)
+  (* Num.t list -> Bytes.t list  ( root 32B ) *)
   let roots_bytes = List.map (fun n -> be_of_bigint_fixed n ~len:32) lst in
-  (* htr_bytes32_vector 사용: Vector는 mix_in_length 없이 merkleize_leaves만 적용 *)
+  (* htr_bytes32_vector : Vector mix_in_length  merkleize_leaves  *)
   let root = htr_bytes32_vector roots_bytes in
   Ok (make_bytes ~num:(bigint_of_be_bytes root) ~len:32)
 
 (* ----- hash_tree_root_tx(transactions list) : root ----- *)
 (* transactions: List[Transaction, MAX_TRANSACTIONS_PER_PAYLOAD] = List[ByteList, 1048576] *)
-(* SSZ 규칙: 최대 길이 N까지 zero-chunk 패딩 후 merkleize, 그 다음 mix_in_length *)
+(* SSZ :   N zero-chunk   merkleize,   mix_in_length *)
 let hash_tree_root_tx ~at (txs_list : Value.t list) : Value.t result =
   at |> ignore;
   (* get_list_bytes: Value.t (ListV of bytes) -> Bytes.t *)
@@ -579,31 +571,31 @@ let hash_tree_root_tx ~at (txs_list : Value.t list) : Value.t result =
           bytes_list;
         Bytes.of_string (Buffer.contents buf)
     | BytesV { num; len } ->
-        (* BytesV: num을 len 바이트로 변환 (Big-endian) *)
+        (* BytesV: num len   (Big-endian) *)
         be_of_bigint_fixed num ~len
     | _ -> Bytes.make 0 '\x00'
   in
-  (* 각 transaction (ByteList)의 root 계산 *)
-  (* ByteList의 경우: subtree_fill_to_contents(chunks, contents_depth)를 사용 *)
+  (*  transaction (ByteList) root  *)
+  (* ByteList : subtree_fill_to_contents(chunks, contents_depth)  *)
   (* contents_depth = get_depth(MAX_BYTES_PER_TRANSACTION // 32) = get_depth(33554432) = 25 *)
-  (* 따라서 limit = 33554432를 사용해야 함 *)
+  (*  limit = 33554432   *)
   let tx_elem_root tx =
     let data_bytes = get_list_bytes tx in
     let len = Bytes.length data_bytes in
     let chunks = chunkize_bytes_bytev data_bytes in
-    (* ByteList의 경우 limit = MAX_BYTES_PER_TRANSACTION // 32 = 33554432 *)
+    (* ByteList  limit = MAX_BYTES_PER_TRANSACTION // 32 = 33554432 *)
     let tx_bytes_limit = 33554432 in
     (* MAX_BYTES_PER_TRANSACTION // 32 *)
     let root = merkleize_chunks_with_limit chunks tx_bytes_limit in
     mix_in_length root (Bigint.of_int len)
   in
-  (* 모든 transaction root를 계산 *)
+  (*  transaction root  *)
   let tx_roots = List.map tx_elem_root txs_list |> Array.of_list in
-  (* SSZ 규칙: MAX_TRANSACTIONS_PER_PAYLOAD (1048576)까지 zero32로 패딩 후 merkleize *)
+  (* SSZ : MAX_TRANSACTIONS_PER_PAYLOAD (1048576) zero32   merkleize *)
   let tx_limit = 1048576 in
   (* MAX_TRANSACTIONS_PER_PAYLOAD *)
   let root_tx_vec = merkleize_list_composite_with_limit tx_roots tx_limit in
-  (* 실제 리스트 길이로 mix_in_length *)
+  (*    mix_in_length *)
   let out = mix_in_length root_tx_vec (Bigint.of_int (Array.length tx_roots)) in
   Ok (make_bytes ~num:(bigint_of_be_bytes out) ~len:32)
 
@@ -701,11 +693,11 @@ let hash_tree_root_forkdata ~at (fd : Value.t) : Value.t result =
   in
   let* () = ensure_fits_bytes ~at version_b4 ~len:4 in
   let* () = ensure_fits_bytes ~at gvr_b32 ~len:32 in
-  (* version: 4B ByteVector → 32B 단일 청크 *)
+  (* version: 4B ByteVector → 32B   *)
   let version_raw = be_of_bigint_fixed version_b4 ~len:4 in
   let version_leafs = chunkize_bytevector_fixed version_raw ~len:4 in
   let r_version = merkleize_leaves version_leafs in
-  (* genesis_validators_root: bytes32 → 단일 리프 *)
+  (* genesis_validators_root: bytes32 →   *)
   let r_gvr = leaf_bytes32 gvr_b32 in
   let field_roots = [| r_version; r_gvr |] in
   let root_bytes = merkleize_leaves field_roots in
@@ -755,7 +747,7 @@ let htr_withdrawal_container ~at (w : Value.t) : Bytes.t result =
 
 (* (* ----- hash_tree_root_withdrawals(withdrawal*) : root ----- *)
 (* withdrawals: List[Withdrawal, MAX_WITHDRAWALS_PER_PAYLOAD] = List[Withdrawal, 16] *)
-(* SSZ 규칙: 최대 길이 N까지 zero-chunk 패딩 후 merkleize, 그 다음 mix_in_length *)
+(* SSZ :   N zero-chunk   merkleize,   mix_in_length *)
 let hash_tree_root_withdrawals ~at (ws : Value.t list) : Value.t result =
   let rec mapM f = function
     | [] -> Ok []
@@ -766,11 +758,11 @@ let hash_tree_root_withdrawals ~at (ws : Value.t list) : Value.t result =
   in
   let* leaves_list = mapM (htr_withdrawal_container ~at) ws in
   let leaves = Array.of_list leaves_list in
-  (* SSZ 규칙: MAX_WITHDRAWALS_PER_PAYLOAD (16)까지 zero32로 패딩 후 merkleize *)
+  (* SSZ : MAX_WITHDRAWALS_PER_PAYLOAD (16) zero32   merkleize *)
   let wd_limit = 16 in
   (* MAX_WITHDRAWALS_PER_PAYLOAD *)
   let root_vec = merkleize_list_composite_with_limit leaves wd_limit in
-  (* 실제 리스트 길이로 mix_in_length *)
+  (*    mix_in_length *)
   let root_final =
     mix_in_length root_vec (Bigint.of_int (Array.length leaves))
   in
@@ -1070,8 +1062,8 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : Value.t result =
   (* 10. timestamp: uint64 *)
   let* () = ensure_fits_bytes ~at (get_nat timestamp) ~len:8 in
   let r_timestamp = leaf_uint_le (get_nat timestamp) ~nbytes:8 in
-  (* 11. extra_data: ByteList[<=32], mix_in_length 적용 *)
-  (* extra_data는 ListV 형태 (각 요소는 uint8) 또는 BytesV 형태 *)
+  (* 11. extra_data: ByteList[<=32], mix_in_length  *)
+  (* extra_data ListV  (  uint8)  BytesV  *)
   let get_list_bytes v =
     match v.it with
     | ListV lst ->
@@ -1080,7 +1072,7 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : Value.t result =
         let buf = Buffer.create (List.length bytes_list) in
         List.iter
           (fun n ->
-            (* 범위를 벗어난 바이트는 무시하지 않고 예외를 발생시켜야 함 *)
+            (*         *)
             if Bigint.(n < zero || n >= of_int 256) then
               invalid_arg
                 (Printf.sprintf "get_list_bytes: byte out of range: %s"
@@ -1089,7 +1081,7 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : Value.t result =
           bytes_list;
         Bytes.of_string (Buffer.contents buf)
     | BytesV { num; len } ->
-        (* BytesV: num을 len 바이트로 변환 (Big-endian) *)
+        (* BytesV: num len   (Big-endian) *)
         be_of_bigint_fixed num ~len
     | _ -> Bytes.make 0 '\x00'
   in
@@ -1111,7 +1103,7 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : Value.t result =
   (* 13. block_hash: bytes32 *)
   let* () = ensure_fits_bytes ~at (get_nat block_hash) ~len:32 in
   let r_block_hash = leaf_bytes32 (get_nat block_hash) in
-  (* 14. transactions: ListV ByteList, tx별로 mix_in_length → 모아서 merkleize → 전체 거래 개수로 mix_in_length *)
+  (* 14. transactions: ListV ByteList, tx mix_in_length →  merkleize →    mix_in_length *)
   let get_list v = match v.it with ListV xs -> xs | _ -> [] in
   let get_list_bytes v =
     match v.it with
@@ -1121,7 +1113,7 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : Value.t result =
         let buf = Buffer.create (List.length bytes_list) in
         List.iter
           (fun n ->
-            (* 범위를 벗어난 바이트는 무시하지 않고 예외를 발생시켜야 함 *)
+            (*         *)
             if Bigint.(n < zero || n >= of_int 256) then
               invalid_arg
                 (Printf.sprintf "get_list_bytes: byte out of range: %s"
@@ -1130,45 +1122,45 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : Value.t result =
           bytes_list;
         Bytes.of_string (Buffer.contents buf)
     | BytesV { num; len } ->
-        (* BytesV: num을 len 바이트로 변환 (Big-endian) *)
+        (* BytesV: num len   (Big-endian) *)
         be_of_bigint_fixed num ~len
     | _ -> Bytes.make 0 '\x00'
   in
   let txs = get_list transactions in
   (* Printf.printf "[DEBUG exec transactions] transaction count: %d\n%!" (List.length txs); *)
-  (* 단일 Transaction(ByteList)의 HTR: chunkize → merkleize → mix_in_length(바이트 길이) *)
-  (* ByteList의 경우: subtree_fill_to_contents(chunks, contents_depth)를 사용 *)
+  (*  Transaction(ByteList) HTR: chunkize → merkleize → mix_in_length( ) *)
+  (* ByteList : subtree_fill_to_contents(chunks, contents_depth)  *)
   (* contents_depth = get_depth(MAX_BYTES_PER_TRANSACTION // 32) = get_depth(33554432) = 25 *)
-  (* 따라서 limit = 33554432를 사용해야 함 *)
+  (*  limit = 33554432   *)
   let tx_elem_root tx =
     let data_bytes = get_list_bytes tx in
     let len = Bytes.length data_bytes in
     let chunks = chunkize_bytes_bytev data_bytes in
-    (* ByteList의 경우 limit = MAX_BYTES_PER_TRANSACTION // 32 = 33554432 *)
+    (* ByteList  limit = MAX_BYTES_PER_TRANSACTION // 32 = 33554432 *)
     let tx_bytes_limit = 33554432 in
     (* MAX_BYTES_PER_TRANSACTION // 32 *)
     let root = merkleize_chunks_with_limit chunks tx_bytes_limit in
     mix_in_length root (Bigint.of_int len)
   in
-  (* tx_roots: 각 Transaction(ByteList)의 HTR (Bytes.t, 32B) *)
-  (* 각 tx에 대해 단일 Transaction HTR을 먼저 구함 *)
+  (* tx_roots:  Transaction(ByteList) HTR (Bytes.t, 32B) *)
+  (*  tx   Transaction HTR   *)
   let tx_roots = List.map tx_elem_root txs |> Array.of_list in
   (* if Array.length tx_roots > 0 then ( *)
   (*   Printf.printf "[DEBUG exec transactions] first tx root: %s\n%!" (bytes_to_hex tx_roots.(0)); *)
   (*   Printf.printf "[DEBUG exec transactions] last tx root: %s\n%!" (bytes_to_hex tx_roots.(Array.length tx_roots - 1)); *)
   (* ); *)
-  (* SSZ 규칙: MAX_TRANSACTIONS_PER_PAYLOAD (1048576)까지 zero32로 패딩 후 merkleize *)
+  (* SSZ : MAX_TRANSACTIONS_PER_PAYLOAD (1048576) zero32   merkleize *)
   let tx_limit = 1048576 in
   (* MAX_TRANSACTIONS_PER_PAYLOAD *)
   let root_tx_vec = merkleize_list_composite_with_limit tx_roots tx_limit in
   (* Printf.printf "[DEBUG exec transactions] merkle root (before mix_in_length): %s\n%!" (bytes_to_hex root_tx_vec); *)
   (* Printf.printf "[DEBUG exec transactions] tx count for mix_in_length: %d\n%!" (Array.length tx_roots); *)
-  (* 실제 리스트 길이로 mix_in_length *)
+  (*    mix_in_length *)
   let r_transactions =
     mix_in_length root_tx_vec (Bigint.of_int (Array.length tx_roots))
   in
   (* Printf.printf "[DEBUG exec transactions] final root (after mix_in_length): %s\n%!" (bytes_to_hex r_transactions); *)
-  (* 15. withdrawals: hash_tree_root_withdrawals에 위임 *)
+  (* 15. withdrawals: hash_tree_root_withdrawals  *)
   let ws = get_list withdrawals in
   let* r_withdrawals_v = hash_tree_root_withdrawals ~at ws in
   let* r_withdrawals = to_b32_exn ~at r_withdrawals_v in
@@ -1186,7 +1178,7 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : Value.t result =
     | None, None -> Ok (zero32, zero32)
     | _ -> Error (runtime at "executionPayload: inconsistent Deneb fields")
   in
-  (* 정해진 순서로 배열 *)
+  (*    *)
   let field_roots =
     match (blob_gas_used, excess_blob_gas) with
     | None, None ->
@@ -1312,7 +1304,7 @@ let hash_tree_root_SyncAggregate ~at (v : Value.t) : Value.t result =
     | _ -> Error (runtime at "SyncAggregate: unexpected value shape")
   in
   let v_bits, v_sig = temp in
-  (* bits: Bitvector[512] 패킹 *)
+  (* bits: Bitvector[512]  *)
   let bits_bytes =
     match v_bits.it with
     | ListV lst when List.length lst = 512 -> pack_bits_lsb_first lst
@@ -1459,7 +1451,7 @@ let hash_tree_root_Attestation ~at (v : Value.t) : Value.t result =
     | _ -> Error (runtime at "Attestation: unexpected value shape")
   in
   let v_bits, v_data, v_sig = temp in
-  (* aggregation_bits: Bitlist[MAX_VALIDATORS_PER_COMMITTEE] -> limit 기반 가상 패딩 + mix_in_length *)
+  (* aggregation_bits: Bitlist[MAX_VALIDATORS_PER_COMMITTEE] -> limit    + mix_in_length *)
   let bits_list =
     match v_bits.it with ListV lst -> List.map Value.get_bool lst | _ -> []
   in
@@ -1490,7 +1482,7 @@ let hash_tree_root_IndexedAttestation ~at (v : Value.t) : Value.t result =
     | _ -> Error (runtime at "IndexedAttestation: unexpected value shape")
   in
   let v_indices, v_data, v_sig = temp in
-  (* indices: List[uint64, MAX_VALIDATORS_PER_COMMITTEE] -> 연속 패킹 + limit 기반 가상 패딩 + mix_in_length *)
+  (* indices: List[uint64, MAX_VALIDATORS_PER_COMMITTEE] ->   + limit    + mix_in_length *)
   let indices = get_list v_indices in
   let items = indices |> List.map (fun idx -> (get_nat idx, 8)) in
   let max_validators_per_committee = 2048 in
@@ -1632,7 +1624,7 @@ let hash_tree_root_Validator ~at (v : Value.t) : Value.t result =
   let r_effective_balance =
     leaf_uint_le (get_nat effective_balance) ~nbytes:8
   in
-  (* slashed: boolean -> 1바이트 *)
+  (* slashed: boolean -> 1 *)
   let slashed_bool = Value.get_bool slashed in
   let slashed_nat = if slashed_bool then Bigint.one else Bigint.zero in
   let* () = ensure_fits_bytes ~at slashed_nat ~len:1 in
@@ -1683,8 +1675,8 @@ let hash_tree_root_SyncCommittee ~at (v : Value.t) : Value.t result =
         Ok (v_pubkeys, v_agg)
     | _ -> Error (runtime at "SyncCommittee: unexpected value shape")
   in
-  (* pubkeys: Vector[BLSPubkey, 512] (고정) *)
-  (* ByteVector[48]는 48B이므로 각 요소를 먼저 merkleize한 후 그 root들을 merkleize *)
+  (* pubkeys: Vector[BLSPubkey, 512] () *)
+  (* ByteVector[48] 48B    merkleize   root merkleize *)
   let pubkeys_list = get_list pubkeys in
   let rec process_pubkeys acc = function
     | [] -> Ok (List.rev acc)
@@ -1697,7 +1689,7 @@ let hash_tree_root_SyncCommittee ~at (v : Value.t) : Value.t result =
         process_pubkeys (pk_root :: acc) rest
   in
   let* pubkeys_roots = process_pubkeys [] pubkeys_list in
-  (* Vector는 고정 길이이므로 mix_in_length 없음 *)
+  (* Vector   mix_in_length  *)
   let pubkeys_array = Array.of_list pubkeys_roots in
   let r_pubkeys = merkleize_leaves pubkeys_array in
   (* aggregate_pubkey: BLSPubkey(Bytes48) *)
@@ -1995,8 +1987,8 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : Value.t result =
   (* 10. timestamp: uint64 *)
   let* () = ensure_fits_bytes ~at (get_nat timestamp) ~len:8 in
   let r_timestamp = leaf_uint_le (get_nat timestamp) ~nbytes:8 in
-  (* 11. extra_data: ByteList[<=32], mix_in_length 적용 *)
-  (* extra_data는 ListV 형태 (각 요소는 uint8) 또는 BytesV 형태 *)
+  (* 11. extra_data: ByteList[<=32], mix_in_length  *)
+  (* extra_data ListV  (  uint8)  BytesV  *)
   let get_list_bytes v =
     match v.it with
     | ListV lst ->
@@ -2005,7 +1997,7 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : Value.t result =
         let buf = Buffer.create (List.length bytes_list) in
         List.iter
           (fun n ->
-            (* 범위를 벗어난 바이트는 무시하지 않고 예외를 발생시켜야 함 *)
+            (*         *)
             if Bigint.(n < zero || n >= of_int 256) then
               invalid_arg
                 (Printf.sprintf "get_list_bytes: byte out of range: %s"
@@ -2014,13 +2006,13 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : Value.t result =
           bytes_list;
         Bytes.of_string (Buffer.contents buf)
     | BytesV { num; len } ->
-        (* BytesV: num을 len 바이트로 변환 (Big-endian) *)
+        (* BytesV: num len   (Big-endian) *)
         be_of_bigint_fixed num ~len
     | _ -> Bytes.make 0 '\x00'
   in
   let extra_bytes = get_list_bytes extra_data in
   let extra_len = Bytes.length extra_bytes in
-  (* extra_data: ByteList[MAX_EXTRA_DATA_BYTES], ExecutionPayload와 동일하게 처리 *)
+  (* extra_data: ByteList[MAX_EXTRA_DATA_BYTES], ExecutionPayload   *)
   let extra_leaves = chunkize_bytes_bytev extra_bytes in
   let extra_root = merkleize_leaves extra_leaves in
   let r_extra_data = mix_in_length extra_root (Bigint.of_int extra_len) in
@@ -2030,10 +2022,10 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : Value.t result =
   (* 13. block_hash: bytes32 *)
   let* () = ensure_fits_bytes ~at (get_nat block_hash) ~len:32 in
   let r_block_hash = leaf_bytes32 (get_nat block_hash) in
-  (* 14. transactions_root: bytes32 (이미 루트) *)
+  (* 14. transactions_root: bytes32 ( ) *)
   let* () = ensure_fits_bytes ~at (get_nat transactions_root) ~len:32 in
   let r_transactions_root = leaf_bytes32 (get_nat transactions_root) in
-  (* 15. withdrawals_root: bytes32 (이미 루트) *)
+  (* 15. withdrawals_root: bytes32 ( ) *)
   let* () = ensure_fits_bytes ~at (get_nat withdrawals_root) ~len:32 in
   let r_withdrawals_root = leaf_bytes32 (get_nat withdrawals_root) in
   (* Deneb fields (16-17): blob_gas_used, excess_blob_gas *)
@@ -2051,7 +2043,7 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : Value.t result =
     | _ ->
         Error (runtime at "ExecutionPayloadHeader: inconsistent Deneb fields")
   in
-  (* 정해진 순서로 배열 *)
+  (*    *)
   let field_roots =
     match (blob_gas_used, excess_blob_gas) with
     | None, None ->
@@ -2226,7 +2218,7 @@ let hash_tree_root_beaconBlockBody ~at (v : Value.t) : Value.t result =
   (*   (bytes_to_hex r_graffiti) *)
   (*   (bigint_of_be_bytes r_graffiti |> Bigint.to_string); *)
 
-  (* composite List[T, N] 처리를 위한 헬퍼: 최대 길이 N까지 패딩 후 merkleize *)
+  (* composite List[T, N]   :   N   merkleize *)
   let list_htr_with_limit (xs : Value.t list) (f : Value.t -> Value.t result)
       (limit : int) : Bytes.t result =
     let rec mapM acc = function
@@ -2238,11 +2230,11 @@ let hash_tree_root_beaconBlockBody ~at (v : Value.t) : Value.t result =
     in
     let* leaves_list = mapM [] xs in
     let arr = Array.of_list leaves_list in
-    (* SSZ 규칙: 최대 길이 N까지 zero32 패딩 후 merkleize *)
+    (* SSZ :   N zero32   merkleize *)
     let vec_root = merkleize_list_composite_with_limit arr limit in
     Ok (mix_in_length vec_root (Bigint.of_int (Array.length arr)))
   in
-  (* Capella 메인넷 상수 값 *)
+  (* Capella    *)
   let max_proposer_slashings = 16 in
   let max_attester_slashings = 2 in
   let max_attestations = 128 in
@@ -2324,7 +2316,7 @@ let hash_tree_root_beaconBlockBody ~at (v : Value.t) : Value.t result =
           (* KZGCommitment: bytes48 *)
           let* () = ensure_fits_bytes ~at (get_nat commitment) ~len:48 in
           let bytes48 = be_of_bigint_fixed (get_nat commitment) ~len:48 in
-          (* bytes48을 chunkize하여 merkleize *)
+          (* bytes48 chunkize merkleize *)
           let chunks = chunkize_bytevector_fixed bytes48 ~len:48 in
           Ok (merkleize_leaves chunks)
         in
@@ -2336,14 +2328,14 @@ let hash_tree_root_beaconBlockBody ~at (v : Value.t) : Value.t result =
         in
         let* commitment_roots = mapM [] commitments_list in
         let arr = Array.of_list commitment_roots in
-        (* SSZ 규칙: 최대 길이까지 zero32 패딩 후 merkleize *)
+        (* SSZ :   zero32   merkleize *)
         let vec_root =
           merkleize_list_composite_with_limit arr max_blob_commitments
         in
         Ok (mix_in_length vec_root (Bigint.of_int (Array.length arr)))
     | None -> Ok zero32
   in
-  (* 정해진 순서로 배열 *)
+  (*    *)
   let field_roots =
     match blob_kzg_commitments with
     | None ->
@@ -2561,14 +2553,14 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
     hash_tree_root_beaconBlockHeader ~at latest_block_header
   in
   let* r_latest_block_header = to_b32_exn ~at r_latest_block_header_v in
-  (* 6. block_roots: Vector[Root, ...] (고정, basic vector) *)
+  (* 6. block_roots: Vector[Root, ...] (, basic vector) *)
   let block_roots_list = get_list block_roots in
   let block_roots_bytes =
     block_roots_list
     |> List.map (fun r -> be_of_bigint_fixed (get_nat r) ~len:32)
   in
   let r_block_roots = htr_bytes32_vector block_roots_bytes in
-  (* 7. state_roots: Vector[Root, ...] (고정, basic vector) *)
+  (* 7. state_roots: Vector[Root, ...] (, basic vector) *)
   let state_roots_list = get_list state_roots in
   let state_roots_bytes =
     state_roots_list
@@ -2577,7 +2569,7 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
   let r_state_roots = htr_bytes32_vector state_roots_bytes in
   (* 8. historical_roots: List[Root, HISTORICAL_ROOTS_LIMIT] *)
   (* Capella: 16777216 *)
-  (* Root는 bytes32 = ByteVector[32]이므로 raw bytes로 처리 (LE 변환 없이) *)
+  (* Root bytes32 = ByteVector[32] raw bytes  (LE  ) *)
   let historical_roots_limit = 16777216 in
   (* HISTORICAL_ROOTS_LIMIT *)
   let historical_roots_list = get_list historical_roots in
@@ -2604,7 +2596,7 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
   in
   let* eth1_votes_roots = process_eth1_votes [] eth1_votes_list in
   let eth1_votes_arr = Array.of_list eth1_votes_roots in
-  (* SSZ 규칙: 최대 길이 N까지 zero32 패딩 후 merkleize *)
+  (* SSZ :   N zero32   merkleize *)
   let eth1_votes_vec =
     merkleize_list_composite_with_limit eth1_votes_arr eth1_data_votes_limit
   in
@@ -2629,7 +2621,7 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
   in
   let* validators_roots = process_validators [] validators_list in
   let validators_arr = Array.of_list validators_roots in
-  (* SSZ 규칙: 최대 길이 N까지 zero32 패딩 후 merkleize *)
+  (* SSZ :   N zero32   merkleize *)
   let validators_vec =
     merkleize_list_composite_with_limit validators_arr validator_registry_limit
   in
@@ -2640,14 +2632,14 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
   let balances_list = get_list balances in
   let items = balances_list |> List.map (fun b -> (get_nat b, 8)) in
   let r_balances = htr_basic_list_with_limit items validator_registry_limit 8 in
-  (* 14. randao_mixes: Vector[Bytes32, ...] (고정, basic vector) *)
+  (* 14. randao_mixes: Vector[Bytes32, ...] (, basic vector) *)
   let randao_mixes_list = get_list randao_mixes in
   let randao_mixes_bytes =
     randao_mixes_list
     |> List.map (fun r -> be_of_bigint_fixed (get_nat r) ~len:32)
   in
   let r_randao_mixes = htr_bytes32_vector randao_mixes_bytes in
-  (* 15. slashings: Vector[uint64, ...] (고정) - 연속 패킹만 (mix_in_length 없음) *)
+  (* 15. slashings: Vector[uint64, ...] () -   (mix_in_length ) *)
   let slashings_list = get_list slashings in
   let items = slashings_list |> List.map (fun s -> (get_nat s, 8)) in
   let r_slashings = htr_basic_vector items in
@@ -2663,11 +2655,11 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
   let r_current_epoch_participation =
     htr_basic_list_with_limit items validator_registry_limit 1
   in
-  (* 18. justification_bits: Bitvector[4] (고정) *)
-  (* SSZ 스펙: merkleize(pack_bits(value), limit=chunk_count(type)) *)
+  (* 18. justification_bits: Bitvector[4] () *)
+  (* SSZ : merkleize(pack_bits(value), limit=chunk_count(type)) *)
   (* chunk_count(Bitvector[4]) = ceil(4/256) = 1 *)
-  (* 스펙 규칙: "If 1 chunk: the root is the chunk itself" *)
-  (* 따라서 1개 청크의 경우 청크 자체를 반환하므로, 32B 패딩된 바이트가 결과 *)
+  (*  : "If 1 chunk: the root is the chunk itself" *)
+  (*  1     , 32B    *)
   let justification_bits_list = get_list justification_bits in
   let r_justification_bits =
     if List.length justification_bits_list <> 4 then
@@ -2679,9 +2671,9 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
           if Value.get_bool b then arr.(0) <- arr.(0) lor (1 lsl (i mod 8))
           else ())
         justification_bits_list;
-      (* pack_bits: LSB-first로 패킹 → 1바이트 *)
-      (* pack: 1바이트를 32B 청크로 (오른쪽에 0 패딩) *)
-      (* merkleize(1개 청크, limit=1) → 청크 자체 반환 *)
+      (* pack_bits: LSB-first  → 1 *)
+      (* pack: 1 32B  ( 0 ) *)
+      (* merkleize(1 , limit=1) →    *)
       let r = Bytes.make 32 '\x00' in
       Bytes.set r 0 (Stdlib.Char.chr arr.(0));
       Ok r
@@ -2756,7 +2748,7 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
     process_historical_summaries [] historical_summaries_list
   in
   let historical_summaries_arr = Array.of_list historical_summaries_roots in
-  (* SSZ 규칙: 최대 길이 N까지 zero32 패딩 후 merkleize *)
+  (* SSZ :   N zero32   merkleize *)
   let historical_summaries_vec =
     merkleize_list_composite_with_limit historical_summaries_arr
       historical_roots_limit
@@ -2765,7 +2757,7 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
     mix_in_length historical_summaries_vec
       (Bigint.of_int (Array.length historical_summaries_arr))
   in
-  (* 정해진 순서로 배열 *)
+  (*    *)
   let field_roots =
     [|
       r_genesis_time;
@@ -2801,7 +2793,7 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
   let root_bytes = merkleize_leaves field_roots in
   Ok (make_bytes ~num:(bigint_of_be_bytes root_bytes) ~len:32)
 
-(* ===== SigningData(object_root: root, domain: bytes32) HTR 공통 헬퍼 ===== *)
+(* ===== SigningData(object_root: root, domain: bytes32) HTR   ===== *)
 let signing_data_root_from_bytes (obj_root_b : Bytes.t) (domain_b : Bytes.t) :
     Bytes.t =
   let field_roots = [| obj_root_b; domain_b |] in
@@ -2861,7 +2853,7 @@ let hash_tree_root_beaconBlock ~at (blk : Value.t) : Value.t result =
   let root_b = merkleize_leaves leaves in
   Ok (make_bytes ~num:(bigint_of_be_bytes root_b) ~len:32)
 
-(* ===== compute_signing_root_* 함수들 ===== *)
+(* ===== compute_signing_root_*  ===== *)
 (* ----- compute_signing_root_epoch(epoch, domain) : root ----- *)
 let compute_signing_root_epoch ~at (epoch_v : Num.t) (domain_v : Num.t) :
     Value.t result =

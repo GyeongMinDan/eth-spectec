@@ -21,7 +21,7 @@ The Dockerfile provides a reproducible, isolated environment for building and te
    - Node.js 20 (for Lodestar)
    - Nim 1.6.20 (for Nimbus)
    - Python 3 with dependencies (including snappy for decompression)
-   - Coverage tools: lcov, go-bcov, llvm-profdata, JaCoCo, c8
+   - Coverage tools: lcov, go-bcov, llvm-profdata, JaCoCo, c8, coverage-py
    - OCaml and build tools (for spectec-core executable)
 2. Sets up the environment for building spectec-core executable:
    - Installs OCaml compiler and opam package manager
@@ -121,9 +121,9 @@ python3 diff_testing.py \
   --final-output-dir ./results/accumulated_coverage_report
 ```
 
-**measure the ETH2SpecTec generated test cases:**
+**measure the SpecFork generated test cases:**
 
-First, convert the ETH2SpecTec-generated JSON test cases to SSZ.
+First, convert the SpecFork-generated JSON test cases to SSZ.
 
 ```bash
 cd /workspace/spectec-core
@@ -141,19 +141,19 @@ python3 diff_testing.py \
   --test-suite ./your_path/testgen/spectec-generated \
   --test-type state-transition \
   --fork-version capella \
-  --output-base ./results/coverage_ETH2SpecTec \
+  --output-base ./results/coverage_SpecFork \
   --enable-coverage \
   --cleanup-after-report
 
 
-# Generate accumulated coverage report (baseline + ETH2SpecTec)
+# Generate accumulated coverage report (baseline + SpecFork)
 python3 diff_testing.py \
   --generate-final-coverage \
   ./results/coverage_sanity_block_test \
   ./results/coverage_random_test \
   ./results/coverage_finality_test \
-  ./results/coverage_ETH2SpecTec \
-  --final-output-dir ./results/accumulated_coverage_report_with_ETH2SpecTec
+  ./results/coverage_SpecFork \
+  --final-output-dir ./results/accumulated_coverage_report_with_SpecFork
 ```
 **2. Process results with analysis scripts:**
 
@@ -165,7 +165,7 @@ cd /workspace/spectec-core
 
 # Check results for mismatches / crashes in the 6-implementation comparison
 python3 check_results.py ./results/coverage_sanity_block_test
-python3 check_results.py ./results/coverage_ETH2SpecTec
+python3 check_results.py ./results/coverage_SpecFork
 ```
 
 `check_results.py` reads the CSV header dynamically, so it is compatible with both the current 6-column output. (`Lighthouse`, `Prysm`, `Nimbus`, `Teku`, `Lodestar`, `Eth2spec`)
@@ -173,8 +173,8 @@ python3 check_results.py ./results/coverage_ETH2SpecTec
 To compare accumulated coverage totals between a baseline run and a variant run, use `compare_state_transition_coverage.py`
 
 ```bash
-# Compare baseline accumulated coverage vs baseline + ETH2SpecTec accumulated coverage
-python3 compare_state_transition_coverage.py   ./results/accumulated_coverage_report   ./results/accumulated_coverage_report_with_ETH2SpecTec
+# Compare baseline accumulated coverage vs baseline + SpecFork accumulated coverage
+python3 compare_state_transition_coverage.py   ./results/accumulated_coverage_report   ./results/accumulated_coverage_report_with_SpecFork
 ```
 
 The text output format is:
