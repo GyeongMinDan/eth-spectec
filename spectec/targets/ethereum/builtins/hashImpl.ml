@@ -69,21 +69,21 @@ let validate_fits_len ~at (x : Bigint.t) (len : int) : unit result =
 (* dec $hash_<X>(X) : bytes32 *)
 
 let hash_ ~at (typ : targ) (v : Value.t) : Value.t result =
-  (* bytes* 타입은 int로 표현되므로 NumV일 수도 있음 *)
+  (* bytes* values may be represented as int, so NumV is possible *)
   let* num, len =
     match v.it with
     | BytesV { num; len } -> Ok (num, len)
     | NumV _ -> (
-        (* bytes* 타입이 int로 표현된 경우: 타입 정보에서 길이 추론 *)
+        (* If bytes* is represented as int, infer length from type info *)
         let num_bigint = Value.get_num v |> Num.to_int in
         match bytes_len_of_targ typ with
         | Some l ->
-            (* 타입에서 길이를 알 수 있는 경우 *)
-            (* 범위 검증: 값이 해당 길이에 맞는지 확인 *)
+            (* Type provides a concrete byte length *)
+            (* Validate the value fits the inferred length *)
             let* () = validate_fits_len ~at num_bigint l in
             Ok (num_bigint, l)
         | None ->
-            (* 타입 이름에서 길이를 추론할 수 없는 경우, 에러 *)
+            (* Error when byte length cannot be inferred from type name *)
             Error (runtime at "hash_<X>: cannot infer byte length from type"))
     | _ -> Error (runtime at "hash_<X>: expected bytes or NumV")
   in
