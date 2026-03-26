@@ -145,8 +145,8 @@ ENV PATH="/root/.opam/eth-spectec/bin:/root/.opam/default/bin:${PATH}"
 COPY . /workspace/spectec-core
 WORKDIR /workspace/spectec-core
 
-# Initialize git submodules (consensus-specs, consensus-spec-tests)
-RUN git submodule update --init --recursive
+# Initialize only the consensus-specs submodule
+RUN git submodule update --init --recursive consensus-specs
 
 # Configure sparse-checkout for consensus-specs (required for eth2spec)
 WORKDIR /workspace/spectec-core/consensus-specs
