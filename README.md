@@ -40,7 +40,7 @@ All commands below are intended to be executed inside the container from `/works
 
 The official Ethereum consensus tests are supplied in SSZ format. To run them against `spectec-core`, they must first be converted to JSON.
 
-Three Capella state-transition directories are used in the paper workflow: `sanity/blocks`, `random/random`, and `finality/finality`.
+Three Capella state-transition directories are used in the paper workflow: `sanity/blocks`, `random/random`, and `finality`.
 
 ```bash
 python3 Converter/generate_json_test_cases.py \
@@ -144,7 +144,7 @@ python3 diff_testing.py \
   --cleanup-after-report
 
 python3 diff_testing.py \
-  --test-suite Converter/OfficialTestSuite/capella/finality/finality/pyspec_tests \
+  --test-suite Converter/OfficialTestSuite/capella/finality/pyspec_tests \
   --test-type state-transition \
   --workflow sequential \
   --fork-version capella \
