@@ -8,9 +8,9 @@ Consensus-SpecTec is the SpecTec formalization of the official [Ethereum Consens
 
 - [Setup](#setup)
 - [Preparation (SSZ -> JSON)](#preparation-ssz---json)
+- [Premise Coverage](#premise-coverage-baseline)
+- [Test Generation](#test-generation)
 - [RQ1: Bug-finding Effectiveness](#rq1-bug-finding-effectiveness)
-  - [Test Generation](#test-generation)
-  - [Differential Testing](#differential-testing)
 - [RQ2: Diagnostic Power of Premise Coverage](#rq2-diagnostic-power-of-premise-coverage)
   - [Spec Coverage](#spec-coverage)
   - [Implementation Coverage](#implementation-coverage)
@@ -61,17 +61,7 @@ python3 Converter/generate_json_test_cases.py \
 
 For multi-block inputs, the converter runs `eth2spec` to generate `post.json`. For invalid cases, the error message produced by `eth2spec` is saved as `error.txt`.
 
-## RQ1: Bug-finding Effectiveness
-
-RQ1 in the paper is:
-
-> **Bug-finding effectiveness.** Can the framework uncover cross-client divergence cases?
-
-The artifact reproduces RQ1 in two stages: generating tests from uncovered premises, then running differential testing across the six implementations.
-
-## Test Generation
-
-### Baseline premise coverage
+## Premise Coverage (Baseline)
 
 From-scratch baseline premise coverage can be measured with:
 
@@ -92,6 +82,8 @@ This run may take multiple hours. The artifact therefore also provides precomput
 - `testgen_data/capella/novalidate/baseline.ckpt`
 - `testgen_data/capella/novalidate/baseline.txt`
 - `testgen_data/capella/target_premises.txt`
+
+## Test Generation
 
 ### Generate tests from target premises
 
@@ -120,7 +112,13 @@ python3 convert_testgen_json_to_ssz.py \
 
 The converted SSZ tests will be placed under `./capella-testgen-ssz/testgen/spectec-generated`.
 
-## Differential Testing
+## RQ1: Bug-finding Effectiveness
+
+RQ1 in the paper is:
+
+> **Bug-finding effectiveness.** Can the framework uncover cross-client divergence cases?
+
+The artifact reproduces RQ1 by running differential testing across the six implementations.
 
 `diff_testing.py` runs the same state-transition inputs across Lighthouse, Prysm, Nimbus, Teku, Lodestar, and `eth2spec`, then compares outcomes and post-states.
 
@@ -188,22 +186,17 @@ The artifact supports two complementary measurements for RQ2: specification-leve
 
 ## Spec Coverage
 
+Some JSON tests may not survive the SSZ conversion. This happens when SSZ expects a vector (array of fixed length), but the test generator generates arrays of different lengths. As these tests are invalid from the client and spec's point of view, they must be filtered out for a fair comparison.
 ```bash
-nohup ./spectec-core eth coverage -v \
-  --spec-dir spec/spec_capella \
-  --test-dir capella-tests \
-  --checkpoint capella-baseline.ckpt \
-  --save-interval 1 \
-  --node-coverage.level full \
-  --no-validate \
-  --max-slot-gap 32 \
-  --node-coverage.output capella-baseline.txt
+python3 filter_tests.py capella-testgen capella-testgen-ssz/testgen/spectec-generated capella-testgen-filtered
 ```
+
+Then run the coverage:
 
 ```bash
 nohup ./spectec-core eth coverage -v \
   --spec-dir spec/spec_capella \
-  --test-dir capella-testgen \
+  --test-dir capella-testgen-filtered \
   --checkpoint capella-testgen.ckpt \
   --save-interval 1 \
   --node-coverage.level full \
@@ -212,7 +205,7 @@ nohup ./spectec-core eth coverage -v \
   --node-coverage.output capella-testgen.txt
 ```
 
-The second command is the generated-test coverage pass. In the paper workflow, this stage was run after filtering out ill-formed generated cases. For artifact inspection, the repository also includes precomputed coverage artifacts under `testgen_data/capella/`, including:
+For artifact inspection, the repository also includes precomputed coverage artifacts under `testgen_data/capella/`, including:
 
 - `cov_baseline.ckpt`
 - `cov_testgen.ckpt`
@@ -226,14 +219,16 @@ Useful checkpoint utilities are:
 ```bash
 ./spectec-core eth checkpoint merge file1.ckpt file2.ckpt \
   --output file1+2.ckpt \
-  --spec-dir spec/spec_capella
+  --spec-dir spec/spec_capella \
+  --ignore-spec-mismatch
 
 ./spectec-core eth checkpoint report capella-testgen.ckpt \
   --node-coverage.level full \
-  --spec-dir spec/spec_capella
+  --spec-dir spec/spec_capella \
+  --ignore-spec-mismatch
 ```
 
-The `--save-interval` flag controls how often intermediate coverage state is written to the checkpoint. Coverage can also be resumed with `--resume intermediate.ckpt`.
+The `--save-interval` flag for the coverage command controls how often intermediate coverage state is written to the checkpoint. Coverage can also be resumed with `--resume intermediate.ckpt`.
 
 ## Implementation Coverage
 
