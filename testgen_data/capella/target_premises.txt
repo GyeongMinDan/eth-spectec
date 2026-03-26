@@ -8,7 +8,6 @@
 283
 284
 414
-437
 665
 666
 667
@@ -70,7 +69,9 @@
 # iteration matching lengths
 659
 # removed
-# unfalsifiable
+# unfalsifiable: out of scope (3)
+# 179, 810, 869
+# unfalsifiable: tautologies
 #30
 #33
 #78
@@ -80,14 +81,15 @@
 #219
 #240
 #265
-#299: overflow, guarded by 142
+#299
 #706
-#753: overflow
+#753
 #754
 #784
-#851: tautology
-# Closing Branches
+#851
+# unfalsifiable: closing branches
 #248
 #249
 #437
 #485
+# redundant: 281, 599
