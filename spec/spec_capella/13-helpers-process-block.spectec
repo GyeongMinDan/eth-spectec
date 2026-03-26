@@ -8,7 +8,6 @@ dec $expected_withdrawals_loop(
   beaconState, epoch, withdrawalIndex, validatorIndex, uint64, uint64, withdrawal*
 ) : withdrawal*
 
-;; base 1: payload 한도
 def $expected_withdrawals_loop(_, _, _, _, _, _, withdrawal_acc*)
   = withdrawal_acc*
   -- if |withdrawal_acc*| = $MAX_WITHDRAWALS_PER_PAYLOAD
