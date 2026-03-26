@@ -54,7 +54,7 @@ python3 Converter/generate_json_test_cases.py \
   --output-dir capella-tests -v
 
 python3 Converter/generate_json_test_cases.py \
-  Converter/OfficialTestSuite/capella/finality/finality/pyspec_tests \
+  Converter/OfficialTestSuite/capella/finality/pyspec_tests \
   --fork capella \
   --output-dir capella-tests -v
 ```
