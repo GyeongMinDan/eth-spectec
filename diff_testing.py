@@ -6,6 +6,7 @@ import io
 import subprocess
 import argparse
 import csv
+import html
 import re
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
