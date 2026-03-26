@@ -3205,75 +3205,85 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
         print(f"    ✗ Failed: {e}")
 
 
+
 def _generate_teku_report(teku_coverage_dir, testing_clients_dir):
     """Generate Teku (Java) coverage report"""
     teku_exec = teku_coverage_dir / "teku-coverage.exec"
     if not teku_exec.exists():
         return
-    
+
     teku_report_dir = teku_coverage_dir / "report"
     teku_report_dir.mkdir(exist_ok=True)
-    
+
+    try:
+        if not _generate_teku_filtered_report_from_exec(teku_exec, teku_report_dir, testing_clients_dir):
+            return
+        print(f"    ✓ Report: {teku_report_dir / 'index.html'}")
+        print(f"    ✓ CSV: {teku_report_dir / 'coverage.csv'}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed: {e}")
+
+
+def _collect_teku_report_inputs(testing_clients_dir):
+    """Collect Teku JaCoCo inputs shared by all report-generation modes."""
     jacoco_cli = testing_clients_dir / "jacoco" / "jacococli.jar"
     if not jacoco_cli.exists():
         print(f"    ✗ JaCoCo CLI not found at {jacoco_cli}")
-        return
-    
-    try:
-        # Find only Teku jar files (teku-*.jar)
-        teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
-        teku_jars = list(teku_lib_dir.glob("teku-*.jar"))
-        
-        if not teku_jars:
-            print(f"    ✗ No Teku jar files found in {teku_lib_dir}")
-            return
-        
-        # Add --classfiles for each jar file
-        classfiles_args = []
-        for jar in teku_jars:
-            classfiles_args.extend(["--classfiles", str(jar)])
-        
-        # Find Teku source directories (multi-module Gradle project)
-        teku_root = testing_clients_dir / "teku"
-        # Find src/main/java directory for each module
-        source_dirs = []
-        for src_dir in teku_root.rglob("src/main/java"):
-            if src_dir.is_dir():
-                source_dirs.append(str(src_dir))
-        
-        # Add --sourcefiles option (for source file mapping)
-        sourcefiles_args = []
-        if source_dirs:
-            for src_dir in source_dirs:
-                sourcefiles_args.extend(["--sourcefiles", src_dir])
-        else:
-            print(f"    ⚠ Warning: No source directories found, source code mapping may not work")
-        
-        # 1. Generate XML report first (for filtering)
-        xml_report = teku_report_dir / "coverage.xml"
-        subprocess.run(
-            [
-                "java", "-jar", str(jacoco_cli),
-                "report", str(teku_exec),
-            ] + classfiles_args + sourcefiles_args + [
-                "--xml", str(xml_report)
-            ],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        
-        # 2. Filter XML report to keep only core state-transition packages
-        filtered_xml = teku_report_dir / "coverage_filtered.xml"
-        _filter_teku_xml_report(xml_report, filtered_xml)
-        
-        # 3. Generate HTML report from filtered XML
-        # Note: JaCoCo report command doesn't accept XML as input, so we parse
-        # the filtered XML and generate HTML report directly
-        _generate_teku_html_from_filtered_xml(filtered_xml, teku_report_dir, teku_root)
-        print(f"    ✓ Report: {teku_report_dir / 'index.html'}")
-    except subprocess.CalledProcessError as e:
-        print(f"    ✗ Failed: {e}")
+        return None
+
+    teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
+    teku_jars = sorted(teku_lib_dir.glob("teku-*.jar"))
+    if not teku_jars:
+        print(f"    ✗ No Teku jar files found in {teku_lib_dir}")
+        return None
+
+    classfiles_args = []
+    for jar in teku_jars:
+        classfiles_args.extend(["--classfiles", str(jar)])
+
+    teku_root = testing_clients_dir / "teku"
+    teku_source_roots = sorted(src_dir for src_dir in teku_root.rglob("src/main/java") if src_dir.is_dir())
+    if not teku_source_roots:
+        print("    ⚠ Warning: No Teku source directories found; source-level drill-down may be incomplete")
+
+    sourcefiles_args = []
+    for src_dir in teku_source_roots:
+        sourcefiles_args.extend(["--sourcefiles", str(src_dir)])
+
+    return {
+        "jacoco_cli": jacoco_cli,
+        "classfiles_args": classfiles_args,
+        "sourcefiles_args": sourcefiles_args,
+        "teku_source_roots": teku_source_roots,
+    }
+
+
+def _generate_teku_filtered_report_from_exec(exec_file, report_dir, testing_clients_dir):
+    """Generate filtered Teku XML, HTML, and CSV reports from one exec file."""
+    report_inputs = _collect_teku_report_inputs(testing_clients_dir)
+    if report_inputs is None:
+        return False
+
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    xml_report = report_dir / "coverage.xml"
+    subprocess.run(
+        [
+            "java", "-jar", str(report_inputs["jacoco_cli"]),
+            "report", str(exec_file),
+        ] + report_inputs["classfiles_args"] + report_inputs["sourcefiles_args"] + [
+            "--xml", str(xml_report)
+        ],
+        check=True,
+        capture_output=True,
+        text=True
+    )
+
+    filtered_xml = report_dir / "coverage_filtered.xml"
+    _filter_teku_xml_report(xml_report, filtered_xml)
+    _generate_teku_html_from_filtered_xml(filtered_xml, report_dir, report_inputs["teku_source_roots"])
+    _generate_teku_csv_from_filtered_xml(filtered_xml, report_dir / "coverage.csv")
+    return True
 
 
 def _filter_nimbus_lcov_report(lcov_input, lcov_output, nimbus_src):
@@ -3489,155 +3499,348 @@ def _filter_teku_xml_report(xml_input, xml_output):
         shutil.copy2(xml_input, xml_output)
 
 
-def _generate_teku_html_from_filtered_xml(filtered_xml, output_dir, teku_root):
-    """Generate HTML report from filtered JaCoCo XML file
-    
-    Since JaCoCo report command doesn't accept XML as input, we parse the
-    filtered XML and generate HTML report that matches JaCoCo's format.
-    """
-    import xml.etree.ElementTree as ET
-    import html as html_escape
-    
-    try:
-        tree = ET.parse(filtered_xml)
-        root = tree.getroot()
-        
-        # Calculate totals from filtered XML
-        # IMPORTANT: Only read root-level counters, not all descendants
-        # JaCoCo XML structure: <report><counter type="BRANCH" .../> (root level has total)
-        # Using .//counter would sum root + package + class counters (incorrect!)
-        total_instructions = 0
-        total_covered = 0
-        total_branches = 0
-        total_branches_covered = 0
-        total_lines = 0
-        total_lines_covered = 0
-        
-        # Read only direct children of root (root-level counters)
-        for counter in root.findall("counter[@type='INSTRUCTION']"):
-            total_instructions += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-            total_covered += int(counter.get("covered", 0))
-        
-        for counter in root.findall("counter[@type='BRANCH']"):
-            total_branches += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-            total_branches_covered += int(counter.get("covered", 0))
-        
-        for counter in root.findall("counter[@type='LINE']"):
-            total_lines += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-            total_lines_covered += int(counter.get("covered", 0))
-        
-        # Generate HTML report (simplified version matching JaCoCo style)
-        html_content = f"""<!DOCTYPE html>
+
+
+def _teku_counter_map(element):
+    """Return direct-child JaCoCo counters keyed by type."""
+    counters = {}
+    for counter in element.findall("counter"):
+        counters[counter.get("type", "")] = (
+            int(counter.get("missed", 0)),
+            int(counter.get("covered", 0)),
+        )
+    return counters
+
+
+def _teku_counter_triplet(counter_map, counter_type):
+    missed, covered = counter_map.get(counter_type, (0, 0))
+    return missed, covered, missed + covered
+
+
+def _teku_percent(covered, total):
+    if total <= 0:
+        return "n/a"
+    return f"{(covered / total) * 100.0:.1f}%"
+
+
+def _teku_display_counter(counter_map, counter_type):
+    missed, covered, total = _teku_counter_triplet(counter_map, counter_type)
+    if total == 0:
+        return "0/0 (n/a)"
+    return f"{covered}/{total} ({_teku_percent(covered, total)})"
+
+
+def _teku_row_class(counter_map):
+    _, covered, total = _teku_counter_triplet(counter_map, "LINE")
+    if total == 0:
+        return "teku-na"
+    if covered == 0:
+        return "teku-bad"
+    if covered == total:
+        return "teku-good"
+    return "teku-mid"
+
+
+def _teku_package_dir(package_name):
+    return Path(package_name) if package_name else Path("default-package")
+
+
+def _teku_package_label(package_name):
+    return package_name if package_name else "(default package)"
+
+
+def _teku_source_page_name(source_name):
+    return f"{source_name}.html"
+
+
+def _teku_source_rel_path(package_name, source_name):
+    if package_name:
+        return (Path(package_name) / source_name).as_posix()
+    return Path(source_name).as_posix()
+
+
+def _teku_rel_link(target_path, current_path):
+    return Path(os.path.relpath(target_path, start=current_path.parent)).as_posix()
+
+
+def _build_teku_source_lookup(teku_source_roots):
+    lookup = {}
+    for src_root in teku_source_roots:
+        for java_file in src_root.rglob("*.java"):
+            rel_path = java_file.relative_to(src_root).as_posix()
+            lookup.setdefault(rel_path, java_file)
+    return lookup
+
+
+def _teku_report_css():
+    return """
+body { font-family: Arial, sans-serif; margin: 24px; color: #222; }
+a { color: #0b57d0; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.breadcrumbs { margin-bottom: 18px; font-size: 14px; }
+.summary { display: flex; gap: 12px; flex-wrap: wrap; margin: 18px 0 24px; }
+.card { border: 1px solid #d0d7de; border-radius: 8px; padding: 12px 14px; min-width: 180px; background: #f8fafc; }
+.card h2 { margin: 0 0 8px; font-size: 14px; }
+.card .value { font-size: 20px; font-weight: bold; }
+.note { margin: 18px 0; padding: 12px 14px; border-left: 4px solid #b7791f; background: #fff7e6; }
+table.coverage { width: 100%; border-collapse: collapse; margin-top: 12px; }
+table.coverage th, table.coverage td { border: 1px solid #d0d7de; padding: 8px 10px; vertical-align: top; }
+table.coverage th { background: #f6f8fa; text-align: left; }
+tr.teku-good { background: #edf7ed; }
+tr.teku-mid { background: #fff8db; }
+tr.teku-bad { background: #fdecec; }
+tr.teku-na { background: #f6f8fa; }
+.src-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+.src-table th, .src-table td { border: 1px solid #e5e7eb; padding: 0; }
+.src-table th { padding: 8px 10px; background: #f6f8fa; text-align: left; }
+.src-line-no { width: 72px; text-align: right; padding: 0 10px; color: #6a737d; background: #f6f8fa; }
+.src-counter { width: 110px; text-align: right; padding: 0 10px; white-space: nowrap; }
+.src-code { font-family: monospace; white-space: pre; padding: 0 10px; }
+tr.src-full td { background: #edf7ed; }
+tr.src-partial td { background: #fff8db; }
+tr.src-missed td { background: #fdecec; }
+tr.src-none td { background: #ffffff; }
+.footer { margin-top: 24px; color: #6a737d; font-size: 12px; }
+"""
+
+
+def _teku_render_page(title, breadcrumbs, body_html):
+    breadcrumb_html = " / ".join(
+        f"<a href='{href}'>{html.escape(label)}</a>" if href else html.escape(label)
+        for label, href in breadcrumbs
+    )
+    return f"""<!DOCTYPE html>
 <html>
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
-    <title>JaCoCo Coverage Report (Filtered)</title>
-    <link rel="stylesheet" href="https://www.jacoco.org/jacoco/resource/report.css" type="text/css"/>
-    <style type="text/css">
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        .footer {{ margin-top: 20px; font-size: 10px; color: #666; }}
-    </style>
+    <title>{html.escape(title)}</title>
+    <style type="text/css">{_teku_report_css()}</style>
 </head>
 <body>
-    <h1>JaCoCo Coverage Report (Filtered - Core State-Transition Only)</h1>
-    
-    <table class="coverage">
-        <thead>
-            <tr>
-                <th>Element</th>
-                <th class="counter">Missed Instructions</th>
-                <th class="counter">Covered Instructions</th>
-                <th class="counter">Missed Branches</th>
-                <th class="counter">Covered Branches</th>
-                <th class="counter">Missed Lines</th>
-                <th class="counter">Covered Lines</th>
-                <th class="counter">Cxty</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td class="el_report">Report</td>
-                <td class="ctr2">{total_instructions - total_covered}</td>
-                <td class="ctr1">{total_covered}</td>
-                <td class="ctr2">{total_branches - total_branches_covered}</td>
-                <td class="ctr1">{total_branches_covered}</td>
-                <td class="ctr2">{total_lines - total_lines_covered}</td>
-                <td class="ctr1">{total_lines_covered}</td>
-                <td class="ctr2">-</td>
-            </tr>
-        </tbody>
-    </table>
-    
-    <h2>Packages</h2>
-    <table class="coverage">
-        <thead>
-            <tr>
-                <th>Package</th>
-                <th class="counter">Missed Instructions</th>
-                <th class="counter">Covered Instructions</th>
-                <th class="counter">Missed Branches</th>
-                <th class="counter">Covered Branches</th>
-                <th class="counter">Missed Lines</th>
-                <th class="counter">Covered Lines</th>
-                <th class="counter">Cxty</th>
-            </tr>
-        </thead>
-        <tbody>
-"""
-        
-        # Process packages from filtered XML
-        for package in root.findall(".//package"):
-            pkg_name = package.get("name", "")
-            pkg_instructions = 0
-            pkg_covered = 0
-            pkg_branches = 0
-            pkg_branches_covered = 0
-            pkg_lines = 0
-            pkg_lines_covered = 0
-            
-            for counter in package.findall(".//counter[@type='INSTRUCTION']"):
-                pkg_instructions += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-                pkg_covered += int(counter.get("covered", 0))
-            
-            for counter in package.findall(".//counter[@type='BRANCH']"):
-                pkg_branches += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-                pkg_branches_covered += int(counter.get("covered", 0))
-            
-            for counter in package.findall(".//counter[@type='LINE']"):
-                pkg_lines += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-                pkg_lines_covered += int(counter.get("covered", 0))
-            
-            # Create package directory structure
-            pkg_dir = output_dir / pkg_name.replace(".", "/")
-            pkg_dir.mkdir(parents=True, exist_ok=True)
-            
-            html_content += f"""            <tr>
-                <td class="el_package"><a href="{pkg_name.replace('.', '/')}/index.html">{html_escape.escape(pkg_name)}</a></td>
-                <td class="ctr2">{pkg_instructions - pkg_covered}</td>
-                <td class="ctr1">{pkg_covered}</td>
-                <td class="ctr2">{pkg_branches - pkg_branches_covered}</td>
-                <td class="ctr1">{pkg_branches_covered}</td>
-                <td class="ctr2">{pkg_lines - pkg_lines_covered}</td>
-                <td class="ctr1">{pkg_lines_covered}</td>
-                <td class="ctr2">-</td>
-            </tr>
-"""
-        
-        html_content += """        </tbody>
-    </table>
-    
-    <div class="footer">
-        Generated from filtered JaCoCo XML report (Core State-Transition packages only)
-    </div>
+    <div class="breadcrumbs">{breadcrumb_html}</div>
+    <h1>{html.escape(title)}</h1>
+    {body_html}
+    <div class="footer">Generated from filtered JaCoCo XML report (core Teku state-transition scope).</div>
 </body>
 </html>
 """
-        
-        # Write HTML file
-        html_file = output_dir / "index.html"
-        with open(html_file, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        
+
+
+def _teku_source_line_class(line_data):
+    if line_data is None:
+        return "src-none"
+    if line_data["ci"] == 0 and line_data["cb"] == 0:
+        return "src-missed"
+    if line_data["mi"] > 0 or line_data["mb"] > 0:
+        return "src-partial"
+    return "src-full"
+
+
+def _write_teku_package_index(package_data, root_index_path):
+    package_index_path = package_data["package_index_path"]
+    rows = []
+    missing_sources = 0
+    for source_data in package_data["sourcefiles"]:
+        if source_data["source_path"] is None:
+            missing_sources += 1
+        row_class = _teku_row_class(source_data["counters"])
+        href = html.escape(_teku_rel_link(source_data["page_path"], package_index_path))
+        label = html.escape(source_data["name"])
+        instructions = html.escape(_teku_display_counter(source_data["counters"], "INSTRUCTION"))
+        branches = html.escape(_teku_display_counter(source_data["counters"], "BRANCH"))
+        lines = html.escape(_teku_display_counter(source_data["counters"], "LINE"))
+        rows.append(
+            f"<tr class='{row_class}'><td><a href='{href}'>{label}</a></td>"
+            f"<td>{instructions}</td><td>{branches}</td><td>{lines}</td></tr>"
+        )
+
+    note_html = ""
+    if missing_sources:
+        note_html = (
+            f'<div class="note">{missing_sources} source file(s) could not be resolved on disk. '
+            'Coverage counters are still shown, but those files may not include highlighted source text.</div>'
+        )
+
+    empty_row = '<tr><td colspan="4">No source files in filtered package.</td></tr>'
+    body_html = (
+        '<div class="summary">'
+        f'<div class="card"><h2>Source Files</h2><div class="value">{len(package_data["sourcefiles"])}</div></div>'
+        f'<div class="card"><h2>Instructions</h2><div class="value">{html.escape(_teku_display_counter(package_data["counters"], "INSTRUCTION"))}</div></div>'
+        f'<div class="card"><h2>Branches</h2><div class="value">{html.escape(_teku_display_counter(package_data["counters"], "BRANCH"))}</div></div>'
+        f'<div class="card"><h2>Lines</h2><div class="value">{html.escape(_teku_display_counter(package_data["counters"], "LINE"))}</div></div>'
+        '</div>'
+        + note_html +
+        '<table class="coverage">'
+        '<thead><tr><th>Source File</th><th>Instructions</th><th>Branches</th><th>Lines</th></tr></thead>'
+        f'<tbody>{"".join(rows) or empty_row}</tbody>'
+        '</table>'
+    )
+
+    page_html = _teku_render_page(
+        f'Teku Coverage: {_teku_package_label(package_data["name"])}',
+        [
+            ("Teku Coverage", html.escape(_teku_rel_link(root_index_path, package_index_path))),
+            (_teku_package_label(package_data["name"]), None),
+        ],
+        body_html,
+    )
+    with open(package_index_path, 'w', encoding='utf-8') as f:
+        f.write(page_html)
+
+
+def _write_teku_source_file_report(package_data, source_data, root_index_path):
+    page_path = source_data["page_path"]
+    package_index_path = package_data["package_index_path"]
+    source_lines = []
+    if source_data["source_path"] is not None and source_data["source_path"].exists():
+        source_lines = source_data["source_path"].read_text(encoding='utf-8', errors='replace').splitlines()
+
+    max_line_no = max(len(source_lines), max(source_data["line_map"], default=0))
+    line_rows = []
+    for line_number in range(1, max_line_no + 1):
+        line_data = source_data["line_map"].get(line_number)
+        instr_text = "-"
+        branch_text = "-"
+        if line_data is not None:
+            instr_total = line_data["mi"] + line_data["ci"]
+            instr_text = f'{line_data["ci"]}/{instr_total}' if instr_total else '0/0'
+            branch_total = line_data["mb"] + line_data["cb"]
+            branch_text = '-' if branch_total == 0 else f'{line_data["cb"]}/{branch_total}'
+        source_text = source_lines[line_number - 1] if line_number <= len(source_lines) else ""
+        source_text = source_text.replace("	", "    ")
+        row_class = _teku_source_line_class(line_data)
+        line_rows.append(
+            f"<tr class='{row_class}'><td class='src-line-no'>{line_number}</td>"
+            f"<td class='src-counter'>{html.escape(instr_text)}</td>"
+            f"<td class='src-counter'>{html.escape(branch_text)}</td>"
+            f"<td class='src-code'>{html.escape(source_text)}</td></tr>"
+        )
+
+    if source_data["source_path"] is None:
+        note_html = (
+            '<div class="note">Source file could not be resolved from the Teku source tree. '
+            'This page still shows line counters extracted from JaCoCo XML.</div>'
+        )
+    else:
+        note_html = f'<div class="note">Source path: {html.escape(str(source_data["source_path"]))}</div>'
+
+    empty_row = '<tr><td colspan="4">No line coverage data available.</td></tr>'
+    body_html = (
+        '<div class="summary">'
+        f'<div class="card"><h2>Instructions</h2><div class="value">{html.escape(_teku_display_counter(source_data["counters"], "INSTRUCTION"))}</div></div>'
+        f'<div class="card"><h2>Branches</h2><div class="value">{html.escape(_teku_display_counter(source_data["counters"], "BRANCH"))}</div></div>'
+        f'<div class="card"><h2>Lines</h2><div class="value">{html.escape(_teku_display_counter(source_data["counters"], "LINE"))}</div></div>'
+        '</div>'
+        + note_html +
+        '<table class="src-table">'
+        '<thead><tr><th>Line</th><th>Instructions</th><th>Branches</th><th>Source</th></tr></thead>'
+        f'<tbody>{"".join(line_rows) or empty_row}</tbody>'
+        '</table>'
+    )
+
+    page_html = _teku_render_page(
+        f'Teku Coverage: {_teku_package_label(package_data["name"])} / {source_data["name"]}',
+        [
+            ("Teku Coverage", html.escape(_teku_rel_link(root_index_path, page_path))),
+            (_teku_package_label(package_data["name"]), html.escape(_teku_rel_link(package_index_path, page_path))),
+            (source_data["name"], None),
+        ],
+        body_html,
+    )
+    with open(page_path, 'w', encoding='utf-8') as f:
+        f.write(page_html)
+
+
+def _generate_teku_html_from_filtered_xml(filtered_xml, output_dir, teku_source_roots):
+    """Generate root, package, and source-file HTML pages from filtered JaCoCo XML."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        tree = ET.parse(filtered_xml)
+        root = tree.getroot()
+        source_lookup = _build_teku_source_lookup(teku_source_roots)
+        root_index_path = output_dir / "index.html"
+
+        packages = []
+        for package in sorted(root.findall("package"), key=lambda elem: elem.get("name", "")):
+            package_name = package.get("name", "")
+            package_dir = output_dir / _teku_package_dir(package_name)
+            package_dir.mkdir(parents=True, exist_ok=True)
+            package_index_path = package_dir / "index.html"
+
+            sourcefiles = []
+            for source_elem in sorted(package.findall("sourcefile"), key=lambda elem: elem.get("name", "")):
+                source_name = source_elem.get("name", "")
+                source_page_path = package_dir / _teku_source_page_name(source_name)
+                source_rel_path = _teku_source_rel_path(package_name, source_name)
+                line_map = {}
+                for line in source_elem.findall("line"):
+                    line_number = int(line.get("nr", 0))
+                    line_map[line_number] = {
+                        "mi": int(line.get("mi", 0)),
+                        "ci": int(line.get("ci", 0)),
+                        "mb": int(line.get("mb", 0)),
+                        "cb": int(line.get("cb", 0)),
+                    }
+                sourcefiles.append(
+                    {
+                        "name": source_name,
+                        "page_path": source_page_path,
+                        "source_path": source_lookup.get(source_rel_path),
+                        "line_map": line_map,
+                        "counters": _teku_counter_map(source_elem),
+                    }
+                )
+
+            package_data = {
+                "name": package_name,
+                "package_index_path": package_index_path,
+                "sourcefiles": sourcefiles,
+                "counters": _teku_counter_map(package),
+            }
+            packages.append(package_data)
+
+        for package_data in packages:
+            _write_teku_package_index(package_data, root_index_path)
+            for source_data in package_data["sourcefiles"]:
+                _write_teku_source_file_report(package_data, source_data, root_index_path)
+
+        root_rows = []
+        for package_data in packages:
+            row_class = _teku_row_class(package_data["counters"])
+            href = html.escape(_teku_rel_link(package_data["package_index_path"], root_index_path))
+            label = html.escape(_teku_package_label(package_data["name"]))
+            instructions = html.escape(_teku_display_counter(package_data["counters"], "INSTRUCTION"))
+            branches = html.escape(_teku_display_counter(package_data["counters"], "BRANCH"))
+            lines = html.escape(_teku_display_counter(package_data["counters"], "LINE"))
+            root_rows.append(
+                f"<tr class='{row_class}'><td><a href='{href}'>{label}</a></td>"
+                f"<td>{len(package_data['sourcefiles'])}</td><td>{instructions}</td><td>{branches}</td><td>{lines}</td></tr>"
+            )
+
+        root_counters = _teku_counter_map(root)
+        empty_row = '<tr><td colspan="5">No packages matched the Teku filter scope.</td></tr>'
+        body_html = (
+            '<div class="summary">'
+            f'<div class="card"><h2>Packages</h2><div class="value">{len(packages)}</div></div>'
+            f'<div class="card"><h2>Instructions</h2><div class="value">{html.escape(_teku_display_counter(root_counters, "INSTRUCTION"))}</div></div>'
+            f'<div class="card"><h2>Branches</h2><div class="value">{html.escape(_teku_display_counter(root_counters, "BRANCH"))}</div></div>'
+            f'<div class="card"><h2>Lines</h2><div class="value">{html.escape(_teku_display_counter(root_counters, "LINE"))}</div></div>'
+            '</div>'
+            '<table class="coverage">'
+            '<thead><tr><th>Package</th><th>Source Files</th><th>Instructions</th><th>Branches</th><th>Lines</th></tr></thead>'
+            f'<tbody>{"".join(root_rows) or empty_row}</tbody>'
+            '</table>'
+        )
+
+        page_html = _teku_render_page(
+            'Teku Coverage Report (Filtered - Core State-Transition Only)',
+            [("Teku Coverage", None)],
+            body_html,
+        )
+        with open(root_index_path, 'w', encoding='utf-8') as f:
+            f.write(page_html)
+
     except Exception as e:
         print(f"    ⚠ Warning: Failed to generate HTML from filtered XML: {e}")
         import traceback
@@ -4442,6 +4645,7 @@ def _merge_final_lighthouse_coverage(merged_coverage_dirs, output_dir, testing_c
             print(f"    ℹ Error: {e.stderr}")
 
 
+
 def _merge_final_teku_coverage(merged_coverage_dirs, output_dir, testing_clients_dir):
     """Merge Teku coverage data from multiple test suites (already merged exec files)"""
     # Collect all teku-coverage-merged.exec files
@@ -4450,68 +4654,31 @@ def _merge_final_teku_coverage(merged_coverage_dirs, output_dir, testing_clients
         exec_file = merged_dir / "teku-coverage-merged.exec"
         if exec_file.exists():
             all_exec_files.append(exec_file)
-    
+
     if not all_exec_files:
         print(f"    ✗ No teku-coverage-merged.exec files found")
         return
-    
+
     # Create final merged coverage directory
     final_merged_cov_dir = output_dir / "merged_coverage"
     final_merged_cov_dir.mkdir(exist_ok=True)
-    
+
     jacoco_cli = testing_clients_dir / "jacoco" / "jacococli.jar"
     if not jacoco_cli.exists():
         print(f"    ✗ JaCoCo CLI not found at {jacoco_cli}")
         return
-    
+
     try:
         # Merge exec files using JaCoCo CLI
         final_merged_exec = final_merged_cov_dir / "teku-coverage-merged.exec"
         _merge_teku_exec_files(all_exec_files, final_merged_exec, jacoco_cli)
-        
-        # Generate report from merged exec file
-        teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
-        teku_jars = list(teku_lib_dir.glob("teku-*.jar"))
-        
-        if not teku_jars:
-            print(f"    ✗ No Teku jar files found")
-            return
-        
-        classfiles_args = []
-        for jar in teku_jars:
-            classfiles_args.extend(["--classfiles", str(jar)])
-        
-        teku_root = testing_clients_dir / "teku"
-        sourcefiles_args = ["--sourcefiles", str(teku_root / "teku" / "src" / "main" / "java")]
-        
+
         report_dir = output_dir / "report"
-        report_dir.mkdir(exist_ok=True)
-        
-        # 1. Generate XML report first (for filtering)
-        xml_report = report_dir / "coverage.xml"
-        subprocess.run(
-            ["java", "-jar", str(jacoco_cli),
-                "report", str(final_merged_exec),
-                "--xml", str(xml_report),
-            ] + classfiles_args + sourcefiles_args,
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        
-        # 2. Filter XML report to keep only core state-transition packages
-        filtered_xml = report_dir / "coverage_filtered.xml"
-        _filter_teku_xml_report(xml_report, filtered_xml)
-        
-        # 3. Generate HTML report from filtered XML
-        # Note: JaCoCo report command doesn't accept XML as input, so we parse
-        # the filtered XML and generate HTML report directly
-        _generate_teku_html_from_filtered_xml(filtered_xml, report_dir, teku_root)
-        
-        # Generate CSV from filtered XML
-        _generate_teku_csv_from_filtered_xml(filtered_xml, report_dir / "coverage.csv")
-        
+        if not _generate_teku_filtered_report_from_exec(final_merged_exec, report_dir, testing_clients_dir):
+            return
+
         print(f"    ✓ Final accumulated report: {report_dir / 'index.html'}")
+        print(f"    ✓ Final accumulated CSV: {report_dir / 'coverage.csv'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
@@ -4898,6 +5065,7 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
             print(f"    ℹ Error: {e.stderr}")
 
 
+
 def _merge_teku_coverage(cov_dirs, output_dir, testing_clients_dir):
     """Merge Teku coverage data from multiple test cases"""
     # Collect all teku-coverage.exec files
@@ -4906,69 +5074,31 @@ def _merge_teku_coverage(cov_dirs, output_dir, testing_clients_dir):
         exec_file = cov_dir / "teku-coverage.exec"
         if exec_file.exists():
             all_exec_files.append(exec_file)
-    
+
     if not all_exec_files:
         print(f"    ✗ No teku-coverage.exec files found")
         return
-    
+
     # Create merged coverage directory
     merged_cov_dir = output_dir / "merged_coverage"
     merged_cov_dir.mkdir(exist_ok=True)
-    
+
     jacoco_cli = testing_clients_dir / "jacoco" / "jacococli.jar"
     if not jacoco_cli.exists():
         print(f"    ✗ JaCoCo CLI not found at {jacoco_cli}")
         return
-    
+
     try:
         # Merge exec files using JaCoCo CLI
         merged_exec = merged_cov_dir / "teku-coverage-merged.exec"
         _merge_teku_exec_files(all_exec_files, merged_exec, jacoco_cli)
-        
-        # Generate report from merged exec file
-        teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
-        teku_jars = list(teku_lib_dir.glob("teku-*.jar"))
-        
-        if not teku_jars:
-            print(f"    ✗ No Teku jar files found")
-            return
-        
-        classfiles_args = []
-        for jar in teku_jars:
-            classfiles_args.extend(["--classfiles", str(jar)])
-        
-        teku_root = testing_clients_dir / "teku"
-        src_dirs = []
-        for src_dir in teku_root.rglob("src/main/java"):
-            if src_dir.is_dir():
-                src_dirs.append(str(src_dir))
-        
-        if not src_dirs:
-            print(f"    ✗ No source directories found")
-            return
-        
+
         report_dir = output_dir / "report"
-        report_dir.mkdir(exist_ok=True)
-        
-        # Add --sourcefiles option for each source directory (same as individual reports)
-        sourcefiles_args = []
-        for src_dir in src_dirs:
-            sourcefiles_args.extend(["--sourcefiles", src_dir])
-        
-        # Generate HTML and CSV reports from merged exec file (no filtering for test suite accumulation)
-        subprocess.run(
-            [
-                "java", "-jar", str(jacoco_cli),
-                "report", str(merged_exec),
-                "--html", str(report_dir),
-                "--csv", str(report_dir / "coverage.csv"),
-            ] + classfiles_args + sourcefiles_args,
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        
+        if not _generate_teku_filtered_report_from_exec(merged_exec, report_dir, testing_clients_dir):
+            return
+
         print(f"    ✓ Accumulated report: {report_dir / 'index.html'}")
+        print(f"    ✓ Accumulated CSV: {report_dir / 'coverage.csv'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
