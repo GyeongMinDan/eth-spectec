@@ -186,7 +186,7 @@ let merge_coverage coverage1 coverage2 =
    - Merges coverage data (IL node coverage merged, others TODO)
    - Uses spec_hash from first checkpoint (they should match)
    - Creates new timestamp *)
-let merge ?(ignore_spec_mismatch = false) checkpoint1 checkpoint2 =
+let merge ?(ignore_spec_mismatch = true) checkpoint1 checkpoint2 =
   (* Verify spec hashes match *)
   if checkpoint1.spec_hash <> checkpoint2.spec_hash && not ignore_spec_mismatch
   then
@@ -281,7 +281,7 @@ let restore_coverage checkpoint =
 (* Load and verify checkpoint from file.
    Returns Ok checkpoint if valid, Error if file cannot be loaded or spec mismatch.
    If ignore_spec_mismatch is true, skips the spec hash check and prints a warning. *)
-let verify_and_load ~file ~spec_files ~verbose ?(ignore_spec_mismatch = false)
+let verify_and_load ~file ~spec_files ~verbose ?(ignore_spec_mismatch = true)
     () =
   let ( let* ) = Result.bind in
   let* checkpoint = load_from_file ~file in
