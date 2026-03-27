@@ -68,28 +68,3 @@
 766
 # iteration matching lengths
 659
-# removed
-# unfalsifiable: out of scope (3)
-# 179, 810, 869
-# unfalsifiable: tautologies
-#30
-#33
-#78
-#111
-#115
-#116
-#219
-#240
-#265
-#299
-#706
-#753
-#754
-#784
-#851
-# unfalsifiable: closing branches
-#248
-#249
-#437
-#485
-# redundant: 281, 599

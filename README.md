@@ -79,8 +79,8 @@ nohup ./spectec-core eth coverage -v \
 
 This run may take multiple hours. The artifact therefore also provides precomputed Capella baseline coverage inputs:
 
-- `testgen_data/capella/novalidate/baseline.ckpt`
-- `testgen_data/capella/novalidate/baseline.txt`
+- `testgen_data/capella/baseline.ckpt`
+- `testgen_data/capella/baseline.txt`
 - `testgen_data/capella/target_premises.txt`
 
 ## Test Generation
@@ -207,12 +207,10 @@ nohup ./spectec-core eth coverage -v \
 
 For artifact inspection, the repository also includes precomputed coverage artifacts under `testgen_data/capella/`, including:
 
-- `cov_baseline.ckpt`
-- `cov_testgen.ckpt`
-- `cov_baseline+testgen.ckpt`
-- `coverage.txt`
-- `coverage_both.txt`
-- `cov_testgen.txt`
+- `baseline.ckpt`
+- `baseline.txt`
+- `baseline+testgen.ckpt`
+- `baseline+testgen.txt`
 
 Useful checkpoint utilities are:
 
