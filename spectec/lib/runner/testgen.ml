@@ -2323,23 +2323,7 @@ let seed_kind_of_id id =
 let filter_and_select_seeds ~test_dir ~max_slot_gap ~coverage_level
     ~filter_seeds premise_uids
     (all_test_to_prems : (test_case_id * premise_uid list) list) =
-  let dir_filtered =
-    let before = List.length all_test_to_prems in
-    let result =
-      List.filter
-        (fun (tid, _) ->
-          let dir = test_id_to_dir tid in
-          Sys.file_exists (Filename.concat test_dir (dir ^ "/pre.json")))
-        all_test_to_prems
-    in
-    let after = List.length result in
-    if before <> after then
-      Format.printf
-        "Directory filter: %d → %d tests (removed %d missing seeds)\n%!" before
-        after (before - after);
-    result
-  in
-  let seed_filtered = filter_by_seed_type filter_seeds dir_filtered in
+  let seed_filtered = filter_by_seed_type filter_seeds all_test_to_prems in
   let slot_filtered =
     let before = List.length seed_filtered in
     let result =
