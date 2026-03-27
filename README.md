@@ -22,14 +22,21 @@ Consensus-SpecTec is the SpecTec formalization of the official [Ethereum Consens
 Build the artifact Docker image from the repository root.
 
 ```bash
+# Use the dockerfile
 docker build -t eth2test-artifact:coverage .
+
+# Or use the pre-built image from Docker Hub
+docker pull spectrumartifact/spectrumartifact:latest
 ```
 
 Run the container and move into the project directory.
 
 ```bash
-docker run -it --name eth2test-artifact-test \
-  eth2test-artifact:coverage /bin/bash
+# If you built the image locally
+docker run -it --name eth2test-artifact-test   eth2test-artifact:coverage /bin/bash
+
+# If you use the pre-built Docker Hub image
+docker run -it --name eth2test-artifact-test   spectrumartifact/spectrumartifact:latest /bin/bash
 
 cd /workspace/spectec-core
 ```
