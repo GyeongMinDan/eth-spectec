@@ -1,4 +1,4 @@
-# Note : This script is used to diff the coverage of 5 different clients.
+# Note : This script diffs the behavior and coverage of eth2 clients.
 
 import os
 import sys
@@ -6,6 +6,7 @@ import io
 import subprocess
 import argparse
 import csv
+import html
 import re
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,6 +14,7 @@ from time import perf_counter
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
+from fork_profiles import get_fork_profile, lighthouse_testnet_dir, supported_forks
 
 MERGE_CHUNK_SIZE = 500
 
@@ -21,6 +23,63 @@ STATUS_LABEL = {
     1: "FAIL",
     2: "UNHANDLED_EXCEPTION"
 }
+
+CLIENT_DISPLAY_ORDER = [
+    "Lighthouse",
+    "Prysm",
+    "Nimbus",
+    "Teku",
+    "Lodestar",
+    "Eth2spec",
+]
+
+BASE_CLIENT_TOOLS = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+STATE_TRANSITION_TOOLS = BASE_CLIENT_TOOLS + ["eth2spec"]
+
+
+def _prefer_system_node_path(env):
+    system_paths = [
+        "/usr/local/sbin",
+        "/usr/local/bin",
+        "/usr/sbin",
+        "/usr/bin",
+        "/sbin",
+        "/bin",
+    ]
+    existing_paths = [
+        path
+        for path in env.get("PATH", "").split(os.pathsep)
+        if path and ".cursor-server/bin" not in path
+    ]
+    merged_paths = []
+    for path in system_paths + existing_paths:
+        if path not in merged_paths:
+            merged_paths.append(path)
+    env["PATH"] = os.pathsep.join(merged_paths)
+    return env
+
+
+def _lodestar_c8_command(lodestar_dir, *args):
+    local_c8 = Path(lodestar_dir) / "node_modules" / ".bin" / "c8"
+    if local_c8.exists():
+        return [str(local_c8.resolve()), *args]
+    return ["npx", "--yes", "c8", *args]
+
+
+def _local_go_env():
+    env = os.environ.copy()
+    go_cache = Path(__file__).resolve().parent / ".gocache"
+    go_cache.mkdir(parents=True, exist_ok=True)
+    env["GOCACHE"] = str(go_cache)
+    return env
+
+
+def _client_csv_fieldnames(rows):
+    present = set()
+    for row in rows:
+        present.update(row.keys())
+    ordered_clients = [name for name in CLIENT_DISPLAY_ORDER if name in present]
+    return ["Pair #"] + ordered_clients
 
 # Lighthouse coverage report scope (noise reduction)
 # We intentionally apply filtering ONLY at report generation time (llvm-cov),
@@ -245,7 +304,7 @@ def parse_state_block(state_dir, block_dir, output_parent_dir, converter_dir=Non
     .ssz_snappy files are automatically converted to .ssz.
     Each block is processed independently from the original pre/state.
     """
-    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    tools = STATE_TRANSITION_TOOLS
     paths = {}
 
     for tool in tools:
@@ -425,7 +484,7 @@ def parse_operation(test_case_dir, output_parent_dir, converter_dir=None):
     
     .ssz_snappy files are automatically converted to .ssz.
     """
-    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    tools = STATE_TRANSITION_TOOLS
     paths = {}
     
     for tool in tools:
@@ -607,7 +666,7 @@ def parse_epoch_processing(test_case_dir, output_parent_dir, converter_dir=None)
     
     .ssz_snappy files are automatically converted to .ssz.
     """
-    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    tools = STATE_TRANSITION_TOOLS
     paths = {}
     
     for tool in tools:
@@ -694,7 +753,7 @@ def parse_sanity_slots(test_case_dir, output_parent_dir, converter_dir=None):
     """
     import yaml
     
-    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    tools = STATE_TRANSITION_TOOLS
     paths = {}
     
     for tool in tools:
@@ -790,33 +849,30 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
     if spectec_core_dir is None:
         script_dir = Path(__file__).parent.resolve()
         spectec_core_dir = script_dir
-    
-    testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
-    
+
+    spectec_core_dir = Path(spectec_core_dir)
+    profile = get_fork_profile(fork_version)
+    testing_clients_dir = spectec_core_dir / "testing_clients"
+    eth2spec_result = Path(spectec_core_dir) / "Converter" / "eth2specResult.py"
+    consensus_specs_path = Path(spectec_core_dir) / "consensus-specs" / "tests" / "core" / "pyspec"
+    eth2spec_mainnet = consensus_specs_path / "eth2spec" / profile.eth2spec_fork_version / "mainnet.py"
+
     # Check Lodestar transition.js file path
     lodestar_transition = testing_clients_dir / "lodestar" / "transition.js"
     if not lodestar_transition.exists():
         lodestar_transition = testing_clients_dir / "lodestar" / "transition"
 
-    # Pure config path setup (version-specific)
-    if fork_version == "deneb":
-        pure_configs_dir = spectec_core_dir / "Converter" / "pure_deneb_configs"
-        if not pure_configs_dir.exists():
-            # Fallback to capella configs if deneb configs don't exist
-            pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
-    else:  # capella
-        pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
-    lighthouse_testnet_dir = pure_configs_dir / "lighthouse_testnet"
+    lighthouse_testnet_dir_path = lighthouse_testnet_dir(spectec_core_dir, profile)
     # Note: teku_config and nimbus_config are not used (Teku uses CLI args, Nimbus uses code override)
 
     # Coverage data directory setup (from paths)
     coverage_dirs = {}
     if enable_coverage:
-        for client_name in ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]:
+        for client_name in STATE_TRANSITION_TOOLS:
             if client_name in paths and "cov_output" in paths[client_name]:
                 coverage_dirs[client_name] = Path(paths[client_name]["cov_output"])
                 coverage_dirs[client_name].mkdir(parents=True, exist_ok=True)
-    
+
     # Client binary paths: use separate binaries in coverage mode (single binary supports both capella and deneb)
     if enable_coverage:
         prysm_binary = testing_clients_dir / "prysm" / "pcli-cov"
@@ -842,7 +898,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 paths["lodestar"]["output"],
                 "--verifyProposer=false",  # validate_result = false: Skip block signature verification
                 "--verifyStateRoot=false",  # validate_result = false: Skip state root verification
-                f"--fork-version={fork_version}",
+                f"--fork-version={profile.lodestar_fork_version}",
             ]),
         Clients(
             "Lighthouse",
@@ -853,7 +909,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 "--block-path", block,
                 "--post-state-output-path", paths["lighthouse"]["output"],
                 # Pure config: fork epochs set to 0
-                "--testnet-dir", str(lighthouse_testnet_dir),
+                "--testnet-dir", str(lighthouse_testnet_dir_path),
                 # validate_result = false (via modified_code): Skip block signature and state root verification
                 # Block signature: skipped in transition_blocks.rs (SkipBlockSignatureOnly)
                 # State root: skipped in transition_blocks.rs (commented out)
@@ -866,7 +922,8 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 "state-transition",
                 f"--block-path={block}",
                 f"--pre-state-path={state}",
-                f"--expected-post-state-path={paths['prysm']['output']}"
+                f"--expected-post-state-path={paths['prysm']['output']}",
+                f"--fork-version={profile.prysm_fork_version}",
                 # validate_result = false (via modified_code): Skip block signature and state root verification
                 # Block signature: skipped in main.go debugStateTransition (filtered out from verify set)
                 # State root: skipped in main.go (commented out)
@@ -892,22 +949,29 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 "--post", paths["teku"]["output"],
                 block,
                 # Pure config: fork epochs set to 0
-                "--Xnetwork-altair-fork-epoch=0",
-                "--Xnetwork-bellatrix-fork-epoch=0",
-                "--Xnetwork-capella-fork-epoch=0",
-                f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+                *profile.teku_args(),
                 # validate_result = false (via modified_code): Skip block signature and state root verification
                 # Block signature: skipped in AbstractBlockProcessor.java (verifyBlockSignature commented out)
                 # State root: skipped in AbstractBlockProcessor.java (validatePostState commented out)
                 # RANDAO and attestation signatures: still verified via BLSSignatureVerifier.SIMPLE
             ]),
-
+        Clients(
+            "Eth2spec",
+            sys.executable,
+            [
+                str(eth2spec_result),
+                "--pre", state,
+                "--block", block,
+                "--out", paths["eth2spec"]["output"],
+                "--fork", profile.eth2spec_fork_version,
+            ]),
     ]
 
     for client in clients:
+        cmd = [str(client.cmd_path)] + [str(arg) for arg in client.cmd_args]
         try:
             start_time = perf_counter()
-            
+
             print(f"\n[+] Running: {client.name}")
 
             if not client.available:
@@ -916,79 +980,63 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             client.state = state
             client.block = block
 
-            print(f"[+] Command: {client.cmd_path} {' '.join(str(arg) for arg in client.cmd_args)}")
-            # Convert all arguments to strings (Path objects may be included)
-            cmd = [str(client.cmd_path)] + [str(arg) for arg in client.cmd_args]
-
             # Setup coverage environment variables
             env = os.environ.copy()
-            # Set FORK_VERSION environment variable for Nimbus
             if client.name == "Nimbus":
-                env["FORK_VERSION"] = fork_version
+                env["FORK_VERSION"] = profile.nimbus_fork_version
+            elif client.name == "Eth2spec":
+                existing_pythonpath = env.get("PYTHONPATH")
+                env["PYTHONPATH"] = (
+                    str(consensus_specs_path)
+                    if not existing_pythonpath
+                    else str(consensus_specs_path) + os.pathsep + existing_pythonpath
+                )
+
             if enable_coverage:
-                client_name_lower = client.name.lower()
-                
                 if client.name == "Prysm":
-                    # Go: Set GOCOVERDIR environment variable
                     env["GOCOVERDIR"] = str(coverage_dirs["prysm"])
                     print(f"[+] Coverage enabled: GOCOVERDIR={env['GOCOVERDIR']}")
-                
+
                 elif client.name == "Lighthouse":
-                    # Rust: Set LLVM_PROFILE_FILE environment variable
                     profile_file = coverage_dirs["lighthouse"] / f"lighthouse-cov-%p-%m.profraw"
                     env["LLVM_PROFILE_FILE"] = str(profile_file)
                     print(f"[+] Coverage enabled: LLVM_PROFILE_FILE={env['LLVM_PROFILE_FILE']}")
-                
+
                 elif client.name == "Teku":
-                    # Java: Inject JaCoCo agent via JAVA_OPTS
                     jacoco_agent_path = testing_clients_dir / "jacoco" / "jacocoagent.jar"
                     jacoco_exec = coverage_dirs["teku"] / "teku-coverage.exec"
-                    
+
                     if jacoco_agent_path.exists():
                         env["JAVA_OPTS"] = f"-javaagent:{jacoco_agent_path}=destfile={jacoco_exec}"
                         print(f"[+] Coverage enabled: JAVA_OPTS={env['JAVA_OPTS']}")
                     else:
                         print(f"[!] Warning: JaCoCo agent not found at {jacoco_agent_path}")
-                        #print(f"[!] Download from: https://www.jacoco.org/jacoco/trunk/doc/agent.html")
-                
+
                 elif client.name == "Nimbus":
-                    # Nim/C: gcov automatically generates .gcda files, no special env var needed
-                    # For independent coverage per test case, initialize .gcda files before execution
-                    # and copy them after execution
                     nimbus_src = testing_clients_dir / "nimbus-eth2"
                     nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
-                    
-                    # Delete existing .gcda files before execution (for independent measurement)
+
                     if nimbus_gcda_dir.exists():
                         for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
                             try:
                                 gcda_file.unlink()
-                            except:
+                            except OSError:
                                 pass
                     print(f"[+] Coverage enabled: gcov will auto-generate .gcda files in build directory")
-                
+
                 elif client.name == "Lodestar":
-                    # Node.js: Use c8 for coverage measurement
-                    # c8 collects coverage at runtime, so wrap the command with c8
+                    env = _prefer_system_node_path(env)
                     lodestar_dir = testing_clients_dir / "lodestar"
                     coverage_report_dir = coverage_dirs["lodestar"] / "report"
-                    coverage_temp_dir = coverage_dirs["lodestar"]  # JSON file storage location
+                    coverage_temp_dir = coverage_dirs["lodestar"]
                     coverage_report_dir.mkdir(parents=True, exist_ok=True)
                     coverage_temp_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    # Wrap original node command with c8
+
                     original_cmd_path = str(client.cmd_path)
                     original_cmd_args = [str(arg) for arg in client.cmd_args]
-                    
-                    # c8 options:
-                    # --exclude-node-modules=false: include node_modules (excluded by default)
-                    # --temp-directory: specify coverage JSON file storage location
-                    # --include: only include Lodestar code (exclude transition.js wrapper)
                     c8_args = [
-                        "c8",
                         "--all",
                         "--reporter=text",
-                        "--reporter=html",
                         f"--report-dir={coverage_report_dir}",
                         f"--temp-directory={coverage_temp_dir}",
                         "--exclude-node-modules=false",
@@ -997,19 +1045,36 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                         "--include=node_modules/@chainsafe/**/*.js",
                         "--exclude=**/transition.js",
                         "--exclude=**/generateCachedStateCapella.js",
-                        original_cmd_path,  # node path
-                    ] + original_cmd_args  # original arguments (all converted to strings)
-                    
-                    # Execute c8 using npx
-                    client.cmd_path = "npx"
-                    client.cmd_args = c8_args
-                    cmd = ["npx"] + c8_args
-                    
+                        original_cmd_path,
+                    ] + original_cmd_args
+
+                    cmd = _lodestar_c8_command(lodestar_dir, *c8_args)
+                    client.cmd_path = cmd[0]
+                    client.cmd_args = cmd[1:]
+
                     print(f"[+] Coverage enabled: c8 with report-dir={coverage_report_dir}")
                     print(f"[+] Coverage temp-directory: {coverage_temp_dir}")
-                    print(f"[+] Coverage command: npx {' '.join(c8_args)}")
+                    print(f"[+] Coverage command: {' '.join(cmd)}")
 
-            # Set cwd (only for Lodestar coverage mode)
+                elif client.name == "Eth2spec":
+                    coverage_data = coverage_dirs["eth2spec"] / ".coverage"
+                    coverage_args = [
+                        "-m",
+                        "coverage",
+                        "run",
+                        "--branch",
+                        "--data-file",
+                        str(coverage_data),
+                        "--include",
+                        str(eth2spec_mainnet),
+                    ] + [str(arg) for arg in client.cmd_args]
+                    client.cmd_args = coverage_args
+                    cmd = [str(client.cmd_path)] + coverage_args
+                    print(f"[+] Coverage enabled: coverage.py data-file={coverage_data}")
+                    print(f"[+] Coverage include target: {eth2spec_mainnet}")
+
+            print(f"[+] Command: {client.cmd_path} {' '.join(str(arg) for arg in client.cmd_args)}")
+
             if client.name == "Lodestar" and enable_coverage:
                 cwd = str(testing_clients_dir / "lodestar")
             else:
@@ -1026,32 +1091,23 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             end_time = perf_counter()
 
             client.status_code = process.returncode
-            client.output = process 
+            client.output = process
             client.timestamp = end_time - start_time
-            
-            #print(client.status_code)
-            #print(client.output)
-            
+
             print(f"[+] Execution time: {client.timestamp}")
-            
-            # Apply correct classification criteria
+
             if process.returncode == 0:
-                client.status_code = 0  # SUCCESS
+                client.status_code = 0
             elif process.returncode < 0:
-                client.status_code = 2  # UNHANDLED_EXCEPTION (terminated by signal)
+                client.status_code = 2
             else:
-                client.status_code = 1  # FAIL (all positive error codes: 1, 2, 3, 4...)
-            
-            # Lodestar special handling: set to 2 if stderr parsing fails
+                client.status_code = 1
+
             if client.name == "Lodestar":
                 try:
-                    # Handled exception
-                    if client.output.stderr!='':
-                        #print(f"Are you sure? {client.output.stderr}")
-                        # Try to parse as JSON first (for stack traces)
+                    if client.output.stderr != '':
                         try:
                             import json
-                            # Find JSON object in stderr
                             json_start = client.output.stderr.find('{')
                             if json_start != -1:
                                 json_end = client.output.stderr.rfind('}') + 1
@@ -1060,54 +1116,44 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                                     error_obj = json.loads(json_str)
                                     status_code = error_obj.get('statusCode', 1)
                                     output_string = error_obj.get('output', '')
-                                    # Use statusCode parsed from stderr, but apply correct classification
                                     if status_code == 0:
-                                        client.status_code = 0  # SUCCESS
+                                        client.status_code = 0
                                     elif status_code < 0:
-                                        client.status_code = 2  # UNHANDLED_EXCEPTION
+                                        client.status_code = 2
                                     else:
-                                        client.status_code = 1  # FAIL
+                                        client.status_code = 1
                                     client.output.stderr = output_string
                                     continue
-                        except:
+                        except Exception:
                             pass
-                        
-                        # Fallback to old regex pattern
+
                         status_code_match = re.search(r"statusCode: \s*(\d+)", client.output.stderr)
                         if status_code_match:
                             status_code = int(status_code_match.group(1))
                             output_match = re.search(r"output: \s*'(.*?)'", client.output.stderr, re.DOTALL)
                             if output_match:
                                 output_string = output_match.group(1)
-                                # Use statusCode parsed from stderr, but apply correct classification
                                 if status_code == 0:
-                                    client.status_code = 0  # SUCCESS
+                                    client.status_code = 0
                                 elif status_code < 0:
-                                    client.status_code = 2  # UNHANDLED_EXCEPTION
+                                    client.status_code = 2
                                 else:
-                                    client.status_code = 1  # FAIL
+                                    client.status_code = 1
                                 client.output.stderr = output_string
-                        
-                # Unhandled exception
-                except Exception as e:
-                    #print(f"[!] Failed to extract Lodestar output: {e}")
+                except Exception:
                     client.status_code = 2
 
             client.log()
-            
-            # Nimbus: Copy .gcda files for independent coverage per test case
+
             if client.name == "Nimbus" and enable_coverage:
                 nimbus_src = testing_clients_dir / "nimbus-eth2"
                 nimbus_gcda_dir = nimbus_src / "nimcache" / "debug" / "ncli"
                 nimbus_coverage_dir = coverage_dirs.get("nimbus")
-                
+
                 if nimbus_coverage_dir and nimbus_gcda_dir.exists():
-                    # Copy nimcache structure to cov_output_{index} directory
                     target_gcda_dir = nimbus_coverage_dir / "nimcache" / "debug" / "ncli"
                     target_gcda_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    # Copy only .gcda files (independent per test case)
-                    # .gcno files are taken from original nimcache during report generation for consistent measurement scope
+
                     import shutil
                     for gcda_file in nimbus_gcda_dir.rglob("*.gcda"):
                         relative_path = gcda_file.relative_to(nimbus_gcda_dir)
@@ -1118,8 +1164,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                         except Exception as e:
                             print(f"[!] Failed to copy .gcda file {gcda_file}: {e}")
                     print(f"[+] Copied .gcda files to {target_gcda_dir} (will use original .gcno files for consistent measurement scope)")
-            
-            # Teku: Delete empty output files (Teku creates empty files on failure)
+
             if client.name == "Teku" and client.status_code != 0:
                 output_path = paths.get("teku", {}).get("output")
                 if output_path and os.path.exists(output_path):
@@ -1128,10 +1173,16 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                         os.remove(output_path)
                         print(f"[+] Removed empty Teku output file: {output_path}")
 
+            if client.name == "Eth2spec" and client.status_code != 0:
+                output_path = paths.get("eth2spec", {}).get("output")
+                if output_path and os.path.exists(output_path) and os.path.getsize(output_path) == 0:
+                    os.remove(output_path)
+                    print(f"[+] Removed empty Eth2spec output file: {output_path}")
+
         except Exception as e:
             end_time = perf_counter()
             client.timestamp = end_time - start_time
-            
+            client.status_code = 2
             if client.output is None:
                 client.output = subprocess.CompletedProcess(args=cmd, returncode=2, stdout='', stderr=str(e))
 
@@ -1139,7 +1190,6 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
             print(f"[+] Exited with status code: {client.status_code} (Failure)")
             print(f"[+] {client.name} failed: {client.output.stderr}")
     return clients
-
 
 def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None, enable_coverage=False, fork_version="capella"):
     """
@@ -1311,6 +1361,7 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
                     print(f"[+] Coverage enabled: gcov will auto-generate .gcda files in build directory")
                 
                 elif client.name == "Lodestar":
+                    env = _prefer_system_node_path(env)
                     # Node.js: Use c8 for coverage measurement
                     # c8 collects coverage at runtime, so wrap the command with c8
                     lodestar_dir = testing_clients_dir / "lodestar"
@@ -1328,10 +1379,8 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
                     # --temp-directory: specify coverage JSON file storage location
                     # --include: only include Lodestar code (exclude transition.js wrapper)
                     c8_args = [
-                        "c8",
                         "--all",
                         "--reporter=text",
-                        "--reporter=html",
                         f"--report-dir={coverage_report_dir}",
                         f"--temp-directory={coverage_temp_dir}",
                         "--exclude-node-modules=false",
@@ -1343,14 +1392,13 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
                         original_cmd_path,  # node path
                     ] + original_cmd_args  # original arguments (all converted to strings)
                     
-                    # Execute c8 using npx
-                    client.cmd_path = "npx"
-                    client.cmd_args = c8_args
-                    cmd = ["npx"] + c8_args
+                    cmd = _lodestar_c8_command(lodestar_dir, *c8_args)
+                    client.cmd_path = cmd[0]
+                    client.cmd_args = cmd[1:]
                     
                     print(f"[+] Coverage enabled: c8 with report-dir={coverage_report_dir}")
                     print(f"[+] Coverage temp-directory: {coverage_temp_dir}")
-                    print(f"[+] Coverage command: npx {' '.join(c8_args)}")
+                    print(f"[+] Coverage command: {' '.join(cmd)}")
 
             # Set cwd (only for Lodestar coverage mode)
             if client.name == "Lodestar" and enable_coverage:
@@ -1643,6 +1691,7 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
                     print(f"[+] Coverage enabled: gcov will auto-generate .gcda files in build directory")
                 
                 elif client.name == "Lodestar":
+                    env = _prefer_system_node_path(env)
                     lodestar_dir = testing_clients_dir / "lodestar"
                     coverage_report_dir = coverage_dirs["lodestar"] / "report"
                     coverage_temp_dir = coverage_dirs["lodestar"]
@@ -1653,10 +1702,8 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
                     original_cmd_args = [str(arg) for arg in client.cmd_args]
                     
                     c8_args = [
-                        "c8",
                         "--all",
                         "--reporter=text",
-                        "--reporter=html",
                         f"--report-dir={coverage_report_dir}",
                         f"--temp-directory={coverage_temp_dir}",
                         "--exclude-node-modules=false",
@@ -1668,9 +1715,9 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
                         original_cmd_path,
                     ] + original_cmd_args
                     
-                    client.cmd_path = "npx"
-                    client.cmd_args = c8_args
-                    cmd = ["npx"] + c8_args
+                    cmd = _lodestar_c8_command(lodestar_dir, *c8_args)
+                    client.cmd_path = cmd[0]
+                    client.cmd_args = cmd[1:]
                     
                     print(f"[+] Coverage enabled: c8 with report-dir={coverage_report_dir}")
 
@@ -1955,6 +2002,7 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
                     print(f"[+] Coverage enabled: gcov will auto-generate .gcda files in build directory")
                 
                 elif client.name == "Lodestar":
+                    env = _prefer_system_node_path(env)
                     lodestar_dir = testing_clients_dir / "lodestar"
                     coverage_report_dir = coverage_dirs["lodestar"] / "report"
                     coverage_temp_dir = coverage_dirs["lodestar"]
@@ -1965,10 +2013,8 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
                     original_cmd_args = [str(arg) for arg in client.cmd_args]
                     
                     c8_args = [
-                        "c8",
                         "--all",
                         "--reporter=text",
-                        "--reporter=html",
                         f"--report-dir={coverage_report_dir}",
                         f"--temp-directory={coverage_temp_dir}",
                         "--exclude-node-modules=false",
@@ -1980,9 +2026,9 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
                         original_cmd_path,
                     ] + original_cmd_args
                     
-                    client.cmd_path = "npx"
-                    client.cmd_args = c8_args
-                    cmd = ["npx"] + c8_args
+                    cmd = _lodestar_c8_command(lodestar_dir, *c8_args)
+                    client.cmd_path = cmd[0]
+                    client.cmd_args = cmd[1:]
                     
                     print(f"[+] Coverage enabled: c8 with report-dir={coverage_report_dir}")
 
@@ -2114,7 +2160,7 @@ def create_report(clients, output_dir):
     # body
     results = ""
     for client in clients:
-        cmd = f"{client.cmd_path} {' '.join(client.cmd_args)}"
+        cmd = f"{client.cmd_path} {' '.join(str(arg) for arg in client.cmd_args)}"
         results += f"## {client.name}\n\n"
         results += f"### State: {client.state} \n###   Block: {client.block} \n\n"
         results += f"### Command\n\n```\n{cmd}\n```\n\n"
@@ -2209,23 +2255,23 @@ def create_csv_time(all_results, output_parent_dir):
 
     now = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
     csv_file_path = Path(output_parent_dir) / f'Output_Time_{now}.csv'
-    fieldnames = ['Pair #', 'Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']
 
     def _sort_key(item):
         idx = str(item['Pair #'])
         return (0, int(idx)) if idx.isdigit() else (1, idx.lower())
 
     all_results = sorted(all_results, key=_sort_key)
+    fieldnames = _client_csv_fieldnames(all_results)
+    client_columns = fieldnames[1:]
 
     total_times = defaultdict(float)
     for result in all_results:
-        for client in ['Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']:
-            if client in result and isinstance(result[client], (int, float)): 
+        for client in client_columns:
+            if client in result and isinstance(result[client], (int, float)):
                 total_times[client] += result[client]
 
-    # Append Total
     total_row = {'Pair #': 'Total'}
-    total_row.update({client: f"{total_times[client]:.{time_decimal_places}f}" for client in ['Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']})
+    total_row.update({client: f"{total_times[client]:.{time_decimal_places}f}" for client in client_columns})
 
     with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -2629,13 +2675,12 @@ def create_csv_status(all_status, output_parent_dir):
     now = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
     csv_file_path = Path(output_parent_dir) / f'Output_Status_{now}.csv'
 
-    fieldnames = ['Pair #', 'Lighthouse', 'Prysm', 'Nimbus', 'Teku', 'Lodestar']
-
     def _sort_key(item):
         idx = str(item['Pair #'])
         return (0, int(idx)) if idx.isdigit() else (1, idx.lower())
 
     all_status = sorted(all_status, key=_sort_key)
+    fieldnames = _client_csv_fieldnames(all_status)
 
     with open(csv_file_path, mode='w', newline='', encoding='utf-8') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -2661,7 +2706,7 @@ def compare_ssz_files_in_output(output_parent_dir, successful_clients_by_index=N
     - successful_clients_by_index: Dict mapping index to list of successful client names.
                                   If None, compares all existing files (backward compatibility).
     """
-    tools = ["lighthouse", "prysm", "nimbus", "teku", "lodestar"]
+    tools = STATE_TRANSITION_TOOLS
     output_dirs = {tool: os.path.join(output_parent_dir, tool, "output") for tool in tools}
 
     # Get all indices from the output directories
@@ -2751,7 +2796,7 @@ def generate_coverage_reports_per_testcase(output_dir, spectec_core_dir, cleanup
     print(f"{'='*60}\n")
     
     # Find and process cov_output_* directories for each client
-    clients = ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]
+    clients = BASE_CLIENT_TOOLS + ["eth2spec"]
     
     for client in clients:
         client_dir = output_path / client
@@ -2780,6 +2825,8 @@ def generate_coverage_reports_per_testcase(output_dir, spectec_core_dir, cleanup
                 _generate_nimbus_report(cov_dir, testing_clients_dir)
             elif client == "lodestar":
                 _generate_lodestar_report(cov_dir, testing_clients_dir)
+            elif client == "eth2spec":
+                _generate_eth2spec_report(cov_dir, testing_clients_dir)
             
             # Delete original data after report generation (optional)
             if cleanup_after_report:
@@ -2811,7 +2858,8 @@ def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
             ["go", "tool", "covdata", "textfmt", f"-i={prysm_coverage_dir}", f"-o={coverage_txt_raw}"],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
+            env=_local_go_env()
         )
         
         # Filter to keep only core state-transition packages
@@ -2830,6 +2878,7 @@ def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
             check=True,
             capture_output=True,
             text=True,
+            env=_local_go_env(),
             cwd=str(prysm_dir)  # Run from Prysm directory (go.mod required)
         )
         
@@ -2844,6 +2893,7 @@ def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
                     ["go", "env", "GOPATH"],
                     capture_output=True,
                     text=True,
+                    env=_local_go_env(),
                     check=True
                 )
                 gopath = go_path_result.stdout.strip()
@@ -2873,6 +2923,7 @@ def _generate_prysm_report(prysm_coverage_dir, testing_clients_dir):
                         stdout=fout,
                         stderr=subprocess.PIPE,  # Capture stderr for error messages
                         check=True,
+                        env=_local_go_env(),
                         cwd=str(prysm_dir)  # Source AST parsing/package loading requires repo root
                     )
                 print(f"    ✓ Branch coverage report: {coverage_xml}")
@@ -2960,6 +3011,7 @@ def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_cove
             cwd=str(prysm_dir),
             capture_output=True,
             text=True,
+            env=_local_go_env(),
             check=True
         )
         
@@ -2981,6 +3033,7 @@ def _add_prysm_coverage_stats(coverage_txt, coverage_html, prysm_dir, prysm_cove
             cwd=str(prysm_dir),
             capture_output=True,
             text=True,
+            env=_local_go_env(),
             check=True
         )
         
@@ -3184,75 +3237,85 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
         print(f"    ✗ Failed: {e}")
 
 
+
 def _generate_teku_report(teku_coverage_dir, testing_clients_dir):
     """Generate Teku (Java) coverage report"""
     teku_exec = teku_coverage_dir / "teku-coverage.exec"
     if not teku_exec.exists():
         return
-    
+
     teku_report_dir = teku_coverage_dir / "report"
     teku_report_dir.mkdir(exist_ok=True)
-    
+
+    try:
+        if not _generate_teku_filtered_report_from_exec(teku_exec, teku_report_dir, testing_clients_dir):
+            return
+        print(f"    ✓ Report: {teku_report_dir / 'index.html'}")
+        print(f"    ✓ CSV: {teku_report_dir / 'coverage.csv'}")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed: {e}")
+
+
+def _collect_teku_report_inputs(testing_clients_dir):
+    """Collect Teku JaCoCo inputs shared by all report-generation modes."""
     jacoco_cli = testing_clients_dir / "jacoco" / "jacococli.jar"
     if not jacoco_cli.exists():
         print(f"    ✗ JaCoCo CLI not found at {jacoco_cli}")
-        return
-    
-    try:
-        # Find only Teku jar files (teku-*.jar)
-        teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
-        teku_jars = list(teku_lib_dir.glob("teku-*.jar"))
-        
-        if not teku_jars:
-            print(f"    ✗ No Teku jar files found in {teku_lib_dir}")
-            return
-        
-        # Add --classfiles for each jar file
-        classfiles_args = []
-        for jar in teku_jars:
-            classfiles_args.extend(["--classfiles", str(jar)])
-        
-        # Find Teku source directories (multi-module Gradle project)
-        teku_root = testing_clients_dir / "teku"
-        # Find src/main/java directory for each module
-        source_dirs = []
-        for src_dir in teku_root.rglob("src/main/java"):
-            if src_dir.is_dir():
-                source_dirs.append(str(src_dir))
-        
-        # Add --sourcefiles option (for source file mapping)
-        sourcefiles_args = []
-        if source_dirs:
-            for src_dir in source_dirs:
-                sourcefiles_args.extend(["--sourcefiles", src_dir])
-        else:
-            print(f"    ⚠ Warning: No source directories found, source code mapping may not work")
-        
-        # 1. Generate XML report first (for filtering)
-        xml_report = teku_report_dir / "coverage.xml"
-        subprocess.run(
-            [
-                "java", "-jar", str(jacoco_cli),
-                "report", str(teku_exec),
-            ] + classfiles_args + sourcefiles_args + [
-                "--xml", str(xml_report)
-            ],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        
-        # 2. Filter XML report to keep only core state-transition packages
-        filtered_xml = teku_report_dir / "coverage_filtered.xml"
-        _filter_teku_xml_report(xml_report, filtered_xml)
-        
-        # 3. Generate HTML report from filtered XML
-        # Note: JaCoCo report command doesn't accept XML as input, so we parse
-        # the filtered XML and generate HTML report directly
-        _generate_teku_html_from_filtered_xml(filtered_xml, teku_report_dir, teku_root)
-        print(f"    ✓ Report: {teku_report_dir / 'index.html'}")
-    except subprocess.CalledProcessError as e:
-        print(f"    ✗ Failed: {e}")
+        return None
+
+    teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
+    teku_jars = sorted(teku_lib_dir.glob("teku-*.jar"))
+    if not teku_jars:
+        print(f"    ✗ No Teku jar files found in {teku_lib_dir}")
+        return None
+
+    classfiles_args = []
+    for jar in teku_jars:
+        classfiles_args.extend(["--classfiles", str(jar)])
+
+    teku_root = testing_clients_dir / "teku"
+    teku_source_roots = sorted(src_dir for src_dir in teku_root.rglob("src/main/java") if src_dir.is_dir())
+    if not teku_source_roots:
+        print("    ⚠ Warning: No Teku source directories found; source-level drill-down may be incomplete")
+
+    sourcefiles_args = []
+    for src_dir in teku_source_roots:
+        sourcefiles_args.extend(["--sourcefiles", str(src_dir)])
+
+    return {
+        "jacoco_cli": jacoco_cli,
+        "classfiles_args": classfiles_args,
+        "sourcefiles_args": sourcefiles_args,
+        "teku_source_roots": teku_source_roots,
+    }
+
+
+def _generate_teku_filtered_report_from_exec(exec_file, report_dir, testing_clients_dir):
+    """Generate filtered Teku XML, HTML, and CSV reports from one exec file."""
+    report_inputs = _collect_teku_report_inputs(testing_clients_dir)
+    if report_inputs is None:
+        return False
+
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    xml_report = report_dir / "coverage.xml"
+    subprocess.run(
+        [
+            "java", "-jar", str(report_inputs["jacoco_cli"]),
+            "report", str(exec_file),
+        ] + report_inputs["classfiles_args"] + report_inputs["sourcefiles_args"] + [
+            "--xml", str(xml_report)
+        ],
+        check=True,
+        capture_output=True,
+        text=True
+    )
+
+    filtered_xml = report_dir / "coverage_filtered.xml"
+    _filter_teku_xml_report(xml_report, filtered_xml)
+    _generate_teku_html_from_filtered_xml(filtered_xml, report_dir, report_inputs["teku_source_roots"])
+    _generate_teku_csv_from_filtered_xml(filtered_xml, report_dir / "coverage.csv")
+    return True
 
 
 def _filter_nimbus_lcov_report(lcov_input, lcov_output, nimbus_src):
@@ -3468,155 +3531,348 @@ def _filter_teku_xml_report(xml_input, xml_output):
         shutil.copy2(xml_input, xml_output)
 
 
-def _generate_teku_html_from_filtered_xml(filtered_xml, output_dir, teku_root):
-    """Generate HTML report from filtered JaCoCo XML file
-    
-    Since JaCoCo report command doesn't accept XML as input, we parse the
-    filtered XML and generate HTML report that matches JaCoCo's format.
-    """
-    import xml.etree.ElementTree as ET
-    import html as html_escape
-    
-    try:
-        tree = ET.parse(filtered_xml)
-        root = tree.getroot()
-        
-        # Calculate totals from filtered XML
-        # IMPORTANT: Only read root-level counters, not all descendants
-        # JaCoCo XML structure: <report><counter type="BRANCH" .../> (root level has total)
-        # Using .//counter would sum root + package + class counters (incorrect!)
-        total_instructions = 0
-        total_covered = 0
-        total_branches = 0
-        total_branches_covered = 0
-        total_lines = 0
-        total_lines_covered = 0
-        
-        # Read only direct children of root (root-level counters)
-        for counter in root.findall("counter[@type='INSTRUCTION']"):
-            total_instructions += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-            total_covered += int(counter.get("covered", 0))
-        
-        for counter in root.findall("counter[@type='BRANCH']"):
-            total_branches += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-            total_branches_covered += int(counter.get("covered", 0))
-        
-        for counter in root.findall("counter[@type='LINE']"):
-            total_lines += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-            total_lines_covered += int(counter.get("covered", 0))
-        
-        # Generate HTML report (simplified version matching JaCoCo style)
-        html_content = f"""<!DOCTYPE html>
+
+
+def _teku_counter_map(element):
+    """Return direct-child JaCoCo counters keyed by type."""
+    counters = {}
+    for counter in element.findall("counter"):
+        counters[counter.get("type", "")] = (
+            int(counter.get("missed", 0)),
+            int(counter.get("covered", 0)),
+        )
+    return counters
+
+
+def _teku_counter_triplet(counter_map, counter_type):
+    missed, covered = counter_map.get(counter_type, (0, 0))
+    return missed, covered, missed + covered
+
+
+def _teku_percent(covered, total):
+    if total <= 0:
+        return "n/a"
+    return f"{(covered / total) * 100.0:.1f}%"
+
+
+def _teku_display_counter(counter_map, counter_type):
+    missed, covered, total = _teku_counter_triplet(counter_map, counter_type)
+    if total == 0:
+        return "0/0 (n/a)"
+    return f"{covered}/{total} ({_teku_percent(covered, total)})"
+
+
+def _teku_row_class(counter_map):
+    _, covered, total = _teku_counter_triplet(counter_map, "LINE")
+    if total == 0:
+        return "teku-na"
+    if covered == 0:
+        return "teku-bad"
+    if covered == total:
+        return "teku-good"
+    return "teku-mid"
+
+
+def _teku_package_dir(package_name):
+    return Path(package_name) if package_name else Path("default-package")
+
+
+def _teku_package_label(package_name):
+    return package_name if package_name else "(default package)"
+
+
+def _teku_source_page_name(source_name):
+    return f"{source_name}.html"
+
+
+def _teku_source_rel_path(package_name, source_name):
+    if package_name:
+        return (Path(package_name) / source_name).as_posix()
+    return Path(source_name).as_posix()
+
+
+def _teku_rel_link(target_path, current_path):
+    return Path(os.path.relpath(target_path, start=current_path.parent)).as_posix()
+
+
+def _build_teku_source_lookup(teku_source_roots):
+    lookup = {}
+    for src_root in teku_source_roots:
+        for java_file in src_root.rglob("*.java"):
+            rel_path = java_file.relative_to(src_root).as_posix()
+            lookup.setdefault(rel_path, java_file)
+    return lookup
+
+
+def _teku_report_css():
+    return """
+body { font-family: Arial, sans-serif; margin: 24px; color: #222; }
+a { color: #0b57d0; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.breadcrumbs { margin-bottom: 18px; font-size: 14px; }
+.summary { display: flex; gap: 12px; flex-wrap: wrap; margin: 18px 0 24px; }
+.card { border: 1px solid #d0d7de; border-radius: 8px; padding: 12px 14px; min-width: 180px; background: #f8fafc; }
+.card h2 { margin: 0 0 8px; font-size: 14px; }
+.card .value { font-size: 20px; font-weight: bold; }
+.note { margin: 18px 0; padding: 12px 14px; border-left: 4px solid #b7791f; background: #fff7e6; }
+table.coverage { width: 100%; border-collapse: collapse; margin-top: 12px; }
+table.coverage th, table.coverage td { border: 1px solid #d0d7de; padding: 8px 10px; vertical-align: top; }
+table.coverage th { background: #f6f8fa; text-align: left; }
+tr.teku-good { background: #edf7ed; }
+tr.teku-mid { background: #fff8db; }
+tr.teku-bad { background: #fdecec; }
+tr.teku-na { background: #f6f8fa; }
+.src-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+.src-table th, .src-table td { border: 1px solid #e5e7eb; padding: 0; }
+.src-table th { padding: 8px 10px; background: #f6f8fa; text-align: left; }
+.src-line-no { width: 72px; text-align: right; padding: 0 10px; color: #6a737d; background: #f6f8fa; }
+.src-counter { width: 110px; text-align: right; padding: 0 10px; white-space: nowrap; }
+.src-code { font-family: monospace; white-space: pre; padding: 0 10px; }
+tr.src-full td { background: #edf7ed; }
+tr.src-partial td { background: #fff8db; }
+tr.src-missed td { background: #fdecec; }
+tr.src-none td { background: #ffffff; }
+.footer { margin-top: 24px; color: #6a737d; font-size: 12px; }
+"""
+
+
+def _teku_render_page(title, breadcrumbs, body_html):
+    breadcrumb_html = " / ".join(
+        f"<a href='{href}'>{html.escape(label)}</a>" if href else html.escape(label)
+        for label, href in breadcrumbs
+    )
+    return f"""<!DOCTYPE html>
 <html>
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
-    <title>JaCoCo Coverage Report (Filtered)</title>
-    <link rel="stylesheet" href="https://www.jacoco.org/jacoco/resource/report.css" type="text/css"/>
-    <style type="text/css">
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        .footer {{ margin-top: 20px; font-size: 10px; color: #666; }}
-    </style>
+    <title>{html.escape(title)}</title>
+    <style type="text/css">{_teku_report_css()}</style>
 </head>
 <body>
-    <h1>JaCoCo Coverage Report (Filtered - Core State-Transition Only)</h1>
-    
-    <table class="coverage">
-        <thead>
-            <tr>
-                <th>Element</th>
-                <th class="counter">Missed Instructions</th>
-                <th class="counter">Covered Instructions</th>
-                <th class="counter">Missed Branches</th>
-                <th class="counter">Covered Branches</th>
-                <th class="counter">Missed Lines</th>
-                <th class="counter">Covered Lines</th>
-                <th class="counter">Cxty</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td class="el_report">Report</td>
-                <td class="ctr2">{total_instructions - total_covered}</td>
-                <td class="ctr1">{total_covered}</td>
-                <td class="ctr2">{total_branches - total_branches_covered}</td>
-                <td class="ctr1">{total_branches_covered}</td>
-                <td class="ctr2">{total_lines - total_lines_covered}</td>
-                <td class="ctr1">{total_lines_covered}</td>
-                <td class="ctr2">-</td>
-            </tr>
-        </tbody>
-    </table>
-    
-    <h2>Packages</h2>
-    <table class="coverage">
-        <thead>
-            <tr>
-                <th>Package</th>
-                <th class="counter">Missed Instructions</th>
-                <th class="counter">Covered Instructions</th>
-                <th class="counter">Missed Branches</th>
-                <th class="counter">Covered Branches</th>
-                <th class="counter">Missed Lines</th>
-                <th class="counter">Covered Lines</th>
-                <th class="counter">Cxty</th>
-            </tr>
-        </thead>
-        <tbody>
-"""
-        
-        # Process packages from filtered XML
-        for package in root.findall(".//package"):
-            pkg_name = package.get("name", "")
-            pkg_instructions = 0
-            pkg_covered = 0
-            pkg_branches = 0
-            pkg_branches_covered = 0
-            pkg_lines = 0
-            pkg_lines_covered = 0
-            
-            for counter in package.findall(".//counter[@type='INSTRUCTION']"):
-                pkg_instructions += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-                pkg_covered += int(counter.get("covered", 0))
-            
-            for counter in package.findall(".//counter[@type='BRANCH']"):
-                pkg_branches += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-                pkg_branches_covered += int(counter.get("covered", 0))
-            
-            for counter in package.findall(".//counter[@type='LINE']"):
-                pkg_lines += int(counter.get("missed", 0)) + int(counter.get("covered", 0))
-                pkg_lines_covered += int(counter.get("covered", 0))
-            
-            # Create package directory structure
-            pkg_dir = output_dir / pkg_name.replace(".", "/")
-            pkg_dir.mkdir(parents=True, exist_ok=True)
-            
-            html_content += f"""            <tr>
-                <td class="el_package"><a href="{pkg_name.replace('.', '/')}/index.html">{html_escape.escape(pkg_name)}</a></td>
-                <td class="ctr2">{pkg_instructions - pkg_covered}</td>
-                <td class="ctr1">{pkg_covered}</td>
-                <td class="ctr2">{pkg_branches - pkg_branches_covered}</td>
-                <td class="ctr1">{pkg_branches_covered}</td>
-                <td class="ctr2">{pkg_lines - pkg_lines_covered}</td>
-                <td class="ctr1">{pkg_lines_covered}</td>
-                <td class="ctr2">-</td>
-            </tr>
-"""
-        
-        html_content += """        </tbody>
-    </table>
-    
-    <div class="footer">
-        Generated from filtered JaCoCo XML report (Core State-Transition packages only)
-    </div>
+    <div class="breadcrumbs">{breadcrumb_html}</div>
+    <h1>{html.escape(title)}</h1>
+    {body_html}
+    <div class="footer">Generated from filtered JaCoCo XML report (core Teku state-transition scope).</div>
 </body>
 </html>
 """
-        
-        # Write HTML file
-        html_file = output_dir / "index.html"
-        with open(html_file, 'w', encoding='utf-8') as f:
-            f.write(html_content)
-        
+
+
+def _teku_source_line_class(line_data):
+    if line_data is None:
+        return "src-none"
+    if line_data["ci"] == 0 and line_data["cb"] == 0:
+        return "src-missed"
+    if line_data["mi"] > 0 or line_data["mb"] > 0:
+        return "src-partial"
+    return "src-full"
+
+
+def _write_teku_package_index(package_data, root_index_path):
+    package_index_path = package_data["package_index_path"]
+    rows = []
+    missing_sources = 0
+    for source_data in package_data["sourcefiles"]:
+        if source_data["source_path"] is None:
+            missing_sources += 1
+        row_class = _teku_row_class(source_data["counters"])
+        href = html.escape(_teku_rel_link(source_data["page_path"], package_index_path))
+        label = html.escape(source_data["name"])
+        instructions = html.escape(_teku_display_counter(source_data["counters"], "INSTRUCTION"))
+        branches = html.escape(_teku_display_counter(source_data["counters"], "BRANCH"))
+        lines = html.escape(_teku_display_counter(source_data["counters"], "LINE"))
+        rows.append(
+            f"<tr class='{row_class}'><td><a href='{href}'>{label}</a></td>"
+            f"<td>{instructions}</td><td>{branches}</td><td>{lines}</td></tr>"
+        )
+
+    note_html = ""
+    if missing_sources:
+        note_html = (
+            f'<div class="note">{missing_sources} source file(s) could not be resolved on disk. '
+            'Coverage counters are still shown, but those files may not include highlighted source text.</div>'
+        )
+
+    empty_row = '<tr><td colspan="4">No source files in filtered package.</td></tr>'
+    body_html = (
+        '<div class="summary">'
+        f'<div class="card"><h2>Source Files</h2><div class="value">{len(package_data["sourcefiles"])}</div></div>'
+        f'<div class="card"><h2>Instructions</h2><div class="value">{html.escape(_teku_display_counter(package_data["counters"], "INSTRUCTION"))}</div></div>'
+        f'<div class="card"><h2>Branches</h2><div class="value">{html.escape(_teku_display_counter(package_data["counters"], "BRANCH"))}</div></div>'
+        f'<div class="card"><h2>Lines</h2><div class="value">{html.escape(_teku_display_counter(package_data["counters"], "LINE"))}</div></div>'
+        '</div>'
+        + note_html +
+        '<table class="coverage">'
+        '<thead><tr><th>Source File</th><th>Instructions</th><th>Branches</th><th>Lines</th></tr></thead>'
+        f'<tbody>{"".join(rows) or empty_row}</tbody>'
+        '</table>'
+    )
+
+    page_html = _teku_render_page(
+        f'Teku Coverage: {_teku_package_label(package_data["name"])}',
+        [
+            ("Teku Coverage", html.escape(_teku_rel_link(root_index_path, package_index_path))),
+            (_teku_package_label(package_data["name"]), None),
+        ],
+        body_html,
+    )
+    with open(package_index_path, 'w', encoding='utf-8') as f:
+        f.write(page_html)
+
+
+def _write_teku_source_file_report(package_data, source_data, root_index_path):
+    page_path = source_data["page_path"]
+    package_index_path = package_data["package_index_path"]
+    source_lines = []
+    if source_data["source_path"] is not None and source_data["source_path"].exists():
+        source_lines = source_data["source_path"].read_text(encoding='utf-8', errors='replace').splitlines()
+
+    max_line_no = max(len(source_lines), max(source_data["line_map"], default=0))
+    line_rows = []
+    for line_number in range(1, max_line_no + 1):
+        line_data = source_data["line_map"].get(line_number)
+        instr_text = "-"
+        branch_text = "-"
+        if line_data is not None:
+            instr_total = line_data["mi"] + line_data["ci"]
+            instr_text = f'{line_data["ci"]}/{instr_total}' if instr_total else '0/0'
+            branch_total = line_data["mb"] + line_data["cb"]
+            branch_text = '-' if branch_total == 0 else f'{line_data["cb"]}/{branch_total}'
+        source_text = source_lines[line_number - 1] if line_number <= len(source_lines) else ""
+        source_text = source_text.replace("	", "    ")
+        row_class = _teku_source_line_class(line_data)
+        line_rows.append(
+            f"<tr class='{row_class}'><td class='src-line-no'>{line_number}</td>"
+            f"<td class='src-counter'>{html.escape(instr_text)}</td>"
+            f"<td class='src-counter'>{html.escape(branch_text)}</td>"
+            f"<td class='src-code'>{html.escape(source_text)}</td></tr>"
+        )
+
+    if source_data["source_path"] is None:
+        note_html = (
+            '<div class="note">Source file could not be resolved from the Teku source tree. '
+            'This page still shows line counters extracted from JaCoCo XML.</div>'
+        )
+    else:
+        note_html = f'<div class="note">Source path: {html.escape(str(source_data["source_path"]))}</div>'
+
+    empty_row = '<tr><td colspan="4">No line coverage data available.</td></tr>'
+    body_html = (
+        '<div class="summary">'
+        f'<div class="card"><h2>Instructions</h2><div class="value">{html.escape(_teku_display_counter(source_data["counters"], "INSTRUCTION"))}</div></div>'
+        f'<div class="card"><h2>Branches</h2><div class="value">{html.escape(_teku_display_counter(source_data["counters"], "BRANCH"))}</div></div>'
+        f'<div class="card"><h2>Lines</h2><div class="value">{html.escape(_teku_display_counter(source_data["counters"], "LINE"))}</div></div>'
+        '</div>'
+        + note_html +
+        '<table class="src-table">'
+        '<thead><tr><th>Line</th><th>Instructions</th><th>Branches</th><th>Source</th></tr></thead>'
+        f'<tbody>{"".join(line_rows) or empty_row}</tbody>'
+        '</table>'
+    )
+
+    page_html = _teku_render_page(
+        f'Teku Coverage: {_teku_package_label(package_data["name"])} / {source_data["name"]}',
+        [
+            ("Teku Coverage", html.escape(_teku_rel_link(root_index_path, page_path))),
+            (_teku_package_label(package_data["name"]), html.escape(_teku_rel_link(package_index_path, page_path))),
+            (source_data["name"], None),
+        ],
+        body_html,
+    )
+    with open(page_path, 'w', encoding='utf-8') as f:
+        f.write(page_html)
+
+
+def _generate_teku_html_from_filtered_xml(filtered_xml, output_dir, teku_source_roots):
+    """Generate root, package, and source-file HTML pages from filtered JaCoCo XML."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        tree = ET.parse(filtered_xml)
+        root = tree.getroot()
+        source_lookup = _build_teku_source_lookup(teku_source_roots)
+        root_index_path = output_dir / "index.html"
+
+        packages = []
+        for package in sorted(root.findall("package"), key=lambda elem: elem.get("name", "")):
+            package_name = package.get("name", "")
+            package_dir = output_dir / _teku_package_dir(package_name)
+            package_dir.mkdir(parents=True, exist_ok=True)
+            package_index_path = package_dir / "index.html"
+
+            sourcefiles = []
+            for source_elem in sorted(package.findall("sourcefile"), key=lambda elem: elem.get("name", "")):
+                source_name = source_elem.get("name", "")
+                source_page_path = package_dir / _teku_source_page_name(source_name)
+                source_rel_path = _teku_source_rel_path(package_name, source_name)
+                line_map = {}
+                for line in source_elem.findall("line"):
+                    line_number = int(line.get("nr", 0))
+                    line_map[line_number] = {
+                        "mi": int(line.get("mi", 0)),
+                        "ci": int(line.get("ci", 0)),
+                        "mb": int(line.get("mb", 0)),
+                        "cb": int(line.get("cb", 0)),
+                    }
+                sourcefiles.append(
+                    {
+                        "name": source_name,
+                        "page_path": source_page_path,
+                        "source_path": source_lookup.get(source_rel_path),
+                        "line_map": line_map,
+                        "counters": _teku_counter_map(source_elem),
+                    }
+                )
+
+            package_data = {
+                "name": package_name,
+                "package_index_path": package_index_path,
+                "sourcefiles": sourcefiles,
+                "counters": _teku_counter_map(package),
+            }
+            packages.append(package_data)
+
+        for package_data in packages:
+            _write_teku_package_index(package_data, root_index_path)
+            for source_data in package_data["sourcefiles"]:
+                _write_teku_source_file_report(package_data, source_data, root_index_path)
+
+        root_rows = []
+        for package_data in packages:
+            row_class = _teku_row_class(package_data["counters"])
+            href = html.escape(_teku_rel_link(package_data["package_index_path"], root_index_path))
+            label = html.escape(_teku_package_label(package_data["name"]))
+            instructions = html.escape(_teku_display_counter(package_data["counters"], "INSTRUCTION"))
+            branches = html.escape(_teku_display_counter(package_data["counters"], "BRANCH"))
+            lines = html.escape(_teku_display_counter(package_data["counters"], "LINE"))
+            root_rows.append(
+                f"<tr class='{row_class}'><td><a href='{href}'>{label}</a></td>"
+                f"<td>{len(package_data['sourcefiles'])}</td><td>{instructions}</td><td>{branches}</td><td>{lines}</td></tr>"
+            )
+
+        root_counters = _teku_counter_map(root)
+        empty_row = '<tr><td colspan="5">No packages matched the Teku filter scope.</td></tr>'
+        body_html = (
+            '<div class="summary">'
+            f'<div class="card"><h2>Packages</h2><div class="value">{len(packages)}</div></div>'
+            f'<div class="card"><h2>Instructions</h2><div class="value">{html.escape(_teku_display_counter(root_counters, "INSTRUCTION"))}</div></div>'
+            f'<div class="card"><h2>Branches</h2><div class="value">{html.escape(_teku_display_counter(root_counters, "BRANCH"))}</div></div>'
+            f'<div class="card"><h2>Lines</h2><div class="value">{html.escape(_teku_display_counter(root_counters, "LINE"))}</div></div>'
+            '</div>'
+            '<table class="coverage">'
+            '<thead><tr><th>Package</th><th>Source Files</th><th>Instructions</th><th>Branches</th><th>Lines</th></tr></thead>'
+            f'<tbody>{"".join(root_rows) or empty_row}</tbody>'
+            '</table>'
+        )
+
+        page_html = _teku_render_page(
+            'Teku Coverage Report (Filtered - Core State-Transition Only)',
+            [("Teku Coverage", None)],
+            body_html,
+        )
+        with open(root_index_path, 'w', encoding='utf-8') as f:
+            f.write(page_html)
+
     except Exception as e:
         print(f"    ⚠ Warning: Failed to generate HTML from filtered XML: {e}")
         import traceback
@@ -3897,11 +4153,12 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
             # Regenerate report using c8 report command
             # Read JSON files from temp-directory to generate report
             # Increase Node.js memory limit for large JSON file processing
-            env = os.environ.copy()
+            env = _prefer_system_node_path(os.environ.copy())
             env["NODE_OPTIONS"] = "--max-old-space-size=16384"  # 8GB heap size
             subprocess.run(
-                [
-                    "npx", "c8", "report",
+                _lodestar_c8_command(
+                    lodestar_dir,
+                    "report",
                     "--merge-async",
                     f"--temp-directory={lodestar_temp_dir}",
                     "--reporter=html",
@@ -3913,7 +4170,7 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
                     "--include=node_modules/@chainsafe/**/*.js",
                     "--exclude=**/transition.js",
                     "--exclude=**/generateCachedStateCapella.js",
-                ],
+                ),
                 cwd=str(lodestar_dir),
                 env=env,
                 check=True,
@@ -3956,6 +4213,154 @@ def _generate_lodestar_report(lodestar_coverage_dir, testing_clients_dir):
         print(f"    ✗ HTML report not found: {html_index}")
         print(f"    ℹ Check if coverage JSON files contain actual file paths (not just node:internal/*)")
 
+def _write_eth2spec_coverage_reports(coverage_data_file, report_dir):
+    """Generate text, HTML, and JSON coverage artifacts for eth2spec."""
+    report_dir.mkdir(parents=True, exist_ok=True)
+    html_dir = report_dir / "html"
+    html_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        report_result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "report",
+                "--data-file",
+                str(coverage_data_file),
+                "-m",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        (report_dir / "report.txt").write_text(report_result.stdout, encoding="utf-8")
+
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "html",
+                "--data-file",
+                str(coverage_data_file),
+                "-d",
+                str(html_dir),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "json",
+                "--data-file",
+                str(coverage_data_file),
+                "--pretty-print",
+                "-o",
+                str(report_dir / "coverage.json"),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        print(f"    ✓ Report: {report_dir / 'report.txt'}")
+        print(f"    ✓ HTML: {html_dir / 'index.html'}")
+        print(f"    ✓ JSON: {report_dir / 'coverage.json'}")
+    except FileNotFoundError:
+        print("    ✗ coverage.py not found. Install with: pip install coverage")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+
+def _generate_eth2spec_report(eth2spec_coverage_dir, testing_clients_dir):
+    """Generate eth2spec (Python) coverage report."""
+    coverage_file = eth2spec_coverage_dir / ".coverage"
+    if not coverage_file.exists():
+        return
+    _write_eth2spec_coverage_reports(coverage_file, eth2spec_coverage_dir / "report")
+
+
+
+def _merge_eth2spec_coverage(cov_dirs, output_dir, testing_clients_dir):
+    """Merge eth2spec coverage data from multiple test cases."""
+    coverage_files = [cov_dir / ".coverage" for cov_dir in cov_dirs if (cov_dir / ".coverage").exists()]
+    if not coverage_files:
+        print("    ✗ No eth2spec coverage data files found")
+        return
+
+    merged_cov_dir = output_dir / "merged_coverage"
+    merged_cov_dir.mkdir(exist_ok=True)
+    merged_data_file = merged_cov_dir / ".coverage"
+
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "combine",
+                "--keep",
+                "--data-file",
+                str(merged_data_file),
+            ] + [str(file) for file in coverage_files],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        _write_eth2spec_coverage_reports(merged_data_file, output_dir / "report")
+    except FileNotFoundError:
+        print("    ✗ coverage.py not found. Install with: pip install coverage")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
+
+def _merge_final_eth2spec_coverage(merged_coverage_dirs, output_dir, testing_clients_dir):
+    """Merge eth2spec coverage data from multiple test suites."""
+    coverage_files = [merged_dir / ".coverage" for merged_dir in merged_coverage_dirs if (merged_dir / ".coverage").exists()]
+    if not coverage_files:
+        print("    ✗ No merged eth2spec coverage data files found")
+        return
+
+    final_merged_cov_dir = output_dir / "merged_coverage"
+    final_merged_cov_dir.mkdir(exist_ok=True)
+    final_merged_data = final_merged_cov_dir / ".coverage"
+
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "coverage",
+                "combine",
+                "--keep",
+                "--data-file",
+                str(final_merged_data),
+            ] + [str(file) for file in coverage_files],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        _write_eth2spec_coverage_reports(final_merged_data, output_dir / "report")
+    except FileNotFoundError:
+        print("    ✗ coverage.py not found. Install with: pip install coverage")
+    except subprocess.CalledProcessError as e:
+        print(f"    ✗ Failed to merge coverage: {e}")
+        if e.stderr:
+            print(f"    ℹ Error: {e.stderr}")
+
+
 def generate_accumulated_coverage_report(output_base_dir, spectec_core_dir, cleanup_after_report=False):
     """
     Generate accumulated coverage report for entire test suite.
@@ -3977,7 +4382,7 @@ def generate_accumulated_coverage_report(output_base_dir, spectec_core_dir, clea
     total_coverage_dir = output_base_path / "total-node-coverage"
     total_coverage_dir.mkdir(exist_ok=True)
     
-    clients = ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]
+    clients = BASE_CLIENT_TOOLS + ["eth2spec"]
     
     for client in clients:
         print(f"\n[+] Processing accumulated {client.capitalize()} coverage...")
@@ -3987,6 +4392,11 @@ def generate_accumulated_coverage_report(output_base_dir, spectec_core_dir, clea
         
         # Collect all coverage data directories for this client
         client_cov_dirs = []
+        direct_client_dir = output_base_path / client
+        if direct_client_dir.exists():
+            cov_dirs = sorted([d for d in direct_client_dir.iterdir() if d.is_dir() and d.name.startswith("cov_output_")])
+            client_cov_dirs.extend(cov_dirs)
+
         for test_case_dir in test_case_dirs:
             client_dir = test_case_dir / client
             if client_dir.exists():
@@ -4014,6 +4424,8 @@ def generate_accumulated_coverage_report(output_base_dir, spectec_core_dir, clea
             _merge_nimbus_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
         elif client == "lodestar":
             _merge_lodestar_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
+        elif client == "eth2spec":
+            _merge_eth2spec_coverage(client_cov_dirs, client_output_dir, testing_clients_dir)
         
         # Cleanup original data if requested
         if cleanup_after_report:
@@ -4049,7 +4461,7 @@ def generate_final_accumulated_coverage_report(test_suite_output_dirs, final_out
         print(f"  - {suite_dir}")
     print(f"Final output: {final_output_path}\n")
     
-    clients = ["prysm", "lighthouse", "teku", "nimbus", "lodestar"]
+    clients = BASE_CLIENT_TOOLS + ["eth2spec"]
     
     for client in clients:
         print(f"\n[+] Processing final accumulated {client.capitalize()} coverage...")
@@ -4093,6 +4505,8 @@ def generate_final_accumulated_coverage_report(test_suite_output_dirs, final_out
             _merge_final_nimbus_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
         elif client == "lodestar":
             _merge_final_lodestar_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
+        elif client == "eth2spec":
+            _merge_final_eth2spec_coverage(merged_coverage_dirs, client_output_dir, testing_clients_dir)
     
     print(f"\n{'='*60}")
     print(f"Final accumulated coverage reports saved in: {final_output_path}")
@@ -4269,6 +4683,7 @@ def _merge_final_lighthouse_coverage(merged_coverage_dirs, output_dir, testing_c
             print(f"    ℹ Error: {e.stderr}")
 
 
+
 def _merge_final_teku_coverage(merged_coverage_dirs, output_dir, testing_clients_dir):
     """Merge Teku coverage data from multiple test suites (already merged exec files)"""
     # Collect all teku-coverage-merged.exec files
@@ -4277,68 +4692,31 @@ def _merge_final_teku_coverage(merged_coverage_dirs, output_dir, testing_clients
         exec_file = merged_dir / "teku-coverage-merged.exec"
         if exec_file.exists():
             all_exec_files.append(exec_file)
-    
+
     if not all_exec_files:
         print(f"    ✗ No teku-coverage-merged.exec files found")
         return
-    
+
     # Create final merged coverage directory
     final_merged_cov_dir = output_dir / "merged_coverage"
     final_merged_cov_dir.mkdir(exist_ok=True)
-    
+
     jacoco_cli = testing_clients_dir / "jacoco" / "jacococli.jar"
     if not jacoco_cli.exists():
         print(f"    ✗ JaCoCo CLI not found at {jacoco_cli}")
         return
-    
+
     try:
         # Merge exec files using JaCoCo CLI
         final_merged_exec = final_merged_cov_dir / "teku-coverage-merged.exec"
         _merge_teku_exec_files(all_exec_files, final_merged_exec, jacoco_cli)
-        
-        # Generate report from merged exec file
-        teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
-        teku_jars = list(teku_lib_dir.glob("teku-*.jar"))
-        
-        if not teku_jars:
-            print(f"    ✗ No Teku jar files found")
-            return
-        
-        classfiles_args = []
-        for jar in teku_jars:
-            classfiles_args.extend(["--classfiles", str(jar)])
-        
-        teku_root = testing_clients_dir / "teku"
-        sourcefiles_args = ["--sourcefiles", str(teku_root / "teku" / "src" / "main" / "java")]
-        
+
         report_dir = output_dir / "report"
-        report_dir.mkdir(exist_ok=True)
-        
-        # 1. Generate XML report first (for filtering)
-        xml_report = report_dir / "coverage.xml"
-        subprocess.run(
-            ["java", "-jar", str(jacoco_cli),
-                "report", str(final_merged_exec),
-                "--xml", str(xml_report),
-            ] + classfiles_args + sourcefiles_args,
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        
-        # 2. Filter XML report to keep only core state-transition packages
-        filtered_xml = report_dir / "coverage_filtered.xml"
-        _filter_teku_xml_report(xml_report, filtered_xml)
-        
-        # 3. Generate HTML report from filtered XML
-        # Note: JaCoCo report command doesn't accept XML as input, so we parse
-        # the filtered XML and generate HTML report directly
-        _generate_teku_html_from_filtered_xml(filtered_xml, report_dir, teku_root)
-        
-        # Generate CSV from filtered XML
-        _generate_teku_csv_from_filtered_xml(filtered_xml, report_dir / "coverage.csv")
-        
+        if not _generate_teku_filtered_report_from_exec(final_merged_exec, report_dir, testing_clients_dir):
+            return
+
         print(f"    ✓ Final accumulated report: {report_dir / 'index.html'}")
+        print(f"    ✓ Final accumulated CSV: {report_dir / 'coverage.csv'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
@@ -4426,6 +4804,8 @@ def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_cli
     lodestar_dir = testing_clients_dir / "lodestar"
     report_dir = output_dir / "report"
     report_dir.mkdir(exist_ok=True)
+    report_json_dir = output_dir / "report_json"
+    report_json_dir.mkdir(exist_ok=True)
     
     # Create final merged coverage directory
     final_merged_cov_dir = output_dir / "merged_coverage"
@@ -4447,23 +4827,37 @@ def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_cli
         # Use --clean=false to prevent c8 from deleting temp files
         # Use absolute paths since c8 runs from lodestar directory
         # Increase Node.js memory limit for large JSON file processing (1822+ files)
-        env = os.environ.copy()
+        env = _prefer_system_node_path(os.environ.copy())
         env["NODE_OPTIONS"] = "--max-old-space-size=65536"  
+        common_args = _lodestar_c8_command(
+            lodestar_dir,
+            "report",
+            "--merge-async",
+            f"--temp-directory={final_merged_cov_dir.resolve()}",
+            "--exclude-node-modules=false",
+            "--extension=.js",
+            "--include=node_modules/@lodestar/**/*.js",
+            "--include=node_modules/@chainsafe/**/*.js",
+            "--exclude=**/transition.js",
+            "--exclude=**/generateCachedStateCapella.js",
+            "--clean=false",
+        )
         subprocess.run(
-            [
-                "npx", "c8", "report",
-                "--merge-async",
-                f"--temp-directory={final_merged_cov_dir.resolve()}",
+            common_args + [
                 "--reporter=html",
                 "--reporter=text",
                 f"--report-dir={report_dir.resolve()}",
-                "--exclude-node-modules=false",
-                "--extension=.js",
-                "--include=node_modules/@lodestar/**/*.js",
-                "--include=node_modules/@chainsafe/**/*.js",
-                "--exclude=**/transition.js",
-                "--exclude=**/generateCachedStateCapella.js",
-                "--clean=false",  # Don't delete temp files
+            ],
+            cwd=str(lodestar_dir),
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        subprocess.run(
+            common_args + [
+                "--reporter=json",
+                f"--report-dir={report_json_dir.resolve()}",
             ],
             cwd=str(lodestar_dir),
             env=env,
@@ -4473,6 +4867,7 @@ def _merge_final_lodestar_coverage(merged_coverage_dirs, output_dir, testing_cli
         )
         
         print(f"    ✓ Final accumulated report: {report_dir / 'index.html'}")
+        print(f"    ✓ Final accumulated JSON: {report_json_dir / 'coverage-final.json'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
@@ -4510,7 +4905,8 @@ def _merge_prysm_coverage(cov_dirs, output_dir, testing_clients_dir):
             ["go", "tool", "covdata", "textfmt", f"-i={merged_cov_dir}", f"-o={coverage_txt}"],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
+            env=_local_go_env()
         )
         
         # Generate HTML report using go tool cover (run from Prysm directory)
@@ -4523,6 +4919,7 @@ def _merge_prysm_coverage(cov_dirs, output_dir, testing_clients_dir):
             check=True,
             capture_output=True,
             text=True,
+            env=_local_go_env(),
             cwd=str(prysm_dir)  # Run from Prysm directory (go.mod required)
         )
         
@@ -4709,6 +5106,7 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
             print(f"    ℹ Error: {e.stderr}")
 
 
+
 def _merge_teku_coverage(cov_dirs, output_dir, testing_clients_dir):
     """Merge Teku coverage data from multiple test cases"""
     # Collect all teku-coverage.exec files
@@ -4717,69 +5115,31 @@ def _merge_teku_coverage(cov_dirs, output_dir, testing_clients_dir):
         exec_file = cov_dir / "teku-coverage.exec"
         if exec_file.exists():
             all_exec_files.append(exec_file)
-    
+
     if not all_exec_files:
         print(f"    ✗ No teku-coverage.exec files found")
         return
-    
+
     # Create merged coverage directory
     merged_cov_dir = output_dir / "merged_coverage"
     merged_cov_dir.mkdir(exist_ok=True)
-    
+
     jacoco_cli = testing_clients_dir / "jacoco" / "jacococli.jar"
     if not jacoco_cli.exists():
         print(f"    ✗ JaCoCo CLI not found at {jacoco_cli}")
         return
-    
+
     try:
         # Merge exec files using JaCoCo CLI
         merged_exec = merged_cov_dir / "teku-coverage-merged.exec"
         _merge_teku_exec_files(all_exec_files, merged_exec, jacoco_cli)
-        
-        # Generate report from merged exec file
-        teku_lib_dir = testing_clients_dir / "teku" / "build" / "install" / "teku-cov" / "lib"
-        teku_jars = list(teku_lib_dir.glob("teku-*.jar"))
-        
-        if not teku_jars:
-            print(f"    ✗ No Teku jar files found")
-            return
-        
-        classfiles_args = []
-        for jar in teku_jars:
-            classfiles_args.extend(["--classfiles", str(jar)])
-        
-        teku_root = testing_clients_dir / "teku"
-        src_dirs = []
-        for src_dir in teku_root.rglob("src/main/java"):
-            if src_dir.is_dir():
-                src_dirs.append(str(src_dir))
-        
-        if not src_dirs:
-            print(f"    ✗ No source directories found")
-            return
-        
+
         report_dir = output_dir / "report"
-        report_dir.mkdir(exist_ok=True)
-        
-        # Add --sourcefiles option for each source directory (same as individual reports)
-        sourcefiles_args = []
-        for src_dir in src_dirs:
-            sourcefiles_args.extend(["--sourcefiles", src_dir])
-        
-        # Generate HTML and CSV reports from merged exec file (no filtering for test suite accumulation)
-        subprocess.run(
-            [
-                "java", "-jar", str(jacoco_cli),
-                "report", str(merged_exec),
-                "--html", str(report_dir),
-                "--csv", str(report_dir / "coverage.csv"),
-            ] + classfiles_args + sourcefiles_args,
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        
+        if not _generate_teku_filtered_report_from_exec(merged_exec, report_dir, testing_clients_dir):
+            return
+
         print(f"    ✓ Accumulated report: {report_dir / 'index.html'}")
+        print(f"    ✓ Accumulated CSV: {report_dir / 'coverage.csv'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
@@ -4968,7 +5328,8 @@ def _merge_prysm_cov_dirs(input_dirs, output_dir):
                     ],
                     check=True,
                     capture_output=True,
-                    text=True
+                    text=True,
+                    env=_local_go_env()
                 )
                 next_inputs.append(chunk_output)
 
@@ -4983,7 +5344,8 @@ def _merge_prysm_cov_dirs(input_dirs, output_dir):
             ],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
+            env=_local_go_env()
         )
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
@@ -5202,6 +5564,8 @@ def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
     lodestar_dir = testing_clients_dir / "lodestar"
     report_dir = output_dir / "report"
     report_dir.mkdir(exist_ok=True)
+    report_json_dir = output_dir / "report_json"
+    report_json_dir.mkdir(exist_ok=True)
     
     # Create merged coverage directory
     merged_cov_dir = output_dir / "merged_coverage"
@@ -5215,22 +5579,37 @@ def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
     try:
         # Merge and generate report using c8
         # Increase Node.js memory limit for large JSON file processing
-        env = os.environ.copy()
+        env = _prefer_system_node_path(os.environ.copy())
         env["NODE_OPTIONS"] = "--max-old-space-size=65536"  
+        common_args = _lodestar_c8_command(
+            lodestar_dir,
+            "report",
+            "--merge-async",
+            f"--temp-directory={merged_cov_dir}",
+            "--exclude-node-modules=false",
+            "--extension=.js",
+            "--include=node_modules/@lodestar/**/*.js",
+            "--include=node_modules/@chainsafe/**/*.js",
+            "--exclude=**/transition.js",
+            "--exclude=**/generateCachedStateCapella.js",
+            "--clean=false",
+        )
         subprocess.run(
-            [
-                "npx", "c8", "report",
-                "--merge-async",
-                f"--temp-directory={merged_cov_dir}",
+            common_args + [
                 "--reporter=html",
                 "--reporter=text",
                 f"--report-dir={report_dir}",
-                "--exclude-node-modules=false",
-                "--extension=.js",
-                "--include=node_modules/@lodestar/**/*.js",
-                "--include=node_modules/@chainsafe/**/*.js",
-                "--exclude=**/transition.js",
-                "--exclude=**/generateCachedStateCapella.js",
+            ],
+            cwd=str(lodestar_dir),
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        subprocess.run(
+            common_args + [
+                "--reporter=json",
+                f"--report-dir={report_json_dir}",
             ],
             cwd=str(lodestar_dir),
             env=env,
@@ -5240,6 +5619,7 @@ def _merge_lodestar_coverage(cov_dirs, output_dir, testing_clients_dir):
         )
         
         print(f"    ✓ Accumulated report: {report_dir / 'index.html'}")
+        print(f"    ✓ Accumulated JSON: {report_json_dir / 'coverage-final.json'}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
@@ -5296,6 +5676,12 @@ def _cleanup_coverage_data(cov_dir, client):
             for json_file in cov_dir.glob("coverage-*.json"):
                 json_file.unlink()
                 print(f"    ✓ Removed: {json_file.name}")
+
+        elif client == "eth2spec":
+            coverage_file = cov_dir / ".coverage"
+            if coverage_file.exists():
+                coverage_file.unlink()
+                print(f"    ✓ Removed: {coverage_file.name}")
     
     except Exception as e:
         print(f"    ⚠ Warning: Failed to cleanup coverage data: {e}")
@@ -5408,8 +5794,8 @@ def main():
                        choices=["state-transition", "operation", "epoch-processing", "sanity-slots"],
                        help="Type of test to run: state-transition (default), operation, epoch-processing, or sanity-slots")
     parser.add_argument("--fork-version", type=str, default="capella",
-                       choices=["capella", "deneb"],
-                       help="Fork version to use: capella (default) or deneb")
+                       choices=supported_forks(),
+                       help="Fork version to use")
     parser.add_argument("beaconstate_dir_path", nargs="?", default=None,
                        help="Path to beaconstate files dir (required if --test-suite is not used)")
     parser.add_argument("block_dir_path", nargs="?", default=None,
@@ -5435,6 +5821,11 @@ def main():
                        help="Output directory for final accumulated coverage report (required when using --generate-final-coverage)")
 
     args = parser.parse_args()
+    if args.test_type != "state-transition" and args.fork_version not in {"capella", "deneb"}:
+        parser.error(
+            "--fork-version values outside capella/deneb are currently supported "
+            "only with --test-type state-transition"
+        )
     
     # Handle --generate-final-coverage mode (standalone mode)
     if args.generate_final_coverage:

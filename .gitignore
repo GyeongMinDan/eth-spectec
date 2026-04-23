@@ -11,3 +11,17 @@ spectec-core
 
 # testing_clients - managed by Dockerfile, not git
 testing_clients/
+
+# generated local artifacts
+__pycache__/
+*.py[cod]
+.gocache/
+.cargo-home/
+.gradle-home/
+Converter/_generated_pure_configs/
+Converter/**/__pycache__/
+results_officialtestsuite_smoke/
+results_officialtestsuite_forks/
+*.log
+phase0_to_*_state_transition_scope.json
+scope_function_coverage_delta_*.json

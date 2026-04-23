@@ -12,7 +12,7 @@ import
   snappy,
   ../beacon_chain/spec/eth2_apis/eth2_rest_serialization,
   ../beacon_chain/spec/[eth2_ssz_serialization, state_transition, state_transition_block, state_transition_epoch, forks],
-  ../beacon_chain/spec/datatypes/[phase0, altair, bellatrix, capella, deneb, constants]
+  ../beacon_chain/spec/datatypes/[phase0, altair, bellatrix, capella, deneb, electra, constants]
 
 from serialization import SerializationError
 
@@ -190,19 +190,48 @@ proc doTransition(conf: NcliConf) =
     # Get fork version from environment variable (set by diff_testing.py)
     # Default to "capella" if not set
     forkVersionEnv = getEnv("FORK_VERSION", "capella")
-    isDeneb = forkVersionEnv == "deneb"
     # Set config based on fork version
     cfg = block:
       var c = cfgBase
-      c.ALTAIR_FORK_EPOCH = Epoch(0)
-      c.BELLATRIX_FORK_EPOCH = Epoch(0)
-      c.CAPELLA_FORK_EPOCH = Epoch(0)
-      if isDeneb:
-        # Pure Deneb config: DENEB_FORK_EPOCH = 0
-        c.DENEB_FORK_EPOCH = Epoch(0)
-      else:
-        # Pure Capella config: CAPELLA_FORK_EPOCH = 0, DENEB_FORK_EPOCH = 75520
+      case forkVersionEnv
+      of "phase0":
+        c.ALTAIR_FORK_EPOCH = FAR_FUTURE_EPOCH
+        c.BELLATRIX_FORK_EPOCH = FAR_FUTURE_EPOCH
+        c.CAPELLA_FORK_EPOCH = FAR_FUTURE_EPOCH
+        c.DENEB_FORK_EPOCH = FAR_FUTURE_EPOCH
+        c.ELECTRA_FORK_EPOCH = FAR_FUTURE_EPOCH
+      of "altair":
+        c.ALTAIR_FORK_EPOCH = Epoch(0)
+        c.BELLATRIX_FORK_EPOCH = FAR_FUTURE_EPOCH
+        c.CAPELLA_FORK_EPOCH = FAR_FUTURE_EPOCH
+        c.DENEB_FORK_EPOCH = FAR_FUTURE_EPOCH
+        c.ELECTRA_FORK_EPOCH = FAR_FUTURE_EPOCH
+      of "bellatrix":
+        c.ALTAIR_FORK_EPOCH = Epoch(0)
+        c.BELLATRIX_FORK_EPOCH = Epoch(0)
+        c.CAPELLA_FORK_EPOCH = FAR_FUTURE_EPOCH
+        c.DENEB_FORK_EPOCH = FAR_FUTURE_EPOCH
+        c.ELECTRA_FORK_EPOCH = FAR_FUTURE_EPOCH
+      of "capella":
+        c.ALTAIR_FORK_EPOCH = Epoch(0)
+        c.BELLATRIX_FORK_EPOCH = Epoch(0)
+        c.CAPELLA_FORK_EPOCH = Epoch(0)
         c.DENEB_FORK_EPOCH = Epoch(75520)
+        c.ELECTRA_FORK_EPOCH = Epoch(364032)
+      of "deneb":
+        c.ALTAIR_FORK_EPOCH = Epoch(0)
+        c.BELLATRIX_FORK_EPOCH = Epoch(0)
+        c.CAPELLA_FORK_EPOCH = Epoch(0)
+        c.DENEB_FORK_EPOCH = Epoch(0)
+        c.ELECTRA_FORK_EPOCH = Epoch(364032)
+      of "electra":
+        c.ALTAIR_FORK_EPOCH = Epoch(0)
+        c.BELLATRIX_FORK_EPOCH = Epoch(0)
+        c.CAPELLA_FORK_EPOCH = Epoch(0)
+        c.DENEB_FORK_EPOCH = Epoch(0)
+        c.ELECTRA_FORK_EPOCH = Epoch(0)
+      else:
+        raiseAssert "unsupported FORK_VERSION: " & forkVersionEnv
       c
     # Load state with correct config
     stateY = withTimerRet(timers[tLoadState]):

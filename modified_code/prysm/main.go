@@ -15,8 +15,8 @@ import (
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/epoch"
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/epoch/precompute"
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/transition"
-	v "github.com/OffchainLabs/prysm/v7/beacon-chain/core/validators"
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/validators"
+	v "github.com/OffchainLabs/prysm/v7/beacon-chain/core/validators"
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/state"
 	state_native "github.com/OffchainLabs/prysm/v7/beacon-chain/state/state-native"
 	"github.com/OffchainLabs/prysm/v7/config/params"
@@ -52,6 +52,7 @@ var epochProcessingType string
 var epochProcessingOutputPath string
 var sanitySlotsSlot uint64
 var sanitySlotsOutputPath string
+var forkVersion string
 var prettyCommand = &cli.Command{
 	Name:    "pretty",
 	Aliases: []string{"p"},
@@ -222,6 +223,12 @@ var stateTransitionCommand = &cli.Command{
 			Usage:       "Network to run the state transition in",
 			Destination: &network,
 		},
+		&cli.StringFlag{
+			Name:        "fork-version",
+			Usage:       "Pure fork config to use: phase0, altair, bellatrix, capella, deneb, or electra",
+			Value:       "capella",
+			Destination: &forkVersion,
+		},
 	},
 	Action: func(c *cli.Context) error {
 		if network != "" {
@@ -242,7 +249,6 @@ var stateTransitionCommand = &cli.Command{
 				log.Fatalf("Unknown network provided: %s", network)
 			}
 		} else {
-			// Detect fork version from state and set config accordingly
 			if preStatePath == "" {
 				log.Info("Pre State path not provided for state transition. " +
 					"Please provide path")
@@ -256,11 +262,7 @@ var stateTransitionCommand = &cli.Command{
 				}
 				preStatePath = text
 			}
-			isDeneb, err := detectForkVersionFromState(preStatePath)
-			if err != nil {
-				log.Fatal(err)
-			}
-			setForkConfig(isDeneb)
+			setForkConfigForFork(forkVersion)
 		}
 
 		if blockPath == "" {
@@ -284,7 +286,7 @@ var stateTransitionCommand = &cli.Command{
 		if err != nil {
 			log.Fatal(err)
 		}
-		stateObj, err := detectState(preStatePath)
+		stateObj, err := detectStateForFork(preStatePath, forkVersion)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -338,7 +340,7 @@ var stateTransitionCommand = &cli.Command{
 		}
 		// Diff the state if a post state is provided.
 		if expectedPostStatePath != "" {
-			expectedState, err := detectState(expectedPostStatePath)
+			expectedState, err := detectStateForFork(expectedPostStatePath, forkVersion)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -404,7 +406,7 @@ var operationCommand = &cli.Command{
 		if operationType == "execution_payload" && executionValid != "" {
 			executionValidBool = (executionValid == "true")
 		}
-		
+
 		postState, err := processOperation(context.Background(), preState, operationType, operationPath, executionValidBool)
 		if err != nil {
 			log.Fatal(err)
@@ -596,20 +598,106 @@ func detectForkVersionFromState(fPath string) (bool, error) {
 
 // setForkConfig sets config based on fork version
 func setForkConfig(isDeneb bool) {
-	cfg := params.MainnetConfig()
-	cfg.AltairForkEpoch = 0
-	cfg.BellatrixForkEpoch = 0
-	cfg.CapellaForkEpoch = 0
 	if isDeneb {
-		// Pure Deneb config: DENEB_FORK_EPOCH = 0
-		cfg.DenebForkEpoch = 0
+		setForkConfigForFork("deneb")
 	} else {
-		// Pure Capella config: CAPELLA_FORK_EPOCH = 0, DENEB_FORK_EPOCH = 75520
+		setForkConfigForFork("capella")
+	}
+}
+
+func setForkConfigForFork(fork string) {
+	cfg := params.MainnetConfig()
+	switch fork {
+	case "phase0":
+		cfg.AltairForkEpoch = cfg.FarFutureEpoch
+		cfg.BellatrixForkEpoch = cfg.FarFutureEpoch
+		cfg.CapellaForkEpoch = cfg.FarFutureEpoch
+		cfg.DenebForkEpoch = cfg.FarFutureEpoch
+		cfg.ElectraForkEpoch = cfg.FarFutureEpoch
+	case "altair":
+		cfg.AltairForkEpoch = 0
+		cfg.BellatrixForkEpoch = cfg.FarFutureEpoch
+		cfg.CapellaForkEpoch = cfg.FarFutureEpoch
+		cfg.DenebForkEpoch = cfg.FarFutureEpoch
+		cfg.ElectraForkEpoch = cfg.FarFutureEpoch
+	case "bellatrix":
+		cfg.AltairForkEpoch = 0
+		cfg.BellatrixForkEpoch = 0
+		cfg.CapellaForkEpoch = cfg.FarFutureEpoch
+		cfg.DenebForkEpoch = cfg.FarFutureEpoch
+		cfg.ElectraForkEpoch = cfg.FarFutureEpoch
+	case "capella":
+		cfg.AltairForkEpoch = 0
+		cfg.BellatrixForkEpoch = 0
+		cfg.CapellaForkEpoch = 0
 		cfg.DenebForkEpoch = 75520
+		cfg.ElectraForkEpoch = 364032
+	case "deneb":
+		cfg.AltairForkEpoch = 0
+		cfg.BellatrixForkEpoch = 0
+		cfg.CapellaForkEpoch = 0
+		cfg.DenebForkEpoch = 0
+		cfg.ElectraForkEpoch = 364032
+	case "electra":
+		cfg.AltairForkEpoch = 0
+		cfg.BellatrixForkEpoch = 0
+		cfg.CapellaForkEpoch = 0
+		cfg.DenebForkEpoch = 0
+		cfg.ElectraForkEpoch = 0
+	default:
+		log.Fatalf("unsupported fork-version: %s", fork)
 	}
 	cfg.InitializeForkSchedule()
 	if err := params.SetActive(cfg); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func detectStateForFork(fPath string, fork string) (state.BeaconState, error) {
+	rawFile, err := os.ReadFile(fPath) // #nosec G304
+	if err != nil {
+		return nil, err
+	}
+
+	switch fork {
+	case "phase0":
+		base := &ethpb.BeaconState{}
+		if err := base.UnmarshalSSZ(rawFile); err != nil {
+			return nil, errors.Wrap(err, "error unmarshalling phase0 state")
+		}
+		return state_native.InitializeFromProtoPhase0(base)
+	case "altair":
+		base := &ethpb.BeaconStateAltair{}
+		if err := base.UnmarshalSSZ(rawFile); err != nil {
+			return nil, errors.Wrap(err, "error unmarshalling altair state")
+		}
+		return state_native.InitializeFromProtoAltair(base)
+	case "bellatrix":
+		base := &ethpb.BeaconStateBellatrix{}
+		if err := base.UnmarshalSSZ(rawFile); err != nil {
+			return nil, errors.Wrap(err, "error unmarshalling bellatrix state")
+		}
+		return state_native.InitializeFromProtoBellatrix(base)
+	case "capella":
+		base := &ethpb.BeaconStateCapella{}
+		if err := base.UnmarshalSSZ(rawFile); err != nil {
+			return nil, errors.Wrap(err, "error unmarshalling capella state")
+		}
+		return state_native.InitializeFromProtoCapella(base)
+	case "deneb":
+		base := &ethpb.BeaconStateDeneb{}
+		if err := base.UnmarshalSSZ(rawFile); err != nil {
+			return nil, errors.Wrap(err, "error unmarshalling deneb state")
+		}
+		return state_native.InitializeFromProtoDeneb(base)
+	case "electra":
+		base := &ethpb.BeaconStateElectra{}
+		if err := base.UnmarshalSSZ(rawFile); err != nil {
+			return nil, errors.Wrap(err, "error unmarshalling electra state")
+		}
+		return state_native.InitializeFromProtoElectra(base)
+	default:
+		return nil, errors.Errorf("unsupported fork-version: %s", fork)
 	}
 }
 
@@ -806,12 +894,12 @@ func processAttestation(ctx context.Context, st state.BeaconState, attestationSS
 	if err := att.UnmarshalSSZ(attestationSSZ); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal attestation")
 	}
-	
+
 	// Detect fork version from state to use correct block body type
 	protoState := st.ToProtoUnsafe()
 	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-	
+
 	switch protoState.(type) {
 	case *ethpb.BeaconStateDeneb:
 		b := util.NewBeaconBlockDeneb()
@@ -824,7 +912,7 @@ func processAttestation(ctx context.Context, st state.BeaconState, attestationSS
 	default:
 		return nil, errors.New("unsupported state version for attestation (expected Capella or Deneb)")
 	}
-	
+
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signed block")
 	}
@@ -854,7 +942,7 @@ func processBlockHeader(ctx context.Context, st state.BeaconState, blockSSZ []by
 	protoState := st.ToProtoUnsafe()
 	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-	
+
 	switch protoState.(type) {
 	case *ethpb.BeaconStateDeneb:
 		block := &ethpb.BeaconBlockDeneb{}
@@ -871,7 +959,7 @@ func processBlockHeader(ctx context.Context, st state.BeaconState, blockSSZ []by
 	default:
 		return nil, errors.New("unsupported state version for block_header (expected Capella or Deneb)")
 	}
-	
+
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signed block")
 	}
@@ -896,12 +984,12 @@ func processDeposit(ctx context.Context, st state.BeaconState, depositSSZ []byte
 	if err := deposit.UnmarshalSSZ(depositSSZ); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal deposit")
 	}
-	
+
 	// Detect fork version from state to use correct block body type
 	protoState := st.ToProtoUnsafe()
 	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-	
+
 	switch protoState.(type) {
 	case *ethpb.BeaconStateDeneb:
 		b := util.NewBeaconBlockDeneb()
@@ -914,7 +1002,7 @@ func processDeposit(ctx context.Context, st state.BeaconState, depositSSZ []byte
 	default:
 		return nil, errors.New("unsupported state version for deposit (expected Capella or Deneb)")
 	}
-	
+
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signed block")
 	}
@@ -932,12 +1020,12 @@ func processProposerSlashing(ctx context.Context, st state.BeaconState, proposer
 	if err := ps.UnmarshalSSZ(proposerSlashingSSZ); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal proposer slashing")
 	}
-	
+
 	// Detect fork version from state to use correct block body type
 	protoState := st.ToProtoUnsafe()
 	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-	
+
 	switch protoState.(type) {
 	case *ethpb.BeaconStateDeneb:
 		b := util.NewBeaconBlockDeneb()
@@ -950,7 +1038,7 @@ func processProposerSlashing(ctx context.Context, st state.BeaconState, proposer
 	default:
 		return nil, errors.New("unsupported state version for proposer_slashing (expected Capella or Deneb)")
 	}
-	
+
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signed block")
 	}
@@ -968,12 +1056,12 @@ func processAttesterSlashing(ctx context.Context, st state.BeaconState, attester
 	if err := as.UnmarshalSSZ(attesterSlashingSSZ); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal attester slashing")
 	}
-	
+
 	// Detect fork version from state to use correct block body type
 	protoState := st.ToProtoUnsafe()
 	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-	
+
 	switch protoState.(type) {
 	case *ethpb.BeaconStateDeneb:
 		b := util.NewBeaconBlockDeneb()
@@ -986,7 +1074,7 @@ func processAttesterSlashing(ctx context.Context, st state.BeaconState, attester
 	default:
 		return nil, errors.New("unsupported state version for attester_slashing (expected Capella or Deneb)")
 	}
-	
+
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signed block")
 	}
@@ -1004,12 +1092,12 @@ func processVoluntaryExit(ctx context.Context, st state.BeaconState, voluntaryEx
 	if err := ve.UnmarshalSSZ(voluntaryExitSSZ); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal voluntary exit")
 	}
-	
+
 	// Detect fork version from state to use correct block body type
 	protoState := st.ToProtoUnsafe()
 	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-	
+
 	switch protoState.(type) {
 	case *ethpb.BeaconStateDeneb:
 		b := util.NewBeaconBlockDeneb()
@@ -1022,7 +1110,7 @@ func processVoluntaryExit(ctx context.Context, st state.BeaconState, voluntaryEx
 	default:
 		return nil, errors.New("unsupported state version for voluntary_exit (expected Capella or Deneb)")
 	}
-	
+
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signed block")
 	}
@@ -1040,12 +1128,12 @@ func processBLSToExecutionChange(ctx context.Context, st state.BeaconState, blsT
 	if err := blsChange.UnmarshalSSZ(blsToExecChangeSSZ); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal BLS to execution change")
 	}
-	
+
 	// Detect fork version from state to use correct block body type
 	protoState := st.ToProtoUnsafe()
 	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-	
+
 	switch protoState.(type) {
 	case *ethpb.BeaconStateDeneb:
 		b := util.NewBeaconBlockDeneb()
@@ -1058,7 +1146,7 @@ func processBLSToExecutionChange(ctx context.Context, st state.BeaconState, blsT
 	default:
 		return nil, errors.New("unsupported state version for bls_to_execution_change (expected Capella or Deneb)")
 	}
-	
+
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signed block")
 	}
@@ -1094,12 +1182,12 @@ func processSyncCommittee(ctx context.Context, st state.BeaconState, syncAggrega
 	if err := syncAgg.UnmarshalSSZ(syncAggregateSSZ); err != nil {
 		return nil, errors.Wrap(err, "failed to unmarshal sync aggregate")
 	}
-	
+
 	// Detect fork version from state to use correct block body type
 	protoState := st.ToProtoUnsafe()
 	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-	
+
 	switch protoState.(type) {
 	case *ethpb.BeaconStateDeneb:
 		b := util.NewBeaconBlockDeneb()
@@ -1112,7 +1200,7 @@ func processSyncCommittee(ctx context.Context, st state.BeaconState, syncAggrega
 	default:
 		return nil, errors.New("unsupported state version for sync_committee (expected Capella or Deneb)")
 	}
-	
+
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signed block")
 	}
@@ -1139,7 +1227,7 @@ func processExecutionPayload(ctx context.Context, st state.BeaconState, bodySSZ 
 	// Detect fork version from state to use correct block body type
 	var blockBody interfaces.ReadOnlyBeaconBlockBody
 	var err error
-	
+
 	// Check if state is Deneb by checking the proto type
 	protoState := st.ToProtoUnsafe()
 	switch protoState.(type) {
@@ -1178,7 +1266,7 @@ func processWithdrawals(ctx context.Context, st state.BeaconState, executionPayl
 	protoState := st.ToProtoUnsafe()
 	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-	
+
 	switch protoState.(type) {
 	case *ethpb.BeaconStateDeneb:
 		execPayload := &enginev1.ExecutionPayloadDeneb{}
@@ -1199,7 +1287,7 @@ func processWithdrawals(ctx context.Context, st state.BeaconState, executionPayl
 	default:
 		return nil, errors.New("unsupported state version for withdrawals (expected Capella or Deneb)")
 	}
-	
+
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create signed block")
 	}
@@ -1224,7 +1312,7 @@ func processWithdrawals(ctx context.Context, st state.BeaconState, executionPayl
 	default:
 		return nil, errors.New("unsupported state version for withdrawals (expected Capella or Deneb)")
 	}
-	
+
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to wrap execution payload")
 	}

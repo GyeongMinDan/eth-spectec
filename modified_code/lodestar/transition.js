@@ -4,6 +4,7 @@ import { ssz } from "@lodestar/types";
 import { isCachedBeaconState, stateTransition, DataAvailabilityStatus, ExecutionPayloadStatus, getBlockRootAtSlot, processSlots } from "@lodestar/state-transition";
 import { generateCachedState } from "./generateCachedStateCapella.js";
 import * as config from "@lodestar/config";
+import { FAR_FUTURE_EPOCH } from "@lodestar/params";
 
 // Lodestar 내 스펙 함수 import
 // Epoch processing functions
@@ -39,16 +40,69 @@ import { processBlsToExecutionChange } from "@lodestar/state-transition/block";
 
 
 
-// Override config for pure network (fork epochs = 0)
-function getPureConfig(forkVersion = "capella") {
-  const baseConfig = {
-    ...config.mainnet,
+const PURE_FORK_EPOCHS = {
+  phase0: {
+    ALTAIR_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    BELLATRIX_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    CAPELLA_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    DENEB_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    ELECTRA_FORK_EPOCH: FAR_FUTURE_EPOCH,
+  },
+  altair: {
+    ALTAIR_FORK_EPOCH: 0,
+    BELLATRIX_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    CAPELLA_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    DENEB_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    ELECTRA_FORK_EPOCH: FAR_FUTURE_EPOCH,
+  },
+  bellatrix: {
+    ALTAIR_FORK_EPOCH: 0,
+    BELLATRIX_FORK_EPOCH: 0,
+    CAPELLA_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    DENEB_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    ELECTRA_FORK_EPOCH: FAR_FUTURE_EPOCH,
+  },
+  capella: {
     ALTAIR_FORK_EPOCH: 0,
     BELLATRIX_FORK_EPOCH: 0,
     CAPELLA_FORK_EPOCH: 0,
-    DENEB_FORK_EPOCH: forkVersion === "deneb" ? 0 : 75520,
+    DENEB_FORK_EPOCH: 75520,
+    ELECTRA_FORK_EPOCH: 364032,
+  },
+  deneb: {
+    ALTAIR_FORK_EPOCH: 0,
+    BELLATRIX_FORK_EPOCH: 0,
+    CAPELLA_FORK_EPOCH: 0,
+    DENEB_FORK_EPOCH: 0,
+    ELECTRA_FORK_EPOCH: 364032,
+  },
+  electra: {
+    ALTAIR_FORK_EPOCH: 0,
+    BELLATRIX_FORK_EPOCH: 0,
+    CAPELLA_FORK_EPOCH: 0,
+    DENEB_FORK_EPOCH: 0,
+    ELECTRA_FORK_EPOCH: 0,
+  },
+};
+
+function assertSupportedFork(forkVersion) {
+  if (!(forkVersion in PURE_FORK_EPOCHS)) {
+    throw new Error(`Unsupported fork-version: ${forkVersion}. Supported forks: ${Object.keys(PURE_FORK_EPOCHS).join(", ")}`);
+  }
+}
+
+function forkSsz(forkVersion) {
+  assertSupportedFork(forkVersion);
+  return ssz[forkVersion];
+}
+
+// Override config for pure network.
+function getPureConfig(forkVersion = "capella") {
+  assertSupportedFork(forkVersion);
+  return {
+    ...config.mainnet,
+    ...PURE_FORK_EPOCHS[forkVersion],
   };
-  return baseConfig;
 }
 
 // For backward compatibility
@@ -98,7 +152,7 @@ function parseStateTransitionInput(flags, positional) {
   const forkVersion = flags["fork-version"] || "capella";
 
   if (!statePath || !blockPath || !outputPath) {
-    console.error("Usage: node transition.js state-transition --pre-state-path=<path> --block-path=<path> --post-state-output-path=<path> [--fork-version=capella|deneb]");
+    console.error("Usage: node transition.js state-transition --pre-state-path=<path> --block-path=<path> --post-state-output-path=<path> [--fork-version=phase0|altair|bellatrix|capella|deneb|electra]");
     process.exit(2);
   }
 
@@ -558,34 +612,12 @@ if (command === "state-transition") {
     const signedBlockData = fs.readFileSync(blockPath);
     const beaconStateFile = fs.readFileSync(statePath);
 
-    // Deserialize pre-state based on fork version
-    let preState;
-    if (forkVersion === "deneb") {
-      preState = ssz.deneb.BeaconState.deserializeToViewDU(beaconStateFile);
-    } else {
-      preState = ssz.capella.BeaconState.deserializeToViewDU(beaconStateFile);
-    }
-    
-    // Get fork epoch from state (like official test runner)
-    const forkEpoch = preState.fork.epoch;
-    
-    // Create config based on state's fork epoch (like official test runner)
-    const pureConfig = getPureConfig(forkVersion);
-    const stateConfig = {
-      ...pureConfig,
-      CAPELLA_FORK_EPOCH: forkEpoch,
-      BELLATRIX_FORK_EPOCH: forkEpoch > 0 ? forkEpoch : 0,
-      ALTAIR_FORK_EPOCH: forkEpoch > 0 ? forkEpoch : 0,
-      DENEB_FORK_EPOCH: forkVersion === "deneb" ? (forkEpoch > 0 ? forkEpoch : 0) : pureConfig.DENEB_FORK_EPOCH,
-    };
+    const forkTypes = forkSsz(forkVersion);
+    const preState = forkTypes.BeaconState.deserializeToViewDU(beaconStateFile);
+    const stateConfig = getPureConfig(forkVersion);
     
     const cachedState = generateCachedState(preState, stateConfig);
-    let signedBlock;
-    if (forkVersion === "deneb") {
-      signedBlock = ssz.deneb.SignedBeaconBlock.deserialize(signedBlockData);
-    } else {
-      signedBlock = ssz.capella.SignedBeaconBlock.deserialize(signedBlockData);
-    }
+    const signedBlock = forkTypes.SignedBeaconBlock.deserialize(signedBlockData);
 
     // Perform state transition
     const postState_deserialized = stateTransition(cachedState, signedBlock, options);

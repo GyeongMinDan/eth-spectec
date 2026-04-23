@@ -1,6 +1,7 @@
 import sys
 import os
 import argparse
+import importlib
 
 # Add eth2spec to path
 # Get the absolute path to ensure it works from any directory
@@ -16,13 +17,10 @@ from eth2spec.utils.ssz.ssz_impl import deserialize
 def main(pre_ssz_path=None, blocks_ssz_path=None, output_ssz_path=None, fork="capella"):
     """Decode SSZ files, execute state_transition, and save result"""
     
-    # Import the appropriate fork module
-    if fork == "deneb":
-        from eth2spec.deneb import mainnet as spec
-    elif fork == "capella":
-        from eth2spec.capella import mainnet as spec
-    else:
-        raise ValueError(f"Unsupported fork: {fork}. Supported forks: 'capella', 'deneb'")
+    supported_forks = ("phase0", "altair", "bellatrix", "capella", "deneb", "electra")
+    if fork not in supported_forks:
+        raise ValueError(f"Unsupported fork: {fork}. Supported forks: {', '.join(supported_forks)}")
+    spec = importlib.import_module(f"eth2spec.{fork}.mainnet")
     
     # If paths are not provided, use default behavior (backward compatibility)
     if pre_ssz_path is None:
@@ -76,7 +74,8 @@ if __name__ == '__main__':
     parser.add_argument('--pre', dest='pre_ssz_path', help='Path to pre.ssz file')
     parser.add_argument('--block', dest='blocks_ssz_path', help='Path to blocks_*.ssz file')
     parser.add_argument('--out', dest='output_ssz_path', help='Path to output SSZ file')
-    parser.add_argument('--fork', dest='fork', default='capella', choices=['capella', 'deneb'],
+    parser.add_argument('--fork', dest='fork', default='capella',
+                        choices=['phase0', 'altair', 'bellatrix', 'capella', 'deneb', 'electra'],
                         help='Fork name to use (default: capella)')
     args = parser.parse_args()
     
@@ -86,4 +85,3 @@ if __name__ == '__main__':
         output_ssz_path=args.output_ssz_path,
         fork=args.fork
     )
-
