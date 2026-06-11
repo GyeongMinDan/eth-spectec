@@ -112,6 +112,29 @@ LIGHTHOUSE_CORE_IGNORE_PATTERNS = [
     ".*(/|^)root/.*",                              # Root directory (often contains .cargo registry)
 ]
 
+
+def _write_lighthouse_export_json(llvm_cov, lighthouse_binary, profdata_file, output_file, cwd=None):
+    """Write llvm-cov export JSON for line-precise downstream semantic coverage."""
+    cmd_export = [
+        str(llvm_cov),
+        "export",
+        str(lighthouse_binary),
+        f"--instr-profile={profdata_file}",
+        "--format=text",
+    ]
+    for pattern in LIGHTHOUSE_CORE_IGNORE_PATTERNS:
+        cmd_export.extend(["--ignore-filename-regex", pattern])
+
+    result = subprocess.run(
+        cmd_export,
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=str(cwd) if cwd else None,
+    )
+    with open(output_file, "w") as f:
+        f.write(result.stdout)
+
 # Teku coverage report scope (noise reduction)
 # We intentionally apply filtering ONLY at report generation time (after XML generation),
 # after merging raw coverage data (.exec files). This matches the Nimbus/Lighthouse
@@ -188,9 +211,13 @@ NIMBUS_CORE_INCLUDE_PREFIXES = (
 #   - github.com/OffchainLabs/prysm/v7/beacon-chain/state/** : State management
 #   - github.com/OffchainLabs/prysm/v7/consensus-types/**    : Consensus type definitions
 #   - github.com/OffchainLabs/prysm/v7/encoding/ssz/**      : SSZ encoding/decoding
+#   - github.com/OffchainLabs/prysm/v7/encoding/bytesutil   : Small byte/int helpers used by spec functions
 #   - github.com/OffchainLabs/prysm/v7/crypto/bls/**        : BLS signature verification
+#   - github.com/OffchainLabs/prysm/v7/math                 : integer_squareroot helper
+#   - github.com/OffchainLabs/prysm/v7/time/slots           : epoch/slot helper functions
 #   - github.com/OffchainLabs/prysm/v7/config/params         : Configuration parameters (features excluded)
 #   - github.com/OffchainLabs/prysm/v7/tools/pcli           : Prysm CLI tool (entry point for state-transition)
+#   - github.com/OffchainLabs/prysm/v7/proto/engine/v1      : execution request SSZ/list helpers
 #
 # EXCLUDED (filtered out from report):
 #   - github.com/OffchainLabs/prysm/v7/proto/**             : Protocol buffer generated code
@@ -199,10 +226,10 @@ NIMBUS_CORE_INCLUDE_PREFIXES = (
 #   - github.com/OffchainLabs/prysm/v7/monitoring/**        : Monitoring
 #   - github.com/OffchainLabs/prysm/v7/cmd/**                : Other command-line tools (pcli excluded)
 #   - github.com/OffchainLabs/prysm/v7/io/**                 : File I/O infrastructure
-#   - github.com/OffchainLabs/prysm/v7/time/**               : Time utilities
+#   - github.com/OffchainLabs/prysm/v7/time/**               : Time utilities (time/slots included)
 #   - github.com/OffchainLabs/prysm/v7/container/**          : Container data structures
 #   - github.com/OffchainLabs/prysm/v7/cache/**              : Cache infrastructure
-#   - github.com/OffchainLabs/prysm/v7/math/**               : Math utilities
+#   - github.com/OffchainLabs/prysm/v7/math/**               : Math utilities (root math included)
 #   - github.com/OffchainLabs/prysm/v7/async/**              : Async processing infrastructure
 #   - github.com/OffchainLabs/prysm/v7/beacon-chain/blockchain/** : Blockchain operational logic
 #   - github.com/OffchainLabs/prysm/v7/beacon-chain/cache/**     : Cache
@@ -211,7 +238,7 @@ NIMBUS_CORE_INCLUDE_PREFIXES = (
 #   - github.com/OffchainLabs/prysm/v7/beacon-chain/p2p/**       : P2P networking
 #   - github.com/OffchainLabs/prysm/v7/beacon-chain/slasher/**   : Slasher logic
 #   - github.com/OffchainLabs/prysm/v7/config/features           : Feature flags (params only)
-#   - github.com/OffchainLabs/prysm/v7/encoding/bytesutil         : Byte utilities (ssz only)
+#   - github.com/OffchainLabs/prysm/v7/encoding/bytesutil         : Byte utilities
 #   - github.com/OffchainLabs/prysm/v7/crypto/hash/**            : Hash functions (bls only)
 #
 # Filtering is done by parsing Go coverage.txt file and keeping only files that belong to
@@ -221,9 +248,13 @@ PRYSM_CORE_INCLUDE_PREFIXES = (
     "github.com/OffchainLabs/prysm/v7/beacon-chain/state",
     "github.com/OffchainLabs/prysm/v7/consensus-types",
     "github.com/OffchainLabs/prysm/v7/encoding/ssz",
+    "github.com/OffchainLabs/prysm/v7/encoding/bytesutil",
     "github.com/OffchainLabs/prysm/v7/crypto/bls",
+    "github.com/OffchainLabs/prysm/v7/math",
+    "github.com/OffchainLabs/prysm/v7/time/slots",
     "github.com/OffchainLabs/prysm/v7/config/params",
     "github.com/OffchainLabs/prysm/v7/tools/pcli",
+    "github.com/OffchainLabs/prysm/v7/proto/engine/v1",
 )
 
 class Clients:
@@ -534,9 +565,6 @@ def parse_operation(test_case_dir, output_parent_dir, converter_dir=None):
         ops_idx = test_case_path_parts.index("operations")
         if ops_idx + 1 < len(test_case_path_parts):
             operation_type = test_case_path_parts[ops_idx + 1]
-            # Normalize operation type names (e.g., "withdrawals" -> "withdrawal")
-            if operation_type == "withdrawals":
-                operation_type = "withdrawal"
     
     # If not found in path, try to find operation file
     operation_file_map = {
@@ -550,6 +578,10 @@ def parse_operation(test_case_dir, output_parent_dir, converter_dir=None):
         "execution_payload": ["body.ssz", "body.ssz_snappy", "execution_payload.ssz", "execution_payload.ssz_snappy"],
         "bls_to_execution_change": ["address_change.ssz", "address_change.ssz_snappy", "bls_to_execution_change.ssz", "bls_to_execution_change.ssz_snappy"],
         "withdrawal": ["withdrawal.ssz", "withdrawal.ssz_snappy", "execution_payload.ssz", "execution_payload.ssz_snappy"],
+        "withdrawals": ["withdrawal.ssz", "withdrawal.ssz_snappy", "execution_payload.ssz", "execution_payload.ssz_snappy"],
+        "deposit_request": ["deposit_request.ssz", "deposit_request.ssz_snappy"],
+        "withdrawal_request": ["withdrawal_request.ssz", "withdrawal_request.ssz_snappy"],
+        "consolidation_request": ["consolidation_request.ssz", "consolidation_request.ssz_snappy"],
     }
     
     # Find operation file
@@ -1037,6 +1069,7 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                     c8_args = [
                         "--all",
                         "--reporter=text",
+                        "--reporter=html",
                         f"--report-dir={coverage_report_dir}",
                         f"--temp-directory={coverage_temp_dir}",
                         "--exclude-node-modules=false",
@@ -1205,23 +1238,17 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
     if spectec_core_dir is None:
         script_dir = Path(__file__).parent.resolve()
         spectec_core_dir = script_dir
-    
-    testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
+
+    spectec_core_dir = Path(spectec_core_dir)
+    profile = get_fork_profile(fork_version)
+    testing_clients_dir = spectec_core_dir / "testing_clients"
     
     # Check Lodestar transition.js file path
     lodestar_transition = testing_clients_dir / "lodestar" / "transition.js"
     if not lodestar_transition.exists():
         lodestar_transition = testing_clients_dir / "lodestar" / "transition"
 
-    # Pure config path setup (version-specific)
-    if fork_version == "deneb":
-        pure_configs_dir = spectec_core_dir / "Converter" / "pure_deneb_configs"
-        if not pure_configs_dir.exists():
-            # Fallback to capella configs if deneb configs don't exist
-            pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
-    else:  # capella
-        pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
-    lighthouse_testnet_dir = pure_configs_dir / "lighthouse_testnet"
+    lighthouse_testnet_dir_path = lighthouse_testnet_dir(spectec_core_dir, profile)
 
     # Coverage data directory setup (from paths)
     coverage_dirs = {}
@@ -1254,7 +1281,7 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
                 f"--pre-state-path={state}",
                 f"--slot={slot_value}",
                 f"--post-state-output-path={paths['lodestar']['output']}",
-                f"--fork-version={fork_version}",
+                f"--fork-version={profile.lodestar_fork_version}",
             ]),
         Clients(
             "Lighthouse",
@@ -1264,7 +1291,7 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
                 "--pre-state-path", state,
                 "--slots", str(slot_value),
                 "--post-state-output-path", paths["lighthouse"]["output"],
-                "--testnet-dir", str(lighthouse_testnet_dir),
+                "--testnet-dir", str(lighthouse_testnet_dir_path),
             ]),
         Clients(
             "Prysm",
@@ -1274,6 +1301,7 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
                 f"--pre-state-path={state}",
                 f"--slot={slot_value}",
                 f"--post-state-output-path={paths['prysm']['output']}",
+                f"--fork-version={profile.prysm_fork_version}",
             ]),
         Clients(
             "Nimbus",
@@ -1294,10 +1322,7 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
                 "--post", paths["teku"]["output"],
                 "--delta",  # Interpret slot_value as delta from pre-state (default=true, but explicit for clarity)
                 str(slot_value),  # Positional parameter: number of slots (delta from pre-state)
-                "--Xnetwork-altair-fork-epoch=0",
-                "--Xnetwork-bellatrix-fork-epoch=0",
-                "--Xnetwork-capella-fork-epoch=0",
-                f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+                *profile.teku_args(),
             ]),
     ]
 
@@ -1321,7 +1346,7 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
             env = os.environ.copy()
             # Set FORK_VERSION environment variable for Nimbus
             if client.name == "Nimbus":
-                env["FORK_VERSION"] = fork_version
+                env["FORK_VERSION"] = profile.nimbus_fork_version
             if enable_coverage:
                 client_name_lower = client.name.lower()
                 
@@ -1480,29 +1505,23 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
         paths: Output path dictionary (includes output and cov_output paths for each client)
         spectec_core_dir: spectec-core directory path
         enable_coverage: Enable coverage measurement
-        fork_version: Fork version (capella or deneb)
+        fork_version: Fork version
         execution_valid: For execution_payload operation: whether execution payload is valid (True/False/None)
     """
     if spectec_core_dir is None:
         script_dir = Path(__file__).parent.resolve()
         spectec_core_dir = script_dir
-    
-    testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
+
+    spectec_core_dir = Path(spectec_core_dir)
+    profile = get_fork_profile(fork_version)
+    testing_clients_dir = spectec_core_dir / "testing_clients"
     
     # Check Lodestar transition.js file path
     lodestar_transition = testing_clients_dir / "lodestar" / "transition.js"
     if not lodestar_transition.exists():
         lodestar_transition = testing_clients_dir / "lodestar" / "transition"
 
-    # Pure config path setup (version-specific)
-    if fork_version == "deneb":
-        pure_configs_dir = spectec_core_dir / "Converter" / "pure_deneb_configs"
-        if not pure_configs_dir.exists():
-            # Fallback to capella configs if deneb configs don't exist
-            pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
-    else:  # capella
-        pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
-    lighthouse_testnet_dir = pure_configs_dir / "lighthouse_testnet"
+    lighthouse_testnet_dir_path = lighthouse_testnet_dir(spectec_core_dir, profile)
 
     # Coverage data directory setup (from paths)
     coverage_dirs = {}
@@ -1546,7 +1565,7 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
         f"--operation-path={operation}",
         f"--operation-type={operation_type}",
         f"--post-state-output-path={paths['lodestar']['output']}",
-        f"--fork-version={fork_version}",
+        f"--fork-version={profile.lodestar_fork_version}",
     ]
     # Add execution_valid flag for execution_payload operation
     if operation_type == "execution_payload" and execution_valid is not None:
@@ -1559,7 +1578,7 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
         "--pre-state-path", state,
         "--operation-path", operation,
         "--post-state-output-path", paths["lighthouse"]["output"],
-        "--testnet-dir", str(lighthouse_testnet_dir),
+        "--testnet-dir", str(lighthouse_testnet_dir_path),
     ]
     # Add execution_valid flag for execution_payload operation
     if operation_type == "execution_payload" and execution_valid is not None:
@@ -1572,6 +1591,7 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
         f"--pre-state-path={state}",
         f"--operation-path={operation}",
         f"--post-state-output-path={paths['prysm']['output']}",
+        f"--fork-version={profile.prysm_fork_version}",
     ]
     # Add execution_valid flag for execution_payload operation
     if operation_type == "execution_payload" and execution_valid is not None:
@@ -1595,10 +1615,7 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
         "--pre", state,
         "--operation-data", operation,
         "--post", paths["teku"]["output"],
-        "--Xnetwork-altair-fork-epoch=0",
-        "--Xnetwork-bellatrix-fork-epoch=0",
-        "--Xnetwork-capella-fork-epoch=0",
-        f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+        *profile.teku_args(),
     ]
     # Add execution_valid flag for execution_payload operation
     if operation_type == "execution_payload" and execution_valid is not None:
@@ -1648,7 +1665,7 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
             
             # Set FORK_VERSION environment variable for Nimbus
             if client.name == "Nimbus":
-                env["FORK_VERSION"] = fork_version
+                env["FORK_VERSION"] = profile.nimbus_fork_version
             
             # Set EXECUTION_VALID environment variable for Nimbus execution_payload operation
             if client.name == "Nimbus" and operation_type == "execution_payload" and execution_valid is not None:
@@ -1851,23 +1868,17 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
     if spectec_core_dir is None:
         script_dir = Path(__file__).parent.resolve()
         spectec_core_dir = script_dir
-    
-    testing_clients_dir = Path(spectec_core_dir) / "testing_clients"
+
+    spectec_core_dir = Path(spectec_core_dir)
+    profile = get_fork_profile(fork_version)
+    testing_clients_dir = spectec_core_dir / "testing_clients"
     
     # Check Lodestar transition.js file path
     lodestar_transition = testing_clients_dir / "lodestar" / "transition.js"
     if not lodestar_transition.exists():
         lodestar_transition = testing_clients_dir / "lodestar" / "transition"
 
-    # Pure config path setup (version-specific)
-    if fork_version == "deneb":
-        pure_configs_dir = spectec_core_dir / "Converter" / "pure_deneb_configs"
-        if not pure_configs_dir.exists():
-            # Fallback to capella configs if deneb configs don't exist
-            pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
-    else:  # capella
-        pure_configs_dir = spectec_core_dir / "Converter" / "pure_capella_configs"
-    lighthouse_testnet_dir = pure_configs_dir / "lighthouse_testnet"
+    lighthouse_testnet_dir_path = lighthouse_testnet_dir(spectec_core_dir, profile)
 
     # Coverage data directory setup (from paths)
     coverage_dirs = {}
@@ -1900,7 +1911,7 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
                 f"--pre-state-path={state}",
                 f"--epoch-processing-type={epoch_processing_type}",
                 f"--post-state-output-path={paths['lodestar']['output']}",
-                f"--fork-version={fork_version}",
+                f"--fork-version={profile.lodestar_fork_version}",
             ]),
         Clients(
             "Lighthouse",
@@ -1910,7 +1921,7 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
                 "--epoch-processing-type", epoch_processing_type,
                 "--pre-state-path", state,
                 "--post-state-output-path", paths["lighthouse"]["output"],
-                "--testnet-dir", str(lighthouse_testnet_dir),
+                "--testnet-dir", str(lighthouse_testnet_dir_path),
             ]),
         Clients(
             "Prysm",
@@ -1920,6 +1931,7 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
                 f"--epoch-processing-type={epoch_processing_type}",
                 f"--pre-state-path={state}",
                 f"--post-state-output-path={paths['prysm']['output']}",
+                f"--fork-version={profile.prysm_fork_version}",
             ]),
         Clients(
             "Nimbus",
@@ -1939,10 +1951,7 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
                 epoch_processing_type,
                 "--pre", state,
                 "--post", paths["teku"]["output"],
-                "--Xnetwork-altair-fork-epoch=0",
-                "--Xnetwork-bellatrix-fork-epoch=0",
-                "--Xnetwork-capella-fork-epoch=0",
-                f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+                *profile.teku_args(),
             ]),
     ]
 
@@ -1966,7 +1975,7 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
             env = os.environ.copy()
             # Set FORK_VERSION environment variable for Nimbus
             if client.name == "Nimbus":
-                env["FORK_VERSION"] = fork_version
+                env["FORK_VERSION"] = profile.nimbus_fork_version
             if enable_coverage:
                 client_name_lower = client.name.lower()
                 
@@ -3217,9 +3226,13 @@ def _generate_lighthouse_report(lighthouse_coverage_dir, testing_clients_dir):
         )
         with open(summary_file, 'w') as f:
             f.write(result.stdout)
+
+        export_file = lighthouse_report_dir / "coverage_export.json"
+        _write_lighthouse_export_json(llvm_cov, lighthouse_binary, profdata_file, export_file)
         
         print(f"    ✓ Report: {html_dir / 'index.html'}")
         print(f"    ✓ Summary: {summary_file}")
+        print(f"    ✓ Export JSON: {export_file}")
         
         # Remove .profraw files remaining in testing_clients/lighthouse/ after report generation
         lighthouse_root_profraw_files = list(lighthouse_src.glob("*.profraw"))
@@ -4674,9 +4687,19 @@ def _merge_final_lighthouse_coverage(merged_coverage_dirs, output_dir, testing_c
         
         with open(summary_file, 'w') as f:
             f.write(result.stdout)
+
+        export_file = report_dir / "coverage_export.json"
+        _write_lighthouse_export_json(
+            llvm_cov,
+            lighthouse_binary,
+            final_merged_profdata.resolve(),
+            export_file,
+            cwd=lighthouse_src,
+        )
         
         print(f"    ✓ Final accumulated report: {html_dir / 'index.html'}")
         print(f"    ✓ Summary: {summary_file}")
+        print(f"    ✓ Export JSON: {export_file}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
@@ -5097,9 +5120,19 @@ def _merge_lighthouse_coverage(cov_dirs, output_dir, testing_clients_dir):
         
         with open(summary_file, 'w') as f:
             f.write(result.stdout)
+
+        export_file = report_dir / "coverage_export.json"
+        _write_lighthouse_export_json(
+            llvm_cov,
+            lighthouse_binary,
+            merged_profdata,
+            export_file,
+            cwd=lighthouse_src,
+        )
         
         print(f"    ✓ Accumulated report: {html_dir / 'index.html'}")
         print(f"    ✓ Summary: {summary_file}")
+        print(f"    ✓ Export JSON: {export_file}")
     except subprocess.CalledProcessError as e:
         print(f"    ✗ Failed to merge coverage: {e}")
         if e.stderr:
@@ -5821,11 +5854,6 @@ def main():
                        help="Output directory for final accumulated coverage report (required when using --generate-final-coverage)")
 
     args = parser.parse_args()
-    if args.test_type != "state-transition" and args.fork_version not in {"capella", "deneb"}:
-        parser.error(
-            "--fork-version values outside capella/deneb are currently supported "
-            "only with --test-type state-transition"
-        )
     
     # Handle --generate-final-coverage mode (standalone mode)
     if args.generate_final_coverage:
