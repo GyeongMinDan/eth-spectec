@@ -216,10 +216,8 @@ RUN git clone https://github.com/status-im/nimbus-eth2.git && \
 WORKDIR /workspace/spectec-core/testing_clients
 RUN mkdir -p lodestar && \
     cd lodestar && \
-    echo '{\n  "dependencies": {\n    "@lodestar/state-transition": "1.36.0"\n  },\n  "type": "module"\n}' > package.json && \
-    npm install -g pnpm && \
-    pnpm i @lodestar/state-transition@1.36.0 && \
-    pnpm install
+    echo '{\n  "dependencies": {\n    "@lodestar/state-transition": "1.36.0",\n    "@lodestar/types": "1.36.0",\n    "@lodestar/config": "1.36.0",\n    "@lodestar/utils": "1.36.0",\n    "@lodestar/params": "1.36.0",\n    "@chainsafe/blst": "2.2.0",\n    "@chainsafe/pubkey-index-map": "3.0.0"\n  },\n  "type": "module"\n}' > package.json && \
+    npm install
 
 # ============================================
 # Stage 10: Apply modified code
@@ -344,7 +342,8 @@ RUN RUSTFLAGS="-Cinstrument-coverage -Z coverage-options=branch" \
 
 # Build Prysm with coverage
 WORKDIR /workspace/spectec-core/testing_clients/prysm
-RUN go build -cover -o pcli-cov ./tools/pcli
+RUN PRYSM_COVERPKG="$(go list -deps ./tools/pcli | grep -E '^github.com/OffchainLabs/prysm/v7/(beacon-chain/core|beacon-chain/state|consensus-types|encoding/ssz|encoding/bytesutil|crypto/bls|config/params|tools/pcli|math|time/slots|beacon-chain/blockchain/kzg|proto/engine/v1)' | grep -Ev '/(testing|mock)$' | paste -sd, -)" && \
+    go build -cover -coverpkg="${PRYSM_COVERPKG}" -o pcli-cov ./tools/pcli
 
 # Build Teku with coverage (download JaCoCo agent)
 WORKDIR /workspace/spectec-core/testing_clients/teku
