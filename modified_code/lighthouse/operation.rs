@@ -2,25 +2,26 @@
 //!
 //! Process individual operations (attestation, block_header, deposit, etc.) on a beacon state.
 
+use crate::transition_blocks::load_from_ssz_with;
 use clap::ArgMatches;
 use clap_utils::parse_required;
-use state_processing::per_block_processing::errors::BlockProcessingError;
 use environment::Environment;
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::{Decode, Encode};
+use state_processing::per_block_processing::errors::BlockProcessingError;
 use state_processing::{
-    ConsensusContext,
+    common::update_progressive_balances_cache::initialize_progressive_balances_cache,
+    epoch_cache::initialize_epoch_cache,
     per_block_processing::{
-        VerifyBlockRoot, VerifySignatures,
         process_block_header,
         process_operations::{
             altair_deneb, base, process_attester_slashings, process_bls_to_execution_changes,
-            process_deposits, process_exits, process_proposer_slashings,
+            process_consolidation_requests, process_deposit_requests, process_deposits,
+            process_exits, process_proposer_slashings, process_withdrawal_requests,
         },
-        process_sync_aggregate, process_withdrawals,
+        process_sync_aggregate, process_withdrawals, VerifyBlockRoot, VerifySignatures,
     },
-    common::update_progressive_balances_cache::initialize_progressive_balances_cache,
-    epoch_cache::initialize_epoch_cache,
+    ConsensusContext,
 };
 use std::fs::File;
 use std::io::prelude::*;
@@ -28,12 +29,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyCapella,
-    BeaconBlockBodyDeneb, BeaconState, ChainSpec, Deposit, EthSpec, ExecutionPayload, ForkName,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState, ChainSpec,
+    ConsolidationRequest, Deposit, DepositRequest, EthSpec, ExecutionPayload, ForkName,
     ForkVersionDecode, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, SyncAggregate,
+    SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
-use crate::transition_blocks::load_from_ssz_with;
 
 pub fn run<E: EthSpec>(
     _env: Environment<E>,
@@ -53,12 +54,14 @@ pub fn run<E: EthSpec>(
     info!("Post-state output path: {:?}", post_state_output_path);
 
     // Load pre-state
-    let mut pre_state: BeaconState<E> = load_from_ssz_with(&pre_state_path, &spec, BeaconState::from_ssz_bytes)?;
+    let mut pre_state: BeaconState<E> =
+        load_from_ssz_with(&pre_state_path, &spec, BeaconState::from_ssz_bytes)?;
 
     // Build committee caches (required for operations, same as official test runner)
     // NOTE: withdrawals operation doesn't require committee caches (0 active validators case)
     if operation_type != "withdrawals" {
-        pre_state.build_all_committee_caches(&spec)
+        pre_state
+            .build_all_committee_caches(&spec)
             .map_err(|e| format!("Failed to build committee caches: {:?}", e))?;
     }
 
@@ -75,12 +78,18 @@ pub fn run<E: EthSpec>(
         }
         "sync_committee" => process_sync_committee(&mut pre_state, &operation_path, &spec)?,
         "execution_payload" => {
-            let execution_valid = matches.get_one::<String>("execution-valid")
+            let execution_valid = matches
+                .get_one::<String>("execution-valid")
                 .map(|s| s == "true")
                 .unwrap_or(true); // Default to true if not provided
             process_execution_payload(&mut pre_state, &operation_path, &spec, execution_valid)?;
         }
         "withdrawals" => process_withdrawals_op(&mut pre_state, &operation_path, &spec)?,
+        "deposit_request" => process_deposit_request(&mut pre_state, &operation_path, &spec)?,
+        "withdrawal_request" => process_withdrawal_request(&mut pre_state, &operation_path, &spec)?,
+        "consolidation_request" => {
+            process_consolidation_request(&mut pre_state, &operation_path, &spec)?
+        }
         _ => return Err(format!("Unknown operation type: {}", operation_type)),
     }
 
@@ -91,7 +100,10 @@ pub fn run<E: EthSpec>(
     file.write_all(&post_state_bytes)
         .map_err(|e| format!("Failed to write output file: {:?}", e))?;
 
-    info!("Operation processed successfully. Post state written to {:?}", post_state_output_path);
+    info!(
+        "Operation processed successfully. Post state written to {:?}",
+        post_state_output_path
+    );
     Ok(())
 }
 
@@ -264,9 +276,16 @@ fn process_sync_committee<E: EthSpec>(
     })?;
     let proposer_index = state
         .get_beacon_proposer_index(state.slot(), spec)
-        .map_err(|e| format!("Failed to get proposer index: {:?}", e))? as u64;
-    process_sync_aggregate(state, &sync_agg, proposer_index, VerifySignatures::True, spec)
-        .map_err(|e| format!("Failed to process sync aggregate: {:?}", e))?;
+        .map_err(|e| format!("Failed to get proposer index: {:?}", e))?
+        as u64;
+    process_sync_aggregate(
+        state,
+        &sync_agg,
+        proposer_index,
+        VerifySignatures::True,
+        spec,
+    )
+    .map_err(|e| format!("Failed to process sync aggregate: {:?}", e))?;
     Ok(())
 }
 
@@ -277,23 +296,93 @@ fn process_execution_payload<E: EthSpec>(
     execution_valid: bool,
 ) -> Result<(), String> {
     use state_processing::per_block_processing::process_execution_payload as process_payload;
-    
+
     // If execution is invalid, return error immediately (matching official test runner behavior)
     if !execution_valid {
         return Err(format!("{:?}", BlockProcessingError::ExecutionInvalid));
     }
-    
+
     let fork_name = state.fork_name_unchecked();
-    let body: BeaconBlockBody<E, FullPayload<E>> = load_from_ssz_with(path, spec, |bytes, _spec| {
-        Ok(match fork_name {
-            ForkName::Capella => BeaconBlockBody::Capella(<BeaconBlockBodyCapella<E, FullPayload<E>> as Decode>::from_ssz_bytes(bytes)?),
-            ForkName::Deneb => BeaconBlockBody::Deneb(<BeaconBlockBodyDeneb<E, FullPayload<E>> as Decode>::from_ssz_bytes(bytes)?),
-            _ => return Err(ssz::DecodeError::BytesInvalid(format!("Unsupported fork: {:?}", fork_name))),
-        })
-    })?;
-    
+    let body: BeaconBlockBody<E, FullPayload<E>> =
+        load_from_ssz_with(path, spec, |bytes, _spec| {
+            Ok(match fork_name {
+                ForkName::Bellatrix => BeaconBlockBody::Bellatrix(<BeaconBlockBodyBellatrix<
+                    E,
+                    FullPayload<E>,
+                > as Decode>::from_ssz_bytes(
+                    bytes
+                )?),
+                ForkName::Capella => BeaconBlockBody::Capella(<BeaconBlockBodyCapella<
+                    E,
+                    FullPayload<E>,
+                > as Decode>::from_ssz_bytes(
+                    bytes
+                )?),
+                ForkName::Deneb => BeaconBlockBody::Deneb(
+                    <BeaconBlockBodyDeneb<E, FullPayload<E>> as Decode>::from_ssz_bytes(bytes)?,
+                ),
+                ForkName::Electra => BeaconBlockBody::Electra(<BeaconBlockBodyElectra<
+                    E,
+                    FullPayload<E>,
+                > as Decode>::from_ssz_bytes(
+                    bytes
+                )?),
+                _ => {
+                    return Err(ssz::DecodeError::BytesInvalid(format!(
+                        "Unsupported fork: {:?}",
+                        fork_name
+                    )))
+                }
+            })
+        })?;
+
     process_payload::<E, FullPayload<E>>(state, body.to_ref(), spec)
         .map_err(|e| format!("Failed to process execution payload: {:?}", e))?;
+    Ok(())
+}
+
+fn process_deposit_request<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    path: &PathBuf,
+    spec: &ChainSpec,
+) -> Result<(), String> {
+    let request: DepositRequest = load_from_ssz_with(path, spec, |bytes, _spec| {
+        Ok(Decode::from_ssz_bytes(bytes)?)
+    })?;
+    process_deposit_requests(state, std::slice::from_ref(&request), spec)
+        .map_err(|e| format!("Failed to process deposit request: {:?}", e))?;
+    Ok(())
+}
+
+fn process_withdrawal_request<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    path: &PathBuf,
+    spec: &ChainSpec,
+) -> Result<(), String> {
+    let request: WithdrawalRequest = load_from_ssz_with(path, spec, |bytes, _spec| {
+        Ok(Decode::from_ssz_bytes(bytes)?)
+    })?;
+    state
+        .update_pubkey_cache()
+        .map_err(|e| format!("Failed to update pubkey cache: {:?}", e))?;
+    process_withdrawal_requests(state, std::slice::from_ref(&request), spec)
+        .map_err(|e| format!("Failed to process withdrawal request: {:?}", e))?;
+    Ok(())
+}
+
+fn process_consolidation_request<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    path: &PathBuf,
+    spec: &ChainSpec,
+) -> Result<(), String> {
+    let request: ConsolidationRequest = load_from_ssz_with(path, spec, |bytes, _spec| {
+        Ok(Decode::from_ssz_bytes(bytes)?)
+    })?;
+    state
+        .update_pubkey_cache()
+        .map_err(|e| format!("Failed to update pubkey cache: {:?}", e))?;
+    process_consolidation_requests(state, std::slice::from_ref(&request), spec)
+        .map_err(|e| format!("Failed to process consolidation request: {:?}", e))?;
     Ok(())
 }
 
@@ -306,9 +395,8 @@ fn process_withdrawals_op<E: EthSpec>(
     let payload: FullPayload<E> = load_from_ssz_with(path, spec, |bytes, _spec| {
         Ok(ExecutionPayload::from_ssz_bytes_by_fork(bytes, fork_name)?.into())
     })?;
-    
+
     process_withdrawals::<_, FullPayload<_>>(state, payload.to_ref(), spec)
         .map_err(|e| format!("Failed to process withdrawals: {:?}", e))?;
     Ok(())
 }
-

@@ -177,6 +177,48 @@ proc loadFile(filename: string, bytes: openArray[byte], T: type): T =
     echo "failed to load SSZ file"
     quit 1
 
+proc pureForkConfig(cfgBase: RuntimeConfig, forkVersion: string): RuntimeConfig =
+  result = cfgBase
+  case forkVersion
+  of "phase0":
+    result.ALTAIR_FORK_EPOCH = FAR_FUTURE_EPOCH
+    result.BELLATRIX_FORK_EPOCH = FAR_FUTURE_EPOCH
+    result.CAPELLA_FORK_EPOCH = FAR_FUTURE_EPOCH
+    result.DENEB_FORK_EPOCH = FAR_FUTURE_EPOCH
+    result.ELECTRA_FORK_EPOCH = FAR_FUTURE_EPOCH
+  of "altair":
+    result.ALTAIR_FORK_EPOCH = Epoch(0)
+    result.BELLATRIX_FORK_EPOCH = FAR_FUTURE_EPOCH
+    result.CAPELLA_FORK_EPOCH = FAR_FUTURE_EPOCH
+    result.DENEB_FORK_EPOCH = FAR_FUTURE_EPOCH
+    result.ELECTRA_FORK_EPOCH = FAR_FUTURE_EPOCH
+  of "bellatrix":
+    result.ALTAIR_FORK_EPOCH = Epoch(0)
+    result.BELLATRIX_FORK_EPOCH = Epoch(0)
+    result.CAPELLA_FORK_EPOCH = FAR_FUTURE_EPOCH
+    result.DENEB_FORK_EPOCH = FAR_FUTURE_EPOCH
+    result.ELECTRA_FORK_EPOCH = FAR_FUTURE_EPOCH
+  of "capella":
+    result.ALTAIR_FORK_EPOCH = Epoch(0)
+    result.BELLATRIX_FORK_EPOCH = Epoch(0)
+    result.CAPELLA_FORK_EPOCH = Epoch(0)
+    result.DENEB_FORK_EPOCH = Epoch(75520)
+    result.ELECTRA_FORK_EPOCH = Epoch(364032)
+  of "deneb":
+    result.ALTAIR_FORK_EPOCH = Epoch(0)
+    result.BELLATRIX_FORK_EPOCH = Epoch(0)
+    result.CAPELLA_FORK_EPOCH = Epoch(0)
+    result.DENEB_FORK_EPOCH = Epoch(0)
+    result.ELECTRA_FORK_EPOCH = Epoch(364032)
+  of "electra":
+    result.ALTAIR_FORK_EPOCH = Epoch(0)
+    result.BELLATRIX_FORK_EPOCH = Epoch(0)
+    result.CAPELLA_FORK_EPOCH = Epoch(0)
+    result.DENEB_FORK_EPOCH = Epoch(0)
+    result.ELECTRA_FORK_EPOCH = Epoch(0)
+  else:
+    raiseAssert "unsupported FORK_VERSION: " & forkVersion
+
 proc doTransition(conf: NcliConf) =
   type
     Timers = enum
@@ -187,52 +229,8 @@ proc doTransition(conf: NcliConf) =
 
   let
     cfgBase = getRuntimeConfig(conf.eth2Network)
-    # Get fork version from environment variable (set by diff_testing.py)
-    # Default to "capella" if not set
     forkVersionEnv = getEnv("FORK_VERSION", "capella")
-    # Set config based on fork version
-    cfg = block:
-      var c = cfgBase
-      case forkVersionEnv
-      of "phase0":
-        c.ALTAIR_FORK_EPOCH = FAR_FUTURE_EPOCH
-        c.BELLATRIX_FORK_EPOCH = FAR_FUTURE_EPOCH
-        c.CAPELLA_FORK_EPOCH = FAR_FUTURE_EPOCH
-        c.DENEB_FORK_EPOCH = FAR_FUTURE_EPOCH
-        c.ELECTRA_FORK_EPOCH = FAR_FUTURE_EPOCH
-      of "altair":
-        c.ALTAIR_FORK_EPOCH = Epoch(0)
-        c.BELLATRIX_FORK_EPOCH = FAR_FUTURE_EPOCH
-        c.CAPELLA_FORK_EPOCH = FAR_FUTURE_EPOCH
-        c.DENEB_FORK_EPOCH = FAR_FUTURE_EPOCH
-        c.ELECTRA_FORK_EPOCH = FAR_FUTURE_EPOCH
-      of "bellatrix":
-        c.ALTAIR_FORK_EPOCH = Epoch(0)
-        c.BELLATRIX_FORK_EPOCH = Epoch(0)
-        c.CAPELLA_FORK_EPOCH = FAR_FUTURE_EPOCH
-        c.DENEB_FORK_EPOCH = FAR_FUTURE_EPOCH
-        c.ELECTRA_FORK_EPOCH = FAR_FUTURE_EPOCH
-      of "capella":
-        c.ALTAIR_FORK_EPOCH = Epoch(0)
-        c.BELLATRIX_FORK_EPOCH = Epoch(0)
-        c.CAPELLA_FORK_EPOCH = Epoch(0)
-        c.DENEB_FORK_EPOCH = Epoch(75520)
-        c.ELECTRA_FORK_EPOCH = Epoch(364032)
-      of "deneb":
-        c.ALTAIR_FORK_EPOCH = Epoch(0)
-        c.BELLATRIX_FORK_EPOCH = Epoch(0)
-        c.CAPELLA_FORK_EPOCH = Epoch(0)
-        c.DENEB_FORK_EPOCH = Epoch(0)
-        c.ELECTRA_FORK_EPOCH = Epoch(364032)
-      of "electra":
-        c.ALTAIR_FORK_EPOCH = Epoch(0)
-        c.BELLATRIX_FORK_EPOCH = Epoch(0)
-        c.CAPELLA_FORK_EPOCH = Epoch(0)
-        c.DENEB_FORK_EPOCH = Epoch(0)
-        c.ELECTRA_FORK_EPOCH = Epoch(0)
-      else:
-        raiseAssert "unsupported FORK_VERSION: " & forkVersionEnv
-      c
+    cfg = pureForkConfig(cfgBase, forkVersionEnv)
     # Load state with correct config
     stateY = withTimerRet(timers[tLoadState]):
       try:
@@ -282,23 +280,8 @@ proc doSlots(conf: NcliConf) =
   var timers: array[Timers, RunningStat]
   let
     cfgBase = getRuntimeConfig(conf.eth2Network)
-    # Get fork version from environment variable (set by diff_testing.py)
-    # Default to "capella" if not set
     forkVersionEnv = getEnv("FORK_VERSION", "capella")
-    isDeneb = forkVersionEnv == "deneb"
-    # Set config based on fork version
-    cfg = block:
-      var c = cfgBase
-      c.ALTAIR_FORK_EPOCH = Epoch(0)
-      c.BELLATRIX_FORK_EPOCH = Epoch(0)
-      c.CAPELLA_FORK_EPOCH = Epoch(0)
-      if isDeneb:
-        # Pure Deneb config: DENEB_FORK_EPOCH = 0
-        c.DENEB_FORK_EPOCH = Epoch(0)
-      else:
-        # Pure Capella config: CAPELLA_FORK_EPOCH = 0, DENEB_FORK_EPOCH = 75520
-        c.DENEB_FORK_EPOCH = Epoch(75520)
-      c
+    cfg = pureForkConfig(cfgBase, forkVersionEnv)
     # Load state with correct config
     stateY = withTimerRet(timers[tLoadState]):
       try:
@@ -334,23 +317,8 @@ proc doSanitySlots(conf: NcliConf) =
   var timers: array[Timers, RunningStat]
   let
     cfgBase = getRuntimeConfig(conf.eth2Network)
-    # Get fork version from environment variable (set by diff_testing.py)
-    # Default to "capella" if not set
     forkVersionEnv = getEnv("FORK_VERSION", "capella")
-    isDeneb = forkVersionEnv == "deneb"
-    # Set config based on fork version
-    cfg = block:
-      var c = cfgBase
-      c.ALTAIR_FORK_EPOCH = Epoch(0)
-      c.BELLATRIX_FORK_EPOCH = Epoch(0)
-      c.CAPELLA_FORK_EPOCH = Epoch(0)
-      if isDeneb:
-        # Pure Deneb config: DENEB_FORK_EPOCH = 0
-        c.DENEB_FORK_EPOCH = Epoch(0)
-      else:
-        # Pure Capella config: CAPELLA_FORK_EPOCH = 0, DENEB_FORK_EPOCH = 75520
-        c.DENEB_FORK_EPOCH = Epoch(75520)
-      c
+    cfg = pureForkConfig(cfgBase, forkVersionEnv)
     # Load state with correct config
     stateY = withTimerRet(timers[tLoadState]):
       try:
@@ -462,24 +430,9 @@ proc doOperation(conf: NcliConf) =
       tSaveState = "Save state to file"
   var timers: array[Timers, RunningStat]
 
-  # Get fork version from environment variable (set by diff_testing.py)
-  # Default to "capella" if not set
   let cfgBase = getRuntimeConfig(conf.eth2Network)
   let forkVersionEnv = getEnv("FORK_VERSION", "capella")
-  let isDeneb = forkVersionEnv == "deneb"
-  # Set config based on fork version
-  let cfg = block:
-    var c = cfgBase
-    c.ALTAIR_FORK_EPOCH = Epoch(0)
-    c.BELLATRIX_FORK_EPOCH = Epoch(0)
-    c.CAPELLA_FORK_EPOCH = Epoch(0)
-    if isDeneb:
-      # Pure Deneb config: DENEB_FORK_EPOCH = 0
-      c.DENEB_FORK_EPOCH = Epoch(0)
-    else:
-      # Pure Capella config: CAPELLA_FORK_EPOCH = 0, DENEB_FORK_EPOCH = 75520
-      c.DENEB_FORK_EPOCH = Epoch(75520)
-    c
+  let cfg = pureForkConfig(cfgBase, forkVersionEnv)
   
   # Load state with correct config
   let stateY = withTimerRet(timers[tLoadState]):
@@ -498,224 +451,191 @@ proc doOperation(conf: NcliConf) =
   let isSnappy = cmpIgnoreCase(operationFileExt, ".ssz_snappy") == 0
 
   var cache = StateCache()
-  # Support both Capella and Deneb (isDeneb already defined above)
+
+  template decodeOperation(T: typedesc): untyped =
+    if isSnappy:
+      SSZ.decode(snappy.decode(operationBytes), T)
+    else:
+      SSZ.decode(operationBytes, T)
   
   proc doOperation(): Result[void, cstring] {.raises: [].} =
     try:
-      case conf.operationType:
-      of "attestation":
-        let attestation = if isSnappy:
-          SSZ.decode(snappy.decode(operationBytes), phase0.Attestation)
-        else:
-          SSZ.decode(operationBytes, phase0.Attestation)
-        if isDeneb:
-          var denebState = addr stateY[].denebData.data
-          let
-            total_active_balance = get_total_active_balance(denebState[], cache)
-            base_reward_per_increment = get_base_reward_per_increment(total_active_balance)
-          let attestRes = process_attestation(
-            denebState[], attestation, {}, base_reward_per_increment, cache)
-          if attestRes.isErr():
-            return err(attestRes.error())
-        else:
-          var capellaState = addr stateY[].capellaData.data
-          let
-            total_active_balance = get_total_active_balance(capellaState[], cache)
-            base_reward_per_increment = get_base_reward_per_increment(total_active_balance)
-          let attestRes = process_attestation(
-            capellaState[], attestation, {}, base_reward_per_increment, cache)
-          if attestRes.isErr():
-            return err(attestRes.error())
-        ok()
-      of "attester_slashing":
-        let attesterSlashing = if isSnappy:
-          SSZ.decode(snappy.decode(operationBytes), phase0.AttesterSlashing)
-        else:
-          SSZ.decode(operationBytes, phase0.AttesterSlashing)
-        if isDeneb:
-          var denebState = addr stateY[].denebData.data
-          doAssert (? process_attester_slashing(
-            cfg, denebState[], attesterSlashing, {strictVerification},
-            get_state_exit_queue_info(denebState[]), cache))[0] > 0.Gwei
-        else:
-          var capellaState = addr stateY[].capellaData.data
-          doAssert (? process_attester_slashing(
-            cfg, capellaState[], attesterSlashing, {strictVerification},
-            get_state_exit_queue_info(capellaState[]), cache))[0] > 0.Gwei
-        ok()
-      of "proposer_slashing":
-        let proposerSlashing = if isSnappy:
-          SSZ.decode(snappy.decode(operationBytes), ProposerSlashing)
-        else:
-          SSZ.decode(operationBytes, ProposerSlashing)
-        if isDeneb:
-          var denebState = addr stateY[].denebData.data
-          doAssert (? process_proposer_slashing(
-            cfg, denebState[], proposerSlashing, {},
-            get_state_exit_queue_info(denebState[]), cache))[0] > 0.Gwei
-        else:
-          var capellaState = addr stateY[].capellaData.data
-          doAssert (? process_proposer_slashing(
-            cfg, capellaState[], proposerSlashing, {},
-            get_state_exit_queue_info(capellaState[]), cache))[0] > 0.Gwei
-        ok()
-      of "block_header":
-        if isDeneb:
-          let blck = if isSnappy:
-            SSZ.decode(snappy.decode(operationBytes), deneb.BeaconBlock)
-          else:
-            SSZ.decode(operationBytes, deneb.BeaconBlock)
-          var denebState = addr stateY[].denebData.data
-          #if blck.is_execution_block:
-          # doAssert blck.body.execution_payload.block_hash == blck.compute_execution_block_hash()
-          # Note: Official test runner uses 'check' (non-fatal), but we skip this validation
-          # for block_header operation as some test cases have invalid block_hash intentionally
-          let headerRes = process_block_header(denebState[], blck, {}, cache)
+      withState(stateY[]):
+        template processBlockHeader(T: typedesc): untyped =
+          let blck = decodeOperation(T)
+          let headerRes = process_block_header(forkyState.data, blck, {}, cache)
           if headerRes.isErr():
             return err(headerRes.error())
-        else:
-          let blck = if isSnappy:
-            SSZ.decode(snappy.decode(operationBytes), capella.BeaconBlock)
+
+        case conf.operationType:
+        of "attestation":
+          when consensusFork >= ConsensusFork.Electra:
+            let attestation = decodeOperation(electra.Attestation)
           else:
-            SSZ.decode(operationBytes, capella.BeaconBlock)
-          var capellaState = addr stateY[].capellaData.data
-          #if blck.is_execution_block:
-          #  doAssert blck.body.execution_payload.block_hash == blck.compute_execution_block_hash()
-          # Note: Official test runner uses 'check' (non-fatal), but we skip this validation
-          # for block_header operation as some test cases have invalid block_hash intentionally
-          let headerRes = process_block_header(capellaState[], blck, {}, cache)
-          if headerRes.isErr():
-            return err(headerRes.error())
-        ok()
-      of "deposit":
-        let deposit = if isSnappy:
-          SSZ.decode(snappy.decode(operationBytes), Deposit)
-        else:
-          SSZ.decode(operationBytes, Deposit)
-        if isDeneb:
-          var denebState = addr stateY[].denebData.data
+            let attestation = decodeOperation(phase0.Attestation)
+          let total_active_balance = get_total_active_balance(forkyState.data, cache)
+          let base_reward_per_increment =
+            when consensusFork == ConsensusFork.Phase0:
+              0.Gwei
+            else:
+              get_base_reward_per_increment(total_active_balance)
+          let attestRes = process_attestation(
+            forkyState.data, attestation, {}, base_reward_per_increment, cache)
+          if attestRes.isErr():
+            return err(attestRes.error())
+          return ok()
+        of "attester_slashing":
+          when consensusFork >= ConsensusFork.Electra:
+            let attesterSlashing = decodeOperation(electra.AttesterSlashing)
+          else:
+            let attesterSlashing = decodeOperation(phase0.AttesterSlashing)
+          doAssert (? process_attester_slashing(
+            cfg, forkyState.data, attesterSlashing, {strictVerification},
+            get_state_exit_queue_info(forkyState.data), cache))[0] > 0.Gwei
+          return ok()
+        of "proposer_slashing":
+          let proposerSlashing = decodeOperation(ProposerSlashing)
+          doAssert (? process_proposer_slashing(
+            cfg, forkyState.data, proposerSlashing, {},
+            get_state_exit_queue_info(forkyState.data), cache))[0] > 0.Gwei
+          return ok()
+        of "block_header":
+          when consensusFork == ConsensusFork.Phase0:
+            processBlockHeader(phase0.BeaconBlock)
+          elif consensusFork == ConsensusFork.Altair:
+            processBlockHeader(altair.BeaconBlock)
+          elif consensusFork == ConsensusFork.Bellatrix:
+            processBlockHeader(bellatrix.BeaconBlock)
+          elif consensusFork == ConsensusFork.Capella:
+            processBlockHeader(capella.BeaconBlock)
+          elif consensusFork == ConsensusFork.Deneb:
+            processBlockHeader(deneb.BeaconBlock)
+          elif consensusFork == ConsensusFork.Electra:
+            processBlockHeader(electra.BeaconBlock)
+          else:
+            return err("unsupported fork for block_header operation")
+          return ok()
+        of "deposit":
+          let deposit = decodeOperation(Deposit)
           let depositRes = process_deposit(
-            cfg, denebState[],
-            sortValidatorBuckets(denebState[].validators.asSeq)[], deposit, {})
+            cfg, forkyState.data,
+            sortValidatorBuckets(forkyState.data.validators.asSeq)[], deposit, {})
           if depositRes.isErr():
             return err(depositRes.error())
-        else:
-          var capellaState = addr stateY[].capellaData.data
-          let depositRes = process_deposit(
-            cfg, capellaState[],
-            sortValidatorBuckets(capellaState[].validators.asSeq)[], deposit, {})
-          if depositRes.isErr():
-            return err(depositRes.error())
-        ok()
-      of "voluntary_exit":
-        let voluntaryExit = if isSnappy:
-          SSZ.decode(snappy.decode(operationBytes), SignedVoluntaryExit)
-        else:
-          SSZ.decode(operationBytes, SignedVoluntaryExit)
-        if isDeneb:
-          var denebState = addr stateY[].denebData.data
-          if process_voluntary_exit(
-              cfg, denebState[], voluntaryExit, {},
-              get_state_exit_queue_info(denebState[]), cache).isOk:
-            ok()
+          return ok()
+        of "voluntary_exit":
+          let voluntaryExit = decodeOperation(SignedVoluntaryExit)
+          let exitRes = process_voluntary_exit(
+            cfg, forkyState.data, voluntaryExit, {},
+            get_state_exit_queue_info(forkyState.data), cache)
+          if exitRes.isErr():
+            return err(exitRes.error())
+          return ok()
+        of "sync_aggregate":
+          when consensusFork >= ConsensusFork.Altair:
+            let syncAggregate = decodeOperation(SyncAggregate)
+            let syncRes = process_sync_aggregate(
+              forkyState.data, syncAggregate,
+              get_total_active_balance(forkyState.data, cache), {}, cache)
+            if syncRes.isErr():
+              return err(syncRes.error())
+            return ok()
           else:
-            err("")
-        else:
-          var capellaState = addr stateY[].capellaData.data
-          if process_voluntary_exit(
-              cfg, capellaState[], voluntaryExit, {},
-              get_state_exit_queue_info(capellaState[]), cache).isOk:
-            ok()
+            return err("sync_aggregate is not available before Altair")
+        of "execution_payload":
+          let executionValidEnv = getEnv("EXECUTION_VALID", "true")
+          let payloadValid = executionValidEnv == "true"
+          when consensusFork == ConsensusFork.Bellatrix:
+            let body = decodeOperation(bellatrix.BeaconBlockBody)
+            func executePayload(_: bellatrix.ExecutionPayload): bool = payloadValid
+            let execRes = process_execution_payload(
+              cfg, forkyState.data, body.execution_payload, executePayload)
+            if execRes.isErr():
+              return err(execRes.error())
+            return ok()
+          elif consensusFork == ConsensusFork.Capella:
+            let body = decodeOperation(capella.BeaconBlockBody)
+            func executePayload(_: capella.ExecutionPayload): bool = payloadValid
+            let execRes = process_execution_payload(
+              cfg, forkyState.data, body.execution_payload, executePayload)
+            if execRes.isErr():
+              return err(execRes.error())
+            return ok()
+          elif consensusFork == ConsensusFork.Deneb:
+            let body = decodeOperation(deneb.BeaconBlockBody)
+            func executePayload(_: deneb.ExecutionPayload): bool = payloadValid
+            let execRes = process_execution_payload(
+              cfg, forkyState.data, body, executePayload)
+            if execRes.isErr():
+              return err(execRes.error())
+            return ok()
+          elif consensusFork == ConsensusFork.Electra:
+            let body = decodeOperation(electra.BeaconBlockBody)
+            func executePayload(_: deneb.ExecutionPayload): bool = payloadValid
+            let execRes = process_execution_payload(
+              cfg, forkyState.data, body, executePayload)
+            if execRes.isErr():
+              return err(execRes.error())
+            return ok()
           else:
-            err("")
-      of "sync_aggregate":
-        let syncAggregate = if isSnappy:
-          SSZ.decode(snappy.decode(operationBytes), SyncAggregate)
-        else:
-          SSZ.decode(operationBytes, SyncAggregate)
-        if isDeneb:
-          var denebState = addr stateY[].denebData.data
-          let syncRes = process_sync_aggregate(
-            denebState[], syncAggregate, get_total_active_balance(denebState[], cache),
-            {}, cache)
-          if syncRes.isErr():
-            return err(syncRes.error())
-        else:
-          var capellaState = addr stateY[].capellaData.data
-          let syncRes = process_sync_aggregate(
-            capellaState[], syncAggregate, get_total_active_balance(capellaState[], cache),
-            {}, cache)
-          if syncRes.isErr():
-            return err(syncRes.error())
-        ok()
-      of "execution_payload":
-        # Parse execution_valid flag (default to true if not provided)
-        # Parse execution_valid flag from environment variable (default to true if not provided)
-        let executionValidEnv = getEnv("EXECUTION_VALID", "true")
-        let payloadValid = executionValidEnv == "true"
-        if isDeneb:
-          let body = if isSnappy:
-            SSZ.decode(snappy.decode(operationBytes), deneb.BeaconBlockBody)
+            return err("execution_payload is not available before Bellatrix")
+        of "bls_to_execution_change":
+          when consensusFork >= ConsensusFork.Capella:
+            let signed_address_change = decodeOperation(SignedBLSToExecutionChange)
+            let blsRes = process_bls_to_execution_change(
+              cfg, forkyState.data, signed_address_change)
+            if blsRes.isErr():
+              return err(blsRes.error())
+            return ok()
           else:
-            SSZ.decode(operationBytes, deneb.BeaconBlockBody)
-          var denebState = addr stateY[].denebData.data
-          func executePayload(_: deneb.ExecutionPayload): bool = payloadValid
-          let execRes = process_execution_payload(
-            cfg, denebState[], body, executePayload)
-          if execRes.isErr():
-            return err(execRes.error())
-        else:
-          let body = if isSnappy:
-            SSZ.decode(snappy.decode(operationBytes), capella.BeaconBlockBody)
+            return err("bls_to_execution_change is not available before Capella")
+        of "withdrawal", "withdrawals":
+          when consensusFork == ConsensusFork.Capella:
+            let executionPayload = decodeOperation(capella.ExecutionPayload)
+            let withdrawalRes = process_withdrawals(forkyState.data, executionPayload)
+            if withdrawalRes.isErr():
+              return err(withdrawalRes.error())
+            return ok()
+          elif consensusFork == ConsensusFork.Deneb or consensusFork == ConsensusFork.Electra:
+            let executionPayload = decodeOperation(deneb.ExecutionPayload)
+            let withdrawalRes = process_withdrawals(forkyState.data, executionPayload)
+            if withdrawalRes.isErr():
+              return err(withdrawalRes.error())
+            return ok()
           else:
-            SSZ.decode(operationBytes, capella.BeaconBlockBody)
-          var capellaState = addr stateY[].capellaData.data
-          func executePayload(_: capella.ExecutionPayload): bool = payloadValid
-          let execRes = process_execution_payload(
-            cfg, capellaState[], body.execution_payload, executePayload)
-          if execRes.isErr():
-            return err(execRes.error())
-        ok()
-      of "bls_to_execution_change":
-        let signed_address_change = if isSnappy:
-          SSZ.decode(snappy.decode(operationBytes), SignedBLSToExecutionChange)
-        else:
-          SSZ.decode(operationBytes, SignedBLSToExecutionChange)
-        if isDeneb:
-          var denebState = addr stateY[].denebData.data
-          let blsRes = process_bls_to_execution_change(
-            cfg, denebState[], signed_address_change)
-          if blsRes.isErr():
-            return err(blsRes.error())
-        else:
-          var capellaState = addr stateY[].capellaData.data
-          let blsRes = process_bls_to_execution_change(
-            cfg, capellaState[], signed_address_change)
-          if blsRes.isErr():
-            return err(blsRes.error())
-        ok()
-      of "withdrawal":
-        if isDeneb:
-          let executionPayload = if isSnappy:
-            SSZ.decode(snappy.decode(operationBytes), deneb.ExecutionPayload)
+            return err("withdrawals are not available before Capella")
+        of "deposit_request":
+          when consensusFork >= ConsensusFork.Electra:
+            let depositRequest = decodeOperation(electra.DepositRequest)
+            let requestRes = process_deposit_request(
+              cfg, forkyState.data, depositRequest, {})
+            if requestRes.isErr():
+              return err(requestRes.error())
+            return ok()
           else:
-            SSZ.decode(operationBytes, deneb.ExecutionPayload)
-          var denebState = addr stateY[].denebData.data
-          let withdrawalRes = process_withdrawals(denebState[], executionPayload)
-          if withdrawalRes.isErr():
-            return err(withdrawalRes.error())
-        else:
-          let executionPayload = if isSnappy:
-            SSZ.decode(snappy.decode(operationBytes), capella.ExecutionPayload)
+            return err("deposit_request is not available before Electra")
+        of "withdrawal_request":
+          when consensusFork >= ConsensusFork.Electra:
+            let withdrawalRequest = decodeOperation(electra.WithdrawalRequest)
+            process_withdrawal_request(
+              cfg, forkyState.data,
+              sortValidatorBuckets(forkyState.data.validators.asSeq)[],
+              withdrawalRequest, cache)
+            return ok()
           else:
-            SSZ.decode(operationBytes, capella.ExecutionPayload)
-          var capellaState = addr stateY[].capellaData.data
-          let withdrawalRes = process_withdrawals(capellaState[], executionPayload)
-          if withdrawalRes.isErr():
-            return err(withdrawalRes.error())
-        ok()
-      else:
-        raiseAssert "Unknown operation type: " & conf.operationType
+            return err("withdrawal_request is not available before Electra")
+        of "consolidation_request":
+          when consensusFork >= ConsensusFork.Electra:
+            let consolidationRequest = decodeOperation(electra.ConsolidationRequest)
+            process_consolidation_request(
+              cfg, forkyState.data,
+              sortValidatorBuckets(forkyState.data.validators.asSeq)[],
+              consolidationRequest, cache)
+            return ok()
+          else:
+            return err("consolidation_request is not available before Electra")
+        else:
+          raiseAssert "Unknown operation type: " & conf.operationType
     except SerializationError:
       return err("SSZ decode error")
   
@@ -738,24 +658,9 @@ proc doEpochProcessing(conf: NcliConf) =
       tSaveState = "Save state to file"
   var timers: array[Timers, RunningStat]
 
-  # Get fork version from environment variable (set by diff_testing.py)
-  # Default to "capella" if not set
   let cfgBase = getRuntimeConfig(conf.eth2Network)
   let forkVersionEnv = getEnv("FORK_VERSION", "capella")
-  let isDeneb = forkVersionEnv == "deneb"
-  # Set config based on fork version
-  let cfg = block:
-    var c = cfgBase
-    c.ALTAIR_FORK_EPOCH = Epoch(0)
-    c.BELLATRIX_FORK_EPOCH = Epoch(0)
-    c.CAPELLA_FORK_EPOCH = Epoch(0)
-    if isDeneb:
-      # Pure Deneb config: DENEB_FORK_EPOCH = 0
-      c.DENEB_FORK_EPOCH = Epoch(0)
-    else:
-      # Pure Capella config: CAPELLA_FORK_EPOCH = 0, DENEB_FORK_EPOCH = 75520
-      c.DENEB_FORK_EPOCH = Epoch(75520)
-    c
+  let cfg = pureForkConfig(cfgBase, forkVersionEnv)
   
   # Load state with correct config
   let stateY = withTimerRet(timers[tLoadState]):
@@ -766,105 +671,111 @@ proc doEpochProcessing(conf: NcliConf) =
       raiseAssert "error reading hashed beacon state: " & $e.msg
 
   var cache = StateCache()
-  # Support both Capella and Deneb (isDeneb already defined above)
   
   proc processEpochOp(): Result[void, cstring] =
-    if isDeneb:
-      var denebState = addr stateY[].denebData.data
+    withState(stateY[]):
       case conf.epochOperationType:
       of "justification_and_finalization":
-        let info = altair.EpochInfo.init(denebState[])
-        process_justification_and_finalization(denebState[], info.balances)
-        ok()
+        when consensusFork == ConsensusFork.Phase0:
+          var info: phase0.EpochInfo
+          info.init(forkyState.data)
+          info.process_attestations(forkyState.data, cache)
+          process_justification_and_finalization(forkyState.data, info.balances)
+        else:
+          let info = altair.EpochInfo.init(forkyState.data)
+          process_justification_and_finalization(forkyState.data, info.balances)
+        return ok()
       of "inactivity_updates":
-        let info = altair.EpochInfo.init(denebState[])
-        process_inactivity_updates(cfg, denebState[], info)
-        ok()
+        when consensusFork >= ConsensusFork.Altair:
+          let info = altair.EpochInfo.init(forkyState.data)
+          process_inactivity_updates(cfg, forkyState.data, info)
+          return ok()
+        else:
+          return err("inactivity_updates is not available before Altair")
       of "rewards_and_penalties":
-        var info = altair.EpochInfo.init(denebState[])
-        process_rewards_and_penalties(cfg, denebState[], info)
-        ok()
+        when consensusFork == ConsensusFork.Phase0:
+          var info: phase0.EpochInfo
+          info.init(forkyState.data)
+          info.process_attestations(forkyState.data, cache)
+          process_rewards_and_penalties(forkyState.data, info)
+        else:
+          var info = altair.EpochInfo.init(forkyState.data)
+          process_rewards_and_penalties(cfg, forkyState.data, info)
+        return ok()
       of "registry_updates":
-        let regRes = process_registry_updates(cfg, denebState[], cache)
+        let regRes = process_registry_updates(cfg, forkyState.data, cache)
         if regRes.isErr():
           return err(regRes.error())
-        ok()
+        return ok()
       of "slashings":
-        let info = altair.EpochInfo.init(denebState[])
-        process_slashings(denebState[], info.balances.current_epoch)
-        ok()
+        when consensusFork == ConsensusFork.Phase0:
+          var info: phase0.EpochInfo
+          info.init(forkyState.data)
+          process_slashings(forkyState.data, info.balances.current_epoch)
+        else:
+          let info = altair.EpochInfo.init(forkyState.data)
+          process_slashings(forkyState.data, info.balances.current_epoch)
+        return ok()
       of "eth1_data_reset":
-        process_eth1_data_reset(denebState[])
-        ok()
+        process_eth1_data_reset(forkyState.data)
+        return ok()
       of "effective_balance_updates":
-        process_effective_balance_updates(denebState[])
-        ok()
+        process_effective_balance_updates(forkyState.data)
+        return ok()
       of "slashings_reset":
-        process_slashings_reset(denebState[])
-        ok()
+        process_slashings_reset(forkyState.data)
+        return ok()
       of "randao_mixes_reset":
-        process_randao_mixes_reset(denebState[])
-        ok()
+        process_randao_mixes_reset(forkyState.data)
+        return ok()
+      of "historical_roots_update":
+        when consensusFork < ConsensusFork.Capella:
+          process_historical_roots_update(forkyState.data)
+          return ok()
+        else:
+          return err("historical_roots_update is replaced by historical_summaries_update from Capella")
       of "historical_summaries_update":
-        let histRes = process_historical_summaries_update(denebState[])
-        if histRes.isErr():
-          return err(histRes.error())
-        ok()
+        when consensusFork >= ConsensusFork.Capella:
+          let histRes = process_historical_summaries_update(forkyState.data)
+          if histRes.isErr():
+            return err(histRes.error())
+          return ok()
+        else:
+          return err("historical_summaries_update is not available before Capella")
+      of "participation_record_updates":
+        when consensusFork == ConsensusFork.Phase0:
+          process_participation_record_updates(forkyState.data)
+          return ok()
+        else:
+          return err("participation_record_updates is only available in Phase0")
       of "participation_flag_updates":
-        process_participation_flag_updates(denebState[])
-        ok()
+        when consensusFork >= ConsensusFork.Altair:
+          process_participation_flag_updates(forkyState.data)
+          return ok()
+        else:
+          return err("participation_flag_updates is not available before Altair")
       of "sync_committee_updates":
-        process_sync_committee_updates(denebState[])
-        ok()
-      else:
-        raiseAssert "Unknown epoch operation type: " & conf.epochOperationType
-    else:
-      var capellaState = addr stateY[].capellaData.data
-      case conf.epochOperationType:
-      of "justification_and_finalization":
-        let info = altair.EpochInfo.init(capellaState[])
-        process_justification_and_finalization(capellaState[], info.balances)
-        ok()
-      of "inactivity_updates":
-        let info = altair.EpochInfo.init(capellaState[])
-        process_inactivity_updates(cfg, capellaState[], info)
-        ok()
-      of "rewards_and_penalties":
-        var info = altair.EpochInfo.init(capellaState[])
-        process_rewards_and_penalties(cfg, capellaState[], info)
-        ok()
-      of "registry_updates":
-        let regRes = process_registry_updates(cfg, capellaState[], cache)
-        if regRes.isErr():
-          return err(regRes.error())
-        ok()
-      of "slashings":
-        let info = altair.EpochInfo.init(capellaState[])
-        process_slashings(capellaState[], info.balances.current_epoch)
-        ok()
-      of "eth1_data_reset":
-        process_eth1_data_reset(capellaState[])
-        ok()
-      of "effective_balance_updates":
-        process_effective_balance_updates(capellaState[])
-        ok()
-      of "slashings_reset":
-        process_slashings_reset(capellaState[])
-        ok()
-      of "randao_mixes_reset":
-        process_randao_mixes_reset(capellaState[])
-        ok()
-      of "historical_summaries_update":
-        let histRes = process_historical_summaries_update(capellaState[])
-        if histRes.isErr():
-          return err(histRes.error())
-        ok()
-      of "participation_flag_updates":
-        process_participation_flag_updates(capellaState[])
-        ok()
-      of "sync_committee_updates":
-        process_sync_committee_updates(capellaState[])
-        ok()
+        when consensusFork >= ConsensusFork.Altair:
+          process_sync_committee_updates(forkyState.data)
+          return ok()
+        else:
+          return err("sync_committee_updates is not available before Altair")
+      of "pending_deposits":
+        when consensusFork >= ConsensusFork.Electra:
+          let pendingRes = process_pending_deposits(cfg, forkyState.data, cache)
+          if pendingRes.isErr():
+            return err(pendingRes.error())
+          return ok()
+        else:
+          return err("pending_deposits is not available before Electra")
+      of "pending_consolidations":
+        when consensusFork >= ConsensusFork.Electra:
+          let pendingRes = process_pending_consolidations(cfg, forkyState.data)
+          if pendingRes.isErr():
+            return err(pendingRes.error())
+          return ok()
+        else:
+          return err("pending_consolidations is not available before Electra")
       else:
         raiseAssert "Unknown epoch operation type: " & conf.epochOperationType
   

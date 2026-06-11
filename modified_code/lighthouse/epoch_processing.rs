@@ -2,6 +2,7 @@
 //!
 //! Process epoch operations (justification_and_finalization, rewards_and_penalties, etc.) on a beacon state.
 
+use crate::transition_blocks::load_from_ssz_with;
 use clap::ArgMatches;
 use clap_utils::parse_required;
 use environment::Environment;
@@ -16,9 +17,11 @@ use state_processing::{
     },
     per_epoch_processing::{
         altair, base,
+        historical_roots_update::process_historical_roots_update,
         process_registry_updates, process_registry_updates_slow, process_slashings,
         process_slashings_slow,
         resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
+        single_pass::{process_epoch_single_pass, SinglePassConfig},
     },
 };
 use std::fs::File;
@@ -27,7 +30,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
 use types::{BeaconState, ChainSpec, EthSpec};
-use crate::transition_blocks::load_from_ssz_with;
 
 pub fn run<E: EthSpec>(
     _env: Environment<E>,
@@ -45,10 +47,12 @@ pub fn run<E: EthSpec>(
     info!("Post-state output path: {:?}", post_state_output_path);
 
     // Load pre-state
-    let mut pre_state: BeaconState<E> = load_from_ssz_with(&pre_state_path, &spec, BeaconState::from_ssz_bytes)?;
+    let mut pre_state: BeaconState<E> =
+        load_from_ssz_with(&pre_state_path, &spec, BeaconState::from_ssz_bytes)?;
 
     // Build committee caches (required for epoch processing, same as official test runner)
-    pre_state.build_all_committee_caches(&spec)
+    pre_state
+        .build_all_committee_caches(&spec)
         .map_err(|e| format!("Failed to build committee caches: {:?}", e))?;
 
     // Process epoch operation based on type
@@ -66,11 +70,20 @@ pub fn run<E: EthSpec>(
         "historical_summaries_update" => {
             process_historical_summaries_update_op(&mut pre_state, &spec)?
         }
-        "participation_flag_updates" => {
-            process_participation_flag_updates(&mut pre_state, &spec)?
+        "historical_roots_update" => process_historical_roots_update_op(&mut pre_state, &spec)?,
+        "participation_record_updates" => {
+            process_participation_record_updates(&mut pre_state, &spec)?
         }
+        "participation_flag_updates" => process_participation_flag_updates(&mut pre_state, &spec)?,
+        "pending_deposits" => process_pending_deposits(&mut pre_state, &spec)?,
+        "pending_consolidations" => process_pending_consolidations(&mut pre_state, &spec)?,
         "inactivity_updates" => process_inactivity_updates(&mut pre_state, &spec)?,
-        _ => return Err(format!("Unknown epoch processing type: {}", epoch_processing_type)),
+        _ => {
+            return Err(format!(
+                "Unknown epoch processing type: {}",
+                epoch_processing_type
+            ))
+        }
     }
 
     // Save post-state
@@ -80,7 +93,10 @@ pub fn run<E: EthSpec>(
     file.write_all(&post_state_bytes)
         .map_err(|e| format!("Failed to write output file: {:?}", e))?;
 
-    info!("Epoch processing completed successfully. Post state written to {:?}", post_state_output_path);
+    info!(
+        "Epoch processing completed successfully. Post state written to {:?}",
+        post_state_output_path
+    );
     Ok(())
 }
 
@@ -93,21 +109,22 @@ fn process_justification_and_finalization<E: EthSpec>(
         initialize_progressive_balances_cache(state, spec)
             .map_err(|e| format!("Failed to initialize progressive balances cache: {:?}", e))?;
         let justification_and_finalization_state =
-            altair::process_justification_and_finalization(state)
-                .map_err(|e| format!("Failed to process justification and finalization: {:?}", e))?;
+            altair::process_justification_and_finalization(state).map_err(|e| {
+                format!("Failed to process justification and finalization: {:?}", e)
+            })?;
         justification_and_finalization_state.apply_changes_to_state(state);
     } else {
         let mut validator_statuses = base::ValidatorStatuses::new(state, spec)
             .map_err(|e| format!("Failed to create validator statuses: {:?}", e))?;
-        validator_statuses.process_attestations(state)
+        validator_statuses
+            .process_attestations(state)
             .map_err(|e| format!("Failed to process attestations: {:?}", e))?;
-        let justification_and_finalization_state =
-            base::process_justification_and_finalization(
-                state,
-                &validator_statuses.total_balances,
-                spec,
-            )
-            .map_err(|e| format!("Failed to process justification and finalization: {:?}", e))?;
+        let justification_and_finalization_state = base::process_justification_and_finalization(
+            state,
+            &validator_statuses.total_balances,
+            spec,
+        )
+        .map_err(|e| format!("Failed to process justification and finalization: {:?}", e))?;
         justification_and_finalization_state.apply_changes_to_state(state);
     }
     Ok(())
@@ -123,7 +140,8 @@ fn process_rewards_and_penalties<E: EthSpec>(
     } else {
         let mut validator_statuses = base::ValidatorStatuses::new(state, spec)
             .map_err(|e| format!("Failed to create validator statuses: {:?}", e))?;
-        validator_statuses.process_attestations(state)
+        validator_statuses
+            .process_attestations(state)
             .map_err(|e| format!("Failed to process attestations: {:?}", e))?;
         base::process_rewards_and_penalties(state, &validator_statuses, spec)
             .map_err(|e| format!("Failed to process rewards and penalties: {:?}", e))?;
@@ -160,7 +178,8 @@ fn process_slashings_op<E: EthSpec>(
     } else {
         let mut validator_statuses = base::ValidatorStatuses::new(state, spec)
             .map_err(|e| format!("Failed to create validator statuses: {:?}", e))?;
-        validator_statuses.process_attestations(state)
+        validator_statuses
+            .process_attestations(state)
             .map_err(|e| format!("Failed to process attestations: {:?}", e))?;
         process_slashings(
             state,
@@ -227,6 +246,24 @@ fn process_historical_summaries_update_op<E: EthSpec>(
     Ok(())
 }
 
+fn process_historical_roots_update_op<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    _spec: &ChainSpec,
+) -> Result<(), String> {
+    process_historical_roots_update(state)
+        .map_err(|e| format!("Failed to process historical roots update: {:?}", e))?;
+    Ok(())
+}
+
+fn process_participation_record_updates<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    _spec: &ChainSpec,
+) -> Result<(), String> {
+    base::process_participation_record_updates(state)
+        .map_err(|e| format!("Failed to process participation record updates: {:?}", e))?;
+    Ok(())
+}
+
 fn process_participation_flag_updates<E: EthSpec>(
     state: &mut BeaconState<E>,
     _spec: &ChainSpec,
@@ -249,3 +286,34 @@ fn process_inactivity_updates<E: EthSpec>(
     Ok(())
 }
 
+fn process_pending_deposits<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), String> {
+    process_epoch_single_pass(
+        state,
+        spec,
+        SinglePassConfig {
+            pending_deposits: true,
+            ..SinglePassConfig::disable_all()
+        },
+    )
+    .map_err(|e| format!("Failed to process pending deposits: {:?}", e))?;
+    Ok(())
+}
+
+fn process_pending_consolidations<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), String> {
+    process_epoch_single_pass(
+        state,
+        spec,
+        SinglePassConfig {
+            pending_consolidations: true,
+            ..SinglePassConfig::disable_all()
+        },
+    )
+    .map_err(|e| format!("Failed to process pending consolidations: {:?}", e))?;
+    Ok(())
+}

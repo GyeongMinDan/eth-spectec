@@ -12,8 +12,10 @@ import (
 
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/altair"
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/blocks"
+	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/electra"
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/epoch"
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/epoch/precompute"
+	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/helpers"
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/transition"
 	"github.com/OffchainLabs/prysm/v7/beacon-chain/core/validators"
 	v "github.com/OffchainLabs/prysm/v7/beacon-chain/core/validators"
@@ -22,6 +24,7 @@ import (
 	"github.com/OffchainLabs/prysm/v7/config/params"
 	consensus_blocks "github.com/OffchainLabs/prysm/v7/consensus-types/blocks"
 	"github.com/OffchainLabs/prysm/v7/consensus-types/interfaces"
+	"github.com/OffchainLabs/prysm/v7/consensus-types/primitives"
 	"github.com/OffchainLabs/prysm/v7/crypto/bls"
 	"github.com/OffchainLabs/prysm/v7/encoding/ssz/detect"
 	"github.com/OffchainLabs/prysm/v7/encoding/ssz/equality"
@@ -387,16 +390,17 @@ var operationCommand = &cli.Command{
 			Usage:       "For execution_payload operation: whether execution payload is valid (true or false, default: true)",
 			Destination: &executionValid,
 		},
+		&cli.StringFlag{
+			Name:        "fork-version",
+			Usage:       "Pure fork config to use: phase0, altair, bellatrix, capella, deneb, or electra",
+			Value:       "capella",
+			Destination: &forkVersion,
+		},
 	},
 	Action: func(c *cli.Context) error {
-		// Detect fork version and set config accordingly
-		isDeneb, err := detectForkVersionFromState(preStatePath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		setForkConfig(isDeneb)
+		setForkConfigForFork(forkVersion)
 
-		preState, err := detectState(preStatePath)
+		preState, err := detectStateForFork(preStatePath, forkVersion)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -450,16 +454,17 @@ var epochProcessingCommand = &cli.Command{
 			Required:    true,
 			Destination: &epochProcessingOutputPath,
 		},
+		&cli.StringFlag{
+			Name:        "fork-version",
+			Usage:       "Pure fork config to use: phase0, altair, bellatrix, capella, deneb, or electra",
+			Value:       "capella",
+			Destination: &forkVersion,
+		},
 	},
 	Action: func(c *cli.Context) error {
-		// Detect fork version and set config accordingly
-		isDeneb, err := detectForkVersionFromState(preStatePath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		setForkConfig(isDeneb)
+		setForkConfigForFork(forkVersion)
 
-		preState, err := detectState(preStatePath)
+		preState, err := detectStateForFork(preStatePath, forkVersion)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -507,16 +512,17 @@ var sanitySlotsCommand = &cli.Command{
 			Required:    true,
 			Destination: &sanitySlotsOutputPath,
 		},
+		&cli.StringFlag{
+			Name:        "fork-version",
+			Usage:       "Pure fork config to use: phase0, altair, bellatrix, capella, deneb, or electra",
+			Value:       "capella",
+			Destination: &forkVersion,
+		},
 	},
 	Action: func(c *cli.Context) error {
-		// Detect fork version and set config accordingly
-		isDeneb, err := detectForkVersionFromState(preStatePath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		setForkConfig(isDeneb)
+		setForkConfigForFork(forkVersion)
 
-		preState, err := detectState(preStatePath)
+		preState, err := detectStateForFork(preStatePath, forkVersion)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -853,6 +859,14 @@ func processOperation(ctx context.Context, preState state.BeaconState, operation
 		return processExecutionPayload(ctx, preState, operationData, executionValid)
 	case "withdrawals":
 		return processWithdrawals(ctx, preState, operationData)
+	case "withdrawal":
+		return processWithdrawals(ctx, preState, operationData)
+	case "deposit_request":
+		return processDepositRequest(ctx, preState, operationData)
+	case "withdrawal_request":
+		return processWithdrawalRequest(ctx, preState, operationData)
+	case "consolidation_request":
+		return processConsolidationRequest(ctx, preState, operationData)
 	default:
 		return nil, errors.Errorf("unknown operation type: %s", operationType)
 	}
@@ -879,10 +893,18 @@ func processEpochOperation(ctx context.Context, preState state.BeaconState, epoc
 		return processRandaoMixesReset(ctx, preState)
 	case "historical_summaries_update":
 		return processHistoricalSummariesUpdate(ctx, preState)
+	case "historical_roots_update":
+		return processHistoricalSummariesUpdate(ctx, preState)
+	case "participation_record_updates":
+		return processParticipationRecordUpdates(ctx, preState)
 	case "participation_flag_updates":
 		return processParticipationFlagUpdates(ctx, preState)
 	case "inactivity_updates":
 		return processInactivityUpdates(ctx, preState)
+	case "pending_deposits":
+		return processPendingDeposits(ctx, preState)
+	case "pending_consolidations":
+		return processPendingConsolidations(ctx, preState)
 	default:
 		return nil, errors.Errorf("unknown epoch processing type: %s", epochProcessingType)
 	}
@@ -890,39 +912,36 @@ func processEpochOperation(ctx context.Context, preState state.BeaconState, epoc
 
 // Operation processing functions
 func processAttestation(ctx context.Context, st state.BeaconState, attestationSSZ []byte) (state.BeaconState, error) {
-	att := &ethpb.Attestation{}
-	if err := att.UnmarshalSSZ(attestationSSZ); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal attestation")
+	var att ethpb.Att
+	if st.Version() >= version.Electra {
+		attElectra := &ethpb.AttestationElectra{}
+		if err := attElectra.UnmarshalSSZ(attestationSSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal electra attestation")
+		}
+		att = attElectra
+	} else {
+		attBase := &ethpb.Attestation{}
+		if err := attBase.UnmarshalSSZ(attestationSSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal attestation")
+		}
+		att = attBase
 	}
 
-	// Detect fork version from state to use correct block body type
-	protoState := st.ToProtoUnsafe()
-	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-
-	switch protoState.(type) {
-	case *ethpb.BeaconStateDeneb:
-		b := util.NewBeaconBlockDeneb()
-		b.Block.Body = &ethpb.BeaconBlockBodyDeneb{Attestations: []*ethpb.Attestation{att}}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	case *ethpb.BeaconStateCapella:
-		b := util.NewBeaconBlockCapella()
-		b.Block.Body = &ethpb.BeaconBlockBodyCapella{Attestations: []*ethpb.Attestation{att}}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	default:
-		return nil, errors.New("unsupported state version for attestation (expected Capella or Deneb)")
+	if st.Version() >= version.Altair {
+		totalBalance, err := helpers.TotalActiveBalance(st)
+		if err != nil {
+			return nil, err
+		}
+		st, err = altair.ProcessAttestationNoVerifySignature(ctx, st, att, totalBalance)
+	} else {
+		st, err = blocks.ProcessAttestationNoVerifySignature(ctx, st, att)
 	}
-
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create signed block")
+		return nil, errors.Wrap(err, "failed to process attestation")
 	}
 
-	st, err = altair.ProcessAttestationsNoVerifySignature(ctx, st, signedBlock.Block())
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to process attestations")
-	}
-
-	aSet, err := blocks.AttestationSignatureBatch(ctx, st, signedBlock.Block().Body().Attestations())
+	aSet, err := blocks.AttestationSignatureBatch(ctx, st, []ethpb.Att{att})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create attestation signature batch")
 	}
@@ -938,26 +957,48 @@ func processAttestation(ctx context.Context, st state.BeaconState, attestationSS
 }
 
 func processBlockHeader(ctx context.Context, st state.BeaconState, blockSSZ []byte) (state.BeaconState, error) {
-	// Detect fork version from state to use correct block type (matching official test runner)
-	protoState := st.ToProtoUnsafe()
 	var signedBlock interfaces.SignedBeaconBlock
 	var err error
 
-	switch protoState.(type) {
-	case *ethpb.BeaconStateDeneb:
-		block := &ethpb.BeaconBlockDeneb{}
+	switch st.Version() {
+	case version.Phase0:
+		block := &ethpb.BeaconBlock{}
 		if err := block.UnmarshalSSZ(blockSSZ); err != nil {
-			return nil, errors.Wrap(err, "failed to unmarshal block (Deneb)")
+			return nil, errors.Wrap(err, "failed to unmarshal block (Phase0)")
 		}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(&ethpb.SignedBeaconBlockDeneb{Block: block})
-	case *ethpb.BeaconStateCapella:
+		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(&ethpb.SignedBeaconBlock{Block: block})
+	case version.Altair:
+		block := &ethpb.BeaconBlockAltair{}
+		if err := block.UnmarshalSSZ(blockSSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal block (Altair)")
+		}
+		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(&ethpb.SignedBeaconBlockAltair{Block: block})
+	case version.Bellatrix:
+		block := &ethpb.BeaconBlockBellatrix{}
+		if err := block.UnmarshalSSZ(blockSSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal block (Bellatrix)")
+		}
+		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(&ethpb.SignedBeaconBlockBellatrix{Block: block})
+	case version.Capella:
 		block := &ethpb.BeaconBlockCapella{}
 		if err := block.UnmarshalSSZ(blockSSZ); err != nil {
 			return nil, errors.Wrap(err, "failed to unmarshal block (Capella)")
 		}
 		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(&ethpb.SignedBeaconBlockCapella{Block: block})
+	case version.Deneb:
+		block := &ethpb.BeaconBlockDeneb{}
+		if err := block.UnmarshalSSZ(blockSSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal block (Deneb)")
+		}
+		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(&ethpb.SignedBeaconBlockDeneb{Block: block})
+	case version.Electra:
+		block := &ethpb.BeaconBlockElectra{}
+		if err := block.UnmarshalSSZ(blockSSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal block (Electra)")
+		}
+		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(&ethpb.SignedBeaconBlockElectra{Block: block})
 	default:
-		return nil, errors.New("unsupported state version for block_header (expected Capella or Deneb)")
+		return nil, errors.Errorf("unsupported state version for block_header: %d", st.Version())
 	}
 
 	if err != nil {
@@ -985,29 +1026,12 @@ func processDeposit(ctx context.Context, st state.BeaconState, depositSSZ []byte
 		return nil, errors.Wrap(err, "failed to unmarshal deposit")
 	}
 
-	// Detect fork version from state to use correct block body type
-	protoState := st.ToProtoUnsafe()
-	var signedBlock interfaces.SignedBeaconBlock
 	var err error
-
-	switch protoState.(type) {
-	case *ethpb.BeaconStateDeneb:
-		b := util.NewBeaconBlockDeneb()
-		b.Block.Body = &ethpb.BeaconBlockBodyDeneb{Deposits: []*ethpb.Deposit{deposit}}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	case *ethpb.BeaconStateCapella:
-		b := util.NewBeaconBlockCapella()
-		b.Block.Body = &ethpb.BeaconBlockBodyCapella{Deposits: []*ethpb.Deposit{deposit}}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	default:
-		return nil, errors.New("unsupported state version for deposit (expected Capella or Deneb)")
+	if st.Version() >= version.Electra {
+		st, err = electra.ProcessDeposits(ctx, st, []*ethpb.Deposit{deposit})
+	} else {
+		st, err = altair.ProcessDeposits(ctx, st, []*ethpb.Deposit{deposit})
 	}
-
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create signed block")
-	}
-
-	st, err = altair.ProcessDeposits(ctx, st, signedBlock.Block().Body().Deposits())
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to process deposits")
 	}
@@ -1021,29 +1045,7 @@ func processProposerSlashing(ctx context.Context, st state.BeaconState, proposer
 		return nil, errors.Wrap(err, "failed to unmarshal proposer slashing")
 	}
 
-	// Detect fork version from state to use correct block body type
-	protoState := st.ToProtoUnsafe()
-	var signedBlock interfaces.SignedBeaconBlock
-	var err error
-
-	switch protoState.(type) {
-	case *ethpb.BeaconStateDeneb:
-		b := util.NewBeaconBlockDeneb()
-		b.Block.Body = &ethpb.BeaconBlockBodyDeneb{ProposerSlashings: []*ethpb.ProposerSlashing{ps}}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	case *ethpb.BeaconStateCapella:
-		b := util.NewBeaconBlockCapella()
-		b.Block.Body = &ethpb.BeaconBlockBodyCapella{ProposerSlashings: []*ethpb.ProposerSlashing{ps}}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	default:
-		return nil, errors.New("unsupported state version for proposer_slashing (expected Capella or Deneb)")
-	}
-
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create signed block")
-	}
-
-	st, err = blocks.ProcessProposerSlashings(ctx, st, signedBlock.Block().Body().ProposerSlashings(), v.ExitInformation(st))
+	st, err := blocks.ProcessProposerSlashings(ctx, st, []*ethpb.ProposerSlashing{ps}, v.ExitInformation(st))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to process proposer slashings")
 	}
@@ -1052,34 +1054,22 @@ func processProposerSlashing(ctx context.Context, st state.BeaconState, proposer
 }
 
 func processAttesterSlashing(ctx context.Context, st state.BeaconState, attesterSlashingSSZ []byte) (state.BeaconState, error) {
-	as := &ethpb.AttesterSlashing{}
-	if err := as.UnmarshalSSZ(attesterSlashingSSZ); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal attester slashing")
+	var slashing ethpb.AttSlashing
+	if st.Version() >= version.Electra {
+		electraSlashing := &ethpb.AttesterSlashingElectra{}
+		if err := electraSlashing.UnmarshalSSZ(attesterSlashingSSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal electra attester slashing")
+		}
+		slashing = electraSlashing
+	} else {
+		baseSlashing := &ethpb.AttesterSlashing{}
+		if err := baseSlashing.UnmarshalSSZ(attesterSlashingSSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal attester slashing")
+		}
+		slashing = baseSlashing
 	}
 
-	// Detect fork version from state to use correct block body type
-	protoState := st.ToProtoUnsafe()
-	var signedBlock interfaces.SignedBeaconBlock
-	var err error
-
-	switch protoState.(type) {
-	case *ethpb.BeaconStateDeneb:
-		b := util.NewBeaconBlockDeneb()
-		b.Block.Body = &ethpb.BeaconBlockBodyDeneb{AttesterSlashings: []*ethpb.AttesterSlashing{as}}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	case *ethpb.BeaconStateCapella:
-		b := util.NewBeaconBlockCapella()
-		b.Block.Body = &ethpb.BeaconBlockBodyCapella{AttesterSlashings: []*ethpb.AttesterSlashing{as}}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	default:
-		return nil, errors.New("unsupported state version for attester_slashing (expected Capella or Deneb)")
-	}
-
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create signed block")
-	}
-
-	st, err = blocks.ProcessAttesterSlashings(ctx, st, signedBlock.Block().Body().AttesterSlashings(), v.ExitInformation(st))
+	st, err := blocks.ProcessAttesterSlashings(ctx, st, []ethpb.AttSlashing{slashing}, v.ExitInformation(st))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to process attester slashings")
 	}
@@ -1093,29 +1083,7 @@ func processVoluntaryExit(ctx context.Context, st state.BeaconState, voluntaryEx
 		return nil, errors.Wrap(err, "failed to unmarshal voluntary exit")
 	}
 
-	// Detect fork version from state to use correct block body type
-	protoState := st.ToProtoUnsafe()
-	var signedBlock interfaces.SignedBeaconBlock
-	var err error
-
-	switch protoState.(type) {
-	case *ethpb.BeaconStateDeneb:
-		b := util.NewBeaconBlockDeneb()
-		b.Block.Body = &ethpb.BeaconBlockBodyDeneb{VoluntaryExits: []*ethpb.SignedVoluntaryExit{ve}}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	case *ethpb.BeaconStateCapella:
-		b := util.NewBeaconBlockCapella()
-		b.Block.Body = &ethpb.BeaconBlockBodyCapella{VoluntaryExits: []*ethpb.SignedVoluntaryExit{ve}}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	default:
-		return nil, errors.New("unsupported state version for voluntary_exit (expected Capella or Deneb)")
-	}
-
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create signed block")
-	}
-
-	st, err = blocks.ProcessVoluntaryExits(ctx, st, signedBlock.Block().Body().VoluntaryExits(), validators.ExitInformation(st))
+	st, err := blocks.ProcessVoluntaryExits(ctx, st, []*ethpb.SignedVoluntaryExit{ve}, validators.ExitInformation(st))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to process voluntary exits")
 	}
@@ -1135,6 +1103,10 @@ func processBLSToExecutionChange(ctx context.Context, st state.BeaconState, blsT
 	var err error
 
 	switch protoState.(type) {
+	case *ethpb.BeaconStateElectra:
+		b := util.NewBeaconBlockElectra()
+		b.Block.Body = &ethpb.BeaconBlockBodyElectra{BlsToExecutionChanges: []*ethpb.SignedBLSToExecutionChange{blsChange}}
+		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
 	case *ethpb.BeaconStateDeneb:
 		b := util.NewBeaconBlockDeneb()
 		b.Block.Body = &ethpb.BeaconBlockBodyDeneb{BlsToExecutionChanges: []*ethpb.SignedBLSToExecutionChange{blsChange}}
@@ -1144,7 +1116,7 @@ func processBLSToExecutionChange(ctx context.Context, st state.BeaconState, blsT
 		b.Block.Body = &ethpb.BeaconBlockBodyCapella{BlsToExecutionChanges: []*ethpb.SignedBLSToExecutionChange{blsChange}}
 		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
 	default:
-		return nil, errors.New("unsupported state version for bls_to_execution_change (expected Capella or Deneb)")
+		return nil, errors.New("unsupported state version for bls_to_execution_change (expected Capella, Deneb, or Electra)")
 	}
 
 	if err != nil {
@@ -1183,34 +1155,7 @@ func processSyncCommittee(ctx context.Context, st state.BeaconState, syncAggrega
 		return nil, errors.Wrap(err, "failed to unmarshal sync aggregate")
 	}
 
-	// Detect fork version from state to use correct block body type
-	protoState := st.ToProtoUnsafe()
-	var signedBlock interfaces.SignedBeaconBlock
-	var err error
-
-	switch protoState.(type) {
-	case *ethpb.BeaconStateDeneb:
-		b := util.NewBeaconBlockDeneb()
-		b.Block.Body = &ethpb.BeaconBlockBodyDeneb{SyncAggregate: syncAgg}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	case *ethpb.BeaconStateCapella:
-		b := util.NewBeaconBlockCapella()
-		b.Block.Body = &ethpb.BeaconBlockBodyCapella{SyncAggregate: syncAgg}
-		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
-	default:
-		return nil, errors.New("unsupported state version for sync_committee (expected Capella or Deneb)")
-	}
-
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create signed block")
-	}
-
-	sa, err := signedBlock.Block().Body().SyncAggregate()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get sync aggregate")
-	}
-
-	st, _, err = altair.ProcessSyncAggregate(ctx, st, sa)
+	st, _, err := altair.ProcessSyncAggregate(ctx, st, syncAgg)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to process sync aggregate")
 	}
@@ -1228,19 +1173,17 @@ func processExecutionPayload(ctx context.Context, st state.BeaconState, bodySSZ 
 	var blockBody interfaces.ReadOnlyBeaconBlockBody
 	var err error
 
-	// Check if state is Deneb by checking the proto type
-	protoState := st.ToProtoUnsafe()
-	switch protoState.(type) {
-	case *ethpb.BeaconStateDeneb:
-		body := &ethpb.BeaconBlockBodyDeneb{}
+	switch st.Version() {
+	case version.Bellatrix:
+		body := &ethpb.BeaconBlockBodyBellatrix{}
 		if err := body.UnmarshalSSZ(bodySSZ); err != nil {
-			return nil, errors.Wrap(err, "failed to unmarshal block body (Deneb)")
+			return nil, errors.Wrap(err, "failed to unmarshal block body (Bellatrix)")
 		}
 		blockBody, err = consensus_blocks.NewBeaconBlockBody(body)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to create block body (Deneb)")
+			return nil, errors.Wrap(err, "failed to create block body (Bellatrix)")
 		}
-	case *ethpb.BeaconStateCapella:
+	case version.Capella:
 		body := &ethpb.BeaconBlockBodyCapella{}
 		if err := body.UnmarshalSSZ(bodySSZ); err != nil {
 			return nil, errors.Wrap(err, "failed to unmarshal block body (Capella)")
@@ -1249,8 +1192,26 @@ func processExecutionPayload(ctx context.Context, st state.BeaconState, bodySSZ 
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create block body (Capella)")
 		}
+	case version.Deneb:
+		body := &ethpb.BeaconBlockBodyDeneb{}
+		if err := body.UnmarshalSSZ(bodySSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal block body (Deneb)")
+		}
+		blockBody, err = consensus_blocks.NewBeaconBlockBody(body)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create block body (Deneb)")
+		}
+	case version.Electra:
+		body := &ethpb.BeaconBlockBodyElectra{}
+		if err := body.UnmarshalSSZ(bodySSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal block body (Electra)")
+		}
+		blockBody, err = consensus_blocks.NewBeaconBlockBody(body)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create block body (Electra)")
+		}
 	default:
-		return nil, errors.New("unsupported state version for execution_payload (expected Capella or Deneb)")
+		return nil, errors.Errorf("unsupported state version for execution_payload: %d", st.Version())
 	}
 
 	err = blocks.ProcessPayload(st, blockBody)
@@ -1268,6 +1229,14 @@ func processWithdrawals(ctx context.Context, st state.BeaconState, executionPayl
 	var err error
 
 	switch protoState.(type) {
+	case *ethpb.BeaconStateElectra:
+		execPayload := &enginev1.ExecutionPayloadDeneb{}
+		if err := execPayload.UnmarshalSSZ(executionPayloadSSZ); err != nil {
+			return nil, errors.Wrap(err, "failed to unmarshal execution payload (Electra)")
+		}
+		b := util.NewBeaconBlockElectra()
+		b.Block.Body = &ethpb.BeaconBlockBodyElectra{ExecutionPayload: execPayload}
+		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
 	case *ethpb.BeaconStateDeneb:
 		execPayload := &enginev1.ExecutionPayloadDeneb{}
 		if err := execPayload.UnmarshalSSZ(executionPayloadSSZ); err != nil {
@@ -1285,7 +1254,7 @@ func processWithdrawals(ctx context.Context, st state.BeaconState, executionPayl
 		b.Block.Body = &ethpb.BeaconBlockBodyCapella{ExecutionPayload: execPayload}
 		signedBlock, err = consensus_blocks.NewSignedBeaconBlock(b)
 	default:
-		return nil, errors.New("unsupported state version for withdrawals (expected Capella or Deneb)")
+		return nil, errors.New("unsupported state version for withdrawals (expected Capella, Deneb, or Electra)")
 	}
 
 	if err != nil {
@@ -1305,12 +1274,14 @@ func processWithdrawals(ctx context.Context, st state.BeaconState, executionPayl
 	// Use appropriate wrapper based on fork version
 	var p interfaces.ExecutionData
 	switch protoState.(type) {
+	case *ethpb.BeaconStateElectra:
+		p, err = consensus_blocks.WrappedExecutionPayloadDeneb(&enginev1.ExecutionPayloadDeneb{Withdrawals: withdrawals})
 	case *ethpb.BeaconStateDeneb:
 		p, err = consensus_blocks.WrappedExecutionPayloadDeneb(&enginev1.ExecutionPayloadDeneb{Withdrawals: withdrawals})
 	case *ethpb.BeaconStateCapella:
 		p, err = consensus_blocks.WrappedExecutionPayloadCapella(&enginev1.ExecutionPayloadCapella{Withdrawals: withdrawals})
 	default:
-		return nil, errors.New("unsupported state version for withdrawals (expected Capella or Deneb)")
+		return nil, errors.New("unsupported state version for withdrawals (expected Capella, Deneb, or Electra)")
 	}
 
 	if err != nil {
@@ -1325,15 +1296,66 @@ func processWithdrawals(ctx context.Context, st state.BeaconState, executionPayl
 	return st, nil
 }
 
+func processDepositRequest(ctx context.Context, st state.BeaconState, depositRequestSSZ []byte) (state.BeaconState, error) {
+	request := &enginev1.DepositRequest{}
+	if err := request.UnmarshalSSZ(depositRequestSSZ); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal deposit request")
+	}
+	return electra.ProcessDepositRequests(ctx, st, []*enginev1.DepositRequest{request})
+}
+
+func processWithdrawalRequest(ctx context.Context, st state.BeaconState, withdrawalRequestSSZ []byte) (state.BeaconState, error) {
+	request := &enginev1.WithdrawalRequest{}
+	if err := request.UnmarshalSSZ(withdrawalRequestSSZ); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal withdrawal request")
+	}
+	return electra.ProcessWithdrawalRequests(ctx, st, []*enginev1.WithdrawalRequest{request})
+}
+
+func processConsolidationRequest(ctx context.Context, st state.BeaconState, consolidationRequestSSZ []byte) (state.BeaconState, error) {
+	request := &enginev1.ConsolidationRequest{}
+	if err := request.UnmarshalSSZ(consolidationRequestSSZ); err != nil {
+		return nil, errors.Wrap(err, "failed to unmarshal consolidation request")
+	}
+	if err := electra.ProcessConsolidationRequests(ctx, st, []*enginev1.ConsolidationRequest{request}); err != nil {
+		return nil, err
+	}
+	return st, nil
+}
+
 // Epoch processing functions
 func processJustificationAndFinalization(ctx context.Context, st state.BeaconState) (state.BeaconState, error) {
-	vp, bp, err := altair.InitializePrecomputeValidators(ctx, st)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to initialize precompute validators")
-	}
-	_, bp, err = altair.ProcessEpochParticipation(ctx, st, bp, vp)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to process epoch participation")
+	var vp []*precompute.Validator
+	var bp *precompute.Balance
+	var err error
+
+	if st.Version() == version.Phase0 {
+		vp, bp, err = precompute.New(ctx, st)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to initialize phase0 precompute validators")
+		}
+		_, bp, err = precompute.ProcessAttestations(ctx, st, vp, bp)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to process phase0 attestations")
+		}
+	} else if st.Version() >= version.Electra {
+		vp, bp, err = electra.InitializePrecomputeValidators(ctx, st)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to initialize electra precompute validators")
+		}
+		_, bp, err = electra.ProcessEpochParticipation(ctx, st, bp, vp)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to process electra epoch participation")
+		}
+	} else {
+		vp, bp, err = altair.InitializePrecomputeValidators(ctx, st)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to initialize precompute validators")
+		}
+		_, bp, err = altair.ProcessEpochParticipation(ctx, st, bp, vp)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to process epoch participation")
+		}
 	}
 
 	st, err = precompute.ProcessJustificationAndFinalizationPreCompute(st, bp)
@@ -1345,7 +1367,43 @@ func processJustificationAndFinalization(ctx context.Context, st state.BeaconSta
 }
 
 func processRewardsAndPenalties(ctx context.Context, st state.BeaconState) (state.BeaconState, error) {
-	vp, bp, err := altair.InitializePrecomputeValidators(ctx, st)
+	var vp []*precompute.Validator
+	var bp *precompute.Balance
+	var err error
+
+	if st.Version() == version.Phase0 {
+		vp, bp, err = precompute.New(ctx, st)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to initialize phase0 precompute validators")
+		}
+		vp, bp, err = precompute.ProcessAttestations(ctx, st, vp, bp)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to process phase0 attestations")
+		}
+		st, err = precompute.ProcessRewardsAndPenaltiesPrecompute(st, bp, vp, precompute.AttestationsDelta, precompute.ProposersDelta)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to process phase0 rewards and penalties")
+		}
+		return st, nil
+	}
+
+	if st.Version() >= version.Electra {
+		vp, bp, err = electra.InitializePrecomputeValidators(ctx, st)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to initialize electra precompute validators")
+		}
+		vp, bp, err = electra.ProcessEpochParticipation(ctx, st, bp, vp)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to process electra epoch participation")
+		}
+		st, err = electra.ProcessRewardsAndPenaltiesPrecompute(st, bp, vp)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to process electra rewards and penalties")
+		}
+		return st, nil
+	}
+
+	vp, bp, err = altair.InitializePrecomputeValidators(ctx, st)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initialize precompute validators")
 	}
@@ -1353,7 +1411,6 @@ func processRewardsAndPenalties(ctx context.Context, st state.BeaconState) (stat
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to process epoch participation")
 	}
-
 	st, err = altair.ProcessRewardsAndPenaltiesPrecompute(st, bp, vp)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to process rewards and penalties")
@@ -1363,6 +1420,13 @@ func processRewardsAndPenalties(ctx context.Context, st state.BeaconState) (stat
 }
 
 func processRegistryUpdates(ctx context.Context, st state.BeaconState) (state.BeaconState, error) {
+	if st.Version() >= version.Electra {
+		if err := electra.ProcessRegistryUpdates(ctx, st); err != nil {
+			return nil, errors.Wrap(err, "failed to process electra registry updates")
+		}
+		return st, nil
+	}
+
 	st, err := epoch.ProcessRegistryUpdates(ctx, st)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to process registry updates")
@@ -1387,6 +1451,13 @@ func processEth1DataReset(ctx context.Context, st state.BeaconState) (state.Beac
 }
 
 func processEffectiveBalanceUpdates(ctx context.Context, st state.BeaconState) (state.BeaconState, error) {
+	if st.Version() >= version.Electra {
+		if err := electra.ProcessEffectiveBalanceUpdates(st); err != nil {
+			return nil, errors.Wrap(err, "failed to process electra effective balance updates")
+		}
+		return st, nil
+	}
+
 	st, err := epoch.ProcessEffectiveBalanceUpdates(st)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to process effective balance updates")
@@ -1418,6 +1489,14 @@ func processHistoricalSummariesUpdate(ctx context.Context, st state.BeaconState)
 	return st, nil
 }
 
+func processParticipationRecordUpdates(ctx context.Context, st state.BeaconState) (state.BeaconState, error) {
+	st, err := epoch.ProcessParticipationRecordUpdates(st)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to process participation record updates")
+	}
+	return st, nil
+}
+
 func processParticipationFlagUpdates(ctx context.Context, st state.BeaconState) (state.BeaconState, error) {
 	st, err := altair.ProcessParticipationFlagUpdates(st)
 	if err != nil {
@@ -1441,5 +1520,23 @@ func processInactivityUpdates(ctx context.Context, st state.BeaconState) (state.
 		return nil, errors.Wrap(err, "failed to process inactivity updates")
 	}
 
+	return st, nil
+}
+
+func processPendingDeposits(ctx context.Context, st state.BeaconState) (state.BeaconState, error) {
+	activeBalance, err := helpers.TotalActiveBalance(st)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to compute total active balance")
+	}
+	if err := electra.ProcessPendingDeposits(ctx, st, primitives.Gwei(activeBalance)); err != nil {
+		return nil, errors.Wrap(err, "failed to process pending deposits")
+	}
+	return st, nil
+}
+
+func processPendingConsolidations(ctx context.Context, st state.BeaconState) (state.BeaconState, error) {
+	if err := electra.ProcessPendingConsolidations(ctx, st); err != nil {
+		return nil, errors.Wrap(err, "failed to process pending consolidations")
+	}
 	return st, nil
 }

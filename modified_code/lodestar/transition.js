@@ -4,7 +4,6 @@ import { ssz } from "@lodestar/types";
 import { isCachedBeaconState, stateTransition, DataAvailabilityStatus, ExecutionPayloadStatus, getBlockRootAtSlot, processSlots } from "@lodestar/state-transition";
 import { generateCachedState } from "./generateCachedStateCapella.js";
 import * as config from "@lodestar/config";
-import { FAR_FUTURE_EPOCH } from "@lodestar/params";
 
 // Lodestar 내 스펙 함수 import
 // Epoch processing functions
@@ -22,8 +21,12 @@ import {
   processEth1DataReset,
   processSlashingsReset,
   processRandaoMixesReset,
+  processHistoricalRootsUpdate,
   processHistoricalSummariesUpdate,
+  processParticipationRecordUpdates,
   processParticipationFlagUpdates,
+  processPendingDeposits,
+  processPendingConsolidations,
 } from "@lodestar/state-transition/epoch";
 
 // Block processing functions
@@ -37,44 +40,56 @@ import { processAttestations } from "@lodestar/state-transition/block";
 import { processDeposit } from "@lodestar/state-transition/block";
 import { processVoluntaryExit } from "@lodestar/state-transition/block";
 import { processBlsToExecutionChange } from "@lodestar/state-transition/block";
-
-
+import { processDepositRequest } from "@lodestar/state-transition/block";
+import { processWithdrawalRequest } from "@lodestar/state-transition/block";
+import { processConsolidationRequest } from "@lodestar/state-transition/block";
+const DISABLED_FORK_EPOCH = 2000000000;
 
 const PURE_FORK_EPOCHS = {
   phase0: {
-    ALTAIR_FORK_EPOCH: FAR_FUTURE_EPOCH,
-    BELLATRIX_FORK_EPOCH: FAR_FUTURE_EPOCH,
-    CAPELLA_FORK_EPOCH: FAR_FUTURE_EPOCH,
-    DENEB_FORK_EPOCH: FAR_FUTURE_EPOCH,
-    ELECTRA_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    ALTAIR_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    BELLATRIX_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    CAPELLA_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    DENEB_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    ELECTRA_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    FULU_FORK_EPOCH: DISABLED_FORK_EPOCH + 1,
+    GLOAS_FORK_EPOCH: DISABLED_FORK_EPOCH + 2,
   },
   altair: {
     ALTAIR_FORK_EPOCH: 0,
-    BELLATRIX_FORK_EPOCH: FAR_FUTURE_EPOCH,
-    CAPELLA_FORK_EPOCH: FAR_FUTURE_EPOCH,
-    DENEB_FORK_EPOCH: FAR_FUTURE_EPOCH,
-    ELECTRA_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    BELLATRIX_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    CAPELLA_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    DENEB_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    ELECTRA_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    FULU_FORK_EPOCH: DISABLED_FORK_EPOCH + 1,
+    GLOAS_FORK_EPOCH: DISABLED_FORK_EPOCH + 2,
   },
   bellatrix: {
     ALTAIR_FORK_EPOCH: 0,
     BELLATRIX_FORK_EPOCH: 0,
-    CAPELLA_FORK_EPOCH: FAR_FUTURE_EPOCH,
-    DENEB_FORK_EPOCH: FAR_FUTURE_EPOCH,
-    ELECTRA_FORK_EPOCH: FAR_FUTURE_EPOCH,
+    CAPELLA_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    DENEB_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    ELECTRA_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    FULU_FORK_EPOCH: DISABLED_FORK_EPOCH + 1,
+    GLOAS_FORK_EPOCH: DISABLED_FORK_EPOCH + 2,
   },
   capella: {
     ALTAIR_FORK_EPOCH: 0,
     BELLATRIX_FORK_EPOCH: 0,
     CAPELLA_FORK_EPOCH: 0,
-    DENEB_FORK_EPOCH: 75520,
-    ELECTRA_FORK_EPOCH: 364032,
+    DENEB_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    ELECTRA_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    FULU_FORK_EPOCH: DISABLED_FORK_EPOCH + 1,
+    GLOAS_FORK_EPOCH: DISABLED_FORK_EPOCH + 2,
   },
   deneb: {
     ALTAIR_FORK_EPOCH: 0,
     BELLATRIX_FORK_EPOCH: 0,
     CAPELLA_FORK_EPOCH: 0,
     DENEB_FORK_EPOCH: 0,
-    ELECTRA_FORK_EPOCH: 364032,
+    ELECTRA_FORK_EPOCH: DISABLED_FORK_EPOCH,
+    FULU_FORK_EPOCH: DISABLED_FORK_EPOCH + 1,
+    GLOAS_FORK_EPOCH: DISABLED_FORK_EPOCH + 2,
   },
   electra: {
     ALTAIR_FORK_EPOCH: 0,
@@ -82,6 +97,8 @@ const PURE_FORK_EPOCHS = {
     CAPELLA_FORK_EPOCH: 0,
     DENEB_FORK_EPOCH: 0,
     ELECTRA_FORK_EPOCH: 0,
+    FULU_FORK_EPOCH: DISABLED_FORK_EPOCH + 1,
+    GLOAS_FORK_EPOCH: DISABLED_FORK_EPOCH + 2,
   },
 };
 
@@ -107,6 +124,26 @@ function getPureConfig(forkVersion = "capella") {
 
 // For backward compatibility
 const pureCapellaConfig = getPureConfig("capella");
+
+function deserializeState(stateFile, forkVersion) {
+  return forkSsz(forkVersion).BeaconState.deserializeToViewDU(stateFile);
+}
+
+function deserializeBeaconBlock(blockFile, forkVersion) {
+  return forkSsz(forkVersion).BeaconBlock.deserialize(blockFile);
+}
+
+function defaultBeaconBlock(forkVersion) {
+  return forkSsz(forkVersion).BeaconBlock.defaultValue();
+}
+
+function deserializeBeaconBlockBody(bodyFile, forkVersion) {
+  return forkSsz(forkVersion).BeaconBlockBody.deserialize(bodyFile);
+}
+
+function deserializeExecutionPayload(payloadFile, forkVersion) {
+  return forkSsz(forkVersion).ExecutionPayload.deserialize(payloadFile);
+}
 
 // Define default options for state transition
 const defaultOptions = {
@@ -169,7 +206,7 @@ function parseOperationInput(flags, positional) {
   const executionValid = flags["execution-valid"] !== undefined ? flags["execution-valid"] === "true" || flags["execution-valid"] === true : null;
 
   if (!statePath || !operationPath || !operationType || !outputPath) {
-    console.error("Usage: node transition.js operation --pre-state-path=<path> --operation-path=<path> --operation-type=<type> --post-state-output-path=<path> [--fork-version=capella|deneb] [--execution-valid=true|false]");
+    console.error("Usage: node transition.js operation --pre-state-path=<path> --operation-path=<path> --operation-type=<type> --post-state-output-path=<path> [--fork-version=phase0|altair|bellatrix|capella|deneb|electra] [--execution-valid=true|false]");
     process.exit(2);
   }
 
@@ -184,7 +221,7 @@ function parseEpochProcessingInput(flags, positional) {
   const forkVersion = flags["fork-version"] || "capella";
 
   if (!statePath || !epochProcessingType || !outputPath) {
-    console.error("Usage: node transition.js epoch-processing --pre-state-path=<path> --epoch-processing-type=<type> --post-state-output-path=<path> [--fork-version=capella|deneb]");
+    console.error("Usage: node transition.js epoch-processing --pre-state-path=<path> --epoch-processing-type=<type> --post-state-output-path=<path> [--fork-version=phase0|altair|bellatrix|capella|deneb|electra]");
     process.exit(2);
   }
 
@@ -199,7 +236,7 @@ function parseSanitySlotsInput(flags, positional) {
   const forkVersion = flags["fork-version"] || "capella";
 
   if (!statePath || slotValue === undefined || !outputPath) {
-    console.error("Usage: node transition.js sanity-slots --pre-state-path=<path> --slot=<number> --post-state-output-path=<path> [--fork-version=capella|deneb]");
+    console.error("Usage: node transition.js sanity-slots --pre-state-path=<path> --slot=<number> --post-state-output-path=<path> [--fork-version=phase0|altair|bellatrix|capella|deneb|electra]");
     process.exit(2);
   }
   // radix 10 from diff_testing.py
@@ -243,29 +280,8 @@ function processOperation(statePath, operationPath, operationType, outputPath, f
     const stateFile = fs.readFileSync(statePath);
     const operationFile = fs.readFileSync(operationPath);
 
-    // Deserialize pre-state based on fork version
-    let preState;
-    if (forkVersion === "deneb") {
-      preState = ssz.deneb.BeaconState.deserializeToViewDU(stateFile);
-    } else {
-      preState = ssz.capella.BeaconState.deserializeToViewDU(stateFile);
-    }
-    
-    // Get fork epoch from state (like official test runner)
-    const forkEpoch = preState.fork.epoch;
-    
-    // Create config based on state's fork epoch (like official test runner)
-    // Use state's fork epoch to determine correct fork boundaries
-    const pureConfig = getPureConfig(forkVersion);
-    const stateConfig = {
-      ...pureConfig,
-      // If state's fork epoch is 0, all forks are at epoch 0
-      // Otherwise, use state's fork epoch
-      CAPELLA_FORK_EPOCH: forkEpoch,
-      BELLATRIX_FORK_EPOCH: forkEpoch > 0 ? forkEpoch : 0,
-      ALTAIR_FORK_EPOCH: forkEpoch > 0 ? forkEpoch : 0,
-      DENEB_FORK_EPOCH: forkVersion === "deneb" ? (forkEpoch > 0 ? forkEpoch : 0) : pureConfig.DENEB_FORK_EPOCH,
-    };
+    const preState = deserializeState(stateFile, forkVersion);
+    const stateConfig = getPureConfig(forkVersion);
     
     const cachedState = generateCachedState(preState, stateConfig);
 
@@ -279,12 +295,14 @@ function processOperation(statePath, operationPath, operationType, outputPath, f
     // Process operation based on type
     switch (operationType) {
       case "attestation": {
-        const attestation = ssz.phase0.Attestation.deserialize(operationFile);
+        const attestationSsz = forkVersion === "electra" ? ssz.electra.Attestation : ssz.phase0.Attestation;
+        const attestation = attestationSsz.deserialize(operationFile);
         processAttestations(fork, cachedState, [attestation]);
         break;
       }
       case "attester_slashing": {
-        const attesterSlashing = ssz.phase0.AttesterSlashing.deserialize(operationFile);
+        const attesterSlashingSsz = forkVersion === "electra" ? ssz.electra.AttesterSlashing : ssz.phase0.AttesterSlashing;
+        const attesterSlashing = attesterSlashingSsz.deserialize(operationFile);
         processAttesterSlashing(fork, cachedState, attesterSlashing, verifySignatures);
         break;
       }
@@ -295,12 +313,7 @@ function processOperation(statePath, operationPath, operationType, outputPath, f
       }
       case "block_header": {
         // For block_header, the operation file contains a BeaconBlock
-        let block;
-        if (forkVersion === "deneb") {
-          block = ssz.deneb.BeaconBlock.deserialize(operationFile);
-        } else {
-          block = ssz.capella.BeaconBlock.deserialize(operationFile);
-        }
+        const block = deserializeBeaconBlock(operationFile, forkVersion);
         processBlockHeader(cachedState, block);
         break;
       }
@@ -318,12 +331,7 @@ function processOperation(statePath, operationPath, operationType, outputPath, f
         // For sync_aggregate, we need to create a minimal block with sync aggregate
         // Following official test runner pattern
         const syncAggregate = ssz.altair.SyncAggregate.deserialize(operationFile);
-        let block;
-        if (forkVersion === "deneb") {
-          block = ssz.deneb.BeaconBlock.defaultValue();
-        } else {
-          block = ssz.capella.BeaconBlock.defaultValue();
-        }
+        const block = defaultBeaconBlock(forkVersion);
         block.slot = cachedState.slot;
         block.body.syncAggregate = ssz.altair.SyncAggregate.toViewDU(syncAggregate);
         block.parentRoot = getBlockRootAtSlot(cachedState, Math.max(block.slot, 1) - 1);
@@ -332,12 +340,7 @@ function processOperation(statePath, operationPath, operationType, outputPath, f
       }
       case "execution_payload": {
         // For execution_payload, operation file contains BeaconBlockBody
-        let body;
-        if (forkVersion === "deneb") {
-          body = ssz.deneb.BeaconBlockBody.deserialize(operationFile);
-        } else {
-          body = ssz.capella.BeaconBlockBody.deserialize(operationFile);
-        }
+        const body = deserializeBeaconBlockBody(operationFile, forkVersion);
         // Use execution_valid from execution.yaml if provided, otherwise default to valid
         const executionPayloadStatus = (executionValid !== null && executionValid !== undefined)
           ? (executionValid ? ExecutionPayloadStatus.valid : ExecutionPayloadStatus.invalid)
@@ -355,13 +358,28 @@ function processOperation(statePath, operationPath, operationType, outputPath, f
       }
       case "withdrawal": {
         // For withdrawal, operation file contains ExecutionPayload
-        let executionPayload;
-        if (forkVersion === "deneb") {
-          executionPayload = ssz.deneb.ExecutionPayload.deserialize(operationFile);
-        } else {
-          executionPayload = ssz.capella.ExecutionPayload.deserialize(operationFile);
-        }
+        const executionPayload = deserializeExecutionPayload(operationFile, forkVersion);
         processWithdrawals(fork, cachedState, executionPayload);
+        break;
+      }
+      case "withdrawals": {
+        const executionPayload = deserializeExecutionPayload(operationFile, forkVersion);
+        processWithdrawals(fork, cachedState, executionPayload);
+        break;
+      }
+      case "deposit_request": {
+        const depositRequest = ssz.electra.DepositRequest.deserialize(operationFile);
+        processDepositRequest(cachedState, depositRequest);
+        break;
+      }
+      case "withdrawal_request": {
+        const withdrawalRequest = ssz.electra.WithdrawalRequest.deserialize(operationFile);
+        processWithdrawalRequest(fork, cachedState, withdrawalRequest);
+        break;
+      }
+      case "consolidation_request": {
+        const consolidationRequest = ssz.electra.ConsolidationRequest.deserialize(operationFile);
+        processConsolidationRequest(cachedState, consolidationRequest);
         break;
       }
       default:
@@ -398,26 +416,8 @@ function processEpochProcessing(statePath, epochProcessingType, outputPath, fork
     // Read state file
     const stateFile = fs.readFileSync(statePath);
 
-    // Deserialize pre-state based on fork version
-    let preState;
-    if (forkVersion === "deneb") {
-      preState = ssz.deneb.BeaconState.deserializeToViewDU(stateFile);
-    } else {
-      preState = ssz.capella.BeaconState.deserializeToViewDU(stateFile);
-    }
-    
-    // Get fork epoch from state (like official test runner)
-    const forkEpoch = preState.fork.epoch;
-    
-    // Create config based on state's fork epoch (like official test runner)
-    const pureConfig = getPureConfig(forkVersion);
-    const stateConfig = {
-      ...pureConfig,
-      CAPELLA_FORK_EPOCH: forkEpoch,
-      BELLATRIX_FORK_EPOCH: forkEpoch > 0 ? forkEpoch : 0,
-      ALTAIR_FORK_EPOCH: forkEpoch > 0 ? forkEpoch : 0,
-      DENEB_FORK_EPOCH: forkVersion === "deneb" ? (forkEpoch > 0 ? forkEpoch : 0) : pureConfig.DENEB_FORK_EPOCH,
-    };
+    const preState = deserializeState(stateFile, forkVersion);
+    const stateConfig = getPureConfig(forkVersion);
     
     const cachedState = generateCachedState(preState, stateConfig);
 
@@ -497,12 +497,43 @@ function processEpochProcessing(statePath, epochProcessingType, outputPath, fork
         processHistoricalSummariesUpdate(cachedState, epochTransitionCache);
         break;
       }
+      case "historical_roots_update": {
+        if (!processHistoricalRootsUpdate) {
+          throw new Error("processHistoricalRootsUpdate not available in Lodestar");
+        }
+        const epochTransitionCache = beforeProcessEpoch(cachedState);
+        processHistoricalRootsUpdate(cachedState, epochTransitionCache);
+        break;
+      }
+      case "participation_record_updates": {
+        if (!processParticipationRecordUpdates) {
+          throw new Error("processParticipationRecordUpdates not available in Lodestar");
+        }
+        processParticipationRecordUpdates(cachedState);
+        break;
+      }
       case "participation_flag_updates": {
         if (!processParticipationFlagUpdates) {
           throw new Error("processParticipationFlagUpdates not available in Lodestar");
         }
         const epochTransitionCache = beforeProcessEpoch(cachedState);
         processParticipationFlagUpdates(cachedState, epochTransitionCache);
+        break;
+      }
+      case "pending_deposits": {
+        if (!processPendingDeposits) {
+          throw new Error("processPendingDeposits not available in Lodestar");
+        }
+        const epochTransitionCache = beforeProcessEpoch(cachedState);
+        processPendingDeposits(cachedState, epochTransitionCache);
+        break;
+      }
+      case "pending_consolidations": {
+        if (!processPendingConsolidations) {
+          throw new Error("processPendingConsolidations not available in Lodestar");
+        }
+        const epochTransitionCache = beforeProcessEpoch(cachedState);
+        processPendingConsolidations(cachedState, epochTransitionCache);
         break;
       }
       case "sync_committee_updates": {
@@ -543,26 +574,8 @@ function processSanitySlots(statePath, slotValue, outputPath, forkVersion = "cap
     // Read state file
     const stateFile = fs.readFileSync(statePath);
 
-    // Deserialize pre-state based on fork version
-    let preState;
-    if (forkVersion === "deneb") {
-      preState = ssz.deneb.BeaconState.deserializeToViewDU(stateFile);
-    } else {
-      preState = ssz.capella.BeaconState.deserializeToViewDU(stateFile);
-    }
-    
-    // Get fork epoch from state (like official test runner)
-    const forkEpoch = preState.fork.epoch;
-    
-    // Create config based on state's fork epoch (like official test runner)
-    const pureConfig = getPureConfig(forkVersion);
-    const stateConfig = {
-      ...pureConfig,
-      CAPELLA_FORK_EPOCH: forkEpoch,
-      BELLATRIX_FORK_EPOCH: forkEpoch > 0 ? forkEpoch : 0,
-      ALTAIR_FORK_EPOCH: forkEpoch > 0 ? forkEpoch : 0,
-      DENEB_FORK_EPOCH: forkVersion === "deneb" ? (forkEpoch > 0 ? forkEpoch : 0) : pureConfig.DENEB_FORK_EPOCH,
-    };
+    const preState = deserializeState(stateFile, forkVersion);
+    const stateConfig = getPureConfig(forkVersion);
     
     // Create cached state (same as official test runner: createCachedBeaconStateTest)
     const cachedState = generateCachedState(preState, stateConfig);

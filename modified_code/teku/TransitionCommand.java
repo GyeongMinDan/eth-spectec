@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.ssz.SSZException;
 import org.bouncycastle.util.encoders.Hex;
@@ -54,10 +55,15 @@ import tech.pegasys.teku.spec.datastructures.blocks.blockbody.versions.altair.Be
 import tech.pegasys.teku.spec.datastructures.blocks.blockbody.versions.capella.BeaconBlockBodySchemaCapella;
 import tech.pegasys.teku.spec.datastructures.blocks.blockbody.versions.deneb.BeaconBlockBodySchemaDeneb;
 import tech.pegasys.teku.spec.logic.common.block.BlockProcessor;
+import tech.pegasys.teku.spec.logic.common.execution.ExecutionRequestsProcessor;
+import tech.pegasys.teku.spec.logic.common.helpers.BeaconStateMutators.ValidatorExitContext;
 import tech.pegasys.teku.spec.logic.common.statetransition.epoch.EpochProcessor;
 import tech.pegasys.teku.spec.logic.common.statetransition.epoch.status.ValidatorStatusFactory;
 import tech.pegasys.teku.spec.logic.versions.bellatrix.block.OptimisticExecutionPayloadExecutor;
 import tech.pegasys.teku.spec.datastructures.execution.ExecutionPayload;
+import tech.pegasys.teku.spec.datastructures.execution.versions.electra.ConsolidationRequest;
+import tech.pegasys.teku.spec.datastructures.execution.versions.electra.DepositRequest;
+import tech.pegasys.teku.spec.datastructures.execution.versions.electra.WithdrawalRequest;
 import tech.pegasys.teku.spec.datastructures.operations.Attestation;
 import tech.pegasys.teku.spec.datastructures.operations.AttesterSlashing;
 import tech.pegasys.teku.spec.datastructures.operations.Deposit;
@@ -68,8 +74,7 @@ import tech.pegasys.teku.spec.datastructures.state.beaconstate.MutableBeaconStat
 import tech.pegasys.teku.spec.schemas.SchemaDefinitions;
 import tech.pegasys.teku.spec.schemas.SchemaDefinitionsCapella;
 import tech.pegasys.teku.spec.schemas.SchemaDefinitionsDeneb;
-import tech.pegasys.teku.spec.logic.common.statetransition.epoch.EpochProcessor;
-import tech.pegasys.teku.spec.logic.common.statetransition.epoch.status.ValidatorStatusFactory;
+import tech.pegasys.teku.spec.schemas.SchemaDefinitionsElectra;
 
 @Command(
     name = "transition",
@@ -178,7 +183,8 @@ public class TransitionCommand implements Runnable {
               description =
                   "Operation type: attestation, attester_slashing, proposer_slashing, "
                       + "block_header, deposit, voluntary_exit, sync_aggregate, execution_payload, "
-                      + "bls_to_execution_change, withdrawal")
+                      + "bls_to_execution_change, withdrawal, deposit_request, "
+                      + "withdrawal_request, consolidation_request")
           final String operationType,
       @Option(
               names = {"--operation-data"},
@@ -226,7 +232,9 @@ public class TransitionCommand implements Runnable {
                       + "rewards_and_penalties, registry_updates, slashings, "
                       + "effective_balance_updates, participation_flag_updates, "
                       + "eth1_data_reset, slashings_reset, randao_mixes_reset, "
-                      + "historical_summaries_update, sync_committee_updates, inactivity_updates")
+                      + "historical_roots_update, historical_summaries_update, "
+                      + "sync_committee_updates, inactivity_updates, pending_deposits, "
+                      + "pending_consolidations")
           final String epochOperationType) {
     return processStateTransition(
         params,
@@ -441,6 +449,47 @@ public class TransitionCommand implements Runnable {
             capellaSchema.getExecutionPayloadSchema().sszDeserialize(operationData);
         blockProcessor.processWithdrawals(state, Optional.of(executionPayload));
       }
+      case "withdrawals" -> {
+        final SchemaDefinitionsCapella capellaSchema =
+            SchemaDefinitionsCapella.required(schemaDefinitions);
+        final ExecutionPayload executionPayload =
+            capellaSchema.getExecutionPayloadSchema().sszDeserialize(operationData);
+        blockProcessor.processWithdrawals(state, Optional.of(executionPayload));
+      }
+      case "deposit_request" -> {
+        final SchemaDefinitionsElectra electraSchema =
+            SchemaDefinitionsElectra.required(schemaDefinitions);
+        final DepositRequest depositRequest =
+            electraSchema.getDepositRequestSchema().sszDeserialize(operationData);
+        final ExecutionRequestsProcessor executionRequestsProcessor =
+            spec.getExecutionRequestsProcessor(state.getSlot());
+        executionRequestsProcessor.processDepositRequests(state, List.of(depositRequest));
+      }
+      case "withdrawal_request" -> {
+        final SchemaDefinitionsElectra electraSchema =
+            SchemaDefinitionsElectra.required(schemaDefinitions);
+        final WithdrawalRequest withdrawalRequest =
+            electraSchema.getWithdrawalRequestSchema().sszDeserialize(operationData);
+        final ExecutionRequestsProcessor executionRequestsProcessor =
+            spec.getExecutionRequestsProcessor(state.getSlot());
+        final Supplier<ValidatorExitContext> validatorExitContextSupplier =
+            spec.atSlot(state.getSlot())
+                .beaconStateMutators()
+                .createValidatorExitContextSupplier(state);
+        executionRequestsProcessor.processWithdrawalRequests(
+            state,
+            List.of(withdrawalRequest),
+            validatorExitContextSupplier);
+      }
+      case "consolidation_request" -> {
+        final SchemaDefinitionsElectra electraSchema =
+            SchemaDefinitionsElectra.required(schemaDefinitions);
+        final ConsolidationRequest consolidationRequest =
+            electraSchema.getConsolidationRequestSchema().sszDeserialize(operationData);
+        final ExecutionRequestsProcessor executionRequestsProcessor =
+            spec.getExecutionRequestsProcessor(state.getSlot());
+        executionRequestsProcessor.processConsolidationRequests(state, List.of(consolidationRequest));
+      }
       default ->
           throw new IllegalArgumentException("Unknown operation type: " + operationType);
     }
@@ -488,12 +537,24 @@ public class TransitionCommand implements Runnable {
       case "historical_summaries_update" -> {
         epochProcessor.processHistoricalSummariesUpdate(state);
       }
+      case "historical_roots_update" -> {
+        epochProcessor.processHistoricalRootsUpdate(state);
+      }
+      case "participation_record_updates" -> {
+        epochProcessor.processParticipationUpdates(state);
+      }
       case "sync_committee_updates" -> {
         epochProcessor.processSyncCommitteeUpdates(state);
       }
       case "inactivity_updates" -> {
         epochProcessor.processInactivityUpdates(
             state, validatorStatusFactory.createValidatorStatuses(state));
+      }
+      case "pending_deposits" -> {
+        epochProcessor.processPendingDeposits(state);
+      }
+      case "pending_consolidations" -> {
+        epochProcessor.processPendingConsolidations(state);
       }
       default ->
           throw new IllegalArgumentException("Unknown epoch operation type: " + epochOperationType);
