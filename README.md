@@ -1,6 +1,6 @@
 # SpecTrum Artifact Guide
 
-This repository contains the `spectec-core` pipeline used in the artifact, together with the differential testing and coverage-measurement scripts used for the paper experiments.
+This repository contains the SpecTec pipeline used in the artifact, together with the differential testing and coverage-measurement scripts used for the paper experiments.
 
 Consensus-SpecTec is the SpecTec formalization of the official [Ethereum Consensus Spec](https://github.com/ethereum/consensus-specs/tree/master/specs).
 

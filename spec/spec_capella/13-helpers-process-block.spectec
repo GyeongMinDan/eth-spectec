@@ -182,8 +182,7 @@ rule ProcessFlags_over_attesting/cons:
   -- ProcessFlags_over_attesting: participationFlags_1* `[ vid_attesting_t* ] `++ `{ vid_flag* } `# state `#SUM reward_1
       ~> participationFlags_2* `#SUM reward_2
 
-;; process_sync_aggregate 용
-;; enumerate (n, X) 에서 bits[n] == 1
+;; process_sync_aggregate
 dec $bit_is_one_en_blsPubkey(enumerated_<blsPubkey>, boolean*) : bool
 def $bit_is_one_en_blsPubkey((i, blsPubkey), boolean_bits*) = true
   -- if $(i < |boolean_bits*|)
