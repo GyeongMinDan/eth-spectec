@@ -42,26 +42,39 @@ All commands below run **inside the container** from `/workspace/spectec-core`.
 
 ## A.4 Smoke test (< 30 min)
 
-**1. Validate Consensus-SpecTec** (elaboration plus structuring):
+**1. Validate Consensus-SpecTec** (5 single-block cases, ~1 min). Convert to JSON, then validate state roots with `eth coverage` (without `--no-validate`):
 
 ```bash
-make test-quick      # expect: "#### Quick tests passed"
+CASES="empty_block_transition bls_change deposit_in_block attester_slashing full_random_operations_0"
+SRC=Converter/OfficialTestSuite/capella/sanity/blocks/pyspec_tests
+mkdir -p smoke-suite/sanity/blocks/pyspec_tests
+for c in $CASES; do cp -r "$SRC/$c" smoke-suite/sanity/blocks/pyspec_tests/; done
+
+python3 Converter/generate_json_test_cases.py \
+  smoke-suite/sanity/blocks/pyspec_tests --fork capella --output-dir smoke-tests -v
+
+./spectec-core eth coverage -v \
+  --spec-dir spec/spec_capella --test-dir smoke-tests \
+  --node-coverage.level summary --max-slot-gap 32 \
+  --checkpoint smoke.ckpt --node-coverage.output smoke.txt
 ```
 
-**2. Differential test the smallest suite** (5 cases, all six implementations):
+Expect `state_transition: 5/5 passed, 0 failed`.
+
+**2. Differential test the same 5 cases** across the six implementations (~20 s, reuses `smoke-suite/` from step 1):
 
 ```bash
 python3 diff_testing.py \
-  --test-suite Converter/OfficialTestSuite/capella/finality/pyspec_tests \
+  --test-suite smoke-suite/sanity/blocks/pyspec_tests \
   --test-type state-transition \
   --workflow sequential \
   --fork-version capella \
-  --output-base ./results/smoke_finality
+  --output-base ./results/smoke_diff
 
-python3 check_results.py ./results/smoke_finality
+python3 check_results.py ./results/smoke_diff
 ```
 
-`check_results.py` printing a comparison summary across all implementations means the artifact is functional. Proceed to Part B.
+Expect 0 mismatch and 0 crash cases (all six implementations agreed). Proceed to Part B.
 
 ---
 
@@ -94,13 +107,18 @@ Research questions (verbatim):
 
 ## B.3 Validate Consensus-SpecTec (C1)
 
-Validates the mechanization against the 910 official tests (581 state-transition plus 329 unit):
+The paper validates Consensus-SpecTec against 910 official tests (581 state-transition plus 329 unit). Validation is `eth coverage` **without** `--no-validate`: it runs each test and checks the resulting state root against the expected post-state.
+
+Convert a suite to JSON ([B.4](#b4-preparation-ssz-to-json)), then validate:
 
 ```bash
-make test            # expect: "#### All tests passed"
+./spectec-core eth coverage -v \
+  --spec-dir spec/spec_capella --test-dir capella-tests \
+  --node-coverage.level summary --max-slot-gap 32 \
+  --checkpoint validate.ckpt --node-coverage.output validate.txt
 ```
 
-`make test-quick` (the smoke-test subset) runs elaboration plus structuring. `make test` adds the slower IL/SL interpreter suites.
+Each category prints `N/N passed, 0 failed`. The A.4 smoke test runs a 5-case subset (~1 min). Full suites take longer.
 
 ## B.4 Preparation: SSZ to JSON
 
@@ -117,6 +135,8 @@ done
 Multi-block inputs run `eth2spec` to produce `post.json`. Invalid cases save the `eth2spec` error to `error.txt`.
 
 ## B.5 Test generation
+
+**Note.** The provided `.ckpt` files carry an older spec hash because we trimmed comments, not the spec. `testgen` loads them directly. The `checkpoint` utilities ([B.7](#spec-coverage-c3)) need `--ignore-spec-mismatch`, already included below.
 
 Generate Capella tests from the provided baseline checkpoint and target premises, then convert the mutated JSON back to SSZ:
 
@@ -272,7 +292,7 @@ The pipeline is fork-agnostic and client-pluggable. This part documents the dire
 artifact-eval/
 ├── README.md, STATUS.md, REQUIREMENTS.md, LICENSE, NOTICE, AUTHORS
 ├── Dockerfile                       Reproducible build of the full environment
-├── Makefile                         Build (make exe) and validation (make test)
+├── Makefile                         Build the spectec-core binary (make exe)
 │
 ├── spec/                            Consensus-SpecTec mechanization, one dir per fork
 │   ├── spec_capella/                22 .spectec files

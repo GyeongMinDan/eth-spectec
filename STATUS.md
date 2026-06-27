@@ -10,13 +10,13 @@ Deposited on Zenodo with a permanent DOI. The record holds the full artifact: do
 
 - **Documented.** `README.md` has a Getting Started guide with a <30 min smoke test, plus step-by-step reproduction in which every step is keyed to a paper claim (the C1 to C5 claims map in README Part B.1).
 - **Complete.** Includes Consensus-SpecTec (Capella and Deneb), the extended SpecTec toolchain, the test generator, the six-implementation differential harness, the analysis scripts, and precomputed coverage checkpoints (`testgen_data/`).
-- **Exercisable, with verification and validation.** Consensus-SpecTec is validated against the 910 official tests (`make test`). The differential pipeline reproduces the divergence and coverage results reported in the paper.
+- **Exercisable, with verification and validation.** Consensus-SpecTec is validated against the official tests by running them through the interpreter with state-root checking (`eth coverage` without `--no-validate`, see README B.3). The differential pipeline reproduces the divergence and coverage results reported in the paper.
 
 ### Claims reproduced
 
 | Claim | Paper | Reproduced by |
 | --- | --- | --- |
-| Consensus-SpecTec passes 910 official tests | §4 | `make test` |
+| Consensus-SpecTec passes 910 official tests | §4 | `eth coverage` (state-root validation, README B.3) |
 | 24 divergences (10 Class-A, 14 Class-B), 6 categories | Table 1 | RQ1 (`diff_testing.py`, `check_results.py`, `check_postState.py`) |
 | Premise coverage 61.8% → 91.2% (66.0% → 97.4% excl. unattempted) | Table 2 | RQ2 (`spectec-core eth coverage`) |
 | Code coverage modest increment | Table 3 | RQ2 (`diff_testing.py --enable-coverage`, `compare_state_transition_coverage.py`) |

@@ -114,16 +114,47 @@ let test_id_to_dir (test_id : string) : string =
     String.sub test_id 0 (String.length test_id - 9)
   else test_id
 
+(* Resolve a seed's pre.json from a checkpoint test_id, tolerating a test_dir
+   prefix that differs from the one the checkpoint hardcoded. Tries the id as-is,
+   then <test_dir>/<id>, then anchors on the category dir before falling back. *)
+let resolve_pre_path ~(test_dir : string) (test_id : string) : string =
+  let pre_rel = test_id_to_dir test_id ^ "/pre.json" in
+  let find_substring haystack needle =
+    let hlen = String.length haystack and nlen = String.length needle in
+    if nlen = 0 then Some 0
+    else
+      let rec search i =
+        if i > hlen - nlen then None
+        else if String.sub haystack i nlen = needle then Some i
+        else search (i + 1)
+      in
+      search 0
+  in
+  let anchored =
+    List.filter_map
+      (fun anchor ->
+        match find_substring pre_rel anchor with
+        | None -> None
+        | Some pos ->
+            let rel = String.sub pre_rel pos (String.length pre_rel - pos) in
+            Some (Filename.concat test_dir rel))
+      [ "sanity/blocks/"; "random/"; "finality/" ]
+  in
+  match
+    List.find_opt Sys.file_exists
+      (pre_rel :: Filename.concat test_dir pre_rel :: anchored)
+  with
+  | Some p -> p
+  | None -> Filename.concat test_dir pre_rel
+
 (* The spec's main loop replays state transitions from state.slot up to block.slot - 1.
    Large gaps cause extremely slow execution; this checks whether a seed is within the limit. *)
 let slot_gap_within_limit ~(test_dir : string) ~(max_slot_gap : int)
     (test_id : string) : bool =
-  let dir = test_id_to_dir test_id in
+  let pre_path = resolve_pre_path ~test_dir test_id in
+  let block_path = Filename.concat (Filename.dirname pre_path) "block.json" in
   let load f = try Some (Json_mutator.load_json f) with _ -> None in
-  match
-    ( load (Filename.concat test_dir (dir ^ "/pre.json")),
-      load (Filename.concat test_dir (dir ^ "/block.json")) )
-  with
+  match (load pre_path, load block_path) with
   | Some pre, Some block -> (
       match get_slot_gap pre block with
       | Some gap -> gap <= max_slot_gap
@@ -1263,11 +1294,11 @@ let mkdir_p (dir : string) : unit =
 let load_json_opt (path : string) : Yojson.Safe.t option =
   try Some (Json_mutator.load_json path) with _ -> None
 
-(* Derive pre.json and block.json absolute paths from a test_id and base directory. *)
+(* Derive pre.json and block.json paths from a test_id, via resolve_pre_path. *)
 let test_case_paths ~(test_dir : string) (test_id : string) : string * string =
-  let dir = test_id_to_dir test_id in
-  ( Filename.concat test_dir (dir ^ "/pre.json"),
-    Filename.concat test_dir (dir ^ "/block.json") )
+  let pre_path = resolve_pre_path ~test_dir test_id in
+  let block_path = Filename.concat (Filename.dirname pre_path) "block.json" in
+  (pre_path, block_path)
 
 (* Write mutated pre/block JSON files for a single mutation into a subdirectory.
    Returns output file paths, or input paths if mutation could not be applied. *)
