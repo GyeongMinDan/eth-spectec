@@ -4,8 +4,12 @@ final_coverage_report/
 results/
 *.csv
 *.json
+
+# Ignore documentation. Prevents documentation edits from invalidating the cache.
 *.md
-!README.md
+LICENSE
+NOTICE
+AUTHORS
 
 # Ignore Python cache
 __pycache__/
