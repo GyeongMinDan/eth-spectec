@@ -1,0 +1,36 @@
+SpecTrum
+Copyright 2026 The SpecTrum Authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE). See AUTHORS for
+the list of copyright holders.
+
+First-party components (Apache-2.0)
+-----------------------------------
+  Consensus-SpecTec mechanization   spec/spec_capella/, spec/spec_deneb/
+  SpecTec compiler and interpreter  spectec/
+  Differential-testing harness      diff_testing.py, check_results.py,
+                                     check_postState.py,
+                                     compare_state_transition_coverage.py,
+                                     filter_tests.py
+  Conversion tooling                Converter/
+
+Third-party components
+----------------------
+The artifact builds and redistributes the consensus clients and the official
+Ethereum consensus specification below. These are NOT covered by Apache-2.0.
+Each retains its own upstream license. The image fetches each at the pinned
+version shown. The authoritative text is the LICENSE in each upstream repo.
+
+  Component        Version   License            Upstream
+  ---------------  --------  -----------------  -------------------------------------
+  Lighthouse       v8.0.1    Apache-2.0         github.com/sigp/lighthouse
+  Prysm            v7.0.0    GPL-3.0            github.com/prysmaticlabs/prysm
+  Teku             25.11.1   Apache-2.0         github.com/Consensys/teku
+  Nimbus-eth2      v25.11.1  MIT OR Apache-2.0  github.com/status-im/nimbus-eth2
+  Lodestar         1.36.0    Apache-2.0         github.com/ChainSafe/lodestar
+  consensus-specs  v1.6.0    CC0-1.0           github.com/ethereum/consensus-specs
+
+eth2spec is built from consensus-specs (v1.6.0, commit f96d3e7).
+
+Prysm is GPL-3.0. The patches in modified_code/prysm/ are distributed under
+GPL-3.0 and are included there in source form.
