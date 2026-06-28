@@ -25,16 +25,16 @@ An amd64 Linux Docker host with ~80 to 120 GB free disk (see [`REQUIREMENTS.md`]
 docker load -i spectrum-image.tar.gz
 
 # Or pull the Docker Hub mirror
-docker pull spectrumartifact/spectrumartifact:latest
+docker pull kaistplrg/spectrum:latest
 
 # Or build from source (needs network, slow)
-docker build -t eth2test-artifact:coverage .
+docker build -t kaistplrg/spectrum:latest .
 ```
 
 ## A.3 Start the container
 
 ```bash
-docker run -it --name spectrum spectrumartifact/spectrumartifact:latest /bin/bash
+docker run -it --name spectrum kaistplrg/spectrum:latest /bin/bash
 cd /workspace/spectec-core
 ```
 
@@ -107,9 +107,9 @@ Research questions (verbatim):
 
 ## B.3 Validate Consensus-SpecTec (C1)
 
-The paper validates Consensus-SpecTec against 910 official tests (581 state-transition plus 329 unit). Validation is `eth coverage` **without** `--no-validate`: it runs each test and checks the resulting state root against the expected post-state.
+The paper validates Consensus-SpecTec against 910 official tests: 581 state-transition tests plus 329 unit tests (epoch processing, operations, sanity slots). Each test runs through the interpreter and is checked against its expected output. The full run takes roughly 10 to 12 hours.
 
-Convert a suite to JSON ([B.4](#b4-preparation-ssz-to-json)), then validate:
+**State-transition tests (581).** Convert the state-transition suites ([B.4](#b4-preparation-ssz-to-json)), then run `eth coverage` without `--no-validate`. One command validates the whole set:
 
 ```bash
 ./spectec-core eth coverage -v \
@@ -118,11 +118,43 @@ Convert a suite to JSON ([B.4](#b4-preparation-ssz-to-json)), then validate:
   --checkpoint validate.ckpt --node-coverage.output validate.txt
 ```
 
-Each category prints `N/N passed, 0 failed`. The A.4 smoke test runs a 5-case subset (~1 min). Full suites take longer.
+`state_transition: N/N passed, 0 failed` confirms this set. The A.4 smoke test runs a 5-case subset (~1 min).
+
+**Unit tests (329).** Each unit category has its own `eth run` subcommand (the default spec dir is the target fork's, so `--spec` is not needed). Convert the unit suites, then validate each category:
+
+```bash
+SUITE=Converter/OfficialTestSuite/capella
+
+# Convert the unit suites to JSON
+for d in $SUITE/epoch_processing/*/ $SUITE/operations/*/ $SUITE/sanity/slots; do
+  python3 Converter/generate_json_test_cases.py "$d/pyspec_tests" --fork capella --output-dir capella-tests
+done
+
+# Epoch processing (subcommand:directory; two names differ)
+for m in justification:justification_and_finalization rewards:rewards_and_penalties \
+         inactivity-updates:inactivity_updates registry-updates:registry_updates \
+         slashings:slashings eth1-data-reset:eth1_data_reset \
+         effective-balance-updates:effective_balance_updates slashings-reset:slashings_reset \
+         randao-mixes-reset:randao_mixes_reset historical-summaries-update:historical_summaries_update \
+         participation-flag-updates:participation_flag_updates; do
+  ./spectec-core eth run epoch ${m%%:*} --suite-dir capella-tests/epoch_processing/${m##*:}
+done
+
+# Operations (subcommand is the directory name with underscores written as hyphens)
+for op in attestation attester_slashing block_header bls_to_execution_change deposit \
+          execution_payload proposer_slashing sync_aggregate voluntary_exit withdrawals; do
+  ./spectec-core eth run operations ${op//_/-} --suite-dir capella-tests/operations/$op
+done
+
+# Sanity slots
+./spectec-core eth run slots --suite-dir capella-tests/sanity/slots
+```
+
+Each run prints `N/N passed, 0 failed`.
 
 ## B.4 Preparation: SSZ to JSON
 
-Official tests are SSZ. `spectec-core` consumes JSON. Convert the three Capella state-transition suites used in the paper:
+Official tests are SSZ, `spectec-core` consumes JSON. Convert the three Capella state-transition suites used in the paper:
 
 ```bash
 for suite in sanity/blocks random/random finality; do
@@ -155,11 +187,11 @@ python3 convert_testgen_json_to_ssz.py \
   --output-dir ./capella-testgen-ssz
 ```
 
-Converted tests land in `./capella-testgen-ssz/testgen/spectec-generated`.
+Converted tests are saved in `./capella-testgen-ssz/testgen/spectec-generated`.
 
 ## B.6 RQ1: Bug-finding effectiveness (C2)
 
-Reproduces **Table 1** (24 divergences: 10 Class-A consensus failures, 14 Class-B liveness failures). `diff_testing.py` runs each input across all six implementations and compares outcomes and post-states. Divergences are the rows of Table 1 (accept/reject disagreement, post-state disagreement, crash).
+Reproduces **Table 1**. `diff_testing.py` runs each input across all six implementations and compares outcomes and post-states (accept/reject disagreement, post-state disagreement, crash). Test generation is deterministic. The divergent cases, after deduplication, are the 24 of Table 1 (10 Class-A consensus failures, 14 Class-B liveness failures, 6 root-cause categories).
 
 Run the three official suites and the generated suite:
 
@@ -207,7 +239,12 @@ nohup ./spectec-core eth coverage -v \
   --node-coverage.output capella-baseline.txt
 ```
 
-Precomputed: `testgen_data/capella/{baseline.ckpt,baseline.txt,target_premises.txt}`.
+This run takes multiple hours, so the precomputed result ships under `testgen_data/capella/`:
+
+- `baseline.ckpt`. Serialized baseline coverage (which seed reached which premise). Consumed by `testgen` (B.5) and replayed by `checkpoint report`.
+- `baseline.txt`. The baseline premise-coverage report.
+- `target_premises.txt`. The audited falsifiable premises `testgen` targets, with tautologies, closing branches, and out-of-scope premises removed.
+- `baseline+testgen.ckpt`, `baseline+testgen.txt`. Coverage after adding the generated tests (Table 2 Combined column).
 
 ### Spec coverage (C3)
 
@@ -226,7 +263,7 @@ nohup ./spectec-core eth coverage -v \
   --node-coverage.output capella-testgen.txt
 ```
 
-Precomputed reports under `testgen_data/capella/`: `baseline.txt` (61.8%, Baseline column) and `baseline+testgen.txt` (91.2%, Combined column), with matching `.ckpt` files.
+The precomputed `baseline.txt` and `baseline+testgen.txt` are the raw premise-coverage reports, in which falsified premises rise from 129/317 to 191/317. Table 2's 61.8% → 91.2% restricts this to the 204 falsifiable premises (317 minus the 108 unfalsifiable and 5 redundant of §5), giving 126/204 → 186/204.
 
 Checkpoint utilities:
 
@@ -264,9 +301,9 @@ The reported per-client line/branch deltas are the Base vs. Combined columns of 
 
 ## B.8 RQ3: Cross-fork reproducibility (C5)
 
-Reproduces §7.3: all 24 divergences recur under Deneb, and extending Consensus-SpecTec Capella to Deneb is ~28 lines (~1%) across 10 of 22 files.
+Reproduces §7.3: all 24 divergences recur under Deneb, and extending Consensus-SpecTec Capella to Deneb inserts ~28 lines (~1%) across 10 of 22 files.
 
-The Deneb mechanization is under `spec/spec_deneb/`. Its diff against `spec/spec_capella/` is the ~28-line cross-fork change. Deneb checkpoints and premises ship under `testgen_data/deneb/`.
+The Deneb mechanization is under `spec/spec_deneb/`. Its diff against `spec/spec_capella/` spans those 10 files, with 28 net insertions. Deneb checkpoints and premises ship under `testgen_data/deneb/`.
 
 The RQ3 pipeline is identical to RQ1 with fork-specific inputs swapped:
 
@@ -339,9 +376,9 @@ Then pass `--spec-dir spec/spec_<fork>`, `--fork <fork>`, and `--fork-version <f
 
 Each client is integrated at three points, mirroring the five existing clients:
 
-1. **Register it.** Add the tool name to `BASE_CLIENT_TOOLS` in `diff_testing.py`.
-2. **Patch it.** Add `modified_code/<client>/` with the client's signature-free state-transition entry point, following the existing per-client directories.
-3. **Build it.** Add a `Dockerfile` stage that clones the client at a pinned tag, builds it, and applies the patch.
+1. **Register.** Add the tool name to `BASE_CLIENT_TOOLS` in `diff_testing.py`.
+2. **Patch.** If the client does not provide a separate state-transition entrypoint, patch and add the patched code to `modified_code/<client>/` following the existing per-client directories.
+3. **Build.** Add a `Dockerfile` stage that clones the client at a pinned tag, builds it, and applies the patch.
 
 To include the client in the Table 3 coverage rows, also add its source-filter block (the `*_CORE_INCLUDE_PREFIXES` and `*_IGNORE_PATTERNS` definitions in `diff_testing.py`).
 
@@ -353,4 +390,4 @@ The `spectec-core eth` command group is the reuse API. Its subcommands (defined 
 - `testgen` generates tests from a baseline checkpoint and a premises file.
 - `checkpoint merge` / `checkpoint report` combine and summarize coverage checkpoints.
 
-The main knobs are `--spec-dir`, `--premises-file`, `--coverage`, `--node-coverage.level`, `--save-interval`, and `--resume`. Premise coverage and the generator are general SpecTec capabilities (SpecTec originated for WebAssembly), so they apply to any SpecTec mechanization.
+The main knobs are `--spec-dir`, `--premises-file`, `--coverage`, `--node-coverage.level`, `--save-interval`, and `--resume`. Premise coverage and the generator are general extensions to SpecTec, which may be applied to any SpecTec mechanization.
