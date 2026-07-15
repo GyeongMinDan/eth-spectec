@@ -1072,7 +1072,7 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : Value.t result =
         let buf = Buffer.create (List.length bytes_list) in
         List.iter
           (fun n ->
-            (*         *)
+            (* *)
             if Bigint.(n < zero || n >= of_int 256) then
               invalid_arg
                 (Printf.sprintf "get_list_bytes: byte out of range: %s"
@@ -1113,7 +1113,7 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : Value.t result =
         let buf = Buffer.create (List.length bytes_list) in
         List.iter
           (fun n ->
-            (*         *)
+            (* *)
             if Bigint.(n < zero || n >= of_int 256) then
               invalid_arg
                 (Printf.sprintf "get_list_bytes: byte out of range: %s"
@@ -1178,7 +1178,7 @@ let hash_tree_root_executionPayload ~at (v : Value.t) : Value.t result =
     | None, None -> Ok (zero32, zero32)
     | _ -> Error (runtime at "executionPayload: inconsistent Deneb fields")
   in
-  (*    *)
+  (* *)
   let field_roots =
     match (blob_gas_used, excess_blob_gas) with
     | None, None ->
@@ -1997,7 +1997,7 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : Value.t result =
         let buf = Buffer.create (List.length bytes_list) in
         List.iter
           (fun n ->
-            (*         *)
+            (* *)
             if Bigint.(n < zero || n >= of_int 256) then
               invalid_arg
                 (Printf.sprintf "get_list_bytes: byte out of range: %s"
@@ -2043,7 +2043,7 @@ let hash_tree_root_ExecutionPayloadHeader ~at (v : Value.t) : Value.t result =
     | _ ->
         Error (runtime at "ExecutionPayloadHeader: inconsistent Deneb fields")
   in
-  (*    *)
+  (* *)
   let field_roots =
     match (blob_gas_used, excess_blob_gas) with
     | None, None ->
@@ -2335,7 +2335,7 @@ let hash_tree_root_beaconBlockBody ~at (v : Value.t) : Value.t result =
         Ok (mix_in_length vec_root (Bigint.of_int (Array.length arr)))
     | None -> Ok zero32
   in
-  (*    *)
+  (* *)
   let field_roots =
     match blob_kzg_commitments with
     | None ->
@@ -2757,7 +2757,7 @@ let hash_tree_root_beaconState ~at (v : Value.t) : Value.t result =
     mix_in_length historical_summaries_vec
       (Bigint.of_int (Array.length historical_summaries_arr))
   in
-  (*    *)
+  (* *)
   let field_roots =
     [|
       r_genesis_time;
