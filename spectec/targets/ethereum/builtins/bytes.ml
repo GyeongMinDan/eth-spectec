@@ -89,7 +89,7 @@ let bytes_to_uint64 ~at (bytes32_val : Num.t) : Value.t result =
   (* Python: int.from_bytes(data[:8], 'little') *)
   (* Extract each byte from data[0..7] (MSB 8 bytes) *)
   let byte i =
-    (* i = 0..7: data[i], MSB부터 i번째 바이트 *)
+    (* i = 0..7: data[i], the i-th byte from the MSB side *)
     let shift_bits = (31 - i) * 8 in
     Bigint.(bit_and (shift_right bytes32_val shift_bits) (of_int 0xff))
   in

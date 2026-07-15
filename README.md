@@ -208,21 +208,7 @@ cd /workspace/spectec-core
 # Check results for mismatches
 python3 check_results.py ./results/coverage_sanity_block_test
 python3 check_results.py ./results/coverage_ETH2SpecTec
-
-# Command to generate a coverage(branch) measurement graph for the results
-python3 make_coverage_figure.py \
-  --input-dir ./results/accumulated_coverage_report \
-  --output-dir ./results/coverage_figures \
-  --format png
-
-# Command to generate a graph comparing coverage(branch) between result sets
-python3 make_compare_figure.py \
-  --input-dir-1 ./results/accumulated_coverage_report \
-  --input-dir-2 ./results/accumulated_coverage_report_with_ETH2SpecTec \
-  --output-dir ./results/final_compare_result \
-  --format png
 ```
-![Branch coverage comparison(Example)](./example_compare_image.png)
 
 
 

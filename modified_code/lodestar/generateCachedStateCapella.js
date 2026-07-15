@@ -17,9 +17,8 @@ import { PubkeyIndexMap } from "@chainsafe/pubkey-index-map"; // lodestar v 1.23
 // import { ZERO_HASH } from '@lodestar/state-transition';
 // import { GENESIS_EPOCH, GENESIS_SLOT, SLOTS_PER_HISTORICAL_ROOT, EPOCHS_PER_HISTORICAL_VECTOR, EPOCHS_PER_SLASHINGS_VECTOR, SYNC_COMMITTEE_SIZE } from "@lodestar/params";
 /**
- * 이미 로드된 `beaconstate`를 사용하여 캐시된 상태를 생성합니다.
  * @param {import("@lodestar/types").capella.BeaconState} beaconstate
- * @param {object} config - 네트워크 설정
+ * @param {object} config
  * @returns {import("@lodestar/state-transition").BeaconStateCapella}
  */
 
@@ -34,7 +33,6 @@ const pureCapellaChainConfig = {
 
 export function generateCachedState(beaconstate, config = pureCapellaChainConfig) {
   try {
-    // BeaconConfig 생성
     const beaconConfig = createBeaconConfig(config, beaconstate.genesisValidatorsRoot);
 
     const validatorCount = beaconstate.validators.length;

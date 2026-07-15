@@ -25,7 +25,7 @@ rule ProcessSlot/header_root_empty:
   -- if $hash_tree_root_beaconBlockHeader(beaconBlockHeader) = root_block_prev
 
 ;; branch2: cache state root and block root
-rule ProcessSlot/header_root_empty:
+rule ProcessSlot/header_root_not_empty:
   state ~>
     state[.STATE_ROOTS[i] = root_state_prev]
          [.BLOCK_ROOTS[i] = root_block_prev]

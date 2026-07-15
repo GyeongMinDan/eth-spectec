@@ -88,7 +88,7 @@ let rec bytes_len_from_typ (typ : Typ.t') : int option =
       None
   | _ -> None
 
-(* Get byte length from field name (fallback.. 혹시 몰라서..) *)
+(* Get byte length from field name *)
 let bytes_len_from_field_name (field_name : string) : int option =
   let name = String.lowercase_ascii field_name in
   (* Check for suffixes (e.g., previous_version, current_version) *)
