@@ -151,8 +151,12 @@ ENV PATH="/root/.opam/eth-spectec/bin:/root/.opam/default/bin:${PATH}"
 COPY . /workspace/spectec-core
 WORKDIR /workspace/spectec-core
 
-# Initialize only the consensus-specs submodule
-RUN git submodule update --init --recursive consensus-specs
+# Source archives carry no .git, so fetch by clone.
+ARG CONSENSUS_SPECS_COMMIT=f96d3e7acf35125295d234da4b0c67591fdef49c
+RUN rm -rf consensus-specs && \
+    git clone https://github.com/ethereum/consensus-specs.git consensus-specs && \
+    git -C consensus-specs checkout ${CONSENSUS_SPECS_COMMIT} && \
+    git -C consensus-specs submodule update --init --recursive
 
 # Configure sparse-checkout for consensus-specs (required for eth2spec)
 WORKDIR /workspace/spectec-core/consensus-specs
