@@ -26,10 +26,9 @@ docker load -i spectrum-image.tar.gz
 
 # Or pull the Docker Hub mirror
 docker pull kaistplrg/spectrum:latest
-
-# Or build from source (needs network, slow)
-docker build -t kaistplrg/spectrum:latest .
 ```
+
+To build the image yourself (not needed for evaluation), see [C.2](#c2-build-from-source).
 
 ## A.3 Start the container
 
@@ -327,7 +326,7 @@ The pipeline itself is unchanged. Only fork directories, checkpoints, premises, 
 
 # Part C: Reuse and extension
 
-The pipeline is fork-agnostic and client-pluggable. This part documents the directory layout and the three extension points: a new fork, a new client, and a different specification.
+The pipeline is fork-agnostic and client-pluggable. This part documents the directory layout, how to rebuild the image, and the three extension points: a new fork, a new client, and a different specification.
 
 ## C.1 Directory structure
 
@@ -367,7 +366,17 @@ artifact-eval/
 └── convert_testgen_json_to_ssz.py   Generated JSON -> SSZ
 ```
 
-## C.2 Add a new fork
+## C.2 Build from source
+
+Required only to extend the artifact (C.3 to C.5).
+
+```bash
+docker build -t kaistplrg/spectrum:latest .
+```
+
+Best-effort: the build needs network access and takes hours on a 16-core machine. It clones the five upstream repositories at the commits pinned in `REQUIREMENTS.md`, so results are stable, but package mirrors and GitHub can still fail transiently.
+
+## C.3 Add a new fork
 
 The pipeline does not change across forks. Only fork-specific inputs and flags do, as the Capella-to-Deneb swap table in [B.8](#b8-rq3-cross-fork-reproducibility-c5) shows. To target a new fork, supply the matching inputs:
 
@@ -378,7 +387,7 @@ The pipeline does not change across forks. Only fork-specific inputs and flags d
 
 Then pass `--spec-dir spec/spec_<fork>`, `--fork <fork>`, and `--fork-version <fork>` to the commands in Part B. The shipped Deneb mechanization shows the scale: its diff against Capella is about 28 lines (~1%).
 
-## C.3 Add a new client
+## C.4 Add a new client
 
 Each client is integrated at three points, mirroring the five existing clients:
 
@@ -388,7 +397,7 @@ Each client is integrated at three points, mirroring the five existing clients:
 
 To include the client in the Table 3 coverage rows, also add its source-filter block (the `*_CORE_INCLUDE_PREFIXES` and `*_IGNORE_PATTERNS` definitions in `diff_testing.py`).
 
-## C.4 Retarget the toolchain to a different specification
+## C.5 Retarget the toolchain to a different specification
 
 The `spectec-core eth` command group is the reuse API. Its subcommands (defined in `spectec/bin/main.ml` and `spectec/bin/targets/eth.ml`) operate over any spec directory:
 
