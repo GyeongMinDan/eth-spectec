@@ -40,6 +40,12 @@ cd /workspace/spectec-core
 
 All commands below run **inside the container** from `/workspace/spectec-core`.
 
+**Hosts with >255 CPUs.** Teku derives thread-pool sizes from the visible CPU count and rejects values above 255. If you hit this limit, restrict the CPUs the container sees:
+
+```bash
+docker run -it --cpuset-cpus=0-15 --name spectrum kaistplrg/spectrum:latest /bin/bash
+```
+
 ## A.4 Smoke test (< 30 min)
 
 **1. Validate Consensus-SpecTec** (5 single-block cases, ~1 min). Convert to JSON, then validate state roots with `eth coverage` (without `--no-validate`):
