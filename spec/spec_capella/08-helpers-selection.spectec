@@ -78,7 +78,15 @@ def $compute_proposer_index_loop(state, vid*, seed, uint64_total, i)
       uint64_total,
       $(i + 1)
     )
-  -- otherwise
+  -- if vid*[$compute_shuffled_index($(i \ uint64_total), uint64_total, seed)]
+      = vid_candidate
+  -- if $hash_<bytes>($concat_bytes($bytes32_to_bytes(seed), $uint64_to_bytes_le($(i / 32)))) = bytes32_h
+  -- if $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_h)[i \ 32]) = uint64_random_byte
+  -- if state.VALIDATORS[vid_candidate].EFFECTIVE_BALANCE = balance_effective
+  ;; inserted overflow check
+  -- if $( balance_effective <= $UINT64_MAX / $MAX_RANDOM_BYTE )
+  ;; loop-continue
+  -- if $( balance_effective * $MAX_RANDOM_BYTE < $MAX_EFFECTIVE_BALANCE * uint64_random_byte )
 
 ;; [Phase0] compute_proposer_index(BeaconState, Sequence[ValidatorIndex], Bytes32) : ValidatorIndex
 dec $compute_proposer_index(beaconState, validatorIndex*, bytes32) : validatorIndex

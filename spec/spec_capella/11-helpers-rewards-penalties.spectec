@@ -58,15 +58,25 @@ rule ApplyEffectiveBalance/main:
   -- if $( $EFFECTIVE_BALANCE_INCREMENT / $HYSTERESIS_QUOTIENT ) = uint64_hyst_inc
   -- if $( uint64_hyst_inc * $HYSTERESIS_DOWNWARD_MULTIPLIER ) = uint64_down_th
   -- if $( uint64_hyst_inc * $HYSTERESIS_UPWARD_MULTIPLIER )  = uint64_up_th
-  ;; inserted overflow checks
+  ;; inserted overflow check
   -- if $( balance <= $UINT64_MAX - uint64_down_th )
-  -- if $( validator.EFFECTIVE_BALANCE  <= $UINT64_MAX - uint64_up_th )
+  ----
   -- if $( balance + uint64_down_th < validator.EFFECTIVE_BALANCE )
-     \/ $( validator.EFFECTIVE_BALANCE + uint64_up_th < balance )
+     \/ ( $( validator.EFFECTIVE_BALANCE <= $UINT64_MAX - uint64_up_th )
+       /\ $( validator.EFFECTIVE_BALANCE + uint64_up_th < balance ) )
 
 rule ApplyEffectiveBalance/skip:
-  validator `.EFFECTIVE_BALANCE _ ~> validator
-  -- otherwise
+  validator `.EFFECTIVE_BALANCE balance ~> validator
+  -- if $( $EFFECTIVE_BALANCE_INCREMENT / $HYSTERESIS_QUOTIENT ) = uint64_hyst_inc
+  -- if $( uint64_hyst_inc * $HYSTERESIS_DOWNWARD_MULTIPLIER ) = uint64_down_th
+  -- if $( uint64_hyst_inc * $HYSTERESIS_UPWARD_MULTIPLIER )  = uint64_up_th
+  ;; inserted overflow check
+  -- if $( balance <= $UINT64_MAX - uint64_down_th )
+  ----
+  -- if $( balance + uint64_down_th >= validator.EFFECTIVE_BALANCE )
+  ;; inserted overflow check
+  -- if $( validator.EFFECTIVE_BALANCE <= $UINT64_MAX - uint64_up_th )
+  -- if $( validator.EFFECTIVE_BALANCE + uint64_up_th >= balance )
 
 ;; [Custom | loop : get_inactivity_penalty_deltas]
 dec $inact_penalty_one(nat, beaconState, validatorIndex*, validatorIndex*) : gwei
@@ -86,9 +96,9 @@ def $inact_penalty_one(vid, state, vid_matching*, vid_eligible*)
   -- if $($INACTIVITY_SCORE_BIAS * $INACTIVITY_PENALTY_QUOTIENT_BELLATRIX) = penalty_denominator
   -- if $( penalty_numerator / penalty_denominator) = penalty
 
-def $inact_penalty_one(_, _, _, _)
+def $inact_penalty_one(vid, _, vid_matching*, vid_eligible*)
   = 0
-  -- otherwise
+  -- if ~(vid <- vid_eligible*) \/ (vid <- vid_matching*)
 
 ;; [Phase0 -> Altair -> Bellatrix] get_inactivity_penalty_deltas(BeaconState) -> Tuple[Sequence[gwei], Sequence[gwei]]
 dec $get_inactivity_penalty_deltas(beaconState) : (gwei*, gwei*)
@@ -114,11 +124,18 @@ def $flag_reward_one_eligible(vid, state, vid_unslashed*, vid_eligible*, uint64_
   -- if ~$is_in_inactivity_leak(state)
   -- if $get_base_reward(state, vid) = reward_base
   -- if $( reward_base * uint64_weight * uint64_up_incs ) = reward_numerator
+  ;; inserted overflow check
+  -- if $(reward_numerator <= $UINT64_MAX)
   -- if $(reward_numerator / ( uint64_active_incs * $WEIGHT_DENOMINATOR ) ) = reward
 
-def $flag_reward_one_eligible(_, _, _, _, _, _, _)
+def $flag_reward_one_eligible(vid, _, vid_unslashed*, vid_eligible*, _, _, _)
   = 0
-  -- otherwise
+  -- if ~(vid <- vid_eligible*) \/ ~(vid <- vid_unslashed*)
+
+;; do not merge into the disjunction above: \/ evaluates both sides
+def $flag_reward_one_eligible(_, state, _, _, _, _, _)
+  = 0
+  -- if $is_in_inactivity_leak(state)
 
 ;; [Custom | loop : get_flag_index_deltas]
 dec $flag_penalty_one_eligible(validatorIndex, beaconState, validatorIndex*, validatorIndex*, uint64, nat) : gwei
@@ -131,9 +148,11 @@ def $flag_penalty_one_eligible(vid, state, vid_unslashed*, vid_eligible*, uint64
   -- if $get_base_reward(state, vid) = reward_base
   -- if $( (reward_base * uint64_weight) / $WEIGHT_DENOMINATOR ) = penalty
 
-def $flag_penalty_one_eligible(_, _, _, _, _, _)
+def $flag_penalty_one_eligible(vid, _, vid_unslashed*, vid_eligible*, _, flag_index)
   = 0
-  -- otherwise
+  -- if ~(vid <- vid_eligible*)
+     \/ (vid <- vid_unslashed*)
+     \/ (flag_index = $TIMELY_HEAD_FLAG_INDEX)
 
 ;; [Altair] get_flag_index_deltas(BeaconState, int) -> Tuple[Sequence[gwei], Sequence[gwei]]
 dec $get_flag_index_deltas(beaconState, nat) : (gwei*, gwei*)
