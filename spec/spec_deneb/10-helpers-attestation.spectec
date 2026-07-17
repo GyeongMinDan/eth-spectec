@@ -85,6 +85,8 @@ def $is_valid_indexed_attestation(state, indexedAttestation)
   -- if $(|indexedAttestation.ATTESTING_INDICES| > 0)
   -- if $sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES))
       = indexedAttestation.ATTESTING_INDICES
+  ;; inserted guard
+  -- if ($(vid < |state.VALIDATORS|))*
   -- if (state.VALIDATORS[vid].PUBKEY = blsPubkey)*
   -- if $get_domain(state, $DOMAIN_BEACON_ATTESTER, indexedAttestation.DATA.TARGET.EPOCH) = domain
   -- if $compute_signing_root_attestationData(indexedAttestation.DATA, domain) = root_signing
@@ -251,6 +253,8 @@ def $get_next_sync_committee_indices(state) = vid_out*
   -- if epoch_next = $( $get_current_epoch(state) + 1 )
   -- if $get_active_validator_indices(state, epoch_next) = vid_active*
   -- if |vid_active*| = count_active
+  ;; inserted guard
+  -- if $(count_active > 0)
   -- if $get_seed(state, epoch_next, $DOMAIN_SYNC_COMMITTEE) = seed
   -- if $next_sync_committee_indices_loop(
          state,

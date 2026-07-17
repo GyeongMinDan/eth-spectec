@@ -177,8 +177,10 @@ relation ProcessOperations:
 
 rule ProcessOperations:
   state body ~> state_out
-  ;; assert 1: TODO
-  -- if |body.DEPOSITS| = $min_uint64($MAX_DEPOSITS, $( state.ETH1_DATA.DEPOSIT_COUNT - state.ETH1_DEPOSIT_INDEX )) 
+  ;; assert 1
+  ;; inserted underflow check
+  -- if $(state.ETH1_DEPOSIT_INDEX <= state.ETH1_DATA.DEPOSIT_COUNT)
+  -- if |body.DEPOSITS| = $min_uint64($MAX_DEPOSITS, $( state.ETH1_DATA.DEPOSIT_COUNT - state.ETH1_DEPOSIT_INDEX ))
   ;; proposer_slashings → attester_slashings → attestations → deposits → voluntary_exits → bls_to_execution_changes
   -- ProcessProposerSlashings:        state     body.PROPOSER_SLASHINGS        ~> state_ps
   -- ProcessAttesterSlashings:        state_ps  body.ATTESTER_SLASHINGS        ~> state_as

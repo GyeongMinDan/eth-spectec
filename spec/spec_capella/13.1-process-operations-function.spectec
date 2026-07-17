@@ -112,6 +112,8 @@ rule ProcessAttestation/current_epoch:
   -- if attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT)
   ;; assert 3
   -- if $( attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state.SLOT )
+  ;; inserted overflow check
+  -- if $( attestationData.SLOT <= $UINT64_MAX - $SLOTS_PER_EPOCH )
   -- if $( state.SLOT <= attestationData.SLOT + $SLOTS_PER_EPOCH )
   ;; assert 4
   -- if $( attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH) )
@@ -144,6 +146,8 @@ rule ProcessAttestation/previous_epoch:
   -- if attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT)
   ;; assert 3
   -- if $( attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY <= state.SLOT )
+  ;; inserted overflow check
+  -- if $( attestationData.SLOT <= $UINT64_MAX - $SLOTS_PER_EPOCH )
   -- if $( state.SLOT <= attestationData.SLOT + $SLOTS_PER_EPOCH )
   ;; assert 4
   -- if $( attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH) )

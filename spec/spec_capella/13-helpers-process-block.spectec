@@ -27,12 +27,15 @@ def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound,
       $(i + 1),
       withdrawal_acc* ++ [ withdrawal ]
     )
-  ;; inserted bound check guard
+  ;; inserted bound check guards
   -- if $(vid < |state.VALIDATORS|)
+  -- if $(vid < |state.BALANCES|)
   -- if validator = state.VALIDATORS[vid]
   -- if balance = state.BALANCES[vid]
   ;; branch: fully withdrawable
   -- if $is_fully_withdrawable_validator(validator, balance, epoch) = true
+  ;; inserted overflow check
+  -- if $(withdrawalIndex <= $UINT64_MAX - 1)
   -- if withdrawal =
        { INDEX           withdrawalIndex,
          VALIDATOR_INDEX vid,
@@ -51,13 +54,16 @@ def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound,
       $(i + 1),
       withdrawal_acc* ++ [ withdrawal ]
     )
-  ;; inserted bound check guard
+  ;; inserted bound check guards
   -- if $(vid < |state.VALIDATORS|)
+  -- if $(vid < |state.BALANCES|)
   -- if validator = state.VALIDATORS[vid]
   -- if balance = state.BALANCES[vid]
   ;; branch: partially withdrawable
   -- if $is_fully_withdrawable_validator(validator, balance, epoch) = false
   -- if $is_partially_withdrawable_validator(validator, balance) = true
+  ;; inserted overflow check
+  -- if $(withdrawalIndex <= $UINT64_MAX - 1)
   -- if withdrawal =
        { INDEX           withdrawalIndex,
          VALIDATOR_INDEX vid,
@@ -75,8 +81,9 @@ def $expected_withdrawals_loop(state, epoch, withdrawalIndex, vid, uint64_bound,
       $(i + 1),
       withdrawal_acc*
     )
-  ;; inserted bound check guard
+  ;; inserted bound check guards
   -- if $(vid < |state.VALIDATORS|)
+  -- if $(vid < |state.BALANCES|)
   -- if validator = state.VALIDATORS[vid]
   -- if balance = state.BALANCES[vid]
   ;; branch: neither

@@ -8,6 +8,8 @@ dec $get_block_root_at_slot(beaconState, slot) : root
 def $get_block_root_at_slot(state, slot) = root
   ;; assert
   -- if $(slot < state.SLOT)
+  ;; inserted overflow check
+  -- if $(slot <= $UINT64_MAX - $SLOTS_PER_HISTORICAL_ROOT)
   ;; assert
   -- if $(state.SLOT <= slot + $SLOTS_PER_HISTORICAL_ROOT)
   -- if state.BLOCK_ROOTS[slot \ $SLOTS_PER_HISTORICAL_ROOT] = root
