@@ -149,11 +149,13 @@ class JsonTestCaseGenerator:
                 env['PYTHONPATH'] = str(self.consensus_specs_path)
             
             result = subprocess.run(
-                [sys.executable, str(self.eth2spec_result), 
+                # official test expectations assume full validation
+                [sys.executable, str(self.eth2spec_result),
                  "--pre", str(pre_ssz),
                  "--block", str(block_ssz),
                  "--out", str(output_ssz),
-                 "--fork", self.fork],
+                 "--fork", self.fork,
+                 "--validate"],
                 capture_output=True,
                 text=True,
                 check=True,
