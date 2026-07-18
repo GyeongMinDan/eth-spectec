@@ -281,8 +281,8 @@ let restore_coverage checkpoint =
 (* Load and verify checkpoint from file.
    Returns Ok checkpoint if valid, Error if file cannot be loaded or spec mismatch.
    If ignore_spec_mismatch is true, skips the spec hash check and prints a warning. *)
-let verify_and_load ~file ~spec_files ~verbose ?(ignore_spec_mismatch = true)
-    () =
+let verify_and_load ~file ~spec_files ~verbose ?(ignore_spec_mismatch = true) ()
+    =
   let ( let* ) = Result.bind in
   let* checkpoint = load_from_file ~file in
   match verify_spec checkpoint ~spec_files with

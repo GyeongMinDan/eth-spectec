@@ -535,6 +535,7 @@ and eval_cat_exp (note : typ') (ctx : Ctx.t) (at : region) (exp_l : exp)
         values_l @ values_r |> Value.Make.list note
     | _ -> error at "concatenation expects either two texts or two lists"
   in
+  let value_res = Value.with_merged_provenance [ value_l; value_r ] value_res in
   (ctx, value_res)
 
 (* Membership expression evaluation *)
@@ -1213,6 +1214,18 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       if targs <> [] || is_anonymous id || is_high_order values_input then
         invoke_func' ()
       else invoke_func' |> Cache.with_func_cache ctx.cache (id.it, values_input)
+    in
+    let value_output =
+      let lookup_clauses fid =
+        Option.map
+          (fun (_, (_, clauses)) -> clauses)
+          (Ctx.find_func_opt ctx (fid $ no_region))
+      in
+      let provs =
+        Instrumentation.Dispatcher.notify_func_result ~id:id.it
+          ~values:values_input ~lookup_clauses
+      in
+      Value.add_provenance provs value_output
     in
     (* Fallback provenance propagation: when the output has no provenance but
        inputs do, merge all input provenances into the output.

@@ -54,6 +54,7 @@ module M : Instrumentation_core.Handler.S = struct
   let on_prem_fields = Instrumentation_core.Noop.on_prem_fields
   let on_rule_output = Instrumentation_core.Noop.on_rule_output
   let on_clause_return = Instrumentation_core.Noop.on_clause_return
+  let on_func_result = Instrumentation_core.Noop.on_func_result
   let finish = Instrumentation_core.Noop.finish
 
   let on_rel_enter ~id ~at:_ ~values =

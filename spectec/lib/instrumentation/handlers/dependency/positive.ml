@@ -159,6 +159,10 @@ module State = struct
     if not (Hashtbl.mem no_mutation_reasons uid) then
       Hashtbl.replace no_mutation_reasons uid reason
 
+  (* --- Spec-derived data: set at init --- *)
+
+  let readsets : readset StringMap.t ref = ref StringMap.empty
+
   (* --- Telemetry --- *)
 
   let premise_count = ref 0
@@ -584,7 +588,9 @@ module M : Instrumentation_core.Handler.S = struct
   let init ~spec =
     State.reset ();
     match spec with
-    | Instrumentation_core.Handler.IlSpec il_spec -> Inline.init il_spec
+    | Instrumentation_core.Handler.IlSpec il_spec ->
+        Inline.init il_spec;
+        State.readsets := readsets_of_spec il_spec
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
   let on_test_start ~test_case_id = State.current_test_id := test_case_id
@@ -641,6 +647,14 @@ module M : Instrumentation_core.Handler.S = struct
   let on_prem_fields = Instrumentation_core.Noop.on_prem_fields
   let on_rule_output ~id:_ ~rule_id:_ ~at:_ ~output_exps:_ = ()
   let on_clause_return ~id:_ ~clause_idx:_ ~at:_ ~return_exp:_ = ()
+
+  let on_func_result ~id ~values ~lookup_clauses =
+    let lookup fid =
+      match StringMap.find_opt fid !State.readsets with
+      | Some rs -> Some rs
+      | None -> Option.map readset_of_clauses (lookup_clauses fid)
+    in
+    call_provenance ~lookup id values
 
   let finish () =
     Format.fprintf !fmt "\n=== Symbolic Mutations ===\n\n";
