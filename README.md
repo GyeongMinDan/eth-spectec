@@ -114,7 +114,7 @@ Research questions (verbatim):
 
 The paper validates Consensus-SpecTec against 910 official tests: 581 state-transition tests plus 329 unit tests (epoch processing, operations, sanity slots). Each test runs through the interpreter and is checked against its expected output. The full run takes roughly 10 to 12 hours.
 
-**State-transition tests (581).** Convert the state-transition suites ([B.4](#b4-preparation-ssz-to-json)), then run `eth coverage` without `--no-validate`. One command validates the whole set:
+**State-transition tests (581).** Convert the state-transition suites ([B.4](#b4-preparation-ssz-to-json)), then run `eth coverage` without `--no-validate`:
 
 ```bash
 ./spectec-core eth coverage -v \
@@ -123,7 +123,7 @@ The paper validates Consensus-SpecTec against 910 official tests: 581 state-tran
   --checkpoint validate.ckpt --node-coverage.output validate.txt
 ```
 
-`state_transition: N/N passed, 0 failed` confirms this set. The A.4 smoke test runs a 5-case subset (~1 min).
+`--max-slot-gap 32` skips 18 cases whose block is far ahead of the pre-state slot, each case taking around 20~30x compared to a single-slot transition, and reports `state_transition: 563/581 passed, 0 failed, 18 skipped` in roughly half the time. Raising the cutoff (e.g., `--max-slot-gap 512`) validates all 581 and reports `581/581 passed, 0 failed`; this is the full run quoted above. The A.4 smoke test runs a 5-case subset (~1 min).
 
 **Unit tests (329).** Each unit category has its own `eth run` subcommand (the default spec dir is the target fork's, so `--spec` is not needed). Convert the unit suites, then validate each category:
 
