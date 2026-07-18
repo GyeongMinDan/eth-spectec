@@ -38,7 +38,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 58	58	def $get_domain	-- if epoch'?{epoch' <- epoch'?} matches (_)	1732	0	1732	0	unfalsifiable-closing	
 60	60	def $get_domain	-- if (epoch < state.FORK.EPOCH)	0	1732	0	1732	falsifiable-covered	
 61	61	def $get_domain	-- if epoch'?{epoch' <- epoch'?} matches (_)	1732	0	1732	0	unfalsifiable-closing	
-64		def $verify_block_signature	-- if (signedBeaconBlock.MESSAGE.PROPOSER_INDEX < |state.VALIDATORS|)			0	0	UNCLASSIFIED-new	new-in-v2
+64		def $verify_block_signature	-- if (signedBeaconBlock.MESSAGE.PROPOSER_INDEX < |state.VALIDATORS|)			0	0	target-unattempted	new-in-v2; F15; validate-gated
 67	66	def $verify_block_signature	-- if $bls_verify(validator_proposer.PUBKEY, root_signing, signedBeaconBlock.SIGNATURE)	0	0	0	0	target-unattempted	
 69	68	def $is_active_validator	-- if (validator.ACTIVATION_EPOCH <= epoch)	344815	4149	344815	4149	falsifiable-covered	
 70	69	def $is_active_validator	-- if (epoch < validator.EXIT_EPOCH)	341643	3172	341643	3172	falsifiable-covered	
@@ -48,30 +48,30 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 76	75	def $is_eligible_for_activation	-- if (validator.ACTIVATION_EPOCH = $FAR_FUTURE_EPOCH)	405	11115	405	11115	falsifiable-covered	
 78	77	def $is_slashable_validator	-- if ~validator.SLASHED	210	12	210	12	falsifiable-covered	
 79	78	def $is_slashable_validator	-- if (validator.ACTIVATION_EPOCH <= epoch)	210	0	210	0	unfalsifiable-tautology	
-80	79	def $is_slashable_validator	-- if (epoch < validator.WITHDRAWABLE_EPOCH)	210	0	210	0	out-of-scope	paper: counted falsifiable, unreached
+80	79	def $is_slashable_validator	-- if (epoch < validator.WITHDRAWABLE_EPOCH)	210	0	210	0	target	paper: counted falsifiable, unreached
 82	81	def $is_fully_withdrawable_validator	-- if ($has_eth1_withdrawal_credential(validator) = true)	127	145574	127	145574	falsifiable-covered	
 83	82	def $is_fully_withdrawable_validator	-- if (validator.WITHDRAWABLE_EPOCH <= epoch)	27	100	27	100	falsifiable-covered	
 84	83	def $is_fully_withdrawable_validator	-- if (balance > 0)	26	1	26	1	falsifiable-covered	
 86	85	def $is_partially_withdrawable_validator	-- if ($has_eth1_withdrawal_credential(validator) = true)	101	145574	101	145574	falsifiable-covered	
 87	86	def $is_partially_withdrawable_validator	-- if (validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)	69	32	69	32	falsifiable-covered	
 88	87	def $is_partially_withdrawable_validator	-- if (balance > $MAX_EFFECTIVE_BALANCE)	68	1	68	1	falsifiable-covered	
-104		def $has_flag_for_index	-- if (vid < |participationFlags_list*{participationFlags_list <- participationFlags_list*}|)			2998228	0	UNCLASSIFIED-new	new-in-v2
+104		def $has_flag_for_index	-- if (vid < |participationFlags_list*{participationFlags_list <- participationFlags_list*}|)			2998228	0	target	new-in-v2; F5
 105	103	def $is_unslashed	-- if (vid < |state.VALIDATORS|)	942694	0	942694	0	unfalsifiable-tautology	
 107	105	def $is_unslashed	-- if (validator.SLASHED = false)	761374	181320	761374	181320	falsifiable-covered	
 109	107	def $get_unslashed_participating_indices	-- if ($get_current_epoch(state) = epoch)	27	5194	27	5194	falsifiable-covered	
 113	111	def $get_unslashed_participating_indices	-- if ($get_previous_epoch(state) = epoch)	5194	0	5194	0	unfalsifiable-tautology	
 117	115	def $get_block_root_at_slot	-- if (slot < state.SLOT)	2827	0	2827	0	unfalsifiable-tautology	
-118		def $get_block_root_at_slot	-- if (slot <= ($UINT64_MAX - $SLOTS_PER_HISTORICAL_ROOT))			2827	0	UNCLASSIFIED-new	new-in-v2
+118		def $get_block_root_at_slot	-- if (slot <= ($UINT64_MAX - $SLOTS_PER_HISTORICAL_ROOT))			2827	0	target	new-in-v2; F4; needs coordinated state+block slot edits
 119	116	def $get_block_root_at_slot	-- if (state.SLOT <= (slot + $SLOTS_PER_HISTORICAL_ROOT))	2827	0	2827	0	unfalsifiable-tautology	
 121	118	def $get_finality_delay	-- if ($get_previous_epoch(state) >= state.FINALIZED_CHECKPOINT.EPOCH)	5109	0	5109	0	target	underflow check
 122	119	def $choose_index	-- if (nat_bit = 1)	409340	407762	409340	407762	falsifiable-covered	
 145	142	def $compute_proposer_index_loop	-- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))	2922	0	2922	0	target	overflow check
 146	143	def $compute_proposer_index_loop	-- if ((balance_effective * $MAX_RANDOM_BYTE) >= ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))	2862	60	2862	60	falsifiable-covered	
-151		def $compute_proposer_index_loop	-- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))			60	0	UNCLASSIFIED-new	new-in-v2
-152		def $compute_proposer_index_loop	-- if ((balance_effective * $MAX_RANDOM_BYTE) < ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))			60	0	UNCLASSIFIED-new	new-in-v2
+151		def $compute_proposer_index_loop	-- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))			60	0	target	new-in-v2; F11; copy of 145
+152		def $compute_proposer_index_loop	-- if ((balance_effective * $MAX_RANDOM_BYTE) < ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))			60	0	unfalsifiable-closing	new-in-v2; F11; complement of 146
 153	145	def $compute_proposer_index	-- if (|vid*{vid <- vid*}| > 0)	2862	0	2862	0	target	
 158	150	relation IncreaseBalance	-- if (vid < |state.BALANCES|)	53181	0	53181	0	unfalsifiable-tautology	
-160		relation IncreaseBalance	-- if (balance <= ($UINT64_MAX - delta))			53181	0	UNCLASSIFIED-new	new-in-v2
+160		relation IncreaseBalance	-- if (balance <= ($UINT64_MAX - delta))			53181	0	target	new-in-v2; F1
 161	152	relation DecreaseBalance	-- if (vid < |state.BALANCES|)	309476	0	309476	0	unfalsifiable-tautology	
 163	154	relation DecreaseBalance	-- if (delta > balance)	57	309419	57	309419	falsifiable-covered	
 164	155	relation DecreaseBalance	-- if (vid < |state.BALANCES|)	309419	0	309419	0	unfalsifiable-tautology	
@@ -86,10 +86,10 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 186	177	relation InitiateValidatorExit	-- if (epoch_exit_queue <= ($UINT64_MAX - $MIN_VALIDATOR_WITHDRAWABILITY_DELAY))	374	0	374	0	target-limitation	prov-precision addresses
 188	179	relation SlashValidator	-- if validatorIndex?{validatorIndex <- validatorIndex?} matches ()	210	0	210	0	unfalsifiable-tautology	out-of-scope, paper-folded
 189	180	relation SlashValidator	-- if (vid_slashed < |state.VALIDATORS|)	210	0	210	0	unfalsifiable-tautology	
-195		relation SlashValidator	-- if (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] <= ($UINT64_MAX - validator.EFFECTIVE_BALANCE))			210	0	UNCLASSIFIED-new	new-in-v2
+195		relation SlashValidator	-- if (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] <= ($UINT64_MAX - validator.EFFECTIVE_BALANCE))			210	0	target	new-in-v2; F2
 206	196	relation SlashValidator	-- if validatorIndex?{validatorIndex <- validatorIndex?} matches (_)	0	0	0	0	target-unattempted	
 208	198	relation SlashValidator	-- if (vid_slashed < |state.VALIDATORS|)	0	0	0	0	target-unattempted	
-214		relation SlashValidator	-- if (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] <= ($UINT64_MAX - validator.EFFECTIVE_BALANCE))			0	0	UNCLASSIFIED-new	new-in-v2
+214		relation SlashValidator	-- if (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] <= ($UINT64_MAX - validator.EFFECTIVE_BALANCE))			0	0	target-unattempted	new-in-v2; F2; whistleblower rule, callers pass none
 227	216	relation ApplyDeposit	-- if ~blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}	212	3	212	3	falsifiable-covered	
 230	219	relation ApplyDeposit	-- if $bls_verify(blsPubkey, $compute_signing_root_depositMessage(depositMessage, domain), blsSignature)	212	0	212	0	unfalsifiable-tautology	
 234	223	relation ApplyDeposit	-- if ~blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}	0	3	0	3	falsifiable-covered	markdown: redundant (deferred)
@@ -100,7 +100,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 257	246	def $is_valid_indexed_attestation	-- if ($sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES)) =/= indexedAttestation.ATTESTING_INDICES)	0	1483	0	1483	falsifiable-covered	
 259	248	def $is_valid_indexed_attestation	-- if (|indexedAttestation.ATTESTING_INDICES| > 0)	1483	0	1483	0	unfalsifiable-closing	
 260	249	def $is_valid_indexed_attestation	-- if ($sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES)) = indexedAttestation.ATTESTING_INDICES)	1483	0	1483	0	unfalsifiable-closing	
-261		def $is_valid_indexed_attestation	-- (if (vid < |state.VALIDATORS|))*{vid <- vid*}			0	0	UNCLASSIFIED-new	new-in-v2
+261		def $is_valid_indexed_attestation	-- (if (vid < |state.VALIDATORS|))*{vid <- vid*}			0	0	target	new-in-v2; F23; block-side index edit; iterated-uninstrumented
 265	253	relation SlashIfEligible	-- if (vid < |state.VALIDATORS|)	81	0	81	0	unfalsifiable-tautology	
 266	254	relation SlashIfEligible	-- if $is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))	71	10	71	10	falsifiable-covered	
 268	256	relation SlashIfEligible	-- if (vid < |state.VALIDATORS|)	10	0	10	0	unfalsifiable-tautology	
@@ -123,31 +123,31 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 313	301	def $next_sync_committee_indices_loop	-- if (|vid_sync_committee*{vid_sync_committee <- vid_sync_committee*}| < $SYNC_COMMITTEE_SIZE)	0	0	0	0	target-unattempted	
 318	306	def $next_sync_committee_indices_loop	-- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))	0	0	0	0	target-unattempted	
 319	307	def $next_sync_committee_indices_loop	-- if ((balance_effective * $MAX_RANDOM_BYTE) < ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))	0	0	0	0	target-unattempted	
-323		def $get_next_sync_committee_indices	-- if (count_active > 0)			1	0	UNCLASSIFIED-new	new-in-v2
-332		def $get_total_balance	-- if (gwei_sum <= $UINT64_MAX)			1539	0	UNCLASSIFIED-new	new-in-v2
+323		def $get_next_sync_committee_indices	-- if (count_active > 0)			1	0	target	new-in-v2; F6; needs empty registry at sync boundary
+332		def $get_total_balance	-- if (gwei_sum <= $UINT64_MAX)			1539	0	target	new-in-v2; F3
 337	322	def $get_base_reward	-- if (vid < |state.VALIDATORS|)	15745	0	15745	0	unfalsifiable-tautology	
 343	328	relation ApplyEffectiveBalance	-- if (balance <= ($UINT64_MAX - uint64_down_th))	11616	0	11616	0	target	overflow check
 344	330	relation ApplyEffectiveBalance	-- if (((balance + uint64_down_th) < validator.EFFECTIVE_BALANCE) \/ ((validator.EFFECTIVE_BALANCE <= ($UINT64_MAX - uint64_up_th)) /\ ((validator.EFFECTIVE_BALANCE + uint64_up_th) < balance)))	2241	9375	2241	9375	falsifiable-covered	
-348		relation ApplyEffectiveBalance	-- if (balance <= ($UINT64_MAX - uint64_down_th))			9375	0	UNCLASSIFIED-new	new-in-v2
-349		relation ApplyEffectiveBalance	-- if ((balance + uint64_down_th) >= validator.EFFECTIVE_BALANCE)			9375	0	UNCLASSIFIED-new	new-in-v2
+348		relation ApplyEffectiveBalance	-- if (balance <= ($UINT64_MAX - uint64_down_th))			9375	0	target	new-in-v2; F13; copy of 343
+349		relation ApplyEffectiveBalance	-- if ((balance + uint64_down_th) >= validator.EFFECTIVE_BALANCE)			9375	0	unfalsifiable-closing	new-in-v2; F13; complement via 344
 350	329	relation ApplyEffectiveBalance	-- if (validator.EFFECTIVE_BALANCE <= ($UINT64_MAX - uint64_up_th))	11616	0	9375	0	target	overflow check
-351		relation ApplyEffectiveBalance	-- if ((validator.EFFECTIVE_BALANCE + uint64_up_th) >= balance)			9375	0	UNCLASSIFIED-new	new-in-v2
+351		relation ApplyEffectiveBalance	-- if ((validator.EFFECTIVE_BALANCE + uint64_up_th) >= balance)			9375	0	unfalsifiable-closing	new-in-v2; F13; complement via 344
 352	332	def $inact_penalty_one	-- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}	9180	900	9180	900	falsifiable-covered	
 353	333	def $inact_penalty_one	-- if ~vid <- vid_matching*{vid_matching <- vid_matching*}	4532	4648	4532	4648	falsifiable-covered	
 354	334	def $inact_penalty_one	-- if (vid < |state.VALIDATORS|)	4532	0	4532	0	unfalsifiable-tautology	
 356	336	def $inact_penalty_one	-- if (vid < |state.INACTIVITY_SCORES|)	4532	0	4532	0	unfalsifiable-tautology	
 359	339	def $inact_penalty_one	-- if (penalty_numerator <= $UINT64_MAX)	4532	0	4532	0	target	overflow check
-362		def $inact_penalty_one	-- if (~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ vid <- vid_matching*{vid_matching <- vid_matching*})			5548	0	UNCLASSIFIED-new	new-in-v2
+362		def $inact_penalty_one	-- if (~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ vid <- vid_matching*{vid_matching <- vid_matching*})			5548	0	target	new-in-v2; F10 complement; spillover of 354/356/359; included to verify
 369	349	def $flag_reward_one_eligible	-- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}	20465	2287	20465	2287	falsifiable-covered	
 370	350	def $flag_reward_one_eligible	-- if vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*}	8895	11570	8895	11570	falsifiable-covered	
 371	351	def $flag_reward_one_eligible	-- if ~$is_in_inactivity_leak(state)	8289	606	8289	606	falsifiable-covered	
-374		def $flag_reward_one_eligible	-- if (reward_numerator <= $UINT64_MAX)			8289	0	UNCLASSIFIED-new	new-in-v2
-376		def $flag_reward_one_eligible	-- if (~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ ~vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*})			13857	606	falsifiable-covered	new-in-v2; v2-falsified
-377		def $flag_reward_one_eligible	-- if $is_in_inactivity_leak(state)			606	0	UNCLASSIFIED-new	new-in-v2
+374		def $flag_reward_one_eligible	-- if (reward_numerator <= $UINT64_MAX)			8289	0	target	new-in-v2; F9; needs source-only whale
+376		def $flag_reward_one_eligible	-- if (~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ ~vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*})			13857	606	falsifiable-covered	new-in-v2; v2-falsified; spillover of 371 (leak fallthrough)
+377		def $flag_reward_one_eligible	-- if $is_in_inactivity_leak(state)			606	0	target	new-in-v2; leak clause; spillover of 374; included to verify
 378	356	def $flag_penalty_one_eligible	-- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}	27540	2700	27540	2700	falsifiable-covered	
 379	357	def $flag_penalty_one_eligible	-- if ~vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*}	17117	10423	17117	10423	falsifiable-covered	
 380	358	def $flag_penalty_one_eligible	-- if (flag_index =/= $TIMELY_HEAD_FLAG_INDEX)	10677	6440	10677	6440	falsifiable-covered	
-383		def $flag_penalty_one_eligible	-- if ((~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*}) \/ (flag_index = $TIMELY_HEAD_FLAG_INDEX))			19563	0	UNCLASSIFIED-new	new-in-v2
+383		def $flag_penalty_one_eligible	-- if ((~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*}) \/ (flag_index = $TIMELY_HEAD_FLAG_INDEX))			19563	0	target	new-in-v2; F12 complement; spillover-only; included to verify
 396	374	relation ApplyRewardsAndPenalties	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	82	36671	82	36671	falsifiable-covered	
 397	375	relation ApplyRewardsAndPenalties	-- if gwei*{gwei <- gwei*} matches []	82	0	82	0	unfalsifiable-tautology	
 398	376	relation ApplyRewardsAndPenalties	-- if gwei'*{gwei' <- gwei'*} matches []	82	0	82	0	unfalsifiable-tautology	
@@ -167,11 +167,11 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 421	399	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	4532	0	4532	0	unfalsifiable-closing	
 422	400	relation ApplyInactivity	-- if ~$is_in_inactivity_leak(state)	1903	2629	1903	2629	falsifiable-covered	
 424	402	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	1903	0	1903	0	unfalsifiable-tautology	
-425		relation ApplyInactivity	-- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))			1903	0	UNCLASSIFIED-new	new-in-v2
+425		relation ApplyInactivity	-- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))			1903	0	target	new-in-v2; F7
 426	403	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	2629	0	2629	0	unfalsifiable-closing	
 427	404	relation ApplyInactivity	-- if $is_in_inactivity_leak(state)	2629	0	2629	0	unfalsifiable-closing	
 428	405	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	2629	0	2629	0	unfalsifiable-tautology	
-429		relation ApplyInactivity	-- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))			2629	0	UNCLASSIFIED-new	new-in-v2
+429		relation ApplyInactivity	-- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))			2629	0	target	new-in-v2; F7
 430	406	relation ApplyInactivity_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	30	9180	30	9180	falsifiable-covered	
 431	407	relation ApplyInactivity_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	9180	0	9180	0	unfalsifiable-closing	
 435	411	def $is_due_slashing_en	-- if (validator.SLASHED = true)	1040	22192	1040	22192	falsifiable-covered	
@@ -180,72 +180,72 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 439	415	relation DecreaseBalances	-- if gwei*{gwei <- gwei*} matches []	36	0	36	0	unfalsifiable-tautology	
 440	416	relation DecreaseBalances	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	0	0	0	0	target-unattempted	
 442	418	relation DecreaseBalances	-- if gwei*{gwei <- gwei*} matches _ :: _	0	0	0	0	target-unattempted	
-446		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			27	0	UNCLASSIFIED-new	new-in-v2
+446		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			27	0	target	new-in-v2; F8
 447	422	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	27	0	27	0	target	overflow check
-448		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			27	0	UNCLASSIFIED-new	new-in-v2
+448		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			27	0	target	new-in-v2; F8
 449	423	relation WeighJustificationAndFinalization	-- if ~((balance_prev_epoch_target * 3) >= (balance_total_active * 2))	11	16	11	16	falsifiable-covered	
 450	424	relation WeighJustificationAndFinalization	-- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))	6	5	6	5	falsifiable-covered	
-455		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			6	0	UNCLASSIFIED-new	new-in-v2
-456		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			6	0	UNCLASSIFIED-new	new-in-v2
-457		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			6	0	UNCLASSIFIED-new	new-in-v2
-458		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			6	0	UNCLASSIFIED-new	new-in-v2
+455		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			6	0	target	new-in-v2; F14; needs finality-seed bits
+456		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			6	0	target	new-in-v2; F14; needs finality-seed bits
+457		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			6	0	unfalsifiable-tautology	new-in-v2; F14; bit[0] literal false
+458		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			6	0	unfalsifiable-tautology	new-in-v2; F14; bit[0] literal false
 459	429	relation WeighJustificationAndFinalization	-- if ((((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) \/ ((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))	0	6	0	6	falsifiable-covered	
-460		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			27	0	UNCLASSIFIED-new	new-in-v2
+460		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			27	0	target	new-in-v2; F8
 461	430	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	27	0	27	0	target	overflow check
-462		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			27	0	UNCLASSIFIED-new	new-in-v2
+462		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			27	0	target	new-in-v2; F8
 463	431	relation WeighJustificationAndFinalization	-- if ~((balance_prev_epoch_target * 3) >= (balance_total_active * 2))	11	16	11	16	falsifiable-covered	markdown: redundant (deferred)
 464	432	relation WeighJustificationAndFinalization	-- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))	6	5	6	5	falsifiable-covered	markdown: redundant (deferred)
-469		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			6	0	UNCLASSIFIED-new	new-in-v2
-470		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			6	0	UNCLASSIFIED-new	new-in-v2
-471		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			6	0	UNCLASSIFIED-new	new-in-v2
-472		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			6	0	UNCLASSIFIED-new	new-in-v2
+469		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			6	0	target	new-in-v2; F14; needs finality-seed bits
+470		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			6	0	target	new-in-v2; F14; needs finality-seed bits
+471		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			6	0	unfalsifiable-tautology	new-in-v2; F14; bit[0] literal false
+472		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			6	0	unfalsifiable-tautology	new-in-v2; F14; bit[0] literal false
 473	437	relation WeighJustificationAndFinalization	-- if (~(((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) /\ ~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))	6	0	6	0	unfalsifiable-closing	
-474		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			21	0	UNCLASSIFIED-new	new-in-v2
+474		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			21	0	target	new-in-v2; F8
 475	438	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	21	0	21	0	target	overflow check
-476		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			21	0	UNCLASSIFIED-new	new-in-v2
+476		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			21	0	target	new-in-v2; F8
 477	439	relation WeighJustificationAndFinalization	-- if ((balance_prev_epoch_target * 3) >= (balance_total_active * 2))	16	5	16	5	redundant	
 478	440	relation WeighJustificationAndFinalization	-- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))	9	7	9	7	falsifiable-covered	markdown: redundant (deferred)
-484		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			9	0	UNCLASSIFIED-new	new-in-v2
-485		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			9	0	UNCLASSIFIED-new	new-in-v2
-486		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			9	0	UNCLASSIFIED-new	new-in-v2
-487		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			9	0	UNCLASSIFIED-new	new-in-v2
+484		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			9	0	target	new-in-v2; F14; needs finality-seed bits
+485		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			9	0	target	new-in-v2; F14; needs finality-seed bits
+486		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			9	0	unfalsifiable-tautology	new-in-v2; F14; bit[0] literal false
+487		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			9	0	unfalsifiable-tautology	new-in-v2; F14; bit[0] literal false
 488	446	relation WeighJustificationAndFinalization	-- if ((((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) \/ ((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))	5	4	5	4	falsifiable-covered	
-489		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			16	0	UNCLASSIFIED-new	new-in-v2
+489		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			16	0	target	new-in-v2; F8
 490	447	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	16	0	16	0	target	overflow check
-491		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			16	0	UNCLASSIFIED-new	new-in-v2
+491		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			16	0	target	new-in-v2; F8
 492	448	relation WeighJustificationAndFinalization	-- if ((balance_prev_epoch_target * 3) >= (balance_total_active * 2))	11	5	11	5	redundant	
 493	449	relation WeighJustificationAndFinalization	-- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))	4	7	4	7	falsifiable-covered	markdown: redundant (deferred)
-499		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			4	0	UNCLASSIFIED-new	new-in-v2
-500		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			4	0	UNCLASSIFIED-new	new-in-v2
-501		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			4	0	UNCLASSIFIED-new	new-in-v2
-502		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			4	0	UNCLASSIFIED-new	new-in-v2
+499		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			4	0	target	new-in-v2; F14; needs finality-seed bits
+500		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			4	0	target	new-in-v2; F14; needs finality-seed bits
+501		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			4	0	unfalsifiable-tautology	new-in-v2; F14; bit[0] literal false
+502		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			4	0	unfalsifiable-tautology	new-in-v2; F14; bit[0] literal false
 503	455	relation WeighJustificationAndFinalization	-- if (~(((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) /\ ~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))	4	0	4	0	unfalsifiable-closing	
-504		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			12	0	UNCLASSIFIED-new	new-in-v2
+504		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			12	0	target	new-in-v2; F8
 505	456	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	12	0	12	0	target	overflow check
-506		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			12	0	UNCLASSIFIED-new	new-in-v2
+506		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			12	0	target	new-in-v2; F8
 507	457	relation WeighJustificationAndFinalization	-- if ((balance_current_epoch_target * 3) >= (balance_total_active * 2))	12	0	12	0	unfalsifiable-closing	
-512		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			12	0	UNCLASSIFIED-new	new-in-v2
-513		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			12	0	UNCLASSIFIED-new	new-in-v2
-514		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			12	0	UNCLASSIFIED-new	new-in-v2
-515		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			12	0	UNCLASSIFIED-new	new-in-v2
+512		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			12	0	target	new-in-v2; F14; needs finality-seed bits
+513		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			12	0	target	new-in-v2; F14; needs finality-seed bits
+514		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			12	0	target	new-in-v2; F14; needs finality-seed bits
+515		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			12	0	target	new-in-v2; F14; needs finality-seed bits
 516	462	relation WeighJustificationAndFinalization	-- if ((((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 2))) \/ ((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 1))))	7	5	7	5	falsifiable-covered	
-517		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			5	0	UNCLASSIFIED-new	new-in-v2
+517		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			5	0	target	new-in-v2; F8
 518	463	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	5	0	5	0	target	overflow check
-519		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			5	0	UNCLASSIFIED-new	new-in-v2
+519		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			5	0	target	new-in-v2; F8
 520	464	relation WeighJustificationAndFinalization	-- if ((balance_current_epoch_target * 3) >= (balance_total_active * 2))	5	0	5	0	unfalsifiable-closing	
-525		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			5	0	UNCLASSIFIED-new	new-in-v2
-526		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			5	0	UNCLASSIFIED-new	new-in-v2
-527		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			5	0	UNCLASSIFIED-new	new-in-v2
-528		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			5	0	UNCLASSIFIED-new	new-in-v2
+525		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			5	0	target	new-in-v2; F14; needs finality-seed bits
+526		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			5	0	target	new-in-v2; F14; needs finality-seed bits
+527		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			5	0	target	new-in-v2; F14; needs finality-seed bits
+528		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			5	0	target	new-in-v2; F14; needs finality-seed bits
 529	469	relation WeighJustificationAndFinalization	-- if ((~(((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 2))) /\ ~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 1)))) /\ ((((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) \/ ((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2)))))	0	5	0	5	falsifiable-covered	markdown: redundant (deferred)
-530		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			5	0	UNCLASSIFIED-new	new-in-v2
+530		relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))			5	0	target	new-in-v2; F8
 531	470	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	5	0	5	0	target	overflow check
-532		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			5	0	UNCLASSIFIED-new	new-in-v2
+532		relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))			5	0	target	new-in-v2; F8
 533	471	relation WeighJustificationAndFinalization	-- if ((balance_current_epoch_target * 3) >= (balance_total_active * 2))	5	0	5	0	unfalsifiable-closing	
-538		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			5	0	UNCLASSIFIED-new	new-in-v2
-539		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			5	0	UNCLASSIFIED-new	new-in-v2
-540		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			5	0	UNCLASSIFIED-new	new-in-v2
-541		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			5	0	UNCLASSIFIED-new	new-in-v2
+538		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))			5	0	target	new-in-v2; F14; needs finality-seed bits
+539		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))			5	0	target	new-in-v2; F14; needs finality-seed bits
+540		relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))			5	0	target	new-in-v2; F14; needs finality-seed bits
+541		relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))			5	0	target	new-in-v2; F14; needs finality-seed bits
 542	476	relation WeighJustificationAndFinalization	-- if (((~(((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 2))) /\ ~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 1)))) /\ ~(((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3)))) /\ ~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))	5	0	5	0	unfalsifiable-closing	
 545	479	relation ProcessEligibilityAndEjection	-- if $is_eligible_for_activation_queue(validator)	96	11520	96	11520	falsifiable-covered	
 546	480	relation ProcessEligibilityAndEjection	-- if ($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))	0	96	0	96	falsifiable-covered	
@@ -264,10 +264,10 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 581	515	relation ProcessJustificationAndFinalization	-- if (epoch_cur <= ($GENESIS_EPOCH + 1))	9	27	9	27	falsifiable-covered	
 588	522	relation ProcessInactivityUpdates	-- if ($get_current_epoch(state) = $GENESIS_EPOCH)	6	30	6	30	falsifiable-covered	
 592	526	relation ProcessRewardsAndPenalties	-- if ($get_current_epoch(state) = $GENESIS_EPOCH)	6	30	6	30	falsifiable-covered	
-611		relation ProcessSlashings	-- if ($sum_<gwei>(state.SLASHINGS) <= ($UINT64_MAX / $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX))			36	0	UNCLASSIFIED-new	new-in-v2
-617		relation ProcessSlashings	-- (if (penalty_numerator <= $UINT64_MAX))*{penalty_numerator <- penalty_numerator*}			0	0	UNCLASSIFIED-new	new-in-v2
+611		relation ProcessSlashings	-- if ($sum_<gwei>(state.SLASHINGS) <= ($UINT64_MAX / $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX))			36	0	target	new-in-v2; slashings-sum guard
+617		relation ProcessSlashings	-- (if (penalty_numerator <= $UINT64_MAX))*{penalty_numerator <- penalty_numerator*}			0	0	target-unattempted	new-in-v2; F16; iterated-uninstrumented; needs due-slashed seed
 621	553	relation ProcessEth1DataReset	-- if ((epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) =/= 0)	35	1	35	1	falsifiable-covered	
-624		relation ProcessEffectiveBalanceUpdates	-- if (|state.VALIDATORS| <= |state.BALANCES|)			36	0	UNCLASSIFIED-new	new-in-v2
+624		relation ProcessEffectiveBalanceUpdates	-- if (|state.VALIDATORS| <= |state.BALANCES|)			36	0	target	new-in-v2; F17
 629	560	relation ProcessSlashingsReset	-- if (i < |state.SLASHINGS|)	36	0	36	0	unfalsifiable-tautology	
 633	564	relation ProcessRandaoMixesReset	-- if (i < |state.RANDAO_MIXES|)	36	0	36	0	unfalsifiable-tautology	
 635	566	relation ProcessHistoricalSummariesUpdate	-- if ((epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH)) =/= 0)	35	1	35	1	falsifiable-covered	
@@ -281,22 +281,22 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 674	605	def $expected_withdrawals_loop	-- if (|withdrawal_acc*{withdrawal_acc <- withdrawal_acc*}| = $MAX_WITHDRAWALS_PER_PAYLOAD)	3	146255	3	146255	falsifiable-covered	
 675	606	def $expected_withdrawals_loop	-- if (i >= uint64_bound)	554	145701	554	145701	falsifiable-covered	
 676	607	def $expected_withdrawals_loop	-- if (vid < |state.VALIDATORS|)	145701	0	145701	0	target	index bound checks
-677		def $expected_withdrawals_loop	-- if (vid < |state.BALANCES|)			145701	0	UNCLASSIFIED-new	new-in-v2
+677		def $expected_withdrawals_loop	-- if (vid < |state.BALANCES|)			145701	0	target	new-in-v2; F19
 680	610	def $expected_withdrawals_loop	-- if ($is_fully_withdrawable_validator(validator, balance, epoch) = true)	26	145675	26	145675	falsifiable-covered	
-681		def $expected_withdrawals_loop	-- if (withdrawalIndex <= ($UINT64_MAX - 1))			26	0	UNCLASSIFIED-new	new-in-v2
+681		def $expected_withdrawals_loop	-- if (withdrawalIndex <= ($UINT64_MAX - 1))			26	0	target	new-in-v2; F18
 683	612	def $expected_withdrawals_loop	-- if (vid < |state.VALIDATORS|)	145675	0	145675	0	target	index bound checks
-684		def $expected_withdrawals_loop	-- if (vid < |state.BALANCES|)			145675	0	UNCLASSIFIED-new	new-in-v2
+684		def $expected_withdrawals_loop	-- if (vid < |state.BALANCES|)			145675	0	target	new-in-v2; F19
 687	615	def $expected_withdrawals_loop	-- if ($is_fully_withdrawable_validator(validator, balance, epoch) = false)	145675	0	145675	0	unfalsifiable-closing	
 688	616	def $expected_withdrawals_loop	-- if ($is_partially_withdrawable_validator(validator, balance) = true)	68	145607	68	145607	falsifiable-covered	
-689		def $expected_withdrawals_loop	-- if (withdrawalIndex <= ($UINT64_MAX - 1))			68	0	UNCLASSIFIED-new	new-in-v2
+689		def $expected_withdrawals_loop	-- if (withdrawalIndex <= ($UINT64_MAX - 1))			68	0	target	new-in-v2; F18
 691	618	def $expected_withdrawals_loop	-- if (vid < |state.VALIDATORS|)	145607	0	145607	0	target	index bound checks
-692		def $expected_withdrawals_loop	-- if (vid < |state.BALANCES|)			145607	0	UNCLASSIFIED-new	new-in-v2
+692		def $expected_withdrawals_loop	-- if (vid < |state.BALANCES|)			145607	0	target	new-in-v2; F19
 695	621	def $expected_withdrawals_loop	-- if ~$is_fully_withdrawable_validator(validator, balance, epoch)	145607	0	145607	0	unfalsifiable-closing	
 696	622	def $expected_withdrawals_loop	-- if ~$is_partially_withdrawable_validator(validator, balance)	145607	0	145607	0	unfalsifiable-closing	
 702	628	relation ApplyWithdrawals	-- if withdrawal*{withdrawal <- withdrawal*} matches []	557	94	557	94	falsifiable-covered	
 703	629	relation ApplyWithdrawals	-- if withdrawal*{withdrawal <- withdrawal*} matches _ :: _	94	0	94	0	unfalsifiable-closing	
 707	633	relation AddFlag	-- if ~$has_flag(participationFlags, vid_flag)	11340	8986	11340	8986	falsifiable-covered	
-709		relation AddFlag	-- if $has_flag(participationFlags, vid_flag)			8986	0	UNCLASSIFIED-new	new-in-v2
+709		relation AddFlag	-- if $has_flag(participationFlags, vid_flag)			8986	0	target	new-in-v2; F20 complement; spillover of 332; included to verify
 710	635	relation AddFlags	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	14824	20326	14824	20326	falsifiable-covered	
 711	636	relation AddFlags	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	20326	0	20326	0	unfalsifiable-closing	
 715	640	relation ProcessFlags	-- if (vid_attesting < |participationFlags*{participationFlags <- participationFlags*}|)	14869	0	14869	0	unfalsifiable-tautology	
@@ -313,7 +313,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 740	665	relation ProcessProposerSlashing	-- if (beaconBlockHeader_1.SLOT = beaconBlockHeader_2.SLOT)	141	0	141	0	target	
 741	666	relation ProcessProposerSlashing	-- if (beaconBlockHeader_1.PROPOSER_INDEX = beaconBlockHeader_2.PROPOSER_INDEX)	141	0	141	0	target	
 742	667	relation ProcessProposerSlashing	-- if (beaconBlockHeader_1 =/= beaconBlockHeader_2)	141	0	141	0	target	
-744	669	relation ProcessProposerSlashing	-- if (vid_proposer < |state.VALIDATORS|)	141	0	141	0	out-of-scope	index bound checks; paper: counted falsifiable, unreached
+744	669	relation ProcessProposerSlashing	-- if (vid_proposer < |state.VALIDATORS|)	141	0	141	0	target	index bound checks; paper: counted falsifiable, unreached
 746	671	relation ProcessProposerSlashing	-- if $is_slashable_validator(validator_proposer, $get_current_epoch(state))	139	2	139	2	falsifiable-covered	
 751	676	relation ProcessProposerSlashing	-- if $bls_verify(validator_proposer.PUBKEY, root_sign_h1, signedBeaconBlockHeader_1.SIGNATURE)	139	0	139	0	target	
 756	681	relation ProcessProposerSlashing	-- if $bls_verify(validator_proposer.PUBKEY, root_sign_h2, signedBeaconBlockHeader_2.SIGNATURE)	139	0	139	0	target	
@@ -328,7 +328,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 778	703	relation ProcessAttestation	-- if (attestationData.TARGET.EPOCH = $get_current_epoch(state))	524	909	524	909	falsifiable-covered	
 779	704	relation ProcessAttestation	-- if (attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT))	524	0	524	0	target	
 780	705	relation ProcessAttestation	-- if ((attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY) <= state.SLOT)	524	0	524	0	target	
-781		relation ProcessAttestation	-- if (attestationData.SLOT <= ($UINT64_MAX - $SLOTS_PER_EPOCH))			524	0	UNCLASSIFIED-new	new-in-v2
+781		relation ProcessAttestation	-- if (attestationData.SLOT <= ($UINT64_MAX - $SLOTS_PER_EPOCH))			524	0	target	new-in-v2; F21; needs coordinated block edits
 782	706	relation ProcessAttestation	-- if (state.SLOT <= (attestationData.SLOT + $SLOTS_PER_EPOCH))	524	0	524	0	unfalsifiable-tautology	
 783	707	relation ProcessAttestation	-- if (attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH))	524	0	524	0	target	
 785	709	relation ProcessAttestation	-- if (|attestation.AGGREGATION_BITS| = |vid_committee*{vid_committee <- vid_committee*}|)	524	0	524	0	target	
@@ -336,7 +336,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 794	718	relation ProcessAttestation	-- if (attestationData.TARGET.EPOCH = $get_previous_epoch(state))	909	0	909	0	target	
 795	719	relation ProcessAttestation	-- if (attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT))	909	0	909	0	target	
 796	720	relation ProcessAttestation	-- if ((attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY) <= state.SLOT)	909	0	909	0	target	
-797		relation ProcessAttestation	-- if (attestationData.SLOT <= ($UINT64_MAX - $SLOTS_PER_EPOCH))			909	0	UNCLASSIFIED-new	new-in-v2
+797		relation ProcessAttestation	-- if (attestationData.SLOT <= ($UINT64_MAX - $SLOTS_PER_EPOCH))			909	0	target	new-in-v2; F21 symmetry guard; likely tautological; included to verify
 798	721	relation ProcessAttestation	-- if (state.SLOT <= (attestationData.SLOT + $SLOTS_PER_EPOCH))	909	0	909	0	target	
 799	722	relation ProcessAttestation	-- if (attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH))	909	0	909	0	target	
 801	724	relation ProcessAttestation	-- if (|attestation.AGGREGATION_BITS| = |vid_committee*{vid_committee <- vid_committee*}|)	909	0	909	0	target	
@@ -382,7 +382,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 895	818	relation ProcessRandao	-- if $bls_verify(validator_proposer.PUBKEY, root_signing, body.RANDAO_REVEAL)	556	0	556	0	target	
 902	825	relation ProcessEth1Data	-- if ((n_occ * 2) > ($EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH))	0	556	0	556	falsifiable-covered	
 905	828	relation ProcessEth1Data	-- if ((n_occ * 2) <= ($EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH))	556	0	556	0	unfalsifiable-closing	
-906		relation ProcessOperations	-- if (state.ETH1_DEPOSIT_INDEX <= state.ETH1_DATA.DEPOSIT_COUNT)			556	0	UNCLASSIFIED-new	new-in-v2
+906		relation ProcessOperations	-- if (state.ETH1_DEPOSIT_INDEX <= state.ETH1_DATA.DEPOSIT_COUNT)			556	0	target	new-in-v2; F24
 907	829	relation ProcessOperations	-- if (|body.DEPOSITS| = $min_uint64($MAX_DEPOSITS, (state.ETH1_DATA.DEPOSIT_COUNT - state.ETH1_DEPOSIT_INDEX)))	554	2	554	2	falsifiable-covered	
 916	838	relation ProcessSyncAggregate	-- (if (blsPubkey = blsPubkey_committee))*{blsPubkey <- blsPubkey*, blsPubkey_committee <- blsPubkey_committee*}	0	0	0	0	target-unattempted	
 921	843	relation ProcessSyncAggregate	-- if $eth_fast_aggregate_verify(blsPubkey_participants*{blsPubkey_participants <- blsPubkey_participants*}, root_sign, syncAggregate.SYNC_COMMITTEE_SIGNATURE)	547	0	547	0	target	
