@@ -859,8 +859,29 @@ let strategies_for_sym_mutation (target_path : field_path)
 let is_valid_target (path : field_path) : bool =
   not (path.source = Dep.State && path.steps = [])
 
+(* A numeric ToConst on a list-typed path is an aggregate (e.g. $sum) that
+   inherited the list's provenance. Retarget it to element 0. Exact equality
+   would need the remaining elements' values, so it is left alone. *)
+let retarget_aggregate_sym_mutation (sym_mut : Pos.sym_mutation) :
+    Pos.sym_mutation =
+  match (sym_mut.target_path, sym_mut.suggestion) with
+  | ( Some path,
+      Pos.ToConst
+        ( ((`GtOp | `GeOp | `LtOp | `LeOp | `NeOp) as op),
+          ({ it = Il.NumV _; _ } as v) ) )
+    when (match field_path_type path with
+         | Some (Type_tree.IterT (Type_tree.NumT _, Type_tree.List)) -> true
+         | _ -> false) ->
+      {
+        Pos.target_path =
+          Some { path with steps = path.steps @ [ Dep.IndexAccess 0 ] };
+        suggestion = Pos.ToConst (op, v);
+      }
+  | _ -> sym_mut
+
 (* Diagnose why a sym_mutation was filtered out. Returns None if it wasn't filtered. *)
 let diagnose_filtered_mutation (sym_mut : Pos.sym_mutation) : string option =
+  let sym_mut = retarget_aggregate_sym_mutation sym_mut in
   let truncate s n =
     if String.length s > n then String.sub s 0 n ^ "..." else s
   in
@@ -891,6 +912,7 @@ let diagnose_filtered_mutation (sym_mut : Pos.sym_mutation) : string option =
    [group_total] is the number of sym_mutations in the class group this was sampled from. *)
 let sym_mutation_to_constraint ?(group_total = 1) (sym_mut : Pos.sym_mutation) :
     mutation_constraint option =
+  let sym_mut = retarget_aggregate_sym_mutation sym_mut in
   match sym_mut.target_path with
   | None -> None
   | Some target_path when not (is_valid_target target_path) -> None
