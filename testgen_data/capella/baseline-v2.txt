@@ -1,9 +1,19 @@
+Resuming from checkpoint: Checkpoint: 563 tests completed, saved at 2026-07-22 19:30:47 UTC
+=== Checkpoint Contents ===
+
+Checkpoint: 563 tests completed, saved at 2026-07-22 19:30:47 UTC
+
+Completed tests: 563
+
+
+=== Branch Coverage ===
+
 
 === IL Node Coverage ===
 
-IL Premises: 899/951 attempted (94.53%), 882/951 succeeded (92.74%)
+IL Premises: 902/951 attempted (94.85%), 885/951 succeeded (93.06%)
 108 rule premises
-392 if-premises: succeeded 360/392 (91.84%), failed 130/392 (33.16%), neither 15/392 (3.83%), total 490/784 (62.50%)
+392 if-premises: succeeded 361/392 (92.09%), failed 130/392 (33.16%), neither 14/392 (3.57%), total 491/784 (62.63%)
 
 def $UINT64_MAX:
       clause 0:
@@ -1002,7 +1012,7 @@ relation InitiateValidatorExit:
  177:  374         -- let validator = state.VALIDATORS[vid]
  178:  374/####     -- if (validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)
  179:  374         -- let validator_exit*{validator_exit <- validator_exit*} = $filter_list_<validator>(state.VALIDATORS, $exit_epoch_not_far_future)
- 180: ####         -- (let epoch_exit = validator_exit.EXIT_EPOCH)*{epoch_exit <- epoch_exit*, validator_exit <- validator_exit*}
+ 180:  374         -- (let epoch_exit = validator_exit.EXIT_EPOCH)*{epoch_exit <- epoch_exit*, validator_exit <- validator_exit*}
  181:  374         -- let epoch_exit_queue_0 = $fold_<epoch, epoch>($fold_max_epoch, 0, epoch_exit*{epoch_exit <- epoch_exit*} ++ [$compute_activation_exit_epoch($get_current_epoch(state))])
  182:  374         -- let validator_exit_queue*{validator_exit_queue <- validator_exit_queue*} = $filter_list_2_<validator, epoch>(validator_exit*{validator_exit <- validator_exit*}, epoch_exit_queue_0, $exit_epoch_eq)
  183:  374         -- let uint64_exit_queue_churn = |validator_exit_queue*{validator_exit_queue <- validator_exit_queue*}|
@@ -1058,7 +1068,7 @@ relation SlashValidator:
 relation ApplyDeposit:
       rule new_pubkey:
  225:  215         -- let validator*{validator <- validator*} = state.VALIDATORS
- 226: ####         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
+ 226:  215         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
  227:  212/   3     -- if ~blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}
  228:  212         -- let depositMessage = {PUBKEY blsPubkey, WITHDRAWAL_CREDENTIALS bytes32_wc, AMOUNT gwei_amount}
  229:  212         -- let domain = $compute_domain($DOMAIN_DEPOSIT, ?(), ?())
@@ -1067,7 +1077,7 @@ relation ApplyDeposit:
        212          state .VALIDATORS++{ blsPubkey bytes32_wc gwei_amount }SIGNED blsSignature ~> state_out
       rule new_pubkey_invalid_sig:
  232:    3         -- let validator*{validator <- validator*} = state.VALIDATORS
- 233: ####         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
+ 233:    3         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
  234: ####/   3     -- if ~blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}
  235: ####         -- let depositMessage = {PUBKEY blsPubkey, WITHDRAWAL_CREDENTIALS bytes32_wc, AMOUNT gwei_amount}
  236: ####         -- let domain = $compute_domain($DOMAIN_DEPOSIT, ?(), ?())
@@ -1075,7 +1085,7 @@ relation ApplyDeposit:
       ####          state .VALIDATORS++{ blsPubkey bytes32_wc gwei_amount }SIGNED blsSignature ~> state
       rule existing_pubkey:
  238:    3         -- let (vid, validator)*{validator <- validator*, vid <- vid*} = $enumerate_<validator>(state.VALIDATORS)
- 239: ####         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
+ 239:    3         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
  240:    3/####     -- if blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}
  241:    3         -- let vid_found = $index_of_pubkey((vid, blsPubkey_existing)*{blsPubkey_existing <- blsPubkey_existing*, vid <- vid*}, blsPubkey)
  242:    3/####     -- rel IncreaseBalance: state .BALANCES[ vid_found ]+ gwei_amount ~> state_out
@@ -1086,10 +1096,10 @@ def $compute_committee:
  243:  877         -- let i_start = ((|vid*{vid <- vid*}| * i) / count)
  244:  877         -- let i_end = ((|vid*{vid <- vid*}| * (i + 1)) / count)
  245:  877         -- let n*{n <- n*} = $range((i_end - i_start))
- 246: ####         -- (let i_range = (n + i_start))*{i_range <- i_range*, n <- n*}
- 247: ####         -- (let i_shuffled = $compute_shuffled_index(i_range, |vid*{vid <- vid*}|, seed))*{i_range <- i_range*, i_shuffled <- i_shuffled*}
- 248: ####         -- (let vid_committee = vid*{vid <- vid*}[i_shuffled])*{i_shuffled <- i_shuffled*, vid_committee <- vid_committee*}
-      ####          vid_committee*{vid_committee <- vid_committee*}
+ 246:  877         -- (let i_range = (n + i_start))*{i_range <- i_range*, n <- n*}
+ 247:  877         -- (let i_shuffled = $compute_shuffled_index(i_range, |vid*{vid <- vid*}|, seed))*{i_range <- i_range*, i_shuffled <- i_shuffled*}
+ 248:  877         -- (let vid_committee = vid*{vid <- vid*}[i_shuffled])*{i_shuffled <- i_shuffled*, vid_committee <- vid_committee*}
+       877          vid_committee*{vid_committee <- vid_committee*}
 
 def $get_committee_count_per_slot:
       clause 0:
@@ -1127,8 +1137,8 @@ def $is_valid_indexed_attestation:
  258: 1483         -- let vid*{vid <- vid*} = indexedAttestation.ATTESTING_INDICES
  259: 1483/####     -- if (|indexedAttestation.ATTESTING_INDICES| > 0)
  260: 1483/####     -- if ($sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES)) = indexedAttestation.ATTESTING_INDICES)
- 261: ####/####     -- (if (vid < |state.VALIDATORS|))*{vid <- vid*}
- 262: ####         -- (let blsPubkey = state.VALIDATORS[vid].PUBKEY)*{blsPubkey <- blsPubkey*, vid <- vid*}
+ 261: 1483/####     -- (if (vid < |state.VALIDATORS|))*{vid <- vid*}
+ 262: 1483         -- (let blsPubkey = state.VALIDATORS[vid].PUBKEY)*{blsPubkey <- blsPubkey*, vid <- vid*}
  263: 1483         -- let domain = $get_domain(state, $DOMAIN_BEACON_ATTESTER, ?(indexedAttestation.DATA.TARGET.EPOCH))
  264: 1483         -- let root_signing = $compute_signing_root_attestationData(indexedAttestation.DATA, domain)
       1483          $bls_fast_aggregate_verify(blsPubkey*{blsPubkey <- blsPubkey*}, root_signing, indexedAttestation.SIGNATURE)
@@ -1245,7 +1255,7 @@ def $get_next_sync_committee_indices:
 def $get_next_sync_committee:
       clause 0:
  326:    1         -- let vid*{vid <- vid*} = $get_next_sync_committee_indices(state)
- 327: ####         -- (let blsPubkey = state.VALIDATORS[vid].PUBKEY)*{blsPubkey <- blsPubkey*, vid <- vid*}
+ 327:    1         -- (let blsPubkey = state.VALIDATORS[vid].PUBKEY)*{blsPubkey <- blsPubkey*, vid <- vid*}
  328:    1         -- let blsPubkey_aggregate = $eth_aggregate_pubkeys(blsPubkey*{blsPubkey <- blsPubkey*})
          1          {PUBKEYS blsPubkey*{blsPubkey <- blsPubkey*}, AGGREGATE_PUBKEY blsPubkey_aggregate}
 
@@ -1256,7 +1266,7 @@ def $get_indexed_attestation:
 
 def $get_total_balance:
       clause 0:
- 330: ####         -- (let balance = state.VALIDATORS[vid].EFFECTIVE_BALANCE)*{balance <- balance*, vid <- vid*}
+ 330: 1539         -- (let balance = state.VALIDATORS[vid].EFFECTIVE_BALANCE)*{balance <- balance*, vid <- vid*}
  331: 1539         -- let gwei_sum = $sum_<gwei>(balance*{balance <- balance*})
  332: 1539/####     -- if (gwei_sum <= $UINT64_MAX)
       1539          $max_uint64($EFFECTIVE_BALANCE_INCREMENT, gwei_sum)
@@ -1321,8 +1331,8 @@ def $get_inactivity_penalty_deltas:
  365:   30         -- let epoch_prev = $get_previous_epoch(state)
  366:   30         -- let vid_matching*{vid_matching <- vid_matching*} = $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev)
  367:   30         -- let vid*{vid <- vid*} = $range(|state.VALIDATORS|)
- 368: ####         -- (let penalty = $inact_penalty_one(vid, state, vid_matching*{vid_matching <- vid_matching*}, vid_eligible*{vid_eligible <- vid_eligible*}))*{penalty <- penalty*, vid <- vid*}
-      ####          (reward*{reward <- reward*}, penalty*{penalty <- penalty*})
+ 368:   30         -- (let penalty = $inact_penalty_one(vid, state, vid_matching*{vid_matching <- vid_matching*}, vid_eligible*{vid_eligible <- vid_eligible*}))*{penalty <- penalty*, vid <- vid*}
+        30          (reward*{reward <- reward*}, penalty*{penalty <- penalty*})
 
 def $flag_reward_one_eligible:
       clause 0:
@@ -1363,9 +1373,9 @@ def $get_flag_index_deltas:
  389:   90         -- let uint64_unslashed_increments = (balance_unslashed_participating / $EFFECTIVE_BALANCE_INCREMENT)
  390:   90         -- let uint64_active_increments = ($get_total_active_balance(state) / $EFFECTIVE_BALANCE_INCREMENT)
  391:   90         -- let vid*{vid <- vid*} = $range(|state.VALIDATORS|)
- 392: ####         -- (let reward = $flag_reward_one_eligible(vid, state, vid_unslashed*{vid_unslashed <- vid_unslashed*}, vid_eligible*{vid_eligible <- vid_eligible*}, uint64_weight, uint64_unslashed_increments, uint64_active_increments))*{reward <- reward*, vid <- vid*}
- 393: ####         -- (let penalty = $flag_penalty_one_eligible(vid, state, vid_unslashed*{vid_unslashed <- vid_unslashed*}, vid_eligible*{vid_eligible <- vid_eligible*}, uint64_weight, flag_index))*{penalty <- penalty*, vid <- vid*}
-      ####          (reward*{reward <- reward*}, penalty*{penalty <- penalty*})
+ 392:   90         -- (let reward = $flag_reward_one_eligible(vid, state, vid_unslashed*{vid_unslashed <- vid_unslashed*}, vid_eligible*{vid_eligible <- vid_eligible*}, uint64_weight, uint64_unslashed_increments, uint64_active_increments))*{reward <- reward*, vid <- vid*}
+ 393:   90         -- (let penalty = $flag_penalty_one_eligible(vid, state, vid_unslashed*{vid_unslashed <- vid_unslashed*}, vid_eligible*{vid_eligible <- vid_eligible*}, uint64_weight, flag_index))*{penalty <- penalty*, vid <- vid*}
+        90          (reward*{reward <- reward*}, penalty*{penalty <- penalty*})
 
 relation ApplyRewardAndPenalty:
       rule :
@@ -1678,7 +1688,7 @@ relation ProcessRewardsAndPenalties:
       rule main:
  593:   30         -- otherwise
  594:   30         -- let vid_flag*{vid_flag <- vid_flag*} = $range(|$PARTICIPATION_FLAG_WEIGHTS|)
- 595: ####         -- (let (reward_flag*{reward_flag <- reward_flag*}, penalty_flag*{penalty_flag <- penalty_flag*}) = $get_flag_index_deltas(state, vid_flag))*{penalty_flag* <- penalty_flag**, reward_flag* <- reward_flag**, vid_flag <- vid_flag*}
+ 595:   30         -- (let (reward_flag*{reward_flag <- reward_flag*}, penalty_flag*{penalty_flag <- penalty_flag*}) = $get_flag_index_deltas(state, vid_flag))*{penalty_flag* <- penalty_flag**, reward_flag* <- reward_flag**, vid_flag <- vid_flag*}
  596:   30         -- let (reward_inactivity*{reward_inactivity <- reward_inactivity*}, penalty_inactivity*{penalty_inactivity <- penalty_inactivity*}) = $get_inactivity_penalty_deltas(state)
  597:   30         -- let reward*{reward <- reward*}*{reward* <- reward**} = reward_flag*{reward_flag <- reward_flag*}*{reward_flag* <- reward_flag**} ++ [reward_inactivity*{reward_inactivity <- reward_inactivity*}]
  598:   30         -- let penalty*{penalty <- penalty*}*{penalty* <- penalty**} = penalty_flag*{penalty_flag <- penalty_flag*}*{penalty_flag* <- penalty_flag**} ++ [penalty_inactivity*{penalty_inactivity <- penalty_inactivity*}]
@@ -1692,7 +1702,7 @@ relation ProcessRegistryUpdates:
  602:   36/####     -- rel ProcessEligibilityAndEjection_over_vids: state .VALIDATORS[ vid*{vid <- vid*} ]~> state_1
  603:   36         -- let (vid_1, validator)*{validator <- validator*, vid_1 <- vid_1*} = $enumerate_<validator>(state_1.VALIDATORS)
  604:   36         -- let (vid_elg, validator_elg)*{validator_elg <- validator_elg*, vid_elg <- vid_elg*} = $filter_list_2_<(nat, validator), beaconState>((vid_1, validator)*{validator <- validator*, vid_1 <- vid_1*}, state_1, $is_eligible_activation_en)
- 605: ####         -- (let epoch_elg = validator_elg.ACTIVATION_ELIGIBILITY_EPOCH)*{epoch_elg <- epoch_elg*, validator_elg <- validator_elg*}
+ 605:   36         -- (let epoch_elg = validator_elg.ACTIVATION_ELIGIBILITY_EPOCH)*{epoch_elg <- epoch_elg*, validator_elg <- validator_elg*}
  606:   36         -- let (_epoch, vid_activation_queue)*{_epoch <- _epoch*, vid_activation_queue <- vid_activation_queue*} = $sort_<(epoch, validatorIndex)>((epoch_elg, vid_elg)*{epoch_elg <- epoch_elg*, vid_elg <- vid_elg*})
  607:   36         -- let vid_dequeued*{vid_dequeued <- vid_dequeued*} = vid_activation_queue*{vid_activation_queue <- vid_activation_queue*}[0 : $get_validator_churn_limit(state_1)]
  608:   36/####     -- rel ApplyActivations: state_1 .VALIDATORS[ vid_dequeued*{vid_dequeued <- vid_dequeued*} ].ACTIVATION_EPOCH~>* state_out
@@ -1707,9 +1717,9 @@ relation ProcessSlashings:
  613:   36         -- let (vid, validator)*{validator <- validator*, vid <- vid*} = $enumerate_<validator>(state.VALIDATORS)
  614:   36         -- let (vid_due, validator_due)*{validator_due <- validator_due*, vid_due <- vid_due*} = $filter_list_2_<(validatorIndex, validator), epoch>((vid, validator)*{validator <- validator*, vid <- vid*}, epoch_cur, $is_due_slashing_en)
  615:   36         -- let gwei_increment = $EFFECTIVE_BALANCE_INCREMENT
- 616: ####         -- (let penalty_numerator = ((validator_due.EFFECTIVE_BALANCE / gwei_increment) * balance_adjusted_total_slashing))*{penalty_numerator <- penalty_numerator*, validator_due <- validator_due*}
- 617: ####/####     -- (if (penalty_numerator <= $UINT64_MAX))*{penalty_numerator <- penalty_numerator*}
- 618: ####         -- (let penalty = ((penalty_numerator / balance_total) * gwei_increment))*{penalty <- penalty*, penalty_numerator <- penalty_numerator*}
+ 616:   36         -- (let penalty_numerator = ((validator_due.EFFECTIVE_BALANCE / gwei_increment) * balance_adjusted_total_slashing))*{penalty_numerator <- penalty_numerator*, validator_due <- validator_due*}
+ 617:   36/####     -- (if (penalty_numerator <= $UINT64_MAX))*{penalty_numerator <- penalty_numerator*}
+ 618:   36         -- (let penalty = ((penalty_numerator / balance_total) * gwei_increment))*{penalty <- penalty*, penalty_numerator <- penalty_numerator*}
  619:   36/####     -- rel DecreaseBalances: state .BALANCES[ vid_due*{vid_due <- vid_due*} ]- penalty*{penalty <- penalty*} ~> state_out
         36          state ~> state_out
 
@@ -1726,9 +1736,9 @@ relation ProcessEffectiveBalanceUpdates:
       rule :
  623:   36         -- let (vid, validator)*{validator <- validator*, vid <- vid*} = $enumerate_<validator>(state.VALIDATORS)
  624:   36/####     -- if (|state.VALIDATORS| <= |state.BALANCES|)
- 625: ####         -- (let balance = state.BALANCES[vid])*{balance <- balance*, vid <- vid*}
- 626: ####/####     -- (rel ApplyEffectiveBalance: validator .EFFECTIVE_BALANCE balance ~> validator_updated)*{balance <- balance*, validator <- validator*, validator_updated <- validator_updated*}
-      ####          state ~> state[VALIDATORS = validator_updated*{validator_updated <- validator_updated*}]
+ 625:   36         -- (let balance = state.BALANCES[vid])*{balance <- balance*, vid <- vid*}
+ 626:   36/####     -- (rel ApplyEffectiveBalance: validator .EFFECTIVE_BALANCE balance ~> validator_updated)*{balance <- balance*, validator <- validator*, validator_updated <- validator_updated*}
+        36          state ~> state[VALIDATORS = validator_updated*{validator_updated <- validator_updated*}]
 
 relation ProcessSlashingsReset:
       rule :
@@ -2219,7 +2229,7 @@ relation ProcessSyncAggregate:
       rule :
  914:  547         -- let blsPubkey_committee*{blsPubkey_committee <- blsPubkey_committee*} = state.CURRENT_SYNC_COMMITTEE.PUBKEYS
  915:  547         -- let (i_committee, blsPubkey)*{blsPubkey <- blsPubkey*, i_committee <- i_committee*} = $enumerate_<blsPubkey>(blsPubkey_committee*{blsPubkey_committee <- blsPubkey_committee*})
- 916: ####/####     -- (if (blsPubkey = blsPubkey_committee))*{blsPubkey <- blsPubkey*, blsPubkey_committee <- blsPubkey_committee*}
+ 916:  547/####     -- (if (blsPubkey = blsPubkey_committee))*{blsPubkey <- blsPubkey*, blsPubkey_committee <- blsPubkey_committee*}
  917:  547         -- let (_nat, blsPubkey_participants)*{_nat <- _nat*, blsPubkey_participants <- blsPubkey_participants*} = $filter_list_2_<(nat, blsPubkey), boolean*>((i_committee, blsPubkey_committee)*{blsPubkey_committee <- blsPubkey_committee*, i_committee <- i_committee*}, syncAggregate.SYNC_COMMITTEE_BITS, $bit_is_one_en_blsPubkey)
  918:  547         -- let slot_prev = $get_prev_slot(state.SLOT)
  919:  547         -- let domain = $get_domain(state, $DOMAIN_SYNC_COMMITTEE, ?($compute_epoch_at_slot(slot_prev)))
@@ -2231,9 +2241,9 @@ relation ProcessSyncAggregate:
  925:  547         -- let reward_participant = (reward_max_participant / $SYNC_COMMITTEE_SIZE)
  926:  547         -- let reward_proposer = ((reward_participant * $PROPOSER_WEIGHT) / ($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT))
  927:  547         -- let (vid, validator)*{validator <- validator*, vid <- vid*} = $enumerate_<validator>(state.VALIDATORS)
- 928: ####         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
+ 928:  547         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
  929:  547/####     -- if (state.CURRENT_SYNC_COMMITTEE.PUBKEYS = blsPubkey_committee*{blsPubkey_committee <- blsPubkey_committee*})
- 930: ####         -- (let vid_committee = $index_of_pubkey((vid, blsPubkey_existing)*{blsPubkey_existing <- blsPubkey_existing*, vid <- vid*}, blsPubkey_committee))*{blsPubkey_committee <- blsPubkey_committee*, vid_committee <- vid_committee*}
+ 930:  547         -- (let vid_committee = $index_of_pubkey((vid, blsPubkey_existing)*{blsPubkey_existing <- blsPubkey_existing*, vid <- vid*}, blsPubkey_committee))*{blsPubkey_committee <- blsPubkey_committee*, vid_committee <- vid_committee*}
  931:  547         -- let boolean_participation*{boolean_participation <- boolean_participation*} = syncAggregate.SYNC_COMMITTEE_BITS
  932:  547         -- let vid_proposer = $get_beacon_proposer_index(state)
  933:  547/####     -- rel ApplyReward_over_participants: state PARTICIPANT boolean_participation*{boolean_participation <- boolean_participation*} [ vid_committee*{vid_committee <- vid_committee*} ]+ reward_participant PROPOSER[ vid_proposer ]+ reward_proposer ~> state_updated
@@ -2265,3 +2275,8 @@ relation State_transition:
  949:  560/   3     -- rel ProcessSlots: state beaconBlock.SLOT ~> state_cur
  950:  547/  13     -- rel ProcessBlock: state_cur beaconBlock ~>* state_next
        547          state signedBeaconBlock bool ~>* state_next
+
+=== Symbolic Mutations ===
+
+(no symbolic mutations found)
+
