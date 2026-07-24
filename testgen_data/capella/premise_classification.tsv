@@ -56,7 +56,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 87	86	def $is_partially_withdrawable_validator	-- if (validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)	69	32	69	32	falsifiable-covered	
 88	87	def $is_partially_withdrawable_validator	-- if (balance > $MAX_EFFECTIVE_BALANCE)	68	1	68	1	falsifiable-covered	
 104		def $has_flag_for_index	-- if (vid < |participationFlags_list*{participationFlags_list <- participationFlags_list*}|)			2998228	0	falsifiable-covered	new-in-v2; F5; covered by generated tests (combined fail=322)
-105	103	def $is_unslashed	-- if (vid < |state.VALIDATORS|)	942694	0	942694	0	unfalsifiable-tautology	
+105	103	def $is_unslashed	-- if (vid < |state.VALIDATORS|)	942694	0	942694	0	unfalsifiable-tautology	tier1 verified unfalsifiable: vid enumerates VALIDATORS (active indices), vid<|VALIDATORS| by construction
 107	105	def $is_unslashed	-- if (validator.SLASHED = false)	761374	181320	761374	181320	falsifiable-covered	
 109	107	def $get_unslashed_participating_indices	-- if ($get_current_epoch(state) = epoch)	27	5194	27	5194	falsifiable-covered	
 113	111	def $get_unslashed_participating_indices	-- if ($get_previous_epoch(state) = epoch)	5194	0	5194	0	unfalsifiable-tautology	
@@ -72,20 +72,20 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 153	145	def $compute_proposer_index	-- if (|vid*{vid <- vid*}| > 0)	2862	0	2862	0	falsifiable-covered	covered by generated tests (combined fail=56)
 158	150	relation IncreaseBalance	-- if (vid < |state.BALANCES|)	53181	0	53181	0	falsifiable-covered	was unfalsifiable-tautology; covered by generated tests (combined fail=129); falsified by mut_prem624_prem677_prem684 family: balances truncated + epoch-boundary seed, rewards iterate range(|VALIDATORS|); confirmed by isolated rerun (20 fails reproduced)
 160		relation IncreaseBalance	-- if (balance <= ($UINT64_MAX - delta))			53181	0	falsifiable-covered	new-in-v2; F1; covered by generated tests (combined fail=62)
-161	152	relation DecreaseBalance	-- if (vid < |state.BALANCES|)	309476	0	309476	0	unfalsifiable-tautology	
+161	152	relation DecreaseBalance	-- if (vid < |state.BALANCES|)	309476	0	309476	0	target-limitation	limitation-coordinated: tier1: held (shadowed by 158 IncreaseBalance on same vid); falsifiable via slashing DecreaseBalance path + STATE.balances truncation to index in (|BALANCES|,|VALIDATORS|)
 163	154	relation DecreaseBalance	-- if (delta > balance)	57	309419	57	309419	falsifiable-covered	
-164	155	relation DecreaseBalance	-- if (vid < |state.BALANCES|)	309419	0	309419	0	unfalsifiable-tautology	
+164	155	relation DecreaseBalance	-- if (vid < |state.BALANCES|)	309419	0	309419	0	target-limitation	limitation-coordinated: tier1: held (shadowed by 158); falsifiable via slashing DecreaseBalance path + STATE.balances truncation
 166	157	relation DecreaseBalance	-- if (delta <= balance)	309419	0	309419	0	unfalsifiable-closing	
 167	158	def $exit_epoch_not_far_future	-- if (validator.EXIT_EPOCH =/= $FAR_FUTURE_EPOCH)	29321	269396	29321	269396	falsifiable-covered	
 169	160	def $exit_epoch_eq	-- if (validator.EXIT_EPOCH = epoch)	869	56904	869	56904	falsifiable-covered	
 171	162	def $select_epoch_exit_queue	-- if (uint64_churn >= uint64_limit)	84	290	84	290	falsifiable-covered	
-173	164	relation InitiateValidatorExit	-- if (vid < |state.VALIDATORS|)	463	0	463	0	unfalsifiable-tautology	
+173	164	relation InitiateValidatorExit	-- if (vid < |state.VALIDATORS|)	463	0	463	0	unfalsifiable-tautology	tier1 verified unfalsifiable: exit/slash index shadowed by upstream inserted bound
 175	166	relation InitiateValidatorExit	-- if (validator.EXIT_EPOCH =/= $FAR_FUTURE_EPOCH)	89	374	89	374	falsifiable-covered	
-176	167	relation InitiateValidatorExit	-- if (vid < |state.VALIDATORS|)	374	0	374	0	unfalsifiable-tautology	
+176	167	relation InitiateValidatorExit	-- if (vid < |state.VALIDATORS|)	374	0	374	0	unfalsifiable-tautology	tier1 verified unfalsifiable: exit/slash index shadowed by upstream inserted bound
 178	169	relation InitiateValidatorExit	-- if (validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)	374	0	374	0	unfalsifiable-closing	
 186	177	relation InitiateValidatorExit	-- if (epoch_exit_queue <= ($UINT64_MAX - $MIN_VALIDATOR_WITHDRAWABILITY_DELAY))	374	0	374	0	target-limitation	prov-precision addresses; limitation-provenance: iterated field aggregate (max over exit epochs) untracked by extractor
 188	179	relation SlashValidator	-- if validatorIndex?{validatorIndex <- validatorIndex?} matches ()	210	0	210	0	unfalsifiable-tautology	out-of-scope, paper-folded
-189	180	relation SlashValidator	-- if (vid_slashed < |state.VALIDATORS|)	210	0	210	0	unfalsifiable-tautology	
+189	180	relation SlashValidator	-- if (vid_slashed < |state.VALIDATORS|)	210	0	210	0	unfalsifiable-tautology	tier1 verified unfalsifiable: slashing index shadowed by upstream bound (744 / is_valid_indexed_attestation)
 195		relation SlashValidator	-- if (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] <= ($UINT64_MAX - validator.EFFECTIVE_BALANCE))			210	0	target-limitation	new-in-v2; F2; limitation-provenance: epoch-dependent vector index; mutations hit SLASHINGS[0]
 206	196	relation SlashValidator	-- if validatorIndex?{validatorIndex <- validatorIndex?} matches (_)	0	0	0	0	unfalsifiable-tautology	whistleblower clause, callers pass none; out-of-scope, paper-folded
 208	198	relation SlashValidator	-- if (vid_slashed < |state.VALIDATORS|)	0	0	0	0	unfalsifiable-tautology	whistleblower clause, callers pass none; out-of-scope, paper-folded
@@ -101,9 +101,9 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 259	248	def $is_valid_indexed_attestation	-- if (|indexedAttestation.ATTESTING_INDICES| > 0)	1483	0	1483	0	unfalsifiable-closing	
 260	249	def $is_valid_indexed_attestation	-- if ($sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES)) = indexedAttestation.ATTESTING_INDICES)	1483	0	1483	0	unfalsifiable-closing	
 261		def $is_valid_indexed_attestation	-- (if (vid < |state.VALIDATORS|))*{vid <- vid*}			1483	0	target-limitation	new-in-v2; F23; block-side index edit; iterated-uninstrumented; limitation-coordinated: measured 157332/0 in fixed combined; zero mutations pre-instrumentation-fix; 2nd testgen iteration would attempt
-265	253	relation SlashIfEligible	-- if (vid < |state.VALIDATORS|)	81	0	81	0	unfalsifiable-tautology	
+265	253	relation SlashIfEligible	-- if (vid < |state.VALIDATORS|)	81	0	81	0	unfalsifiable-tautology	tier1 verified unfalsifiable: attesting indices bounded <|VALIDATORS| by is_valid_indexed_attestation before SlashIfEligible
 266	254	relation SlashIfEligible	-- if $is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))	71	10	71	10	falsifiable-covered	
-268	256	relation SlashIfEligible	-- if (vid < |state.VALIDATORS|)	10	0	10	0	unfalsifiable-tautology	
+268	256	relation SlashIfEligible	-- if (vid < |state.VALIDATORS|)	10	0	10	0	unfalsifiable-tautology	tier1 verified unfalsifiable: attesting indices bounded by is_valid_indexed_attestation
 269	257	relation SlashIfEligible	-- if ~$is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))	10	0	10	0	unfalsifiable-closing	
 270	258	relation SlashIfEligible_over_validators	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	24	81	24	81	falsifiable-covered	
 271	259	relation SlashIfEligible_over_validators	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	81	0	81	0	unfalsifiable-closing	
@@ -125,7 +125,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 319	307	def $next_sync_committee_indices_loop	-- if ((balance_effective * $MAX_RANDOM_BYTE) < ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))	0	0	0	0	target-limitation	limitation-coordinated: no baseline attempts pre-fix; another seed or 2nd testgen iteration reaches it
 323		def $get_next_sync_committee_indices	-- if (count_active > 0)			1	0	falsifiable-covered	new-in-v2; F6; needs empty registry at sync boundary; covered by generated tests (combined fail=1)
 332		def $get_total_balance	-- if (gwei_sum <= $UINT64_MAX)			1539	0	falsifiable-covered	new-in-v2; F3; covered by generated tests (combined fail=695)
-337	322	def $get_base_reward	-- if (vid < |state.VALIDATORS|)	15745	0	15745	0	unfalsifiable-tautology	
+337	322	def $get_base_reward	-- if (vid < |state.VALIDATORS|)	15745	0	15745	0	unfalsifiable-tautology	tier1 verified unfalsifiable: vid in eligible subset of enumerate(VALIDATORS)
 343	328	relation ApplyEffectiveBalance	-- if (balance <= ($UINT64_MAX - uint64_down_th))	11616	0	11616	0	falsifiable-covered	overflow check; covered by generated tests (combined fail=365)
 344	330	relation ApplyEffectiveBalance	-- if (((balance + uint64_down_th) < validator.EFFECTIVE_BALANCE) \/ ((validator.EFFECTIVE_BALANCE <= ($UINT64_MAX - uint64_up_th)) /\ ((validator.EFFECTIVE_BALANCE + uint64_up_th) < balance)))	2241	9375	2241	9375	falsifiable-covered	
 348		relation ApplyEffectiveBalance	-- if (balance <= ($UINT64_MAX - uint64_down_th))			9375	0	falsifiable-covered	new-in-v2; F13; copy of 343; covered by generated tests (combined fail=365)
@@ -134,8 +134,8 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 351		relation ApplyEffectiveBalance	-- if ((validator.EFFECTIVE_BALANCE + uint64_up_th) >= balance)			9375	0	unfalsifiable-closing	new-in-v2; F13; complement via 344
 352	332	def $inact_penalty_one	-- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}	9180	900	9180	900	falsifiable-covered	
 353	333	def $inact_penalty_one	-- if ~vid <- vid_matching*{vid_matching <- vid_matching*}	4532	4648	4532	4648	falsifiable-covered	
-354	334	def $inact_penalty_one	-- if (vid < |state.VALIDATORS|)	4532	0	4532	0	unfalsifiable-tautology	
-356	336	def $inact_penalty_one	-- if (vid < |state.INACTIVITY_SCORES|)	4532	0	4532	0	unfalsifiable-tautology	
+354	334	def $inact_penalty_one	-- if (vid < |state.VALIDATORS|)	4532	0	4532	0	unfalsifiable-tautology	tier1 verified unfalsifiable: vid in eligible subset of enumerate(VALIDATORS)
+356	336	def $inact_penalty_one	-- if (vid < |state.INACTIVITY_SCORES|)	4532	0	4532	0	target-limitation	limitation-coordinated: tier1: held; falsifiable via STATE.inactivity_scores truncation + leak-epoch seed (same mechanism as 417/420/424/428 which fell)
 359	339	def $inact_penalty_one	-- if (penalty_numerator <= $UINT64_MAX)	4532	0	4532	0	falsifiable-covered	overflow check; covered by generated tests (combined fail=409)
 362		def $inact_penalty_one	-- if (~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ vid <- vid_matching*{vid_matching <- vid_matching*})			5548	0	redundant	new-in-v2; F10 complement; spillover of 354/356/359; included to verify; spillover of 359 (penalty_numerator overflow abort in clause 0); 16-shard fail distributions identical (409=409)
 369	349	def $flag_reward_one_eligible	-- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}	20465	2287	20465	2287	falsifiable-covered	
@@ -160,17 +160,17 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 411	389	relation ApplyRewardsAndPenalties_over_deltas	-- if gwei'*{gwei' <- gwei'*}*{gwei'* <- gwei'**} matches _ :: _	120	0	120	0	unfalsifiable-tautology	
 415	393	relation ApplyInactivity	-- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	4648	4532	4648	4532	falsifiable-covered	
 416	394	relation ApplyInactivity	-- if ~$is_in_inactivity_leak(state)	4298	350	4298	350	falsifiable-covered	
-417	395	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	4298	0	4298	0	unfalsifiable-tautology	
+417	395	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	4298	0	4298	0	target-limitation	limitation-coordinated: tier1: FELL, own INACTIVITY_SCORES-truncation mutation (43 fails)
 418	396	relation ApplyInactivity	-- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	350	4532	350	4532	falsifiable-covered	markdown: redundant (deferred)
-419	397	relation ApplyInactivity	-- if $is_in_inactivity_leak(state)	350	0	350	0	unfalsifiable-closing	
-420	398	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	350	0	350	0	unfalsifiable-tautology	
-421	399	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	4532	0	4532	0	unfalsifiable-closing	
+419	397	relation ApplyInactivity	-- if $is_in_inactivity_leak(state)	350	0	350	0	unfalsifiable-closing	tier1: fell via spillover of 417 abort (43=43 pairing); uncovered spillover-only, stays closing (migrates to redundant only if source fires in main run)
+420	398	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	350	0	350	0	target-limitation	limitation-coordinated: tier1: FELL, own INACTIVITY_SCORES-truncation mutation (18 fails)
+421	399	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	4532	0	4532	0	unfalsifiable-closing	tier1: fell via spillover of INACTIVITY_SCORES bound aborts (61 fails, no own mutation); stays closing
 422	400	relation ApplyInactivity	-- if ~$is_in_inactivity_leak(state)	1903	2629	1903	2629	falsifiable-covered	
-424	402	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	1903	0	1903	0	unfalsifiable-tautology	
+424	402	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	1903	0	1903	0	target-limitation	limitation-coordinated: tier1: FELL, own INACTIVITY_SCORES-truncation mutation (28 fails)
 425		relation ApplyInactivity	-- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))			1903	0	falsifiable-covered	new-in-v2; F7; covered by generated tests (combined fail=68)
-426	403	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	2629	0	2629	0	unfalsifiable-closing	
+426	403	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	2629	0	2629	0	unfalsifiable-closing	tier1: fell via spillover (61 fails, no own mutation); stays closing
 427	404	relation ApplyInactivity	-- if $is_in_inactivity_leak(state)	2629	0	2629	0	redundant	was unfalsifiable-closing; spillover of 425 (inactivity-score overflow abort in inactive_no_leak); 16-shard fail distributions identical (68=68) (combined fail=68)
-428	405	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	2629	0	2629	0	unfalsifiable-tautology	
+428	405	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	2629	0	2629	0	target-limitation	limitation-coordinated: tier1: FELL, own INACTIVITY_SCORES-truncation mutation (45 fails)
 429		relation ApplyInactivity	-- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))			2629	0	falsifiable-covered	new-in-v2; F7; covered by generated tests (combined fail=76)
 430	406	relation ApplyInactivity_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	30	9180	30	9180	falsifiable-covered	
 431	407	relation ApplyInactivity_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	9180	0	9180	0	unfalsifiable-closing	
@@ -251,9 +251,9 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 546	480	relation ProcessEligibilityAndEjection	-- if ($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))	0	96	0	96	falsifiable-covered	
 550	484	relation ProcessEligibilityAndEjection	-- if $is_eligible_for_activation_queue(validator)	96	11520	96	11520	falsifiable-covered	markdown: redundant (deferred)
 551	485	relation ProcessEligibilityAndEjection	-- if ~($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))	96	0	96	0	unfalsifiable-closing	
-554	488	relation ProcessEligibilityAndEjection	-- if ~$is_eligible_for_activation_queue(validator)	11520	0	11520	0	unfalsifiable-closing	
+554	488	relation ProcessEligibilityAndEjection	-- if ~$is_eligible_for_activation_queue(validator)	11520	0	11520	0	unfalsifiable-closing	tier1: held; closing complement
 555	489	relation ProcessEligibilityAndEjection	-- if ($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))	88	11432	88	11432	falsifiable-covered	
-559	493	relation ProcessEligibilityAndEjection	-- if ~$is_eligible_for_activation_queue(validator)	11432	0	11432	0	unfalsifiable-closing	
+559	493	relation ProcessEligibilityAndEjection	-- if ~$is_eligible_for_activation_queue(validator)	11432	0	11432	0	unfalsifiable-closing	tier1: held; closing complement
 560	494	relation ProcessEligibilityAndEjection	-- if ~($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))	11432	0	11432	0	unfalsifiable-closing	
 561	495	relation ProcessEligibilityAndEjection_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	36	11616	36	11616	falsifiable-covered	
 562	496	relation ProcessEligibilityAndEjection_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	11616	0	11616	0	unfalsifiable-closing	
@@ -365,7 +365,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 857	780	relation ProcessBlockHeader	-- if (state.LATEST_BLOCK_HEADER.SLOT < block.SLOT)	560	0	560	0	falsifiable-covered	covered by generated tests (combined fail=224)
 858	781	relation ProcessBlockHeader	-- if ($get_beacon_proposer_index(state) = block.PROPOSER_INDEX)	558	2	558	2	falsifiable-covered	
 859	782	relation ProcessBlockHeader	-- if (block.PARENT_ROOT = $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER))	557	1	557	1	falsifiable-covered	
-861	784	relation ProcessBlockHeader	-- if (block.PROPOSER_INDEX < |state.VALIDATORS|)	557	0	557	0	unfalsifiable-tautology	
+861	784	relation ProcessBlockHeader	-- if (block.PROPOSER_INDEX < |state.VALIDATORS|)	557	0	557	0	unfalsifiable-tautology	tier1 verified unfalsifiable: guarded by assert-3 (block.PROPOSER_INDEX = get_beacon_proposer_index, in-range) before the bound check
 862	785	relation ProcessBlockHeader	-- if ~state.VALIDATORS[block.PROPOSER_INDEX].SLASHED	557	0	557	0	falsifiable-covered	covered by generated tests (combined fail=5)
 864	787	relation ProcessWithdrawals	-- if (executionPayload.WITHDRAWALS = withdrawal_expected*{withdrawal_expected <- withdrawal_expected*})	557	0	557	0	falsifiable-covered	covered by generated tests (combined fail=75)
 866	789	relation ProcessWithdrawals	-- if (|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| = 0)	542	15	542	15	falsifiable-covered	
@@ -378,7 +378,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 885	808	relation ProcessExecutionPayload	-- if (executionPayload.PREV_RANDAO = $get_randao_mix(state, $get_current_epoch(state)))	556	1	556	1	falsifiable-covered	
 886	809	relation ProcessExecutionPayload	-- if (executionPayload.TIMESTAMP = $compute_time_at_slot(state, state.SLOT))	556	0	556	0	falsifiable-covered	covered by generated tests (combined fail=356)
 887	810	relation ProcessExecutionPayload	-- if $ee_verify_and_notify_new_payload(executionPayload)	556	0	556	0	unfalsifiable-tautology	out-of-scope, paper-folded
-891	814	relation ProcessRandao	-- if (vid_proposer < |state.VALIDATORS|)	556	0	556	0	unfalsifiable-tautology	
+891	814	relation ProcessRandao	-- if (vid_proposer < |state.VALIDATORS|)	556	0	556	0	unfalsifiable-tautology	tier1 verified unfalsifiable: vid_proposer = compute_proposer_index over active indices, in-range by construction
 895	818	relation ProcessRandao	-- if $bls_verify(validator_proposer.PUBKEY, root_signing, body.RANDAO_REVEAL)	556	0	556	0	falsifiable-covered	covered by generated tests (combined fail=304)
 902	825	relation ProcessEth1Data	-- if ((n_occ * 2) > ($EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH))	0	556	0	556	falsifiable-covered	
 905	828	relation ProcessEth1Data	-- if ((n_occ * 2) <= ($EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH))	556	0	556	0	unfalsifiable-closing	
