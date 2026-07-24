@@ -1,0 +1,2282 @@
+Resuming from checkpoint: Checkpoint: 19372 tests completed, saved at 2026-07-24 02:26:04 UTC
+=== Checkpoint Contents ===
+
+Checkpoint: 19372 tests completed, saved at 2026-07-24 02:26:04 UTC
+
+Completed tests: 19372
+
+
+=== Branch Coverage ===
+
+
+=== IL Node Coverage ===
+
+IL Premises: 902/951 attempted (94.85%), 888/951 succeeded (93.38%)
+108 rule premises
+392 if-premises: succeeded 364/392 (92.86%), failed 193/392 (49.23%), neither 14/392 (3.57%), total 557/784 (71.05%)
+
+def $UINT64_MAX:
+      clause 0:
+
+def $UINT64_MAX_SQRT:
+      clause 0:
+
+def $GENESIS_SLOT:
+      clause 0:
+
+def $GENESIS_EPOCH:
+      clause 0:
+
+def $FAR_FUTURE_EPOCH:
+      clause 0:
+
+def $BASE_REWARDS_PER_EPOCH:
+      clause 0:
+
+def $DEPOSIT_CONTRACT_TREE_DEPTH:
+      clause 0:
+
+def $JUSTIFICATION_BITS_LENGTH:
+      clause 0:
+
+def $BLS_WITHDRAWAL_PREFIX:
+      clause 0:
+
+def $ETH1_ADDRESS_WITHDRAWAL_PREFIX:
+      clause 0:
+
+def $DOMAIN_BEACON_PROPOSER:
+      clause 0:
+
+def $DOMAIN_BEACON_ATTESTER:
+      clause 0:
+
+def $DOMAIN_RANDAO:
+      clause 0:
+
+def $DOMAIN_DEPOSIT:
+      clause 0:
+
+def $DOMAIN_VOLUNTARY_EXIT:
+      clause 0:
+
+def $DOMAIN_SELECTION_PROOF:
+      clause 0:
+
+def $DOMAIN_AGGREGATE_AND_PROOF:
+      clause 0:
+
+def $DOMAIN_APPLICATION_MASK:
+      clause 0:
+
+def $INTERVALS_PER_SLOT:
+      clause 0:
+
+def $BASIS_POINTS:
+      clause 0:
+
+def $NODE_ID_BITS:
+      clause 0:
+
+def $MAX_CONCURRENT_REQUESTS:
+      clause 0:
+
+def $TARGET_AGGREGATORS_PER_COMMITTEE_CONST:
+      clause 0:
+
+def $ETH_TO_GWEI:
+      clause 0:
+
+def $SAFETY_DECAY:
+      clause 0:
+
+def $TIMELY_SOURCE_FLAG_INDEX:
+      clause 0:
+
+def $TIMELY_TARGET_FLAG_INDEX:
+      clause 0:
+
+def $TIMELY_HEAD_FLAG_INDEX:
+      clause 0:
+
+def $TIMELY_SOURCE_WEIGHT:
+      clause 0:
+
+def $TIMELY_TARGET_WEIGHT:
+      clause 0:
+
+def $TIMELY_HEAD_WEIGHT:
+      clause 0:
+
+def $SYNC_REWARD_WEIGHT:
+      clause 0:
+
+def $PROPOSER_WEIGHT:
+      clause 0:
+
+def $WEIGHT_DENOMINATOR:
+      clause 0:
+
+def $DOMAIN_SYNC_COMMITTEE:
+      clause 0:
+
+def $DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF:
+      clause 0:
+
+def $DOMAIN_CONTRIBUTION_AND_PROOF:
+      clause 0:
+
+def $PARTICIPATION_FLAG_WEIGHTS:
+      clause 0:
+
+def $G2_POINT_AT_INFINITY:
+      clause 0:
+
+def $TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE:
+      clause 0:
+
+def $SYNC_COMMITTEE_SUBNET_COUNT:
+      clause 0:
+
+def $MAX_REQUEST_LIGHT_CLIENT_UPDATES:
+      clause 0:
+
+def $SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY:
+      clause 0:
+
+def $DOMAIN_BLS_TO_EXECUTION_CHANGE:
+      clause 0:
+
+def $MAX_COMMITTEES_PER_SLOT:
+      clause 0:
+
+def $TARGET_COMMITTEE_SIZE:
+      clause 0:
+
+def $MAX_VALIDATORS_PER_COMMITTEE:
+      clause 0:
+
+def $SHUFFLE_ROUND_COUNT:
+      clause 0:
+
+def $HYSTERESIS_QUOTIENT:
+      clause 0:
+
+def $HYSTERESIS_DOWNWARD_MULTIPLIER:
+      clause 0:
+
+def $HYSTERESIS_UPWARD_MULTIPLIER:
+      clause 0:
+
+def $MIN_DEPOSIT_AMOUNT:
+      clause 0:
+
+def $MAX_EFFECTIVE_BALANCE:
+      clause 0:
+
+def $EFFECTIVE_BALANCE_INCREMENT:
+      clause 0:
+
+def $MIN_ATTESTATION_INCLUSION_DELAY:
+      clause 0:
+
+def $SLOTS_PER_EPOCH:
+      clause 0:
+
+def $MIN_SEED_LOOKAHEAD:
+      clause 0:
+
+def $MAX_SEED_LOOKAHEAD:
+      clause 0:
+
+def $MIN_EPOCHS_TO_INACTIVITY_PENALTY:
+      clause 0:
+
+def $EPOCHS_PER_ETH1_VOTING_PERIOD:
+      clause 0:
+
+def $SLOTS_PER_HISTORICAL_ROOT:
+      clause 0:
+
+def $EPOCHS_PER_HISTORICAL_VECTOR:
+      clause 0:
+
+def $EPOCHS_PER_SLASHINGS_VECTOR:
+      clause 0:
+
+def $HISTORICAL_ROOTS_LIMIT:
+      clause 0:
+
+def $VALIDATOR_REGISTRY_LIMIT:
+      clause 0:
+
+def $BASE_REWARD_FACTOR:
+      clause 0:
+
+def $WHISTLEBLOWER_REWARD_QUOTIENT:
+      clause 0:
+
+def $PROPOSER_REWARD_QUOTIENT:
+      clause 0:
+
+def $INACTIVITY_PENALTY_QUOTIENT:
+      clause 0:
+
+def $MIN_SLASHING_PENALTY_QUOTIENT:
+      clause 0:
+
+def $PROPORTIONAL_SLASHING_MULTIPLIER:
+      clause 0:
+
+def $MAX_PROPOSER_SLASHINGS:
+      clause 0:
+
+def $MAX_ATTESTER_SLASHINGS:
+      clause 0:
+
+def $MAX_ATTESTATIONS:
+      clause 0:
+
+def $MAX_DEPOSITS:
+      clause 0:
+
+def $MAX_VOLUNTARY_EXITS:
+      clause 0:
+
+def $INACTIVITY_PENALTY_QUOTIENT_ALTAIR:
+      clause 0:
+
+def $MIN_SLASHING_PENALTY_QUOTIENT_ALTAIR:
+      clause 0:
+
+def $PROPORTIONAL_SLASHING_MULTIPLIER_ALTAIR:
+      clause 0:
+
+def $SYNC_COMMITTEE_SIZE:
+      clause 0:
+
+def $EPOCHS_PER_SYNC_COMMITTEE_PERIOD:
+      clause 0:
+
+def $MIN_SYNC_COMMITTEE_PARTICIPANTS:
+      clause 0:
+
+def $UPDATE_TIMEOUT:
+      clause 0:
+
+def $INACTIVITY_PENALTY_QUOTIENT_BELLATRIX:
+      clause 0:
+
+def $MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX:
+      clause 0:
+
+def $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX:
+      clause 0:
+
+def $MAX_BYTES_PER_TRANSACTION:
+      clause 0:
+
+def $MAX_TRANSACTIONS_PER_PAYLOAD:
+      clause 0:
+
+def $BYTES_PER_LOGS_BLOOM:
+      clause 0:
+
+def $MAX_EXTRA_DATA_BYTES:
+      clause 0:
+
+def $MAX_BLS_TO_EXECUTION_CHANGES:
+      clause 0:
+
+def $MAX_WITHDRAWALS_PER_PAYLOAD:
+      clause 0:
+
+def $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP:
+      clause 0:
+
+def $MIN_GENESIS_ACTIVE_VALIDATOR_COUNT:
+      clause 0:
+
+def $MIN_GENESIS_TIME:
+      clause 0:
+
+def $GENESIS_FORK_VERSION:
+      clause 0:
+
+def $GENESIS_DELAY:
+      clause 0:
+
+def $SECONDS_PER_SLOT:
+      clause 0:
+
+def $SLOT_DURATION_MS:
+      clause 0:
+
+def $SECONDS_PER_ETH1_BLOCK:
+      clause 0:
+
+def $MIN_VALIDATOR_WITHDRAWABILITY_DELAY:
+      clause 0:
+
+def $SHARD_COMMITTEE_PERIOD:
+      clause 0:
+
+def $ETH1_FOLLOW_DISTANCE:
+      clause 0:
+
+def $EJECTION_BALANCE:
+      clause 0:
+
+def $MIN_PER_EPOCH_CHURN_LIMIT:
+      clause 0:
+
+def $CHURN_LIMIT_QUOTIENT:
+      clause 0:
+
+def $PROPOSER_SCORE_BOOST:
+      clause 0:
+
+def $REORG_HEAD_WEIGHT_THRESHOLD:
+      clause 0:
+
+def $REORG_PARENT_WEIGHT_THRESHOLD:
+      clause 0:
+
+def $REORG_MAX_EPOCHS_SINCE_FINALIZATION:
+      clause 0:
+
+def $PROPOSER_REORG_CUTOFF_BPS:
+      clause 0:
+
+def $MAX_PAYLOAD_SIZE:
+      clause 0:
+
+def $MAX_REQUEST_BLOCKS:
+      clause 0:
+
+def $EPOCHS_PER_SUBNET_SUBSCRIPTION:
+      clause 0:
+
+def $MIN_EPOCHS_FOR_BLOCK_REQUESTS:
+      clause 0:
+
+def $ATTESTATION_PROPAGATION_SLOT_RANGE:
+      clause 0:
+
+def $MAXIMUM_GOSSIP_CLOCK_DISPARITY:
+      clause 0:
+
+def $MESSAGE_DOMAIN_INVALID_SNAPPY:
+      clause 0:
+
+def $MESSAGE_DOMAIN_VALID_SNAPPY:
+      clause 0:
+
+def $SUBNETS_PER_NODE:
+      clause 0:
+
+def $ATTESTATION_SUBNET_COUNT:
+      clause 0:
+
+def $ATTESTATION_SUBNET_EXTRA_BITS:
+      clause 0:
+
+def $ATTESTATION_SUBNET_PREFIX_BITS:
+      clause 0:
+
+def $ATTESTATION_DUE_BPS:
+      clause 0:
+
+def $AGGREGATE_DUE_BPS:
+      clause 0:
+
+def $INACTIVITY_SCORE_BIAS:
+      clause 0:
+
+def $INACTIVITY_SCORE_RECOVERY_RATE:
+      clause 0:
+
+def $ALTAIR_FORK_VERSION:
+      clause 0:
+
+def $ALTAIR_FORK_EPOCH:
+      clause 0:
+
+def $SYNC_MESSAGE_DUE_BPS:
+      clause 0:
+
+def $CONTRIBUTION_DUE_BPS:
+      clause 0:
+
+def $TERMINAL_TOTAL_DIFFICULTY:
+      clause 0:
+
+def $TERMINAL_BLOCK_HASH:
+      clause 0:
+
+def $TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH:
+      clause 0:
+
+def $BELLATRIX_FORK_VERSION:
+      clause 0:
+
+def $BELLATRIX_FORK_EPOCH:
+      clause 0:
+
+def $CAPELLA_FORK_VERSION:
+      clause 0:
+
+def $CAPELLA_FORK_EPOCH:
+      clause 0:
+
+def $ZERO_ROOT:
+      clause 0:
+
+def $MAX_RANDOM_BYTE:
+      clause 0:
+
+def $bls_verify:
+
+def $bls_fast_aggregate_verify:
+
+def $eth_aggregate_pubkeys:
+
+def $hash_:
+
+def $debug_print_:
+
+def $debug_print_label_:
+
+def $hash_tree_root_beaconBlockHeader:
+
+def $hash_tree_root_beaconBlockBody:
+
+def $hash_tree_root_depositData:
+
+def $hash_tree_root_forkdata:
+
+def $hash_tree_root_beaconState:
+
+def $hash_tree_root_withdrawals:
+
+def $hash_tree_root_beaconBlock:
+
+def $hash_tree_root_roots:
+
+def $hash_tree_root_tx:
+
+def $compute_signing_root_epoch:
+
+def $compute_signing_root_voluntary_exit:
+
+def $compute_signing_root_bls_to_execution_change:
+
+def $compute_signing_root_beaconBlockHeader:
+
+def $compute_signing_root_attestationData:
+
+def $compute_signing_root_depositMessage:
+
+def $compute_signing_root_block_root:
+
+def $compute_signing_root_beaconBlock:
+
+def $is_valid_merkle_branch:
+
+def $integer_square_root:
+
+def $count_occurrences_:
+
+def $pow2:
+
+def $to_set_:
+
+def $sum_:
+
+def $repeat_:
+
+def $sort_:
+
+def $set_intersection_:
+
+def $set_or_append_list_:
+
+def $range:
+
+def $enumerate_:
+
+def $bytes_to_uint64:
+
+def $uint_to_bytes:
+
+def $xor:
+
+def $first_28_bytes:
+
+def $get_first_byte:
+
+def $strip_first_byte:
+
+def $concat_domain:
+
+def $make_withdrawal_credentials_eth1:
+
+def $uint8_to_bytes_le:
+
+def $uint32_to_bytes_le:
+
+def $uint64_to_bytes_le:
+
+def $bytes32_prefix8:
+
+def $bytes8_to_uint64_le:
+
+def $shr_uint64:
+
+def $and_uint64:
+
+def $bytes32_to_bytes1_list:
+
+def $bytes1_to_uint64:
+
+def $concat_bytes:
+
+def $bytes32_to_bytes:
+
+def $bytes4_to_bytes:
+
+def $extract_execution_address:
+
+def $filter_list_:
+      clause 0:
+   0: 4504/2037870     -- if X*{X <- X*} matches []
+      4504          []
+      clause 1:
+   1: 2037870/####     -- if X*{X <- X*} matches _ :: _
+   2: 2037870         -- let X_h :: X_t*{X_t <- X_t*} = X*{X <- X*}
+   3: 369803/1668067     -- if ($cond(X_h) = true)
+      369803          X_h :: $filter_list_<X>(X_t*{X_t <- X_t*}, $cond)
+      clause 2:
+   4: 1668067/####     -- if X*{X <- X*} matches _ :: _
+   5: 1668067         -- let X_h :: X_t*{X_t <- X_t*} = X*{X <- X*}
+   6: 1668067/####     -- if ($cond(X_h) = false)
+      1668067          $filter_list_<X>(X_t*{X_t <- X_t*}, $cond)
+
+def $filter_list_2_:
+      clause 0:
+   7: 612615/197103239     -- if X*{X <- X*} matches []
+      612615          []
+      clause 1:
+   8: 197103239/####     -- if X*{X <- X*} matches _ :: _
+   9: 197103239         -- let X_h :: X_t*{X_t <- X_t*} = X*{X <- X*}
+  10: 138662686/58440553     -- if ($cond(X_h, Y) = true)
+      138662686          X_h :: $filter_list_2_<X, Y>(X_t*{X_t <- X_t*}, Y, $cond)
+      clause 2:
+  11: 58440553/####     -- if X*{X <- X*} matches _ :: _
+  12: 58440553         -- let X_h :: X_t*{X_t <- X_t*} = X*{X <- X*}
+  13: 58440553/####     -- if ($cond(X_h, Y) = false)
+      58440553          $filter_list_2_<X, Y>(X_t*{X_t <- X_t*}, Y, $cond)
+
+def $fold_:
+      clause 0:
+  14: 119019/10680657     -- if Y*{Y <- Y*} matches []
+      119019          X
+      clause 1:
+  15: 10680657/####     -- if Y*{Y <- Y*} matches _ :: _
+  16: 10680657         -- let Y_h :: Y_t*{Y_t <- Y_t*} = Y*{Y <- Y*}
+      10680657          $fold_<X, Y>($fold_func, $fold_func(X, Y_h), Y_t*{Y_t <- Y_t*})
+
+def $has_flag:
+      clause 0:
+  17: ####/14673     -- if (n >= 8)
+      ####          false
+      clause 1:
+  18: 3308/11365     -- if (((participationFlags / $pow2(n)) \ 2) = 1)
+      3308          true
+      clause 2:
+  19: 11365         -- otherwise
+      11365          false
+
+def $add_flag:
+      clause 0:
+  20: ####/7772     -- if (n >= 8)
+      ####          participationFlags
+      clause 1:
+  21: ####/7772     -- if (((participationFlags / $pow2(n)) \ 2) = 1)
+      ####          participationFlags
+      clause 2:
+  22: 7772         -- otherwise
+      7772          (participationFlags + $pow2(n))
+
+def $max_uint64:
+      clause 0:
+  23: 5057576/4883409     -- if (x >= y)
+      5057576          x
+      clause 1:
+  24: 4883409         -- otherwise
+      4883409          y
+
+def $min_uint64:
+      clause 0:
+  25: 8469/25964     -- if (x <= y)
+      8469          x
+      clause 1:
+  26: 25964         -- otherwise
+      25964          y
+
+def $eth_fast_aggregate_verify:
+      clause 0:
+  27: 3560/ 380     -- if (|blsPubkey*{blsPubkey <- blsPubkey*}| = 0)
+  28: 3351/ 209     -- if (blsSignature = $G2_POINT_AT_INFINITY)
+      3351          true
+      clause 1:
+  29:  589         -- otherwise
+       589          $bls_fast_aggregate_verify(blsPubkey*{blsPubkey <- blsPubkey*}, bytes32_msg, blsSignature)
+
+def $ee_verify_and_notify_new_payload:
+
+def $index_of_pubkey:
+      clause 0:
+  30: 123923352/   5     -- if (validatorIndex, blsPubkey)*{(validatorIndex, blsPubkey) <- (validatorIndex, blsPubkey)*} matches _ :: _
+  31: 123923352         -- let (vid_h, blsPubkey_h) :: (vid_t, blsPubkey_t)*{blsPubkey_t <- blsPubkey_t*, vid_t <- vid_t*} = (validatorIndex, blsPubkey)*{(validatorIndex, blsPubkey) <- (validatorIndex, blsPubkey)*}
+  32: 919612/123003740     -- if (blsPubkey_h = blsPubkey_committee)
+      919612          vid_h
+      clause 1:
+  33: 123003740/   5     -- if (validatorIndex, blsPubkey)*{(validatorIndex, blsPubkey) <- (validatorIndex, blsPubkey)*} matches _ :: _
+  34: 123003740         -- let (vid_h, blsPubkey_h) :: (vid_t, blsPubkey_t)*{blsPubkey_t <- blsPubkey_t*, vid_t <- vid_t*} = (validatorIndex, blsPubkey)*{(validatorIndex, blsPubkey) <- (validatorIndex, blsPubkey)*}
+  35: 123003740         -- otherwise
+      123003740          $index_of_pubkey((vid_t, blsPubkey_t)*{blsPubkey_t <- blsPubkey_t*, vid_t <- vid_t*}, blsPubkey_committee)
+
+def $compute_epoch_at_slot:
+      clause 0:
+
+def $compute_start_slot_at_epoch:
+      clause 0:
+
+def $get_current_epoch:
+      clause 0:
+
+def $get_previous_epoch:
+      clause 0:
+  36:   59/176544     -- if ($get_current_epoch(state) = $GENESIS_EPOCH)
+        59          $GENESIS_EPOCH
+      clause 1:
+  37: 176544         -- otherwise
+      176544          ($get_current_epoch(state) - 1)
+
+def $compute_time_at_slot:
+      clause 0:
+
+def $get_prev_slot:
+      clause 0:
+  38: ####/3940     -- if (slot = 0)
+      ####          0
+      clause 1:
+  39: 3940         -- otherwise
+      3940          (slot - 1)
+
+def $compute_fork_data_root:
+      clause 0:
+
+def $compute_domain:
+      clause 0:
+  40: 14334/ 355     -- if version'?{version' <- version'?} matches (_)
+  41: 14334         -- let ?(version) = version'?{version' <- version'?}
+  42: 14334/####     -- if root'?{root' <- root'?} matches (_)
+  43: 14334         -- let ?(root) = root'?{root' <- root'?}
+      14334          $concat_domain(domainType, $first_28_bytes($compute_fork_data_root(version, root)))
+      clause 1:
+  44:  355/####     -- if version?{version <- version?} matches ()
+  45:  189/ 166     -- if root?{root <- root?} matches ()
+       189          $concat_domain(domainType, $first_28_bytes($compute_fork_data_root($GENESIS_FORK_VERSION, $ZERO_ROOT)))
+      clause 2:
+  46: ####/ 166     -- if version'?{version' <- version'?} matches (_)
+  47: ####         -- let ?(version) = version'?{version' <- version'?}
+  48: ####/####     -- if root?{root <- root?} matches ()
+      ####          $concat_domain(domainType, $first_28_bytes($compute_fork_data_root(version, $ZERO_ROOT)))
+      clause 3:
+  49:  166/####     -- if version?{version <- version?} matches ()
+  50:  166/####     -- if root'?{root' <- root'?} matches (_)
+  51:  166         -- let ?(root) = root'?{root' <- root'?}
+       166          $concat_domain(domainType, $first_28_bytes($compute_fork_data_root($GENESIS_FORK_VERSION, root)))
+
+def $get_domain:
+      clause 0:
+  52: 5884/16353     -- if epoch?{epoch <- epoch?} matches ()
+  53: 5884         -- let epoch_cur = $get_current_epoch(state)
+  54:    5/5879     -- if (epoch_cur < state.FORK.EPOCH)
+         5          $compute_domain(domainType, ?(state.FORK.PREVIOUS_VERSION), ?(state.GENESIS_VALIDATORS_ROOT))
+      clause 1:
+  55: 5879/16353     -- if epoch?{epoch <- epoch?} matches ()
+  56: 5879         -- let epoch_cur = $get_current_epoch(state)
+  57: 5879         -- otherwise
+      5879          $compute_domain(domainType, ?(state.FORK.CURRENT_VERSION), ?(state.GENESIS_VALIDATORS_ROOT))
+      clause 2:
+  58: 16353/####     -- if epoch'?{epoch' <- epoch'?} matches (_)
+  59: 16353         -- let ?(epoch) = epoch'?{epoch' <- epoch'?}
+  60: ####/16353     -- if (epoch < state.FORK.EPOCH)
+      ####          $compute_domain(domainType, ?(state.FORK.PREVIOUS_VERSION), ?(state.GENESIS_VALIDATORS_ROOT))
+      clause 3:
+  61: 16353/####     -- if epoch'?{epoch' <- epoch'?} matches (_)
+  62: 16353         -- let ?(epoch) = epoch'?{epoch' <- epoch'?}
+  63: 16353         -- otherwise
+      16353          $compute_domain(domainType, ?(state.FORK.CURRENT_VERSION), ?(state.GENESIS_VALIDATORS_ROOT))
+
+def $verify_block_signature:
+      clause 0:
+  64: ####/####     -- if (signedBeaconBlock.MESSAGE.PROPOSER_INDEX < |state.VALIDATORS|)
+  65: ####         -- let validator_proposer = state.VALIDATORS[signedBeaconBlock.MESSAGE.PROPOSER_INDEX]
+  66: ####         -- let root_signing = $compute_signing_root_beaconBlock(signedBeaconBlock.MESSAGE, $get_domain(state, $DOMAIN_BEACON_PROPOSER, ?()))
+  67: ####/####     -- if $bls_verify(validator_proposer.PUBKEY, root_signing, signedBeaconBlock.SIGNATURE)
+      ####          true
+      clause 1:
+  68: ####         -- otherwise
+      ####          false
+
+def $compute_activation_exit_epoch:
+      clause 0:
+
+def $is_active_validator:
+      clause 0:
+  69: 7313225/95999     -- if (validator.ACTIVATION_EPOCH <= epoch)
+  70: 7236477/76748     -- if (epoch < validator.EXIT_EPOCH)
+      7236477          true
+      clause 1:
+  71: 172747         -- otherwise
+      172747          false
+
+def $is_eligible_for_activation_queue:
+      clause 0:
+  72: 3136/379136     -- if (validator.ACTIVATION_ELIGIBILITY_EPOCH = $FAR_FUTURE_EPOCH)
+  73: 3136/####     -- if (validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)
+      3136          true
+      clause 1:
+  74: 379136         -- otherwise
+      379136          false
+
+def $is_eligible_for_activation:
+      clause 0:
+  75: 379130/3142     -- if (validator.ACTIVATION_ELIGIBILITY_EPOCH <= state.FINALIZED_CHECKPOINT.EPOCH)
+  76: 13418/365712     -- if (validator.ACTIVATION_EPOCH = $FAR_FUTURE_EPOCH)
+      13418          true
+      clause 1:
+  77: 368854         -- otherwise
+      368854          false
+
+def $is_slashable_validator:
+      clause 0:
+  78: 3220/  62     -- if ~validator.SLASHED
+  79: 3220/####     -- if (validator.ACTIVATION_EPOCH <= epoch)
+  80: 3220/####     -- if (epoch < validator.WITHDRAWABLE_EPOCH)
+      3220          true
+      clause 1:
+  81:   62         -- otherwise
+        62          false
+
+def $has_eth1_withdrawal_credential:
+      clause 0:
+
+def $is_fully_withdrawable_validator:
+      clause 0:
+  82: 2085/1734577     -- if ($has_eth1_withdrawal_credential(validator) = true)
+  83:  486/1599     -- if (validator.WITHDRAWABLE_EPOCH <= epoch)
+  84:  473/  13     -- if (balance > 0)
+       473          true
+      clause 1:
+  85: 1736189         -- otherwise
+      1736189          false
+
+def $is_partially_withdrawable_validator:
+      clause 0:
+  86: 1612/1734577     -- if ($has_eth1_withdrawal_credential(validator) = true)
+  87: 1059/ 553     -- if (validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)
+  88: 1051/   8     -- if (balance > $MAX_EFFECTIVE_BALANCE)
+      1051          true
+      clause 1:
+  89: 1735138         -- otherwise
+      1735138          false
+
+def $is_active_validator_enumerated:
+      clause 0:
+
+def $get_active_validator_indices:
+      clause 0:
+  90: 238727         -- let (vid, validator)*{validator <- validator*, vid <- vid*} = $enumerate_<validator>(state.VALIDATORS)
+  91: 238727         -- let (vid_active, _validator)*{_validator <- _validator*, vid_active <- vid_active*} = $filter_list_2_<(validatorIndex, validator), epoch>((vid, validator)*{validator <- validator*, vid <- vid*}, epoch, $is_active_validator_enumerated)
+      238727          vid_active*{vid_active <- vid_active*}
+
+def $get_validator_churn_limit:
+      clause 0:
+  92: 5689         -- let vid_active*{vid_active <- vid_active*} = $get_active_validator_indices(state, $get_current_epoch(state))
+      5689          $max_uint64($MIN_PER_EPOCH_CHURN_LIMIT, (|vid_active*{vid_active <- vid_active*}| / $CHURN_LIMIT_QUOTIENT))
+
+def $get_validator_from_deposit:
+      clause 0:
+  93: 2234         -- let balance_effective = $min_uint64((uint64_amount - (uint64_amount \ $EFFECTIVE_BALANCE_INCREMENT)), $MAX_EFFECTIVE_BALANCE)
+      2234          {PUBKEY blsPubkey, WITHDRAWAL_CREDENTIALS bytes32_withdrawal, EFFECTIVE_BALANCE balance_effective, SLASHED false, ACTIVATION_ELIGIBILITY_EPOCH $FAR_FUTURE_EPOCH, ACTIVATION_EPOCH $FAR_FUTURE_EPOCH, EXIT_EPOCH $FAR_FUTURE_EPOCH, WITHDRAWABLE_EPOCH $FAR_FUTURE_EPOCH}
+
+relation AddValidatorToRegistry:
+      rule :
+  94: 2234         -- let vid_new = |state.VALIDATORS|
+  95: 2234         -- let validator = $get_validator_from_deposit(blsPubkey, bytes32_wc, uint64_amount)
+  96: 2234         -- let validator_updated*{validator_updated <- validator_updated*} = $set_or_append_list_<validator>(state.VALIDATORS, vid_new, validator)
+  97: 2234         -- let balance_updated*{balance_updated <- balance_updated*} = $set_or_append_list_<gwei>(state.BALANCES, vid_new, uint64_amount)
+  98: 2234         -- let participationFlags_prev_updated*{participationFlags_prev_updated <- participationFlags_prev_updated*} = $set_or_append_list_<participationFlags>(state.PREVIOUS_EPOCH_PARTICIPATION, vid_new, 0)
+  99: 2234         -- let participationFlags_cur_updated*{participationFlags_cur_updated <- participationFlags_cur_updated*} = $set_or_append_list_<participationFlags>(state.CURRENT_EPOCH_PARTICIPATION, vid_new, 0)
+ 100: 2234         -- let uint64_inactivity_updated*{uint64_inactivity_updated <- uint64_inactivity_updated*} = $set_or_append_list_<uint64>(state.INACTIVITY_SCORES, vid_new, 0)
+      2234          state .VALIDATORS++{ blsPubkey bytes32_wc uint64_amount }~> state[VALIDATORS = validator_updated*{validator_updated <- validator_updated*}][BALANCES = balance_updated*{balance_updated <- balance_updated*}][PREVIOUS_EPOCH_PARTICIPATION = participationFlags_prev_updated*{participationFlags_prev_updated <- participationFlags_prev_updated*}][CURRENT_EPOCH_PARTICIPATION = participationFlags_cur_updated*{participationFlags_cur_updated <- participationFlags_cur_updated*}][INACTIVITY_SCORES = uint64_inactivity_updated*{uint64_inactivity_updated <- uint64_inactivity_updated*}]
+
+def $is_eligible_validator_enumerated:
+      clause 0:
+
+def $get_eligible_validator_indices:
+      clause 0:
+ 101: 1481         -- let epoch_prev = $get_previous_epoch(state)
+ 102: 1481         -- let (vid, validator)*{validator <- validator*, vid <- vid*} = $enumerate_<validator>(state.VALIDATORS)
+ 103: 1481         -- let (vid_eligible, _validator)*{_validator <- _validator*, vid_eligible <- vid_eligible*} = $filter_list_2_<(validatorIndex, validator), epoch>((vid, validator)*{validator <- validator*, vid <- vid*}, epoch_prev, $is_eligible_validator_enumerated)
+      1481          vid_eligible*{vid_eligible <- vid_eligible*}
+
+def $has_flag_for_index:
+      clause 0:
+ 104: 99732165/####     -- if (vid < |participationFlags_list*{participationFlags_list <- participationFlags_list*}|)
+      99732165          $has_flag(participationFlags_list*{participationFlags_list <- participationFlags_list*}[vid], nat_flag)
+
+def $is_unslashed:
+      clause 0:
+ 105: 31661670/####     -- if (vid < |state.VALIDATORS|)
+ 106: 31661670         -- let validator = state.VALIDATORS[vid]
+ 107: 25567920/6093750     -- if (validator.SLASHED = false)
+      25567920          true
+      clause 1:
+ 108: 6093750         -- otherwise
+      6093750          false
+
+def $get_unslashed_participating_indices:
+      clause 0:
+ 109:  917/172895     -- if ($get_current_epoch(state) = epoch)
+ 110:  917         -- let vid_active*{vid_active <- vid_active*} = $get_active_validator_indices(state, epoch)
+ 111:  917         -- let vid_participating*{vid_participating <- vid_participating*} = $filter_list_2_<validatorIndex, (participationFlags*, validatorIndex)>(vid_active*{vid_active <- vid_active*}, (state.CURRENT_EPOCH_PARTICIPATION, vid_flag), $has_flag_for_index)
+ 112:  917         -- let vid_unslashed*{vid_unslashed <- vid_unslashed*} = $filter_list_2_<validatorIndex, beaconState>(vid_participating*{vid_participating <- vid_participating*}, state, $is_unslashed)
+       917          $to_set_<validatorIndex>(vid_unslashed*{vid_unslashed <- vid_unslashed*})
+      clause 1:
+ 113: 172895/####     -- if ($get_previous_epoch(state) = epoch)
+ 114: 172895         -- let vid_active*{vid_active <- vid_active*} = $get_active_validator_indices(state, epoch)
+ 115: 172895         -- let vid_participating*{vid_participating <- vid_participating*} = $filter_list_2_<validatorIndex, (participationFlags*, nat)>(vid_active*{vid_active <- vid_active*}, (state.PREVIOUS_EPOCH_PARTICIPATION, vid_flag), $has_flag_for_index)
+ 116: 172895         -- let vid_unslashed*{vid_unslashed <- vid_unslashed*} = $filter_list_2_<validatorIndex, beaconState>(vid_participating*{vid_participating <- vid_participating*}, state, $is_unslashed)
+      172895          $to_set_<validatorIndex>(vid_unslashed*{vid_unslashed <- vid_unslashed*})
+
+def $get_block_root_at_slot:
+      clause 0:
+ 117: 26468/####     -- if (slot < state.SLOT)
+ 118: 26468/####     -- if (slot <= ($UINT64_MAX - $SLOTS_PER_HISTORICAL_ROOT))
+ 119: 26468/####     -- if (state.SLOT <= (slot + $SLOTS_PER_HISTORICAL_ROOT))
+ 120: 26468         -- let root = state.BLOCK_ROOTS[(slot \ $SLOTS_PER_HISTORICAL_ROOT)]
+      26468          root
+
+def $get_block_root:
+      clause 0:
+
+def $get_randao_mix:
+      clause 0:
+
+def $get_finality_delay:
+      clause 0:
+ 121: 170029/  10     -- if ($get_previous_epoch(state) >= state.FINALIZED_CHECKPOINT.EPOCH)
+      170029          ($get_previous_epoch(state) - state.FINALIZED_CHECKPOINT.EPOCH)
+
+def $is_in_inactivity_leak:
+      clause 0:
+
+def $choose_index:
+      clause 0:
+ 122: 5017447/5004264     -- if (nat_bit = 1)
+      5017447          uint64_flip
+      clause 1:
+ 123: 5004264         -- otherwise
+      5004264          i
+
+def $apply_shuffle_round:
+      clause 0:
+ 124: 10306350         -- let bytes_seed = $bytes32_to_bytes(seed)
+ 125: 10306350         -- let bytes_round8 = $uint8_to_bytes_le((uint64_round \ 256))
+ 126: 10306350         -- let bytes32_round_hash = $hash_<bytes>($concat_bytes(bytes_seed, bytes_round8))
+ 127: 10306350         -- let bytes8_prefix = $bytes32_prefix8(bytes32_round_hash)
+ 128: 10306350         -- let uint64_pivot_raw = $bytes8_to_uint64_le(bytes8_prefix)
+ 129: 10306350         -- let uint64_pivot = (uint64_pivot_raw \ i_count)
+ 130: 10306350         -- let uint64_flip = (((uint64_pivot + i_count) - i) \ i_count)
+ 131: 10306350         -- let uint64_position = $max_uint64(i, uint64_flip)
+ 132: 10306350         -- let bytes_bucket = $uint32_to_bytes_le((uint64_position / 256))
+ 133: 10306350         -- let bytes32_source = $hash_<bytes>($concat_bytes($concat_bytes(bytes_seed, bytes_round8), bytes_bucket))
+ 134: 10306350         -- let uint64_byte = $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_source)[((uint64_position \ 256) / 8)])
+ 135: 10306350         -- let nat_bit = ($and_uint64($shr_uint64(uint64_byte, (uint64_position \ 8)), 1) \ 2)
+ 136: 10306350         -- let i_out = $choose_index(i, uint64_flip, nat_bit)
+      10306350          i_out
+
+def $compute_shuffled_index:
+      clause 0:
+ 137: 114515         -- let uint64_round*{uint64_round <- uint64_round*} = $range($SHUFFLE_ROUND_COUNT)
+ 138: 114515         -- let uint64_round_first = uint64_round*{uint64_round <- uint64_round*}[0]
+ 139: 114515         -- let uint64_round_last = uint64_round*{uint64_round <- uint64_round*}[($SHUFFLE_ROUND_COUNT - 1)]
+ 140: 114515         -- let i_shuffled = $fold_<uint64, (bytes32, uint64, uint64)>($apply_shuffle_round, i, (seed, i_count, uint64_round)*{uint64_round <- uint64_round*})
+      114515          i_shuffled
+
+def $compute_proposer_index_loop:
+      clause 0:
+ 141: 40880         -- let vid_candidate = vid*{vid <- vid*}[$compute_shuffled_index((i \ uint64_total), uint64_total, seed)]
+ 142: 40880         -- let bytes32_h = $hash_<bytes>($concat_bytes($bytes32_to_bytes(seed), $uint64_to_bytes_le((i / 32))))
+ 143: 40880         -- let uint64_random_byte = $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_h)[(i \ 32)])
+ 144: 40880         -- let balance_effective = state.VALIDATORS[vid_candidate].EFFECTIVE_BALANCE
+ 145: 40880/####     -- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))
+ 146: 40397/ 483     -- if ((balance_effective * $MAX_RANDOM_BYTE) >= ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))
+      40397          vid_candidate
+      clause 1:
+ 147:  483         -- let vid_candidate = vid*{vid <- vid*}[$compute_shuffled_index((i \ uint64_total), uint64_total, seed)]
+ 148:  483         -- let bytes32_h = $hash_<bytes>($concat_bytes($bytes32_to_bytes(seed), $uint64_to_bytes_le((i / 32))))
+ 149:  483         -- let uint64_random_byte = $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_h)[(i \ 32)])
+ 150:  483         -- let balance_effective = state.VALIDATORS[vid_candidate].EFFECTIVE_BALANCE
+ 151:  483/####     -- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))
+ 152:  483/####     -- if ((balance_effective * $MAX_RANDOM_BYTE) < ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))
+       483          $compute_proposer_index_loop(state, vid*{vid <- vid*}, seed, uint64_total, (i + 1))
+
+def $compute_proposer_index:
+      clause 0:
+ 153: 40397/####     -- if (|vid*{vid <- vid*}| > 0)
+      40397          $compute_proposer_index_loop(state, vid*{vid <- vid*}, seed, |vid*{vid <- vid*}|, 0)
+
+def $get_seed:
+      clause 0:
+ 154: 49034         -- let bytes32_mix = $get_randao_mix(state, (((epoch + $EPOCHS_PER_HISTORICAL_VECTOR) - $MIN_SEED_LOOKAHEAD) - 1))
+      49034          $hash_<bytes>($concat_bytes($concat_bytes($bytes4_to_bytes(domainType), $uint64_to_bytes_le(epoch)), $bytes32_to_bytes(bytes32_mix)))
+
+def $get_beacon_proposer_index:
+      clause 0:
+ 155: 40397         -- let epoch_cur = $get_current_epoch(state)
+ 156: 40397         -- let seed = $hash_<bytes>($concat_bytes($bytes32_to_bytes($get_seed(state, epoch_cur, $DOMAIN_BEACON_PROPOSER)), $uint64_to_bytes_le(state.SLOT)))
+ 157: 40397         -- let vid*{vid <- vid*} = $get_active_validator_indices(state, epoch_cur)
+      40397          $compute_proposer_index(state, vid*{vid <- vid*}, seed)
+
+relation IncreaseBalance:
+      rule :
+ 158: 1367187/####     -- if (vid < |state.BALANCES|)
+ 159: 1367187         -- let balance = state.BALANCES[vid]
+ 160: 1367187/####     -- if (balance <= ($UINT64_MAX - delta))
+      1367187          state .BALANCES[ vid ]+ delta ~> state[BALANCES[vid] = (balance + delta)]
+
+relation DecreaseBalance:
+      rule zero:
+ 161: 2937974/####     -- if (vid < |state.BALANCES|)
+ 162: 2937974         -- let balance = state.BALANCES[vid]
+ 163:  526/2937448     -- if (delta > balance)
+       526          state .BALANCES[ vid ]- delta ~> state[BALANCES[vid] = 0]
+      rule remains:
+ 164: 2937448/####     -- if (vid < |state.BALANCES|)
+ 165: 2937448         -- let balance = state.BALANCES[vid]
+ 166: 2937448/####     -- if (delta <= balance)
+      2937448          state .BALANCES[ vid ]- delta ~> state[BALANCES[vid] = (balance - delta)]
+
+def $exit_epoch_not_far_future:
+      clause 0:
+ 167: 369803/3336134     -- if (validator.EXIT_EPOCH =/= $FAR_FUTURE_EPOCH)
+      369803          true
+      clause 1:
+ 168: 3336134         -- otherwise
+      3336134          false
+
+def $exit_epoch_eq:
+      clause 0:
+ 169: 10526/718554     -- if (validator.EXIT_EPOCH = epoch)
+      10526          true
+      clause 1:
+ 170: 718554         -- otherwise
+      718554          false
+
+def $fold_max_epoch:
+      clause 0:
+
+def $select_epoch_exit_queue:
+      clause 0:
+ 171: 1041/3463     -- if (uint64_churn >= uint64_limit)
+      1041          (epoch_exit_queue_0 + 1)
+      clause 1:
+ 172: 3463         -- otherwise
+      3463          epoch_exit_queue_0
+
+relation InitiateValidatorExit:
+      rule skip:
+ 173: 7416/####     -- if (vid < |state.VALIDATORS|)
+ 174: 7416         -- let validator = state.VALIDATORS[vid]
+ 175: 2912/4504     -- if (validator.EXIT_EPOCH =/= $FAR_FUTURE_EPOCH)
+      2912          state .VALIDATORS[ vid ]~> state
+      rule main:
+ 176: 4504/####     -- if (vid < |state.VALIDATORS|)
+ 177: 4504         -- let validator = state.VALIDATORS[vid]
+ 178: 4504/####     -- if (validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)
+ 179: 4504         -- let validator_exit*{validator_exit <- validator_exit*} = $filter_list_<validator>(state.VALIDATORS, $exit_epoch_not_far_future)
+ 180: 4504         -- (let epoch_exit = validator_exit.EXIT_EPOCH)*{epoch_exit <- epoch_exit*, validator_exit <- validator_exit*}
+ 181: 4504         -- let epoch_exit_queue_0 = $fold_<epoch, epoch>($fold_max_epoch, 0, epoch_exit*{epoch_exit <- epoch_exit*} ++ [$compute_activation_exit_epoch($get_current_epoch(state))])
+ 182: 4504         -- let validator_exit_queue*{validator_exit_queue <- validator_exit_queue*} = $filter_list_2_<validator, epoch>(validator_exit*{validator_exit <- validator_exit*}, epoch_exit_queue_0, $exit_epoch_eq)
+ 183: 4504         -- let uint64_exit_queue_churn = |validator_exit_queue*{validator_exit_queue <- validator_exit_queue*}|
+ 184: 4504         -- let uint64_churn_limit = $get_validator_churn_limit(state)
+ 185: 4504         -- let epoch_exit_queue = $select_epoch_exit_queue(epoch_exit_queue_0, uint64_exit_queue_churn, uint64_churn_limit)
+ 186: 4504/####     -- if (epoch_exit_queue <= ($UINT64_MAX - $MIN_VALIDATOR_WITHDRAWABILITY_DELAY))
+ 187: 4504         -- let epoch_withdrawable = (epoch_exit_queue + $MIN_VALIDATOR_WITHDRAWABILITY_DELAY)
+      4504          state .VALIDATORS[ vid ]~> state[VALIDATORS[vid] = validator[EXIT_EPOCH = epoch_exit_queue][WITHDRAWABLE_EPOCH = epoch_withdrawable]]
+
+relation SlashValidator:
+      rule no_whistleblower:
+ 188: 3163/####     -- if validatorIndex?{validatorIndex <- validatorIndex?} matches ()
+ 189: 3163/####     -- if (vid_slashed < |state.VALIDATORS|)
+ 190: 3163         -- let epoch = $get_current_epoch(state)
+ 191: 3163/####     -- rel InitiateValidatorExit: state .VALIDATORS[ vid_slashed ]~> state_init
+ 192: 3163         -- let validator = state_init.VALIDATORS[vid_slashed]
+ 193: 3163         -- let epoch_withdrawable = $max_uint64(validator.WITHDRAWABLE_EPOCH, (epoch + $EPOCHS_PER_SLASHINGS_VECTOR))
+ 194: 3163         -- let state_1 = state_init[VALIDATORS[vid_slashed] = validator[SLASHED = true][WITHDRAWABLE_EPOCH = epoch_withdrawable]]
+ 195: 3163/####     -- if (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] <= ($UINT64_MAX - validator.EFFECTIVE_BALANCE))
+ 196: 3163         -- let state_2 = state_1[SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] = (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] + validator.EFFECTIVE_BALANCE)]
+ 197: 3163         -- let penalty_slashing = (validator.EFFECTIVE_BALANCE / $MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX)
+ 198: 3163/####     -- rel DecreaseBalance: state_2 .BALANCES[ vid_slashed ]- penalty_slashing ~> state_penalized
+ 199: 3163         -- let vid_proposer = $get_beacon_proposer_index(state_penalized)
+ 200: 3163         -- let reward_whistleblower = (validator.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT)
+ 201: 3163         -- let gwei_prop_num = (reward_whistleblower * $PROPOSER_WEIGHT)
+ 202: 3163         -- let reward_proposer = (gwei_prop_num / $WEIGHT_DENOMINATOR)
+ 203: 3163/####     -- rel IncreaseBalance: state_penalized .BALANCES[ vid_proposer ]+ reward_proposer ~> state_rewarded_proposer
+ 204: 3163         -- let reward_whistleblower_rest = (reward_whistleblower - reward_proposer)
+ 205: 3163/####     -- rel IncreaseBalance: state_rewarded_proposer .BALANCES[ vid_proposer ]+ reward_whistleblower_rest ~> state_out
+      3163          state SLASH[ vid_slashed ]BY validatorIndex?{validatorIndex <- validatorIndex?} ~> state_out
+      rule whistleblower:
+ 206: ####/####     -- if validatorIndex?{validatorIndex <- validatorIndex?} matches (_)
+ 207: ####         -- let ?(vid_whistleblower) = validatorIndex?{validatorIndex <- validatorIndex?}
+ 208: ####/####     -- if (vid_slashed < |state.VALIDATORS|)
+ 209: ####         -- let epoch = $get_current_epoch(state)
+ 210: ####/####     -- rel InitiateValidatorExit: state .VALIDATORS[ vid_slashed ]~> state_init
+ 211: ####         -- let validator = state_init.VALIDATORS[vid_slashed]
+ 212: ####         -- let epoch_withdrawable = $max_uint64(validator.WITHDRAWABLE_EPOCH, (epoch + $EPOCHS_PER_SLASHINGS_VECTOR))
+ 213: ####         -- let state_1 = state_init[VALIDATORS[vid_slashed] = validator[SLASHED = true][WITHDRAWABLE_EPOCH = epoch_withdrawable]]
+ 214: ####/####     -- if (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] <= ($UINT64_MAX - validator.EFFECTIVE_BALANCE))
+ 215: ####         -- let state_2 = state_1[SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] = (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] + validator.EFFECTIVE_BALANCE)]
+ 216: ####         -- let penalty_slashing = (validator.EFFECTIVE_BALANCE / $MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX)
+ 217: ####/####     -- rel DecreaseBalance: state_2 .BALANCES[ vid_slashed ]- penalty_slashing ~> state_penalized
+ 218: ####         -- let vid_proposer = $get_beacon_proposer_index(state_penalized)
+ 219: ####         -- let reward_whistleblower = (validator.EFFECTIVE_BALANCE / $WHISTLEBLOWER_REWARD_QUOTIENT)
+ 220: ####         -- let gwei_prop_num = (reward_whistleblower * $PROPOSER_WEIGHT)
+ 221: ####         -- let reward_proposer = (gwei_prop_num / $WEIGHT_DENOMINATOR)
+ 222: ####/####     -- rel IncreaseBalance: state_penalized .BALANCES[ vid_proposer ]+ reward_proposer ~> state_rewarded_proposer
+ 223: ####         -- let reward_whistleblower_rest = (reward_whistleblower - reward_proposer)
+ 224: ####/####     -- rel IncreaseBalance: state_rewarded_proposer .BALANCES[ vid_whistleblower ]+ reward_whistleblower_rest ~> state_out
+      ####          state SLASH[ vid_slashed ]BY validatorIndex?{validatorIndex <- validatorIndex?} ~> state_out
+
+relation ApplyDeposit:
+      rule new_pubkey:
+ 225: 2257         -- let validator*{validator <- validator*} = state.VALIDATORS
+ 226: 2257         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
+ 227: 2234/  23     -- if ~blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}
+ 228: 2234         -- let depositMessage = {PUBKEY blsPubkey, WITHDRAWAL_CREDENTIALS bytes32_wc, AMOUNT gwei_amount}
+ 229: 2234         -- let domain = $compute_domain($DOMAIN_DEPOSIT, ?(), ?())
+ 230: 2234/####     -- if $bls_verify(blsPubkey, $compute_signing_root_depositMessage(depositMessage, domain), blsSignature)
+ 231: 2234/####     -- rel AddValidatorToRegistry: state .VALIDATORS++{ blsPubkey bytes32_wc gwei_amount }~> state_out
+      2234          state .VALIDATORS++{ blsPubkey bytes32_wc gwei_amount }SIGNED blsSignature ~> state_out
+      rule new_pubkey_invalid_sig:
+ 232:   23         -- let validator*{validator <- validator*} = state.VALIDATORS
+ 233:   23         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
+ 234: ####/  23     -- if ~blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}
+ 235: ####         -- let depositMessage = {PUBKEY blsPubkey, WITHDRAWAL_CREDENTIALS bytes32_wc, AMOUNT gwei_amount}
+ 236: ####         -- let domain = $compute_domain($DOMAIN_DEPOSIT, ?(), ?())
+ 237: ####/####     -- if ~$bls_verify(blsPubkey, $compute_signing_root_depositMessage(depositMessage, domain), blsSignature)
+      ####          state .VALIDATORS++{ blsPubkey bytes32_wc gwei_amount }SIGNED blsSignature ~> state
+      rule existing_pubkey:
+ 238:   23         -- let (vid, validator)*{validator <- validator*, vid <- vid*} = $enumerate_<validator>(state.VALIDATORS)
+ 239:   23         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
+ 240:   23/####     -- if blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}
+ 241:   23         -- let vid_found = $index_of_pubkey((vid, blsPubkey_existing)*{blsPubkey_existing <- blsPubkey_existing*, vid <- vid*}, blsPubkey)
+ 242:   23/####     -- rel IncreaseBalance: state .BALANCES[ vid_found ]+ gwei_amount ~> state_out
+        23          state .VALIDATORS++{ blsPubkey bytes32_wc gwei_amount }SIGNED blsSignature ~> state_out
+
+def $compute_committee:
+      clause 0:
+ 243: 8685         -- let i_start = ((|vid*{vid <- vid*}| * i) / count)
+ 244: 8685         -- let i_end = ((|vid*{vid <- vid*}| * (i + 1)) / count)
+ 245: 8685         -- let n*{n <- n*} = $range((i_end - i_start))
+ 246: 8685         -- (let i_range = (n + i_start))*{i_range <- i_range*, n <- n*}
+ 247: 8685         -- (let i_shuffled = $compute_shuffled_index(i_range, |vid*{vid <- vid*}|, seed))*{i_range <- i_range*, i_shuffled <- i_shuffled*}
+ 248: 8685         -- (let vid_committee = vid*{vid <- vid*}[i_shuffled])*{i_shuffled <- i_shuffled*, vid_committee <- vid_committee*}
+      8685          vid_committee*{vid_committee <- vid_committee*}
+
+def $get_committee_count_per_slot:
+      clause 0:
+
+def $get_beacon_committee:
+      clause 0:
+ 249: 14297         -- let epoch = $compute_epoch_at_slot(slot)
+ 250: 14297         -- let count_committees_per_slot = $get_committee_count_per_slot(state, epoch)
+      14297          $compute_committee($get_active_validator_indices(state, epoch), $get_seed(state, epoch, $DOMAIN_BEACON_ATTESTER), (((slot \ $SLOTS_PER_EPOCH) * count_committees_per_slot) + committeeIndex), (count_committees_per_slot * $SLOTS_PER_EPOCH))
+
+def $bit_is_one_at_index:
+      clause 0:
+ 251: 151011/####     -- if (i < |bit*{bit <- bit*}|)
+      151011          bit*{bit <- bit*}[i]
+
+def $get_attesting_indices:
+      clause 0:
+ 252: 13979         -- let vid_committee*{vid_committee <- vid_committee*} = $get_beacon_committee(state, attestation.DATA.SLOT, attestation.DATA.INDEX)
+ 253: 13979         -- let (i, vid)*{i <- i*, vid <- vid*} = $enumerate_<validatorIndex>(vid_committee*{vid_committee <- vid_committee*})
+ 254: 13979         -- let (_nat, vid_attesting)*{_nat <- _nat*, vid_attesting <- vid_attesting*} = $filter_list_2_<(nat, validatorIndex), boolean*>((i, vid)*{i <- i*, vid <- vid*}, attestation.AGGREGATION_BITS, $bit_is_one_at_index)
+ 255: 13979         -- let vid_set*{vid_set <- vid_set*} = $to_set_<validatorIndex>(vid_attesting*{vid_attesting <- vid_attesting*})
+      13979          vid_set*{vid_set <- vid_set*}
+
+def $is_slashable_attestation_data:
+      clause 0:
+
+def $is_valid_indexed_attestation:
+      clause 0:
+ 256: ####/14681     -- if (|indexedAttestation.ATTESTING_INDICES| = 0)
+      ####          false
+      clause 1:
+ 257:    5/14676     -- if ($sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES)) =/= indexedAttestation.ATTESTING_INDICES)
+         5          false
+      clause 2:
+ 258: 14676         -- let vid*{vid <- vid*} = indexedAttestation.ATTESTING_INDICES
+ 259: 14676/####     -- if (|indexedAttestation.ATTESTING_INDICES| > 0)
+ 260: 14676/####     -- if ($sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES)) = indexedAttestation.ATTESTING_INDICES)
+ 261: 14670/   6     -- (if (vid < |state.VALIDATORS|))*{vid <- vid*}
+ 262: 14670         -- (let blsPubkey = state.VALIDATORS[vid].PUBKEY)*{blsPubkey <- blsPubkey*, vid <- vid*}
+ 263: 14670         -- let domain = $get_domain(state, $DOMAIN_BEACON_ATTESTER, ?(indexedAttestation.DATA.TARGET.EPOCH))
+ 264: 14670         -- let root_signing = $compute_signing_root_attestationData(indexedAttestation.DATA, domain)
+      14670          $bls_fast_aggregate_verify(blsPubkey*{blsPubkey <- blsPubkey*}, root_signing, indexedAttestation.SIGNATURE)
+
+relation SlashIfEligible:
+      rule true:
+ 265:  781/####     -- if (vid < |state.VALIDATORS|)
+ 266:  739/  42     -- if $is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))
+ 267:  739/####     -- rel SlashValidator: state SLASH[ vid ]BY ?() ~> state_slashed
+       739          state SLASH?[ vid ]~> state_slashed #SLASHED true
+      rule false:
+ 268:   42/####     -- if (vid < |state.VALIDATORS|)
+ 269:   42/####     -- if ~$is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))
+        42          state SLASH?[ vid ]~> state #SLASHED false
+
+relation SlashIfEligible_over_validators:
+      rule nil:
+ 270:  273/ 781     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches []
+       273          state SLASH?[ validatorIndex*{validatorIndex <- validatorIndex*} ]~> state #SLASHED false
+      rule cons:
+ 271:  781/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _
+ 272:  781         -- let vid_h :: vid_t*{vid_t <- vid_t*} = validatorIndex*{validatorIndex <- validatorIndex*}
+ 273:  781/####     -- rel SlashIfEligible: state SLASH?[ vid_h ]~> state_h #SLASHED bool_h
+ 274:  781/####     -- rel SlashIfEligible_over_validators: state_h SLASH?[ vid_t*{vid_t <- vid_t*} ]~> state_t #SLASHED bool_t
+       781          state SLASH?[ validatorIndex*{validatorIndex <- validatorIndex*} ]~> state_t #SLASHED (bool_h \/ bool_t)
+
+def $source_flag_list:
+      clause 0:
+ 275: 2754/5615     -- if (uint64_inclusion_delay <= $integer_square_root($SLOTS_PER_EPOCH))
+      2754          [$TIMELY_SOURCE_FLAG_INDEX]
+      clause 1:
+ 276: 5615         -- otherwise
+      5615          []
+
+def $target_flag_list:
+      clause 0:
+ 277: 8372/####     -- if (uint64_inclusion_delay <= $SLOTS_PER_EPOCH)
+      8372          [$TIMELY_TARGET_FLAG_INDEX]
+      clause 1:
+ 278: ####         -- otherwise
+      ####          []
+
+def $head_flag_list:
+      clause 0:
+ 279: 2224/6153     -- if (uint64_inclusion_delay = $MIN_ATTESTATION_INCLUSION_DELAY)
+      2224          [$TIMELY_HEAD_FLAG_INDEX]
+      clause 1:
+ 280: 6153         -- otherwise
+      6153          []
+
+def $get_attestation_participation_flag_indices:
+      clause 0:
+ 281: 4842/9457     -- if (attestationData.TARGET.EPOCH = $get_current_epoch(state))
+ 282: 4842         -- let checkpoint_justified = state.CURRENT_JUSTIFIED_CHECKPOINT
+ 283: 4761/  81     -- if (attestationData.SOURCE.EPOCH = checkpoint_justified.EPOCH)
+ 284: 4672/  89     -- if (attestationData.SOURCE.ROOT = checkpoint_justified.ROOT)
+ 285: 4672         -- let root_target = $get_block_root(state, attestationData.TARGET.EPOCH)
+ 286: 4672         -- let bool_target_root_matches = (attestationData.TARGET.ROOT = root_target)
+ 287: 4672         -- let root_head = $get_block_root_at_slot(state, attestationData.SLOT)
+ 288: 4672         -- let bool_head_root_matches = (attestationData.BEACON_BLOCK_ROOT = root_head)
+ 289: 4672         -- let flag_source*{flag_source <- flag_source*} = $source_flag_list(uint64_inclusion_delay)
+ 290: 4672         -- let flag_target*{flag_target <- flag_target*} = $target_flag_list(bool_target_root_matches, uint64_inclusion_delay)
+ 291: 4672         -- let flag_head*{flag_head <- flag_head*} = $head_flag_list((bool_target_root_matches /\ bool_head_root_matches), uint64_inclusion_delay)
+ 292: 4672         -- let flag_indices*{flag_indices <- flag_indices*} = flag_source*{flag_source <- flag_source*} ++ flag_target*{flag_target <- flag_target*} ++ flag_head*{flag_head <- flag_head*}
+      4672          flag_indices*{flag_indices <- flag_indices*}
+      clause 1:
+ 293: 9457/ 170     -- if (attestationData.TARGET.EPOCH =/= $get_current_epoch(state))
+ 294: 9457         -- let checkpoint_justified = state.PREVIOUS_JUSTIFIED_CHECKPOINT
+ 295: 9383/  74     -- if (attestationData.SOURCE.EPOCH = checkpoint_justified.EPOCH)
+ 296: 9307/  76     -- if (attestationData.SOURCE.ROOT = checkpoint_justified.ROOT)
+ 297: 9307         -- let root_target = $get_block_root(state, attestationData.TARGET.EPOCH)
+ 298: 9307         -- let bool_target_root_matches = (attestationData.TARGET.ROOT = root_target)
+ 299: 9307         -- let root_head = $get_block_root_at_slot(state, attestationData.SLOT)
+ 300: 9307         -- let bool_head_root_matches = (attestationData.BEACON_BLOCK_ROOT = root_head)
+ 301: 9307         -- let flag_source*{flag_source <- flag_source*} = $source_flag_list(uint64_inclusion_delay)
+ 302: 9307         -- let flag_target*{flag_target <- flag_target*} = $target_flag_list(bool_target_root_matches, uint64_inclusion_delay)
+ 303: 9307         -- let flag_head*{flag_head <- flag_head*} = $head_flag_list((bool_target_root_matches /\ bool_head_root_matches), uint64_inclusion_delay)
+ 304: 9307         -- let flag_indices*{flag_indices <- flag_indices*} = flag_source*{flag_source <- flag_source*} ++ flag_target*{flag_target <- flag_target*} ++ flag_head*{flag_head <- flag_head*}
+      9307          flag_indices*{flag_indices <- flag_indices*}
+
+def $next_sync_committee_indices_loop:
+      clause 0:
+ 305:   32/16384     -- if (|vid_sync_committee*{vid_sync_committee <- vid_sync_committee*}| >= $SYNC_COMMITTEE_SIZE)
+        32          vid_sync_committee*{vid_sync_committee <- vid_sync_committee*}
+      clause 1:
+ 306: 16384/####     -- if (|vid_sync_committee*{vid_sync_committee <- vid_sync_committee*}| < $SYNC_COMMITTEE_SIZE)
+ 307: 16384         -- let vid_candidate = vid_active*{vid_active <- vid_active*}[$compute_shuffled_index((vid \ count_active), count_active, seed)]
+ 308: 16384         -- let bytes32_h = $hash_<bytes>($concat_bytes($bytes32_to_bytes(seed), $uint_to_bytes((vid / 32))))
+ 309: 16384         -- let uint64_random_byte = $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_h)[(vid \ 32)])
+ 310: 16384         -- let balance_effective = state.VALIDATORS[vid_candidate].EFFECTIVE_BALANCE
+ 311: 16384/####     -- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))
+ 312: 16384/####     -- if ((balance_effective * $MAX_RANDOM_BYTE) >= ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))
+      16384          $next_sync_committee_indices_loop(state, vid_active*{vid_active <- vid_active*}, seed, count_active, (vid + 1), vid_sync_committee*{vid_sync_committee <- vid_sync_committee*} ++ [vid_candidate])
+      clause 2:
+ 313: ####/####     -- if (|vid_sync_committee*{vid_sync_committee <- vid_sync_committee*}| < $SYNC_COMMITTEE_SIZE)
+ 314: ####         -- let vid_candidate = vid_active*{vid_active <- vid_active*}[$compute_shuffled_index((vid \ count_active), count_active, seed)]
+ 315: ####         -- let bytes32_h = $hash_<bytes>($concat_bytes($bytes32_to_bytes(seed), $uint_to_bytes((vid / 32))))
+ 316: ####         -- let uint64_random_byte = $bytes1_to_uint64($bytes32_to_bytes1_list(bytes32_h)[(vid \ 32)])
+ 317: ####         -- let balance_effective = state.VALIDATORS[vid_candidate].EFFECTIVE_BALANCE
+ 318: ####/####     -- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))
+ 319: ####/####     -- if ((balance_effective * $MAX_RANDOM_BYTE) < ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))
+      ####          $next_sync_committee_indices_loop(state, vid_active*{vid_active <- vid_active*}, seed, count_active, (vid + 1), vid_sync_committee*{vid_sync_committee <- vid_sync_committee*})
+
+def $get_next_sync_committee_indices:
+      clause 0:
+ 320:   32         -- let epoch_next = ($get_current_epoch(state) + 1)
+ 321:   32         -- let vid_active*{vid_active <- vid_active*} = $get_active_validator_indices(state, epoch_next)
+ 322:   32         -- let count_active = |vid_active*{vid_active <- vid_active*}|
+ 323:   32/####     -- if (count_active > 0)
+ 324:   32         -- let seed = $get_seed(state, epoch_next, $DOMAIN_SYNC_COMMITTEE)
+ 325:   32         -- let vid_out*{vid_out <- vid_out*} = $next_sync_committee_indices_loop(state, vid_active*{vid_active <- vid_active*}, seed, count_active, 0, [])
+        32          vid_out*{vid_out <- vid_out*}
+
+def $get_next_sync_committee:
+      clause 0:
+ 326:   32         -- let vid*{vid <- vid*} = $get_next_sync_committee_indices(state)
+ 327:   32         -- (let blsPubkey = state.VALIDATORS[vid].PUBKEY)*{blsPubkey <- blsPubkey*, vid <- vid*}
+ 328:   32         -- let blsPubkey_aggregate = $eth_aggregate_pubkeys(blsPubkey*{blsPubkey <- blsPubkey*})
+        32          {PUBKEYS blsPubkey*{blsPubkey <- blsPubkey*}, AGGREGATE_PUBKEY blsPubkey_aggregate}
+
+def $get_indexed_attestation:
+      clause 0:
+ 329: 13979         -- let vid_attesting*{vid_attesting <- vid_attesting*} = $get_attesting_indices(state, attestation)
+      13979          {ATTESTING_INDICES $sort_<validatorIndex>(vid_attesting*{vid_attesting <- vid_attesting*}), DATA attestation.DATA, SIGNATURE attestation.SIGNATURE}
+
+def $get_total_balance:
+      clause 0:
+ 330: 16613         -- (let balance = state.VALIDATORS[vid].EFFECTIVE_BALANCE)*{balance <- balance*, vid <- vid*}
+ 331: 16613         -- let gwei_sum = $sum_<gwei>(balance*{balance <- balance*})
+ 332: 16613/####     -- if (gwei_sum <= $UINT64_MAX)
+      16613          $max_uint64($EFFECTIVE_BALANCE_INCREMENT, gwei_sum)
+
+def $get_total_active_balance:
+      clause 0:
+ 333: 13775         -- let epoch_cur = $get_current_epoch(state)
+ 334: 13775         -- let vid_active*{vid_active <- vid_active*} = $get_active_validator_indices(state, epoch_cur)
+ 335: 13775         -- let vid_set*{vid_set <- vid_set*} = $to_set_<validatorIndex>(vid_active*{vid_active <- vid_active*})
+ 336: 13775         -- let gwei_total = $get_total_balance(state, vid_set*{vid_set <- vid_set*})
+      13775          gwei_total
+
+def $get_base_reward_per_increment:
+      clause 0:
+
+def $get_base_reward:
+      clause 0:
+ 337: 351434/####     -- if (vid < |state.VALIDATORS|)
+ 338: 351434         -- let uint64_increments = (state.VALIDATORS[vid].EFFECTIVE_BALANCE / $EFFECTIVE_BALANCE_INCREMENT)
+ 339: 351434         -- let reward = (uint64_increments * $get_base_reward_per_increment(state))
+      351434          reward
+
+relation ApplyEffectiveBalance:
+      rule main:
+ 340: 379184         -- let uint64_hyst_inc = ($EFFECTIVE_BALANCE_INCREMENT / $HYSTERESIS_QUOTIENT)
+ 341: 379184         -- let uint64_down_th = (uint64_hyst_inc * $HYSTERESIS_DOWNWARD_MULTIPLIER)
+ 342: 379184         -- let uint64_up_th = (uint64_hyst_inc * $HYSTERESIS_UPWARD_MULTIPLIER)
+ 343: 379184/####     -- if (balance <= ($UINT64_MAX - uint64_down_th))
+ 344: 73236/305948     -- if (((balance + uint64_down_th) < validator.EFFECTIVE_BALANCE) \/ ((validator.EFFECTIVE_BALANCE <= ($UINT64_MAX - uint64_up_th)) /\ ((validator.EFFECTIVE_BALANCE + uint64_up_th) < balance)))
+      73236          validator .EFFECTIVE_BALANCE balance ~> validator[EFFECTIVE_BALANCE = $min_uint64((balance - (balance \ $EFFECTIVE_BALANCE_INCREMENT)), $MAX_EFFECTIVE_BALANCE)]
+      rule skip:
+ 345: 305948         -- let uint64_hyst_inc = ($EFFECTIVE_BALANCE_INCREMENT / $HYSTERESIS_QUOTIENT)
+ 346: 305948         -- let uint64_down_th = (uint64_hyst_inc * $HYSTERESIS_DOWNWARD_MULTIPLIER)
+ 347: 305948         -- let uint64_up_th = (uint64_hyst_inc * $HYSTERESIS_UPWARD_MULTIPLIER)
+ 348: 305948/####     -- if (balance <= ($UINT64_MAX - uint64_down_th))
+ 349: 305948/####     -- if ((balance + uint64_down_th) >= validator.EFFECTIVE_BALANCE)
+ 350: 305948/####     -- if (validator.EFFECTIVE_BALANCE <= ($UINT64_MAX - uint64_up_th))
+ 351: 305948/####     -- if ((validator.EFFECTIVE_BALANCE + uint64_up_th) >= balance)
+      305948          validator .EFFECTIVE_BALANCE balance ~> validator
+
+def $inact_penalty_one:
+      clause 0:
+ 352: 303501/29715     -- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}
+ 353: 147002/156499     -- if ~vid <- vid_matching*{vid_matching <- vid_matching*}
+ 354: 147002/####     -- if (vid < |state.VALIDATORS|)
+ 355: 147002         -- let balance_effective = state.VALIDATORS[vid].EFFECTIVE_BALANCE
+ 356: 147002/####     -- if (vid < |state.INACTIVITY_SCORES|)
+ 357: 147002         -- let uint64_score = state.INACTIVITY_SCORES[vid]
+ 358: 147002         -- let penalty_numerator = (balance_effective * uint64_score)
+ 359: 146991/  11     -- if (penalty_numerator <= $UINT64_MAX)
+ 360: 146991         -- let penalty_denominator = ($INACTIVITY_SCORE_BIAS * $INACTIVITY_PENALTY_QUOTIENT_BELLATRIX)
+ 361: 146991         -- let penalty = (penalty_numerator / penalty_denominator)
+      146991          penalty
+      clause 1:
+ 362: 186214/  11     -- if (~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ vid <- vid_matching*{vid_matching <- vid_matching*})
+      186214          0
+
+def $get_inactivity_penalty_deltas:
+      clause 0:
+ 363:  999         -- let reward*{reward <- reward*} = $repeat_<gwei>(0, |state.VALIDATORS|)
+ 364:  999         -- let vid_eligible*{vid_eligible <- vid_eligible*} = $get_eligible_validator_indices(state)
+ 365:  999         -- let epoch_prev = $get_previous_epoch(state)
+ 366:  999         -- let vid_matching*{vid_matching <- vid_matching*} = $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, epoch_prev)
+ 367:  999         -- let vid*{vid <- vid*} = $range(|state.VALIDATORS|)
+ 368:  988         -- (let penalty = $inact_penalty_one(vid, state, vid_matching*{vid_matching <- vid_matching*}, vid_eligible*{vid_eligible <- vid_eligible*}))*{penalty <- penalty*, vid <- vid*}
+       988          (reward*{reward <- reward*}, penalty*{penalty <- penalty*})
+
+def $flag_reward_one_eligible:
+      clause 0:
+ 369: 683590/76657     -- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}
+ 370: 299640/383950     -- if vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*}
+ 371: 279160/20480     -- if ~$is_in_inactivity_leak(state)
+ 372: 279160         -- let reward_base = $get_base_reward(state, vid)
+ 373: 279160         -- let reward_numerator = ((reward_base * uint64_weight) * uint64_up_incs)
+ 374: 279159/   1     -- if (reward_numerator <= $UINT64_MAX)
+ 375: 279159         -- let reward = (reward_numerator / (uint64_active_incs * $WEIGHT_DENOMINATOR))
+      279159          reward
+      clause 1:
+ 376: 460607/20481     -- if (~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ ~vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*})
+      460607          0
+      clause 2:
+ 377: 20480/   1     -- if $is_in_inactivity_leak(state)
+      20480          0
+
+def $flag_penalty_one_eligible:
+      clause 0:
+ 378: 917637/90411     -- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}
+ 379: 566388/351249     -- if ~vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*}
+ 380: 352912/213476     -- if (flag_index =/= $TIMELY_HEAD_FLAG_INDEX)
+ 381: 352912         -- let reward_base = $get_base_reward(state, vid)
+ 382: 352912         -- let penalty = ((reward_base * uint64_weight) / $WEIGHT_DENOMINATOR)
+      352912          penalty
+      clause 1:
+ 383: 655136/####     -- if ((~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*}) \/ (flag_index = $TIMELY_HEAD_FLAG_INDEX))
+      655136          0
+
+def $get_flag_index_deltas:
+      clause 0:
+ 384: 2998         -- let vid_eligible*{vid_eligible <- vid_eligible*} = $to_set_<validatorIndex>($get_eligible_validator_indices(state))
+ 385: 2998         -- let epoch_prev = $get_previous_epoch(state)
+ 386: 2998         -- let vid_unslashed*{vid_unslashed <- vid_unslashed*} = $get_unslashed_participating_indices(state, flag_index, epoch_prev)
+ 387: 2998         -- let uint64_weight = $PARTICIPATION_FLAG_WEIGHTS[flag_index]
+ 388: 2998         -- let balance_unslashed_participating = $get_total_balance(state, vid_unslashed*{vid_unslashed <- vid_unslashed*})
+ 389: 2998         -- let uint64_unslashed_increments = (balance_unslashed_participating / $EFFECTIVE_BALANCE_INCREMENT)
+ 390: 2998         -- let uint64_active_increments = ($get_total_active_balance(state) / $EFFECTIVE_BALANCE_INCREMENT)
+ 391: 2998         -- let vid*{vid <- vid*} = $range(|state.VALIDATORS|)
+ 392: 2997         -- (let reward = $flag_reward_one_eligible(vid, state, vid_unslashed*{vid_unslashed <- vid_unslashed*}, vid_eligible*{vid_eligible <- vid_eligible*}, uint64_weight, uint64_unslashed_increments, uint64_active_increments))*{reward <- reward*, vid <- vid*}
+ 393: 2997         -- (let penalty = $flag_penalty_one_eligible(vid, state, vid_unslashed*{vid_unslashed <- vid_unslashed*}, vid_eligible*{vid_eligible <- vid_eligible*}, uint64_weight, flag_index))*{penalty <- penalty*, vid <- vid*}
+      2997          (reward*{reward <- reward*}, penalty*{penalty <- penalty*})
+
+relation ApplyRewardAndPenalty:
+      rule :
+ 394: 1206405/####     -- rel IncreaseBalance: state .BALANCES[ vid ]+ reward ~> state_r
+ 395: 1206405/####     -- rel DecreaseBalance: state_r .BALANCES[ vid ]- penalty ~> state_out
+      1206405          state .BALANCES[ vid ]+ reward - penalty ~> state_out
+
+relation ApplyRewardsAndPenalties:
+      rule nil:
+ 396: 2703/1206405     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches []
+ 397: 2703/####     -- if gwei*{gwei <- gwei*} matches []
+ 398: 2703/####     -- if gwei'*{gwei' <- gwei'*} matches []
+      2703          state .BALANCES[ validatorIndex*{validatorIndex <- validatorIndex*} ]+ gwei*{gwei <- gwei*} - gwei'*{gwei' <- gwei'*} ~> state
+      rule cons:
+ 399: 1206405/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _
+ 400: 1206405         -- let vid_h :: vid_t*{vid_t <- vid_t*} = validatorIndex*{validatorIndex <- validatorIndex*}
+ 401: 1206405/####     -- if gwei*{gwei <- gwei*} matches _ :: _
+ 402: 1206405         -- let reward_h :: reward_t*{reward_t <- reward_t*} = gwei*{gwei <- gwei*}
+ 403: 1206405/####     -- if gwei'*{gwei' <- gwei'*} matches _ :: _
+ 404: 1206405         -- let penalty_h :: penalty_t*{penalty_t <- penalty_t*} = gwei'*{gwei' <- gwei'*}
+ 405: 1206405/####     -- rel ApplyRewardAndPenalty: state .BALANCES[ vid_h ]+ reward_h - penalty_h ~> state_h
+ 406: 1206405/####     -- rel ApplyRewardsAndPenalties: state_h .BALANCES[ vid_t*{vid_t <- vid_t*} ]+ reward_t*{reward_t <- reward_t*} - penalty_t*{penalty_t <- penalty_t*} ~> state_out
+      1206405          state .BALANCES[ validatorIndex*{validatorIndex <- validatorIndex*} ]+ gwei*{gwei <- gwei*} - gwei'*{gwei' <- gwei'*} ~> state_out
+
+relation ApplyRewardsAndPenalties_over_deltas:
+      rule nil:
+ 407:  988/3952     -- if gwei*{gwei <- gwei*}*{gwei* <- gwei**} matches []
+ 408:  988/####     -- if gwei'*{gwei' <- gwei'*}*{gwei'* <- gwei'**} matches []
+       988          state .BALANCES[ _validatorIndex*{_validatorIndex <- _validatorIndex*} ]+ gwei*{gwei <- gwei*}*{gwei* <- gwei**} - gwei'*{gwei' <- gwei'*}*{gwei'* <- gwei'**} ~>* state
+      rule cons:
+ 409: 3952/####     -- if gwei*{gwei <- gwei*}*{gwei* <- gwei**} matches _ :: _
+ 410: 3952         -- let reward*{reward <- reward*} :: reward_t*{reward_t <- reward_t*}*{reward_t* <- reward_t**} = gwei*{gwei <- gwei*}*{gwei* <- gwei**}
+ 411: 3952/####     -- if gwei'*{gwei' <- gwei'*}*{gwei'* <- gwei'**} matches _ :: _
+ 412: 3952         -- let penalty*{penalty <- penalty*} :: penalty_t*{penalty_t <- penalty_t*}*{penalty_t* <- penalty_t**} = gwei'*{gwei' <- gwei'*}*{gwei'* <- gwei'**}
+ 413: 3952/####     -- rel ApplyRewardsAndPenalties: state .BALANCES[ vid*{vid <- vid*} ]+ reward*{reward <- reward*} - penalty*{penalty <- penalty*} ~> state_t
+ 414: 3952/####     -- rel ApplyRewardsAndPenalties_over_deltas: state_t .BALANCES[ vid*{vid <- vid*} ]+ reward_t*{reward_t <- reward_t*}*{reward_t* <- reward_t**} - penalty_t*{penalty_t <- penalty_t*}*{penalty_t* <- penalty_t**} ~>* state_out
+      3952          state .BALANCES[ vid*{vid <- vid*} ]+ gwei*{gwei <- gwei*}*{gwei* <- gwei**} - gwei'*{gwei' <- gwei'*}*{gwei'* <- gwei'**} ~>* state_out
+
+relation ApplyInactivity:
+      rule unslashed_participating_no_leak:
+ 415: 156792/149353     -- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
+ 416: 145019/11773     -- if ~$is_in_inactivity_leak(state)
+ 417: 145019/####     -- if (vid < |state.INACTIVITY_SCORES|)
+      145019          state .INACTIVITY_SCORES[ vid ]~> state[INACTIVITY_SCORES[vid] = $max_uint64(((state.INACTIVITY_SCORES[vid] - 1) - $INACTIVITY_SCORE_RECOVERY_RATE), 0)]
+      rule unslashed_participating_leak:
+ 418: 11770/149353     -- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
+ 419: 11770/####     -- if $is_in_inactivity_leak(state)
+ 420: 11770/####     -- if (vid < |state.INACTIVITY_SCORES|)
+      11770          state .INACTIVITY_SCORES[ vid ]~> state[INACTIVITY_SCORES[vid] = $max_uint64((state.INACTIVITY_SCORES[vid] - 1), 0)]
+      rule inactive_no_leak:
+ 421: 149353/####     -- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
+ 422: 62656/86697     -- if ~$is_in_inactivity_leak(state)
+ 423: 62656         -- let n_leak_penalty = ($INACTIVITY_SCORE_BIAS - $INACTIVITY_SCORE_RECOVERY_RATE)
+ 424: 62656/####     -- if (vid < |state.INACTIVITY_SCORES|)
+ 425: 62656/####     -- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))
+      62656          state .INACTIVITY_SCORES[ vid ]~> state[INACTIVITY_SCORES[vid] = $max_uint64((state.INACTIVITY_SCORES[vid] + n_leak_penalty), 0)]
+      rule inactive_leak:
+ 426: 86690/####     -- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
+ 427: 86690/####     -- if $is_in_inactivity_leak(state)
+ 428: 86690/####     -- if (vid < |state.INACTIVITY_SCORES|)
+ 429: 86690/####     -- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))
+      86690          state .INACTIVITY_SCORES[ vid ]~> state[INACTIVITY_SCORES[vid] = $max_uint64((state.INACTIVITY_SCORES[vid] + $INACTIVITY_SCORE_BIAS), 0)]
+
+relation ApplyInactivity_over_vids:
+      rule nil:
+ 430: 1000/306145     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches []
+      1000          state .INACTIVITY_SCORES[ validatorIndex*{validatorIndex <- validatorIndex*} ]~>* state
+      rule cons:
+ 431: 306145/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _
+ 432: 306145         -- let vid_h :: vid_t*{vid_t <- vid_t*} = validatorIndex*{validatorIndex <- validatorIndex*}
+ 433: 306135/  10     -- rel ApplyInactivity: state .INACTIVITY_SCORES[ vid_h ]~> state_1
+ 434: 306135/####     -- rel ApplyInactivity_over_vids: state_1 .INACTIVITY_SCORES[ vid_t*{vid_t <- vid_t*} ]~>* state_updated
+      306135          state .INACTIVITY_SCORES[ validatorIndex*{validatorIndex <- validatorIndex*} ]~>* state_updated
+
+def $is_due_slashing_en:
+      clause 0:
+ 435: 34112/724256     -- if (validator.SLASHED = true)
+ 436: ####/34112     -- if ((epoch + ($EPOCHS_PER_SLASHINGS_VECTOR / 2)) = validator.WITHDRAWABLE_EPOCH)
+      ####          true
+      clause 1:
+ 437: 758368         -- otherwise
+      758368          false
+
+relation DecreaseBalances:
+      rule nil:
+ 438: 1175/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches []
+ 439: 1175/####     -- if gwei*{gwei <- gwei*} matches []
+      1175          state .BALANCES[ validatorIndex*{validatorIndex <- validatorIndex*} ]- gwei*{gwei <- gwei*} ~> state
+      rule cons:
+ 440: ####/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _
+ 441: ####         -- let vid_h :: vid_t*{vid_t <- vid_t*} = validatorIndex*{validatorIndex <- validatorIndex*}
+ 442: ####/####     -- if gwei*{gwei <- gwei*} matches _ :: _
+ 443: ####         -- let penalty_h :: penalty_t*{penalty_t <- penalty_t*} = gwei*{gwei <- gwei*}
+ 444: ####/####     -- rel DecreaseBalance: state .BALANCES[ vid_h ]- penalty_h ~> state_h
+ 445: ####/####     -- rel DecreaseBalances: state_h .BALANCES[ vid_t*{vid_t <- vid_t*} ]- penalty_t*{penalty_t <- penalty_t*} ~> state_t
+      ####          state .BALANCES[ validatorIndex*{validatorIndex <- validatorIndex*} ]- gwei*{gwei <- gwei*} ~> state_t
+
+relation WeighJustificationAndFinalization:
+      rule justify_neither_finalize_prev:
+ 446:  912/   5     -- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))
+ 447:  910/   2     -- if (balance_total_active <= ($UINT64_MAX / 2))
+ 448:  910/####     -- if (balance_current_epoch_target <= ($UINT64_MAX / 3))
+ 449:  368/ 542     -- if ~((balance_prev_epoch_target * 3) >= (balance_total_active * 2))
+ 450:  199/ 169     -- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))
+ 451:  199         -- let bit*{bit <- bit*} = [false, state.JUSTIFICATION_BITS[0], state.JUSTIFICATION_BITS[1], state.JUSTIFICATION_BITS[2]]
+ 452:  199         -- let checkpoint_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
+ 453:  199         -- let checkpoint_cur = state.CURRENT_JUSTIFIED_CHECKPOINT
+ 454:  199         -- let epoch_cur = $get_current_epoch(state)
+ 455:  199/####     -- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))
+ 456:  199/####     -- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))
+ 457:  199/####     -- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))
+ 458:  199/####     -- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))
+ 459: ####/ 199     -- if ((((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) \/ ((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))
+      ####          state TOTAL balance_total_active PREV balance_prev_epoch_target CUR balance_current_epoch_target ~> state[PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur][FINALIZED_CHECKPOINT = checkpoint_prev][JUSTIFICATION_BITS = bit*{bit <- bit*}]
+      rule justify_neither_finalize_neither:
+ 460:  912/   5     -- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))
+ 461:  910/   2     -- if (balance_total_active <= ($UINT64_MAX / 2))
+ 462:  910/####     -- if (balance_current_epoch_target <= ($UINT64_MAX / 3))
+ 463:  368/ 542     -- if ~((balance_prev_epoch_target * 3) >= (balance_total_active * 2))
+ 464:  199/ 169     -- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))
+ 465:  199         -- let bit*{bit <- bit*} = [false, state.JUSTIFICATION_BITS[0], state.JUSTIFICATION_BITS[1], state.JUSTIFICATION_BITS[2]]
+ 466:  199         -- let checkpoint_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
+ 467:  199         -- let checkpoint_cur = state.CURRENT_JUSTIFIED_CHECKPOINT
+ 468:  199         -- let epoch_cur = $get_current_epoch(state)
+ 469:  199/####     -- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))
+ 470:  199/####     -- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))
+ 471:  199/####     -- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))
+ 472:  199/####     -- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))
+ 473:  199/####     -- if (~(((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) /\ ~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))
+       199          state TOTAL balance_total_active PREV balance_prev_epoch_target CUR balance_current_epoch_target ~> state[PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur][JUSTIFICATION_BITS = bit*{bit <- bit*}]
+      rule justify_prev_finalize_prev:
+ 474:  713/   5     -- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))
+ 475:  711/   2     -- if (balance_total_active <= ($UINT64_MAX / 2))
+ 476:  711/####     -- if (balance_current_epoch_target <= ($UINT64_MAX / 3))
+ 477:  542/ 169     -- if ((balance_prev_epoch_target * 3) >= (balance_total_active * 2))
+ 478:  307/ 235     -- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))
+ 479:  307         -- let bit*{bit <- bit*} = [false, true, state.JUSTIFICATION_BITS[1], state.JUSTIFICATION_BITS[2]]
+ 480:  307         -- let checkpoint_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
+ 481:  307         -- let checkpoint_cur = state.CURRENT_JUSTIFIED_CHECKPOINT
+ 482:  307         -- let epoch_prev = $get_previous_epoch(state)
+ 483:  307         -- let epoch_cur = $get_current_epoch(state)
+ 484:  307/####     -- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))
+ 485:  307/####     -- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))
+ 486:  307/####     -- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))
+ 487:  307/####     -- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))
+ 488:  167/ 140     -- if ((((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) \/ ((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))
+       167          state TOTAL balance_total_active PREV balance_prev_epoch_target CUR balance_current_epoch_target ~> state[PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur][CURRENT_JUSTIFIED_CHECKPOINT = {EPOCH epoch_prev, ROOT $get_block_root(state, epoch_prev)}][FINALIZED_CHECKPOINT = checkpoint_prev][JUSTIFICATION_BITS = bit*{bit <- bit*}]
+      rule justify_prev_finalize_neither:
+ 489:  546/   5     -- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))
+ 490:  544/   2     -- if (balance_total_active <= ($UINT64_MAX / 2))
+ 491:  544/####     -- if (balance_current_epoch_target <= ($UINT64_MAX / 3))
+ 492:  375/ 169     -- if ((balance_prev_epoch_target * 3) >= (balance_total_active * 2))
+ 493:  140/ 235     -- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))
+ 494:  140         -- let bit*{bit <- bit*} = [false, true, state.JUSTIFICATION_BITS[1], state.JUSTIFICATION_BITS[2]]
+ 495:  140         -- let checkpoint_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
+ 496:  140         -- let checkpoint_cur = state.CURRENT_JUSTIFIED_CHECKPOINT
+ 497:  140         -- let epoch_prev = $get_previous_epoch(state)
+ 498:  140         -- let epoch_cur = $get_current_epoch(state)
+ 499:  140/####     -- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))
+ 500:  140/####     -- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))
+ 501:  140/####     -- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))
+ 502:  140/####     -- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))
+ 503:  140/####     -- if (~(((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) /\ ~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))
+       140          state TOTAL balance_total_active PREV balance_prev_epoch_target CUR balance_current_epoch_target ~> state[PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur][CURRENT_JUSTIFIED_CHECKPOINT = {EPOCH epoch_prev, ROOT $get_block_root(state, epoch_prev)}][JUSTIFICATION_BITS = bit*{bit <- bit*}]
+      rule justify_cur_finalize_cur:
+ 504:  406/   5     -- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))
+ 505:  404/   2     -- if (balance_total_active <= ($UINT64_MAX / 2))
+ 506:  404/####     -- if (balance_current_epoch_target <= ($UINT64_MAX / 3))
+ 507:  404/####     -- if ((balance_current_epoch_target * 3) >= (balance_total_active * 2))
+ 508:  404         -- let bit*{bit <- bit*} = [true, (state.JUSTIFICATION_BITS[0] \/ ((balance_prev_epoch_target * 3) >= (balance_total_active * 2))), state.JUSTIFICATION_BITS[1], state.JUSTIFICATION_BITS[2]]
+ 509:  404         -- let checkpoint_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
+ 510:  404         -- let checkpoint_cur = state.CURRENT_JUSTIFIED_CHECKPOINT
+ 511:  404         -- let epoch_cur = $get_current_epoch(state)
+ 512:  404/####     -- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))
+ 513:  404/####     -- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))
+ 514:  404/####     -- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))
+ 515:  404/####     -- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))
+ 516:  234/ 170     -- if ((((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 2))) \/ ((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 1))))
+       234          state TOTAL balance_total_active PREV balance_prev_epoch_target CUR balance_current_epoch_target ~> state[PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur][CURRENT_JUSTIFIED_CHECKPOINT = {EPOCH epoch_cur, ROOT $get_block_root(state, epoch_cur)}][FINALIZED_CHECKPOINT = checkpoint_cur][JUSTIFICATION_BITS = bit*{bit <- bit*}]
+      rule justify_cur_finalize_prev:
+ 517:  172/   5     -- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))
+ 518:  170/   2     -- if (balance_total_active <= ($UINT64_MAX / 2))
+ 519:  170/####     -- if (balance_current_epoch_target <= ($UINT64_MAX / 3))
+ 520:  170/####     -- if ((balance_current_epoch_target * 3) >= (balance_total_active * 2))
+ 521:  170         -- let bit*{bit <- bit*} = [true, (state.JUSTIFICATION_BITS[0] \/ ((balance_prev_epoch_target * 3) >= (balance_total_active * 2))), state.JUSTIFICATION_BITS[1], state.JUSTIFICATION_BITS[2]]
+ 522:  170         -- let checkpoint_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
+ 523:  170         -- let checkpoint_cur = state.CURRENT_JUSTIFIED_CHECKPOINT
+ 524:  170         -- let epoch_cur = $get_current_epoch(state)
+ 525:  170/####     -- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))
+ 526:  170/####     -- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))
+ 527:  170/####     -- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))
+ 528:  170/####     -- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))
+ 529: ####/ 170     -- if ((~(((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 2))) /\ ~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 1)))) /\ ((((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) \/ ((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2)))))
+      ####          state TOTAL balance_total_active PREV balance_prev_epoch_target CUR balance_current_epoch_target ~> state[PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur][CURRENT_JUSTIFIED_CHECKPOINT = {EPOCH epoch_cur, ROOT $get_block_root(state, epoch_cur)}][FINALIZED_CHECKPOINT = checkpoint_prev][JUSTIFICATION_BITS = bit*{bit <- bit*}]
+      rule justify_cur_finalize_neither:
+ 530:  172/   5     -- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))
+ 531:  170/   2     -- if (balance_total_active <= ($UINT64_MAX / 2))
+ 532:  170/####     -- if (balance_current_epoch_target <= ($UINT64_MAX / 3))
+ 533:  170/####     -- if ((balance_current_epoch_target * 3) >= (balance_total_active * 2))
+ 534:  170         -- let bit*{bit <- bit*} = [true, (state.JUSTIFICATION_BITS[0] \/ ((balance_prev_epoch_target * 3) >= (balance_total_active * 2))), state.JUSTIFICATION_BITS[1], state.JUSTIFICATION_BITS[2]]
+ 535:  170         -- let checkpoint_prev = state.PREVIOUS_JUSTIFIED_CHECKPOINT
+ 536:  170         -- let checkpoint_cur = state.CURRENT_JUSTIFIED_CHECKPOINT
+ 537:  170         -- let epoch_cur = $get_current_epoch(state)
+ 538:  170/####     -- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))
+ 539:  170/####     -- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))
+ 540:  170/####     -- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))
+ 541:  170/####     -- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))
+ 542:  170/####     -- if (((~(((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 2))) /\ ~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 1)))) /\ ~(((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3)))) /\ ~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))
+       170          state TOTAL balance_total_active PREV balance_prev_epoch_target CUR balance_current_epoch_target ~> state[PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur][CURRENT_JUSTIFIED_CHECKPOINT = {EPOCH epoch_cur, ROOT $get_block_root(state, epoch_cur)}][JUSTIFICATION_BITS = bit*{bit <- bit*}]
+
+relation ProcessEligibilityAndEjection:
+      rule eligible_and_eject:
+ 543: 382272         -- let validator = state.VALIDATORS[vid]
+ 544: 382272         -- let epoch_cur = $get_current_epoch(state)
+ 545: 3136/379136     -- if $is_eligible_for_activation_queue(validator)
+ 546: ####/3136     -- if ($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))
+ 547: ####/####     -- rel InitiateValidatorExit: state[VALIDATORS[vid].ACTIVATION_ELIGIBILITY_EPOCH = (epoch_cur + 1)] .VALIDATORS[ vid ]~> state_updated
+      ####          state .VALIDATORS[ vid ]~> state_updated
+      rule eligible:
+ 548: 382272         -- let validator = state.VALIDATORS[vid]
+ 549: 382272         -- let epoch_cur = $get_current_epoch(state)
+ 550: 3136/379136     -- if $is_eligible_for_activation_queue(validator)
+ 551: 3136/####     -- if ~($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))
+      3136          state .VALIDATORS[ vid ]~> state[VALIDATORS[vid].ACTIVATION_ELIGIBILITY_EPOCH = (epoch_cur + 1)]
+      rule eject:
+ 552: 379136         -- let validator = state.VALIDATORS[vid]
+ 553: 379136         -- let epoch_cur = $get_current_epoch(state)
+ 554: 379136/####     -- if ~$is_eligible_for_activation_queue(validator)
+ 555: 2920/376216     -- if ($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))
+ 556: 2920/####     -- rel InitiateValidatorExit: state .VALIDATORS[ vid ]~> state_updated
+      2920          state .VALIDATORS[ vid ]~> state_updated
+      rule skip:
+ 557: 376216         -- let validator = state.VALIDATORS[vid]
+ 558: 376216         -- let epoch_cur = $get_current_epoch(state)
+ 559: 376216/####     -- if ~$is_eligible_for_activation_queue(validator)
+ 560: 376216/####     -- if ~($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))
+      376216          state .VALIDATORS[ vid ]~> state
+
+relation ProcessEligibilityAndEjection_over_vids:
+      rule nil:
+ 561: 1185/382272     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches []
+      1185          state .VALIDATORS[ validatorIndex*{validatorIndex <- validatorIndex*} ]~> state
+      rule cons:
+ 562: 382272/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _
+ 563: 382272         -- let vid_h :: vid_t*{vid_t <- vid_t*} = validatorIndex*{validatorIndex <- validatorIndex*}
+ 564: 382272/####     -- rel ProcessEligibilityAndEjection: state .VALIDATORS[ vid_h ]~> state_h
+ 565: 382272/####     -- rel ProcessEligibilityAndEjection_over_vids: state_h .VALIDATORS[ vid_t*{vid_t <- vid_t*} ]~> state_out
+      382272          state .VALIDATORS[ validatorIndex*{validatorIndex <- validatorIndex*} ]~> state_out
+
+def $is_eligible_activation_en:
+      clause 0:
+
+relation ApplyActivation:
+      rule :
+
+relation ApplyActivations:
+      rule nil:
+ 566: 1185/1184     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches []
+      1185          state .VALIDATORS[ validatorIndex*{validatorIndex <- validatorIndex*} ].ACTIVATION_EPOCH~>* state
+      rule cons:
+ 567: 1184/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _
+ 568: 1184         -- let vid_h :: vid_t*{vid_t <- vid_t*} = validatorIndex*{validatorIndex <- validatorIndex*}
+ 569: 1184/####     -- rel ApplyActivation: state .VALIDATORS[ vid_h ].ACTIVATION_EPOCH~> state_h
+ 570: 1184/####     -- rel ApplyActivations: state_h .VALIDATORS[ vid_t*{vid_t <- vid_t*} ].ACTIVATION_EPOCH~>* state_out
+      1184          state .VALIDATORS[ validatorIndex*{validatorIndex <- validatorIndex*} ].ACTIVATION_EPOCH~>* state_out
+
+relation ProcessSlot:
+      rule header_root_empty:
+ 571: 40311         -- let i = (state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT)
+ 572: 18439/21872     -- if (state.LATEST_BLOCK_HEADER.STATE_ROOT = $ZERO_ROOT)
+ 573: 18439         -- let root_state_prev = $hash_tree_root_beaconState(state)
+ 574: 18439         -- let beaconBlockHeader = state.LATEST_BLOCK_HEADER[STATE_ROOT = $hash_tree_root_beaconState(state)]
+ 575: 18439         -- let root_block_prev = $hash_tree_root_beaconBlockHeader(beaconBlockHeader)
+      18439          state ~> state[STATE_ROOTS[i] = root_state_prev][LATEST_BLOCK_HEADER = beaconBlockHeader][BLOCK_ROOTS[i] = root_block_prev]
+      rule header_root_not_empty:
+ 576: 21872         -- let i = (state.SLOT \ $SLOTS_PER_HISTORICAL_ROOT)
+ 577: 21872/####     -- if (state.LATEST_BLOCK_HEADER.STATE_ROOT =/= $ZERO_ROOT)
+ 578: 21872         -- let root_state_prev = $hash_tree_root_beaconState(state)
+ 579: 21872         -- let root_block_prev = $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER)
+      21872          state ~> state[STATE_ROOTS[i] = root_state_prev][BLOCK_ROOTS[i] = root_block_prev]
+
+relation ProcessJustificationAndFinalization:
+      rule skip:
+ 580: 1214         -- let epoch_cur = $get_current_epoch(state)
+ 581:  297/ 917     -- if (epoch_cur <= ($GENESIS_EPOCH + 1))
+       297          state ~> state
+      rule main:
+ 582:  917         -- let vid_prev*{vid_prev <- vid_prev*} = $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))
+ 583:  917         -- let vid_cur*{vid_cur <- vid_cur*} = $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_current_epoch(state))
+ 584:  917         -- let balance_total_active = $get_total_active_balance(state)
+ 585:  917         -- let balance_prev_target = $get_total_balance(state, vid_prev*{vid_prev <- vid_prev*})
+ 586:  917         -- let balance_cur_target = $get_total_balance(state, vid_cur*{vid_cur <- vid_cur*})
+ 587:  910/   7     -- rel WeighJustificationAndFinalization: state TOTAL balance_total_active PREV balance_prev_target CUR balance_cur_target ~> state_updated
+       910          state ~> state_updated
+
+relation ProcessInactivityUpdates:
+      rule skip:
+ 588:  197/1010     -- if ($get_current_epoch(state) = $GENESIS_EPOCH)
+       197          state ~> state
+      rule main:
+ 589: 1010         -- otherwise
+ 590: 1010         -- let vid_eligible*{vid_eligible <- vid_eligible*} = $get_eligible_validator_indices(state)
+ 591: 1000/  10     -- rel ApplyInactivity_over_vids: state .INACTIVITY_SCORES[ vid_eligible*{vid_eligible <- vid_eligible*} ]~>* state_updated
+      1000          state ~> state_updated
+
+relation ProcessRewardsAndPenalties:
+      rule skip:
+ 592:  197/1000     -- if ($get_current_epoch(state) = $GENESIS_EPOCH)
+       197          state ~> state
+      rule main:
+ 593: 1000         -- otherwise
+ 594: 1000         -- let vid_flag*{vid_flag <- vid_flag*} = $range(|$PARTICIPATION_FLAG_WEIGHTS|)
+ 595:  999         -- (let (reward_flag*{reward_flag <- reward_flag*}, penalty_flag*{penalty_flag <- penalty_flag*}) = $get_flag_index_deltas(state, vid_flag))*{penalty_flag* <- penalty_flag**, reward_flag* <- reward_flag**, vid_flag <- vid_flag*}
+ 596:  988         -- let (reward_inactivity*{reward_inactivity <- reward_inactivity*}, penalty_inactivity*{penalty_inactivity <- penalty_inactivity*}) = $get_inactivity_penalty_deltas(state)
+ 597:  988         -- let reward*{reward <- reward*}*{reward* <- reward**} = reward_flag*{reward_flag <- reward_flag*}*{reward_flag* <- reward_flag**} ++ [reward_inactivity*{reward_inactivity <- reward_inactivity*}]
+ 598:  988         -- let penalty*{penalty <- penalty*}*{penalty* <- penalty**} = penalty_flag*{penalty_flag <- penalty_flag*}*{penalty_flag* <- penalty_flag**} ++ [penalty_inactivity*{penalty_inactivity <- penalty_inactivity*}]
+ 599:  988         -- let vid*{vid <- vid*} = $range(|state.VALIDATORS|)
+ 600:  988/####     -- rel ApplyRewardsAndPenalties_over_deltas: state .BALANCES[ vid*{vid <- vid*} ]+ reward*{reward <- reward*}*{reward* <- reward**} - penalty*{penalty <- penalty*}*{penalty* <- penalty**} ~>* state_out
+       988          state ~> state_out
+
+relation ProcessRegistryUpdates:
+      rule :
+ 601: 1185         -- let vid*{vid <- vid*} = $range(|state.VALIDATORS|)
+ 602: 1185/####     -- rel ProcessEligibilityAndEjection_over_vids: state .VALIDATORS[ vid*{vid <- vid*} ]~> state_1
+ 603: 1185         -- let (vid_1, validator)*{validator <- validator*, vid_1 <- vid_1*} = $enumerate_<validator>(state_1.VALIDATORS)
+ 604: 1185         -- let (vid_elg, validator_elg)*{validator_elg <- validator_elg*, vid_elg <- vid_elg*} = $filter_list_2_<(nat, validator), beaconState>((vid_1, validator)*{validator <- validator*, vid_1 <- vid_1*}, state_1, $is_eligible_activation_en)
+ 605: 1185         -- (let epoch_elg = validator_elg.ACTIVATION_ELIGIBILITY_EPOCH)*{epoch_elg <- epoch_elg*, validator_elg <- validator_elg*}
+ 606: 1185         -- let (_epoch, vid_activation_queue)*{_epoch <- _epoch*, vid_activation_queue <- vid_activation_queue*} = $sort_<(epoch, validatorIndex)>((epoch_elg, vid_elg)*{epoch_elg <- epoch_elg*, vid_elg <- vid_elg*})
+ 607: 1185         -- let vid_dequeued*{vid_dequeued <- vid_dequeued*} = vid_activation_queue*{vid_activation_queue <- vid_activation_queue*}[0 : $get_validator_churn_limit(state_1)]
+ 608: 1185/####     -- rel ApplyActivations: state_1 .VALIDATORS[ vid_dequeued*{vid_dequeued <- vid_dequeued*} ].ACTIVATION_EPOCH~>* state_out
+      1185          state ~> state_out
+
+relation ProcessSlashings:
+      rule :
+ 609: 1185         -- let epoch_cur = $get_current_epoch(state)
+ 610: 1185         -- let balance_total = $get_total_active_balance(state)
+ 611: 1175/  10     -- if ($sum_<gwei>(state.SLASHINGS) <= ($UINT64_MAX / $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX))
+ 612: 1175         -- let balance_adjusted_total_slashing = $min_uint64(($sum_<gwei>(state.SLASHINGS) * $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX), balance_total)
+ 613: 1175         -- let (vid, validator)*{validator <- validator*, vid <- vid*} = $enumerate_<validator>(state.VALIDATORS)
+ 614: 1175         -- let (vid_due, validator_due)*{validator_due <- validator_due*, vid_due <- vid_due*} = $filter_list_2_<(validatorIndex, validator), epoch>((vid, validator)*{validator <- validator*, vid <- vid*}, epoch_cur, $is_due_slashing_en)
+ 615: 1175         -- let gwei_increment = $EFFECTIVE_BALANCE_INCREMENT
+ 616: 1175         -- (let penalty_numerator = ((validator_due.EFFECTIVE_BALANCE / gwei_increment) * balance_adjusted_total_slashing))*{penalty_numerator <- penalty_numerator*, validator_due <- validator_due*}
+ 617: 1175/####     -- (if (penalty_numerator <= $UINT64_MAX))*{penalty_numerator <- penalty_numerator*}
+ 618: 1175         -- (let penalty = ((penalty_numerator / balance_total) * gwei_increment))*{penalty <- penalty*, penalty_numerator <- penalty_numerator*}
+ 619: 1175/####     -- rel DecreaseBalances: state .BALANCES[ vid_due*{vid_due <- vid_due*} ]- penalty*{penalty <- penalty*} ~> state_out
+      1175          state ~> state_out
+
+relation ProcessEth1DataReset:
+      rule skip:
+ 620: 1175         -- let epoch_next = ($get_current_epoch(state) + 1)
+ 621: 1143/  32     -- if ((epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) =/= 0)
+      1143          state ~> state
+      rule main:
+ 622:   32         -- otherwise
+        32          state ~> state[ETH1_DATA_VOTES = []]
+
+relation ProcessEffectiveBalanceUpdates:
+      rule :
+ 623: 1175         -- let (vid, validator)*{validator <- validator*, vid <- vid*} = $enumerate_<validator>(state.VALIDATORS)
+ 624: 1175/####     -- if (|state.VALIDATORS| <= |state.BALANCES|)
+ 625: 1175         -- (let balance = state.BALANCES[vid])*{balance <- balance*, vid <- vid*}
+ 626: 1175/####     -- (rel ApplyEffectiveBalance: validator .EFFECTIVE_BALANCE balance ~> validator_updated)*{balance <- balance*, validator <- validator*, validator_updated <- validator_updated*}
+      1175          state ~> state[VALIDATORS = validator_updated*{validator_updated <- validator_updated*}]
+
+relation ProcessSlashingsReset:
+      rule :
+ 627: 1175         -- let epoch_next = ($get_current_epoch(state) + 1)
+ 628: 1175         -- let i = (epoch_next \ $EPOCHS_PER_SLASHINGS_VECTOR)
+ 629: 1175/####     -- if (i < |state.SLASHINGS|)
+      1175          state ~> state[SLASHINGS[i] = 0]
+
+relation ProcessRandaoMixesReset:
+      rule :
+ 630: 1175         -- let epoch_cur = $get_current_epoch(state)
+ 631: 1175         -- let epoch_next = (epoch_cur + 1)
+ 632: 1175         -- let i = (epoch_next \ $EPOCHS_PER_HISTORICAL_VECTOR)
+ 633: 1175/####     -- if (i < |state.RANDAO_MIXES|)
+      1175          state ~> state[RANDAO_MIXES[i] = $get_randao_mix(state, epoch_cur)]
+
+relation ProcessHistoricalSummariesUpdate:
+      rule skip:
+ 634: 1175         -- let epoch_next = ($get_current_epoch(state) + 1)
+ 635: 1143/  32     -- if ((epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH)) =/= 0)
+      1143          state ~> state
+      rule main:
+ 636:   32         -- otherwise
+ 637:   32         -- let root_block_summary = $hash_tree_root_roots(state.BLOCK_ROOTS)
+ 638:   32         -- let root_state_summary = $hash_tree_root_roots(state.STATE_ROOTS)
+ 639:   32         -- let historicalSummary = {BLOCK_SUMMARY_ROOT root_block_summary, STATE_SUMMARY_ROOT root_state_summary}
+        32          state ~> state[HISTORICAL_SUMMARIES = state.HISTORICAL_SUMMARIES ++ [historicalSummary]]
+
+relation ProcessParticipationFlagUpdates:
+      rule :
+ 640: 1175         -- let participationFlags_zero*{participationFlags_zero <- participationFlags_zero*} = $repeat_<participationFlags>(0, |state.VALIDATORS|)
+      1175          state ~> state[PREVIOUS_EPOCH_PARTICIPATION = state.CURRENT_EPOCH_PARTICIPATION][CURRENT_EPOCH_PARTICIPATION = participationFlags_zero*{participationFlags_zero <- participationFlags_zero*}]
+
+relation ProcessSyncCommitteeUpdates:
+      rule skip:
+ 641: 1175         -- let epoch_next = ($get_current_epoch(state) + 1)
+ 642: 1143/  32     -- if ((epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) =/= 0)
+      1143          state ~> state
+      rule main:
+ 643:   32         -- otherwise
+        32          state ~> state[CURRENT_SYNC_COMMITTEE = state.NEXT_SYNC_COMMITTEE][NEXT_SYNC_COMMITTEE = $get_next_sync_committee(state)]
+
+relation ProcessEpoch:
+      rule :
+ 644: 1207/   7     -- rel ProcessJustificationAndFinalization: state ~> state_0
+ 645: 1197/  10     -- rel ProcessInactivityUpdates: state_0 ~> state_1
+ 646: 1185/  12     -- rel ProcessRewardsAndPenalties: state_1 ~> state_2
+ 647: 1185/####     -- rel ProcessRegistryUpdates: state_2 ~> state_3
+ 648: 1175/  10     -- rel ProcessSlashings: state_3 ~> state_4
+ 649: 1175/####     -- rel ProcessEth1DataReset: state_4 ~> state_5
+ 650: 1175/####     -- rel ProcessEffectiveBalanceUpdates: state_5 ~> state_6
+ 651: 1175/####     -- rel ProcessSlashingsReset: state_6 ~> state_7
+ 652: 1175/####     -- rel ProcessRandaoMixesReset: state_7 ~> state_8
+ 653: 1175/####     -- rel ProcessHistoricalSummariesUpdate: state_8 ~> state_9
+ 654: 1175/####     -- rel ProcessParticipationFlagUpdates: state_9 ~> state_10
+ 655: 1175/####     -- rel ProcessSyncCommitteeUpdates: state_10 ~> state_11
+      1175          state ~> state_11
+
+relation ProcessSlots_loop:
+      rule base:
+ 656: 19034/40311     -- if (state.SLOT >= slot_target)
+      19034          state slot_target ~> state
+      rule step-no-epoch:
+ 657: 40311/####     -- if (state.SLOT < slot_target)
+ 658: 40311/####     -- rel ProcessSlot: state ~> state_after_slot
+ 659: 40311         -- let slot_cur = state_after_slot.SLOT
+ 660: 40311         -- let slot_next = (slot_cur + 1)
+ 661: 39097/1214     -- if ((slot_next \ $SLOTS_PER_EPOCH) =/= 0)
+ 662: 39097         -- let state_next = state_after_slot[SLOT = slot_next]
+ 663: 38634/ 463     -- rel ProcessSlots_loop: state_next slot_target ~> state_out
+      38634          state slot_target ~> state_out
+      rule step-epoch:
+ 664: 1400/####     -- if (state.SLOT < slot_target)
+ 665: 1400/####     -- rel ProcessSlot: state ~> state_after_slot
+ 666: 1400         -- let slot_cur = state_after_slot.SLOT
+ 667: 1400         -- let slot_next = (slot_cur + 1)
+ 668: 1214/ 186     -- if ((slot_next \ $SLOTS_PER_EPOCH) = 0)
+ 669: 1175/  39     -- rel ProcessEpoch: state_after_slot ~> state_after_epoch
+ 670: 1175         -- let state_next = state_after_epoch[SLOT = slot_next]
+ 671: 1175/####     -- rel ProcessSlots_loop: state_next slot_target ~> state_out
+      1175          state slot_target ~> state_out
+
+relation ProcessSlots:
+      rule :
+ 672: 19073/ 299     -- if (state.SLOT < slot_target)
+ 673: 19034/  39     -- rel ProcessSlots_loop: state slot_target ~> state_out
+      19034          state slot_target ~> state_out
+
+def $expected_withdrawals_loop:
+      clause 0:
+ 674:   47/1743119     -- if (|withdrawal_acc*{withdrawal_acc <- withdrawal_acc*}| = $MAX_WITHDRAWALS_PER_PAYLOAD)
+        47          withdrawal_acc*{withdrawal_acc <- withdrawal_acc*}
+      clause 1:
+ 675: 6453/1736666     -- if (i >= uint64_bound)
+      6453          withdrawal_acc*{withdrawal_acc <- withdrawal_acc*}
+      clause 2:
+ 676: 1736662/   4     -- if (vid < |state.VALIDATORS|)
+ 677: 1736662/####     -- if (vid < |state.BALANCES|)
+ 678: 1736662         -- let validator = state.VALIDATORS[vid]
+ 679: 1736662         -- let balance = state.BALANCES[vid]
+ 680:  473/1736189     -- if ($is_fully_withdrawable_validator(validator, balance, epoch) = true)
+ 681:  473/####     -- if (withdrawalIndex <= ($UINT64_MAX - 1))
+ 682:  473         -- let withdrawal = {INDEX withdrawalIndex, VALIDATOR_INDEX vid, ADDRESS $extract_execution_address(validator.WITHDRAWAL_CREDENTIALS), AMOUNT balance}
+       473          $expected_withdrawals_loop(state, epoch, (withdrawalIndex + 1), ((vid + 1) \ |state.VALIDATORS|), uint64_bound, (i + 1), withdrawal_acc*{withdrawal_acc <- withdrawal_acc*} ++ [withdrawal])
+      clause 3:
+ 683: 1736189/   4     -- if (vid < |state.VALIDATORS|)
+ 684: 1736189/####     -- if (vid < |state.BALANCES|)
+ 685: 1736189         -- let validator = state.VALIDATORS[vid]
+ 686: 1736189         -- let balance = state.BALANCES[vid]
+ 687: 1736189/####     -- if ($is_fully_withdrawable_validator(validator, balance, epoch) = false)
+ 688: 1051/1735138     -- if ($is_partially_withdrawable_validator(validator, balance) = true)
+ 689: 1051/####     -- if (withdrawalIndex <= ($UINT64_MAX - 1))
+ 690: 1051         -- let withdrawal = {INDEX withdrawalIndex, VALIDATOR_INDEX vid, ADDRESS $extract_execution_address(validator.WITHDRAWAL_CREDENTIALS), AMOUNT (balance - $MAX_EFFECTIVE_BALANCE)}
+      1051          $expected_withdrawals_loop(state, epoch, (withdrawalIndex + 1), ((vid + 1) \ |state.VALIDATORS|), uint64_bound, (i + 1), withdrawal_acc*{withdrawal_acc <- withdrawal_acc*} ++ [withdrawal])
+      clause 4:
+ 691: 1735138/   4     -- if (vid < |state.VALIDATORS|)
+ 692: 1735138/####     -- if (vid < |state.BALANCES|)
+ 693: 1735138         -- let validator = state.VALIDATORS[vid]
+ 694: 1735138         -- let balance = state.BALANCES[vid]
+ 695: 1735138/####     -- if ~$is_fully_withdrawable_validator(validator, balance, epoch)
+ 696: 1735138/####     -- if ~$is_partially_withdrawable_validator(validator, balance)
+      1735138          $expected_withdrawals_loop(state, epoch, withdrawalIndex, ((vid + 1) \ |state.VALIDATORS|), uint64_bound, (i + 1), withdrawal_acc*{withdrawal_acc <- withdrawal_acc*})
+
+def $get_expected_withdrawals:
+      clause 0:
+ 697: 6504         -- let epoch_cur = $get_current_epoch(state)
+ 698: 6504         -- let withdrawalIndex_start = state.NEXT_WITHDRAWAL_INDEX
+ 699: 6504         -- let validatorIndex_start = state.NEXT_WITHDRAWAL_VALIDATOR_INDEX
+ 700: 6504         -- let uint64_bound = $min_uint64(|state.VALIDATORS|, $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP)
+      6504          $expected_withdrawals_loop(state, epoch_cur, withdrawalIndex_start, validatorIndex_start, uint64_bound, 0, [])
+
+relation ApplyWithdrawal:
+      rule main:
+ 701: 1418/####     -- rel DecreaseBalance: state .BALANCES[ withdrawal.VALIDATOR_INDEX ]- withdrawal.AMOUNT ~> state_out
+      1418          state .BALANCES{ withdrawal }~> state_out
+
+relation ApplyWithdrawals:
+      rule nil:
+ 702: 6480/1418     -- if withdrawal*{withdrawal <- withdrawal*} matches []
+      6480          state .BALANCES{ withdrawal*{withdrawal <- withdrawal*} }~>* state
+      rule cons:
+ 703: 1418/####     -- if withdrawal*{withdrawal <- withdrawal*} matches _ :: _
+ 704: 1418         -- let withdrawal_h :: withdrawal_t*{withdrawal_t <- withdrawal_t*} = withdrawal*{withdrawal <- withdrawal*}
+ 705: 1418/####     -- rel ApplyWithdrawal: state .BALANCES{ withdrawal_h }~> state_1
+ 706: 1418/####     -- rel ApplyWithdrawals: state_1 .BALANCES{ withdrawal_t*{withdrawal_t <- withdrawal_t*} }~>* state_out
+      1418          state .BALANCES{ withdrawal*{withdrawal <- withdrawal*} }~>* state_out
+
+relation AddFlag:
+      rule main:
+ 707: 87885/102550     -- if ~$has_flag(participationFlags, vid_flag)
+ 708: 87885         -- let reward_base = $get_base_reward(state, vid_attesting)
+      87885          participationFlags [ vid_attesting ]++{ vid_flag }# state #SUM reward ~> $add_flag(participationFlags, vid_flag) #SUM (reward + (reward_base * $PARTICIPATION_FLAG_WEIGHTS[vid_flag]))
+      rule skip:
+ 709: 102550/####     -- if $has_flag(participationFlags, vid_flag)
+      102550          participationFlags [ _validatorIndex ]++{ vid_flag }# _beaconState #SUM reward ~> participationFlags #SUM reward
+
+relation AddFlags:
+      rule nil:
+ 710: 144905/190435     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches []
+      144905          participationFlags [ _validatorIndex ]++{ validatorIndex*{validatorIndex <- validatorIndex*} }# _beaconState #SUM reward ~> participationFlags #SUM reward
+      rule cons:
+ 711: 190435/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _
+ 712: 190435         -- let vid_flag_h :: vid_flag_t*{vid_flag_t <- vid_flag_t*} = validatorIndex*{validatorIndex <- validatorIndex*}
+ 713: 190435/####     -- rel AddFlag: participationFlags [ vid_attesting ]++{ vid_flag_h }# state #SUM reward ~> participationFlags_h #SUM reward_h
+ 714: 190435/####     -- rel AddFlags: participationFlags_h [ vid_attesting ]++{ vid_flag_t*{vid_flag_t <- vid_flag_t*} }# state #SUM reward_h ~> participationFlags_t #SUM reward_t
+      190435          participationFlags [ vid_attesting ]++{ validatorIndex*{validatorIndex <- validatorIndex*} }# state #SUM reward ~> participationFlags_t #SUM reward_t
+
+relation ProcessFlags:
+      rule main:
+ 715: 145298/####     -- if (vid_attesting < |participationFlags*{participationFlags <- participationFlags*}|)
+ 716: 145298/####     -- rel AddFlags: participationFlags*{participationFlags <- participationFlags*}[vid_attesting] [ vid_attesting ]++{ vid_flag*{vid_flag <- vid_flag*} }# state #SUM 0 ~> participationFlags_updated #SUM reward_increment
+      145298          participationFlags*{participationFlags <- participationFlags*} [ vid_attesting ]++{ vid_flag*{vid_flag <- vid_flag*} }# state #SUM reward ~> participationFlags*{participationFlags <- participationFlags*}[[vid_attesting] = participationFlags_updated] #SUM (reward + reward_increment)
+
+relation ProcessFlags_over_attesting:
+      rule nil:
+ 717: 9683/145298     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches []
+      9683          participationFlags*{participationFlags <- participationFlags*} [ validatorIndex*{validatorIndex <- validatorIndex*} ]++{ _validatorIndex*{_validatorIndex <- _validatorIndex*} }# _beaconState #SUM reward ~> participationFlags*{participationFlags <- participationFlags*} #SUM reward
+      rule cons:
+ 718: 145298/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _
+ 719: 145298         -- let vid_attesting_h :: vid_attesting_t*{vid_attesting_t <- vid_attesting_t*} = validatorIndex*{validatorIndex <- validatorIndex*}
+ 720: 145298/####     -- rel ProcessFlags: participationFlags*{participationFlags <- participationFlags*} [ vid_attesting_h ]++{ vid_flag*{vid_flag <- vid_flag*} }# state #SUM reward ~> participationFlags_1*{participationFlags_1 <- participationFlags_1*} #SUM reward_1
+ 721: 145298/####     -- rel ProcessFlags_over_attesting: participationFlags_1*{participationFlags_1 <- participationFlags_1*} [ vid_attesting_t*{vid_attesting_t <- vid_attesting_t*} ]++{ vid_flag*{vid_flag <- vid_flag*} }# state #SUM reward_1 ~> participationFlags_2*{participationFlags_2 <- participationFlags_2*} #SUM reward_2
+      145298          participationFlags*{participationFlags <- participationFlags*} [ validatorIndex*{validatorIndex <- validatorIndex*} ]++{ vid_flag*{vid_flag <- vid_flag*} }# state #SUM reward ~> participationFlags_2*{participationFlags_2 <- participationFlags_2*} #SUM reward_2
+
+def $bit_is_one_en_blsPubkey:
+      clause 0:
+ 722: 3905873/####     -- if (i < |boolean_bits*{boolean_bits <- boolean_bits*}|)
+ 723: 128687/3777186     -- if (boolean_bits*{boolean_bits <- boolean_bits*}[i] = true)
+      128687          true
+      clause 1:
+ 724: 3777186         -- otherwise
+      3777186          false
+
+relation ApplyReward:
+      rule participation:
+ 725: 72832/1727360     -- if (bool = true)
+ 726: 72832/####     -- rel IncreaseBalance: state .BALANCES[ vid_participant ]+ reward_participant ~> state_participant
+ 727: 72832/####     -- rel IncreaseBalance: state_participant .BALANCES[ vid_proposer ]+ reward_proposer ~> state_out
+      72832          state PARTICIPANT bool [ vid_participant ]+ reward_participant PROPOSER[ vid_proposer ]+ reward_proposer ~> state_out
+      rule no_participation:
+ 728: 1727360/####     -- if (bool = false)
+ 729: 1727360/####     -- rel DecreaseBalance: state .BALANCES[ vid_participant ]- reward_participant ~> state_out
+      1727360          state PARTICIPANT bool [ vid_participant ]+ reward_participant PROPOSER[ _validatorIndex ]+ _gwei ~> state_out
+
+relation ApplyReward_over_participants:
+      rule nil:
+ 730: 3516/1800192     -- if boolean*{boolean <- boolean*} matches []
+ 731: 3516/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches []
+      3516          state PARTICIPANT boolean*{boolean <- boolean*} [ validatorIndex*{validatorIndex <- validatorIndex*} ]+ _gwei PROPOSER[ _validatorIndex ]+ _gwei' ~> state
+      rule cons:
+ 732: 1800192/####     -- if boolean*{boolean <- boolean*} matches _ :: _
+ 733: 1800192         -- let boolean_h :: boolean_t*{boolean_t <- boolean_t*} = boolean*{boolean <- boolean*}
+ 734: 1800192/####     -- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _
+ 735: 1800192         -- let vid_participant_h :: vid_participant_t*{vid_participant_t <- vid_participant_t*} = validatorIndex*{validatorIndex <- validatorIndex*}
+ 736: 1800192/####     -- rel ApplyReward: state PARTICIPANT boolean_h [ vid_participant_h ]+ reward_participant PROPOSER[ vid_proposer ]+ reward_proposer ~> state_1
+ 737: 1800192/####     -- rel ApplyReward_over_participants: state_1 PARTICIPANT boolean_t*{boolean_t <- boolean_t*} [ vid_participant_t*{vid_participant_t <- vid_participant_t*} ]+ reward_participant PROPOSER[ vid_proposer ]+ reward_proposer ~> state_out
+      1800192          state PARTICIPANT boolean*{boolean <- boolean*} [ validatorIndex*{validatorIndex <- validatorIndex*} ]+ reward_participant PROPOSER[ vid_proposer ]+ reward_proposer ~> state_out
+
+relation ProcessProposerSlashing:
+      rule :
+ 738: 2530         -- let beaconBlockHeader_1 = proposerSlashing.SIGNED_HEADER_1.MESSAGE
+ 739: 2530         -- let beaconBlockHeader_2 = proposerSlashing.SIGNED_HEADER_2.MESSAGE
+ 740: 2514/  16     -- if (beaconBlockHeader_1.SLOT = beaconBlockHeader_2.SLOT)
+ 741: 2501/  13     -- if (beaconBlockHeader_1.PROPOSER_INDEX = beaconBlockHeader_2.PROPOSER_INDEX)
+ 742: 2501/####     -- if (beaconBlockHeader_1 =/= beaconBlockHeader_2)
+ 743: 2501         -- let vid_proposer = beaconBlockHeader_1.PROPOSER_INDEX
+ 744: 2501/####     -- if (vid_proposer < |state.VALIDATORS|)
+ 745: 2501         -- let validator_proposer = state.VALIDATORS[vid_proposer]
+ 746: 2481/  20     -- if $is_slashable_validator(validator_proposer, $get_current_epoch(state))
+ 747: 2481         -- let signedBeaconBlockHeader_1 = proposerSlashing.SIGNED_HEADER_1
+ 748: 2481         -- let epoch_h1 = $compute_epoch_at_slot(signedBeaconBlockHeader_1.MESSAGE.SLOT)
+ 749: 2481         -- let domain_h1 = $get_domain(state, $DOMAIN_BEACON_PROPOSER, ?(epoch_h1))
+ 750: 2481         -- let root_sign_h1 = $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_1.MESSAGE, domain_h1)
+ 751: 2455/  26     -- if $bls_verify(validator_proposer.PUBKEY, root_sign_h1, signedBeaconBlockHeader_1.SIGNATURE)
+ 752: 2455         -- let signedBeaconBlockHeader_2 = proposerSlashing.SIGNED_HEADER_2
+ 753: 2455         -- let epoch_h2 = $compute_epoch_at_slot(signedBeaconBlockHeader_2.MESSAGE.SLOT)
+ 754: 2455         -- let domain_h2 = $get_domain(state, $DOMAIN_BEACON_PROPOSER, ?(epoch_h2))
+ 755: 2455         -- let root_sign_h2 = $compute_signing_root_beaconBlockHeader(signedBeaconBlockHeader_2.MESSAGE, domain_h2)
+ 756: 2424/  31     -- if $bls_verify(validator_proposer.PUBKEY, root_sign_h2, signedBeaconBlockHeader_2.SIGNATURE)
+ 757: 2424/####     -- rel SlashValidator: state SLASH[ vid_proposer ]BY ?() ~> state_slashed
+      2424          state proposerSlashing ~> state_slashed
+
+relation ProcessProposerSlashings:
+      rule nil:
+ 758: 5566/2530     -- if proposerSlashing*{proposerSlashing <- proposerSlashing*} matches []
+      5566          state proposerSlashing*{proposerSlashing <- proposerSlashing*} ~> state
+      rule cons:
+ 759: 2530/####     -- if proposerSlashing*{proposerSlashing <- proposerSlashing*} matches _ :: _
+ 760: 2530         -- let proposerSlashing_h :: proposerSlashing_t*{proposerSlashing_t <- proposerSlashing_t*} = proposerSlashing*{proposerSlashing <- proposerSlashing*}
+ 761: 2424/ 106     -- rel ProcessProposerSlashing: state proposerSlashing_h ~> state_mid
+ 762: 2209/ 215     -- rel ProcessProposerSlashings: state_mid proposerSlashing_t*{proposerSlashing_t <- proposerSlashing_t*} ~> state_out
+      2209          state proposerSlashing*{proposerSlashing <- proposerSlashing*} ~> state_out
+
+relation ProcessAttesterSlashing:
+      rule :
+ 763:  387         -- let indexedAttestation_1 = attesterSlashing.ATTESTATION_1
+ 764:  387         -- let indexedAttestation_2 = attesterSlashing.ATTESTATION_2
+ 765:  377/  10     -- if ($is_slashable_attestation_data(indexedAttestation_1.DATA, indexedAttestation_2.DATA) = true)
+ 766:  325/  52     -- if ($is_valid_indexed_attestation(state, indexedAttestation_1) = true)
+ 767:  277/  48     -- if ($is_valid_indexed_attestation(state, indexedAttestation_2) = true)
+ 768:  277         -- let vid_intersection*{vid_intersection <- vid_intersection*} = $set_intersection_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation_1.ATTESTING_INDICES), $to_set_<validatorIndex>(indexedAttestation_2.ATTESTING_INDICES))
+ 769:  277         -- let vid_sorted*{vid_sorted <- vid_sorted*} = $sort_<validatorIndex>(vid_intersection*{vid_intersection <- vid_intersection*})
+ 770:  277/####     -- rel SlashIfEligible_over_validators: state SLASH?[ vid_sorted*{vid_sorted <- vid_sorted*} ]~> state_slashed #SLASHED bool_slashed_any
+ 771:  273/   4     -- if bool_slashed_any
+       273          state attesterSlashing ~> state_slashed
+
+relation ProcessAttesterSlashings:
+      rule nil:
+ 772: 5452/ 387     -- if attesterSlashing*{attesterSlashing <- attesterSlashing*} matches []
+      5452          state attesterSlashing*{attesterSlashing <- attesterSlashing*} ~> state
+      rule cons:
+ 773:  387/####     -- if attesterSlashing*{attesterSlashing <- attesterSlashing*} matches _ :: _
+ 774:  387         -- let attesterSlashing_h :: attesterSlashing_t*{attesterSlashing_t <- attesterSlashing_t*} = attesterSlashing*{attesterSlashing <- attesterSlashing*}
+ 775:  273/ 114     -- rel ProcessAttesterSlashing: state attesterSlashing_h ~> state_mid
+ 776:  253/  20     -- rel ProcessAttesterSlashings: state_mid attesterSlashing_t*{attesterSlashing_t <- attesterSlashing_t*} ~> state_out
+       253          state attesterSlashing*{attesterSlashing <- attesterSlashing*} ~> state_out
+
+relation ProcessAttestation:
+      rule current_epoch:
+ 777: 14762         -- let attestationData = attestation.DATA
+ 778: 5006/9756     -- if (attestationData.TARGET.EPOCH = $get_current_epoch(state))
+ 779: 4932/  74     -- if (attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT))
+ 780: 4932/####     -- if ((attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY) <= state.SLOT)
+ 781: 4932/####     -- if (attestationData.SLOT <= ($UINT64_MAX - $SLOTS_PER_EPOCH))
+ 782: 4932/####     -- if (state.SLOT <= (attestationData.SLOT + $SLOTS_PER_EPOCH))
+ 783: 4842/  90     -- if (attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH))
+ 784: 4842         -- let vid_committee*{vid_committee <- vid_committee*} = $get_beacon_committee(state, attestationData.SLOT, attestationData.INDEX)
+ 785: 4842/####     -- if (|attestation.AGGREGATION_BITS| = |vid_committee*{vid_committee <- vid_committee*}|)
+ 786: 4672         -- let vid_participation_flag*{vid_participation_flag <- vid_participation_flag*} = $get_attestation_participation_flag_indices(state, attestationData, (state.SLOT - attestationData.SLOT))
+ 787: 4347/ 325     -- if $is_valid_indexed_attestation(state, $get_indexed_attestation(state, attestation))
+ 788: 4347/####     -- rel ProcessFlags_over_attesting: state.CURRENT_EPOCH_PARTICIPATION [ $get_attesting_indices(state, attestation) ]++{ vid_participation_flag*{vid_participation_flag <- vid_participation_flag*} }# state #SUM 0 ~> participationFlags_updated*{participationFlags_updated <- participationFlags_updated*} #SUM reward_proposer_numerator
+ 789: 4347         -- let state_1 = state[CURRENT_EPOCH_PARTICIPATION = participationFlags_updated*{participationFlags_updated <- participationFlags_updated*}]
+ 790: 4347         -- let reward_proposer_denominator = ((($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT) * $WEIGHT_DENOMINATOR) / $PROPOSER_WEIGHT)
+ 791: 4347         -- let reward_proposer = (reward_proposer_numerator / reward_proposer_denominator)
+ 792: 4347/####     -- rel IncreaseBalance: state_1 .BALANCES[ $get_beacon_proposer_index(state_1) ]+ reward_proposer ~> state_out
+      4347          state attestation ~> state_out
+      rule previous_epoch:
+ 793: 10245         -- let attestationData = attestation.DATA
+ 794: 9659/ 586     -- if (attestationData.TARGET.EPOCH = $get_previous_epoch(state))
+ 795: 9571/  88     -- if (attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT))
+ 796: 9571/####     -- if ((attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY) <= state.SLOT)
+ 797: 9571/####     -- if (attestationData.SLOT <= ($UINT64_MAX - $SLOTS_PER_EPOCH))
+ 798: 9571/####     -- if (state.SLOT <= (attestationData.SLOT + $SLOTS_PER_EPOCH))
+ 799: 9490/  81     -- if (attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH))
+ 800: 9490         -- let vid_committee*{vid_committee <- vid_committee*} = $get_beacon_committee(state, attestationData.SLOT, attestationData.INDEX)
+ 801: 9490/####     -- if (|attestation.AGGREGATION_BITS| = |vid_committee*{vid_committee <- vid_committee*}|)
+ 802: 9340         -- let vid_participation_flag*{vid_participation_flag <- vid_participation_flag*} = $get_attestation_participation_flag_indices(state, attestationData, (state.SLOT - attestationData.SLOT))
+ 803: 9008/ 332     -- if $is_valid_indexed_attestation(state, $get_indexed_attestation(state, attestation))
+ 804: 9008/####     -- rel ProcessFlags_over_attesting: state.PREVIOUS_EPOCH_PARTICIPATION [ $get_attesting_indices(state, attestation) ]++{ vid_participation_flag*{vid_participation_flag <- vid_participation_flag*} }# state #SUM 0 ~> participationFlags_updated*{participationFlags_updated <- participationFlags_updated*} #SUM reward_proposer_numerator
+ 805: 9008         -- let state_1 = state[PREVIOUS_EPOCH_PARTICIPATION = participationFlags_updated*{participationFlags_updated <- participationFlags_updated*}]
+ 806: 9008         -- let reward_proposer_denominator = ((($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT) * $WEIGHT_DENOMINATOR) / $PROPOSER_WEIGHT)
+ 807: 9008         -- let reward_proposer = (reward_proposer_numerator / reward_proposer_denominator)
+ 808: 9008/####     -- rel IncreaseBalance: state_1 .BALANCES[ $get_beacon_proposer_index(state_1) ]+ reward_proposer ~> state_out
+      9008          state attestation ~> state_out
+
+relation ProcessAttestations:
+      rule nil:
+ 809: 4045/16239     -- if attestation*{attestation <- attestation*} matches []
+      4045          state attestation*{attestation <- attestation*} ~> state
+      rule cons:
+ 810: 16239/####     -- if attestation*{attestation <- attestation*} matches _ :: _
+ 811: 16239         -- let attestation_h :: attestation_t*{attestation_t <- attestation_t*} = attestation*{attestation <- attestation*}
+ 812: 14832/1407     -- rel ProcessAttestation: state attestation_h ~> state_h
+ 813: 13455/1377     -- rel ProcessAttestations: state_h attestation_t*{attestation_t <- attestation_t*} ~> state_t
+      13455          state attestation*{attestation <- attestation*} ~> state_t
+
+relation ProcessDeposit:
+      rule main:
+ 814: 2257/  27     -- if $is_valid_merkle_branch($hash_tree_root_depositData(deposit.DATA), deposit.PROOF, ($DEPOSIT_CONTRACT_TREE_DEPTH + 1), state.ETH1_DEPOSIT_INDEX, state.ETH1_DATA.DEPOSIT_ROOT)
+ 815: 2257         -- let state_inc = state[ETH1_DEPOSIT_INDEX = (state.ETH1_DEPOSIT_INDEX + 1)]
+ 816: 2257/####     -- rel ApplyDeposit: state_inc .VALIDATORS++{ deposit.DATA.PUBKEY deposit.DATA.WITHDRAWAL_CREDENTIALS deposit.DATA.AMOUNT }SIGNED deposit.DATA.SIGNATURE ~> state_applied
+      2257          state deposit ~> state_applied
+
+relation ProcessDeposits:
+      rule nil:
+ 817: 4018/2284     -- if deposit*{deposit <- deposit*} matches []
+      4018          state deposit*{deposit <- deposit*} ~> state
+      rule cons:
+ 818: 2284/####     -- if deposit*{deposit <- deposit*} matches _ :: _
+ 819: 2284         -- let deposit_h :: deposit_t*{deposit_t <- deposit_t*} = deposit*{deposit <- deposit*}
+ 820: 2257/  27     -- rel ProcessDeposit: state deposit_h ~> state_h
+ 821: 2137/ 120     -- rel ProcessDeposits: state_h deposit_t*{deposit_t <- deposit_t*} ~> state_t
+      2137          state deposit*{deposit <- deposit*} ~> state_t
+
+relation ProcessVoluntaryExit:
+      rule main:
+ 822: 1372         -- let voluntaryExit = signedVoluntaryExit.MESSAGE
+ 823: 1372         -- let vid_exit = voluntaryExit.VALIDATOR_INDEX
+ 824: 1364/   8     -- if (vid_exit < |state.VALIDATORS|)
+ 825: 1364         -- let validator = state.VALIDATORS[vid_exit]
+ 826: 1364         -- let epoch_cur = $get_current_epoch(state)
+ 827: 1364/####     -- if ($is_active_validator(validator, epoch_cur) = true)
+ 828: 1349/  15     -- if (validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)
+ 829: 1342/   7     -- if (epoch_cur >= voluntaryExit.EPOCH)
+ 830: 1342/####     -- if (validator.ACTIVATION_EPOCH <= ($UINT64_MAX - $SHARD_COMMITTEE_PERIOD))
+ 831: 1342/####     -- if (epoch_cur >= (validator.ACTIVATION_EPOCH + $SHARD_COMMITTEE_PERIOD))
+ 832: 1342         -- let domain_exit = $get_domain(state, $DOMAIN_VOLUNTARY_EXIT, ?(voluntaryExit.EPOCH))
+ 833: 1342         -- let root_vol_exit_signing_root = $compute_signing_root_voluntary_exit(voluntaryExit, domain_exit)
+ 834: 1333/   9     -- if ($bls_verify(validator.PUBKEY, root_vol_exit_signing_root, signedVoluntaryExit.SIGNATURE) = true)
+ 835: 1333/####     -- rel InitiateValidatorExit: state .VALIDATORS[ vid_exit ]~> state_exit
+      1333          state signedVoluntaryExit ~> state_exit
+
+relation ProcessVoluntaryExits:
+      rule nil:
+ 836: 3979/1372     -- if signedVoluntaryExit*{signedVoluntaryExit <- signedVoluntaryExit*} matches []
+      3979          state signedVoluntaryExit*{signedVoluntaryExit <- signedVoluntaryExit*} ~> state
+      rule cons:
+ 837: 1372/####     -- if signedVoluntaryExit*{signedVoluntaryExit <- signedVoluntaryExit*} matches _ :: _
+ 838: 1372         -- let signedVoluntaryExit_h :: signedVoluntaryExit_t*{signedVoluntaryExit_t <- signedVoluntaryExit_t*} = signedVoluntaryExit*{signedVoluntaryExit <- signedVoluntaryExit*}
+ 839: 1333/  39     -- rel ProcessVoluntaryExit: state signedVoluntaryExit_h ~> state_h
+ 840: 1279/  54     -- rel ProcessVoluntaryExits: state_h signedVoluntaryExit_t*{signedVoluntaryExit_t <- signedVoluntaryExit_t*} ~> state_t
+      1279          state signedVoluntaryExit*{signedVoluntaryExit <- signedVoluntaryExit*} ~> state_t
+
+relation ProcessBlsToExecutionChange:
+      rule main:
+ 841:  932         -- let blsToExecutionChange = signedBlsToExecutionChange.MESSAGE
+ 842:  932         -- let vid_change = blsToExecutionChange.VALIDATOR_INDEX
+ 843:  928/   4     -- if (vid_change < |state.VALIDATORS|)
+ 844:  928         -- let validator = state.VALIDATORS[vid_change]
+ 845:  913/  15     -- if ($get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $BLS_WITHDRAWAL_PREFIX)
+ 846:  906/   7     -- if ($strip_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $strip_first_byte($hash_<blsPubkey>(blsToExecutionChange.FROM_BLS_PUBKEY)))
+ 847:  906         -- let domain = $compute_domain($DOMAIN_BLS_TO_EXECUTION_CHANGE, ?(), ?(state.GENESIS_VALIDATORS_ROOT))
+ 848:  906         -- let root_sign = $compute_signing_root_bls_to_execution_change(blsToExecutionChange, domain)
+ 849:  893/  13     -- if ($bls_verify(blsToExecutionChange.FROM_BLS_PUBKEY, root_sign, signedBlsToExecutionChange.SIGNATURE) = true)
+ 850:  893         -- let bytes32_new_wc = $make_withdrawal_credentials_eth1(blsToExecutionChange.TO_EXECUTION_ADDRESS)
+       893          state signedBlsToExecutionChange ~> state[VALIDATORS[vid_change].WITHDRAWAL_CREDENTIALS = bytes32_new_wc]
+
+relation ProcessBlsToExecutionChanges:
+      rule nil:
+ 851: 3940/ 932     -- if signedBlsToExecutionChange*{signedBlsToExecutionChange <- signedBlsToExecutionChange*} matches []
+      3940          state signedBlsToExecutionChange*{signedBlsToExecutionChange <- signedBlsToExecutionChange*} ~> state
+      rule cons:
+ 852:  932/####     -- if signedBlsToExecutionChange*{signedBlsToExecutionChange <- signedBlsToExecutionChange*} matches _ :: _
+ 853:  932         -- let signedBlsToExecutionChange_h :: signedBlsToExecutionChange_t*{signedBlsToExecutionChange_t <- signedBlsToExecutionChange_t*} = signedBlsToExecutionChange*{signedBlsToExecutionChange <- signedBlsToExecutionChange*}
+ 854:  893/  39     -- rel ProcessBlsToExecutionChange: state signedBlsToExecutionChange_h ~> state_h
+ 855:  845/  48     -- rel ProcessBlsToExecutionChanges: state_h signedBlsToExecutionChange_t*{signedBlsToExecutionChange_t <- signedBlsToExecutionChange_t*} ~> state_t
+       845          state signedBlsToExecutionChange*{signedBlsToExecutionChange <- signedBlsToExecutionChange*} ~> state_t
+
+relation ProcessBlockHeader:
+      rule :
+ 856: 19034/####     -- if (block.SLOT = state.SLOT)
+ 857: 18830/ 204     -- if (state.LATEST_BLOCK_HEADER.SLOT < block.SLOT)
+ 858: 18344/ 486     -- if ($get_beacon_proposer_index(state) = block.PROPOSER_INDEX)
+ 859: 6504/11840     -- if (block.PARENT_ROOT = $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER))
+ 860: 6504         -- let beaconBlockHeader_new = {SLOT block.SLOT, PROPOSER_INDEX block.PROPOSER_INDEX, PARENT_ROOT block.PARENT_ROOT, STATE_ROOT $ZERO_ROOT, BODY_ROOT $hash_tree_root_beaconBlockBody(block.BODY)}
+ 861: 6504/####     -- if (block.PROPOSER_INDEX < |state.VALIDATORS|)
+ 862: 6504/####     -- if ~state.VALIDATORS[block.PROPOSER_INDEX].SLASHED
+      6504          state block ~> state[LATEST_BLOCK_HEADER = beaconBlockHeader_new]
+
+relation ProcessWithdrawals:
+      rule len0:
+ 863: 6500         -- let withdrawal_expected*{withdrawal_expected <- withdrawal_expected*} = $get_expected_withdrawals(state)
+ 864: 6480/  20     -- if (executionPayload.WITHDRAWALS = withdrawal_expected*{withdrawal_expected <- withdrawal_expected*})
+ 865: 6480/####     -- rel ApplyWithdrawals: state .BALANCES{ withdrawal_expected*{withdrawal_expected <- withdrawal_expected*} }~>* state_after_debits
+ 866: 6266/ 214     -- if (|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| = 0)
+ 867: 6266         -- let vid_next = ((state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP) \ |state_after_debits.VALIDATORS|)
+      6266          state executionPayload ~> state_after_debits[NEXT_WITHDRAWAL_VALIDATOR_INDEX = vid_next]
+      rule lenMax:
+ 868:  234         -- let withdrawal_expected*{withdrawal_expected <- withdrawal_expected*} = $get_expected_withdrawals(state)
+ 869:  214/  20     -- if (executionPayload.WITHDRAWALS = withdrawal_expected*{withdrawal_expected <- withdrawal_expected*})
+ 870:  214/####     -- rel ApplyWithdrawals: state .BALANCES{ withdrawal_expected*{withdrawal_expected <- withdrawal_expected*} }~>* state_after_debits
+ 871:   43/ 171     -- if (|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| = $MAX_WITHDRAWALS_PER_PAYLOAD)
+ 872:   43         -- let withdrawal_latest = withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}[(|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| - 1)]
+ 873:   43         -- let withdrawalIndex_next = (withdrawal_latest.INDEX + 1)
+ 874:   43         -- let vid_next = ((withdrawal_latest.VALIDATOR_INDEX + 1) \ |state_after_debits.VALIDATORS|)
+        43          state executionPayload ~> state_after_debits[NEXT_WITHDRAWAL_INDEX = withdrawalIndex_next][NEXT_WITHDRAWAL_VALIDATOR_INDEX = vid_next]
+      rule lenPartial:
+ 875:  191         -- let withdrawal_expected*{withdrawal_expected <- withdrawal_expected*} = $get_expected_withdrawals(state)
+ 876:  171/  20     -- if (executionPayload.WITHDRAWALS = withdrawal_expected*{withdrawal_expected <- withdrawal_expected*})
+ 877:  171/####     -- rel ApplyWithdrawals: state .BALANCES{ withdrawal_expected*{withdrawal_expected <- withdrawal_expected*} }~>* state_after_debits
+ 878:  171/####     -- if (|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| =/= 0)
+ 879:  171/####     -- if (|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| =/= $MAX_WITHDRAWALS_PER_PAYLOAD)
+ 880:  171         -- let withdrawal_latest = withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}[(|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| - 1)]
+ 881:  171         -- let withdrawalIndex_next = (withdrawal_latest.INDEX + 1)
+ 882:  171         -- let vid_next = ((state_after_debits.NEXT_WITHDRAWAL_VALIDATOR_INDEX + $MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP) \ |state_after_debits.VALIDATORS|)
+       171          state executionPayload ~> state_after_debits[NEXT_WITHDRAWAL_INDEX = withdrawalIndex_next][NEXT_WITHDRAWAL_VALIDATOR_INDEX = vid_next]
+
+relation ProcessExecutionPayload:
+      rule main:
+ 883: 6480         -- let executionPayload = body.EXECUTION_PAYLOAD
+ 884: 6291/ 189     -- if (executionPayload.PARENT_HASH = state.LATEST_EXECUTION_PAYLOAD_HEADER.BLOCK_HASH)
+ 885: 6073/ 218     -- if (executionPayload.PREV_RANDAO = $get_randao_mix(state, $get_current_epoch(state)))
+ 886: 5884/ 189     -- if (executionPayload.TIMESTAMP = $compute_time_at_slot(state, state.SLOT))
+ 887: 5884/####     -- if $ee_verify_and_notify_new_payload(executionPayload)
+ 888: 5884         -- let executionPayloadHeader = {PARENT_HASH executionPayload.PARENT_HASH, FEE_RECIPIENT executionPayload.FEE_RECIPIENT, STATE_ROOT executionPayload.STATE_ROOT, RECEIPTS_ROOT executionPayload.RECEIPTS_ROOT, LOGS_BLOOM executionPayload.LOGS_BLOOM, PREV_RANDAO executionPayload.PREV_RANDAO, BLOCK_NUMBER executionPayload.BLOCK_NUMBER, GAS_LIMIT executionPayload.GAS_LIMIT, GAS_USED executionPayload.GAS_USED, TIMESTAMP executionPayload.TIMESTAMP, EXTRA_DATA executionPayload.EXTRA_DATA, BASE_FEE_PER_GAS executionPayload.BASE_FEE_PER_GAS, BLOCK_HASH executionPayload.BLOCK_HASH, TRANSACTIONS_ROOT $hash_tree_root_tx(executionPayload.TRANSACTIONS), WITHDRAWALS_ROOT $hash_tree_root_withdrawals(executionPayload.WITHDRAWALS)}
+      5884          state body ~> state[LATEST_EXECUTION_PAYLOAD_HEADER = executionPayloadHeader]
+
+relation ProcessRandao:
+      rule :
+ 889: 5884         -- let epoch = $get_current_epoch(state)
+ 890: 5884         -- let vid_proposer = $get_beacon_proposer_index(state)
+ 891: 5884/####     -- if (vid_proposer < |state.VALIDATORS|)
+ 892: 5884         -- let validator_proposer = state.VALIDATORS[vid_proposer]
+ 893: 5884         -- let domain_randao = $get_domain(state, $DOMAIN_RANDAO, ?())
+ 894: 5884         -- let root_signing = $compute_signing_root_epoch(epoch, domain_randao)
+ 895: 5689/ 195     -- if $bls_verify(validator_proposer.PUBKEY, root_signing, body.RANDAO_REVEAL)
+ 896: 5689         -- let bytes32_mix_old = $get_randao_mix(state, epoch)
+ 897: 5689         -- let bytes32_hash_reveal = $hash_<blsSignature>(body.RANDAO_REVEAL)
+ 898: 5689         -- let bytes32_mix_new = $xor(bytes32_mix_old, bytes32_hash_reveal)
+ 899: 5689         -- let uint64_n = (epoch \ $EPOCHS_PER_HISTORICAL_VECTOR)
+      5689          state body ~> state[RANDAO_MIXES[uint64_n] = bytes32_mix_new]
+
+relation ProcessEth1Data:
+      rule majority:
+ 900: 5689         -- let eth1Data_update*{eth1Data_update <- eth1Data_update*} = state.ETH1_DATA_VOTES ++ [body.ETH1_DATA]
+ 901: 5689         -- let n_occ = $count_occurrences_<eth1Data>(eth1Data_update*{eth1Data_update <- eth1Data_update*}, body.ETH1_DATA)
+ 902: ####/5689     -- if ((n_occ * 2) > ($EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH))
+      ####          state body ~> state[ETH1_DATA_VOTES = eth1Data_update*{eth1Data_update <- eth1Data_update*}][ETH1_DATA = body.ETH1_DATA]
+      rule accumulate:
+ 903: 5689         -- let eth1Data_update*{eth1Data_update <- eth1Data_update*} = state.ETH1_DATA_VOTES ++ [body.ETH1_DATA]
+ 904: 5689         -- let n_occ = $count_occurrences_<eth1Data>(eth1Data_update*{eth1Data_update <- eth1Data_update*}, body.ETH1_DATA)
+ 905: 5689/####     -- if ((n_occ * 2) <= ($EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH))
+      5689          state body ~> state[ETH1_DATA_VOTES = eth1Data_update*{eth1Data_update <- eth1Data_update*}]
+
+relation ProcessOperations:
+      rule :
+ 906: 5686/   3     -- if (state.ETH1_DEPOSIT_INDEX <= state.ETH1_DATA.DEPOSIT_COUNT)
+ 907: 5672/  14     -- if (|body.DEPOSITS| = $min_uint64($MAX_DEPOSITS, (state.ETH1_DATA.DEPOSIT_COUNT - state.ETH1_DEPOSIT_INDEX)))
+ 908: 5566/ 106     -- rel ProcessProposerSlashings: state body.PROPOSER_SLASHINGS ~> state_ps
+ 909: 5452/ 114     -- rel ProcessAttesterSlashings: state_ps body.ATTESTER_SLASHINGS ~> state_as
+ 910: 4045/1407     -- rel ProcessAttestations: state_as body.ATTESTATIONS ~> state_att
+ 911: 4018/  27     -- rel ProcessDeposits: state_att body.DEPOSITS ~> state_dep
+ 912: 3979/  39     -- rel ProcessVoluntaryExits: state_dep body.VOLUNTARY_EXITS ~> state_ve
+ 913: 3940/  39     -- rel ProcessBlsToExecutionChanges: state_ve body.BLS_TO_EXECUTION_CHANGES ~> state_out
+      3940          state body ~> state_out
+
+relation ProcessSyncAggregate:
+      rule :
+ 914: 3940         -- let blsPubkey_committee*{blsPubkey_committee <- blsPubkey_committee*} = state.CURRENT_SYNC_COMMITTEE.PUBKEYS
+ 915: 3940         -- let (i_committee, blsPubkey)*{blsPubkey <- blsPubkey*, i_committee <- i_committee*} = $enumerate_<blsPubkey>(blsPubkey_committee*{blsPubkey_committee <- blsPubkey_committee*})
+ 916: 3940/####     -- (if (blsPubkey = blsPubkey_committee))*{blsPubkey <- blsPubkey*, blsPubkey_committee <- blsPubkey_committee*}
+ 917: 3940         -- let (_nat, blsPubkey_participants)*{_nat <- _nat*, blsPubkey_participants <- blsPubkey_participants*} = $filter_list_2_<(nat, blsPubkey), boolean*>((i_committee, blsPubkey_committee)*{blsPubkey_committee <- blsPubkey_committee*, i_committee <- i_committee*}, syncAggregate.SYNC_COMMITTEE_BITS, $bit_is_one_en_blsPubkey)
+ 918: 3940         -- let slot_prev = $get_prev_slot(state.SLOT)
+ 919: 3940         -- let domain = $get_domain(state, $DOMAIN_SYNC_COMMITTEE, ?($compute_epoch_at_slot(slot_prev)))
+ 920: 3940         -- let root_sign = $compute_signing_root_block_root($get_block_root_at_slot(state, slot_prev), domain)
+ 921: 3521/ 419     -- if $eth_fast_aggregate_verify(blsPubkey_participants*{blsPubkey_participants <- blsPubkey_participants*}, root_sign, syncAggregate.SYNC_COMMITTEE_SIGNATURE)
+ 922: 3521         -- let uint64_total_incs = ($get_total_active_balance(state) / $EFFECTIVE_BALANCE_INCREMENT)
+ 923: 3521         -- let reward_total_base = ($get_base_reward_per_increment(state) * uint64_total_incs)
+ 924: 3521         -- let reward_max_participant = (((reward_total_base * $SYNC_REWARD_WEIGHT) / $WEIGHT_DENOMINATOR) / $SLOTS_PER_EPOCH)
+ 925: 3521         -- let reward_participant = (reward_max_participant / $SYNC_COMMITTEE_SIZE)
+ 926: 3521         -- let reward_proposer = ((reward_participant * $PROPOSER_WEIGHT) / ($WEIGHT_DENOMINATOR - $PROPOSER_WEIGHT))
+ 927: 3521         -- let (vid, validator)*{validator <- validator*, vid <- vid*} = $enumerate_<validator>(state.VALIDATORS)
+ 928: 3521         -- (let blsPubkey_existing = validator.PUBKEY)*{blsPubkey_existing <- blsPubkey_existing*, validator <- validator*}
+ 929: 3521/####     -- if (state.CURRENT_SYNC_COMMITTEE.PUBKEYS = blsPubkey_committee*{blsPubkey_committee <- blsPubkey_committee*})
+ 930: 3516         -- (let vid_committee = $index_of_pubkey((vid, blsPubkey_existing)*{blsPubkey_existing <- blsPubkey_existing*, vid <- vid*}, blsPubkey_committee))*{blsPubkey_committee <- blsPubkey_committee*, vid_committee <- vid_committee*}
+ 931: 3516         -- let boolean_participation*{boolean_participation <- boolean_participation*} = syncAggregate.SYNC_COMMITTEE_BITS
+ 932: 3516         -- let vid_proposer = $get_beacon_proposer_index(state)
+ 933: 3516/####     -- rel ApplyReward_over_participants: state PARTICIPANT boolean_participation*{boolean_participation <- boolean_participation*} [ vid_committee*{vid_committee <- vid_committee*} ]+ reward_participant PROPOSER[ vid_proposer ]+ reward_proposer ~> state_updated
+      3516          state syncAggregate ~> state_updated
+
+relation ProcessBlock:
+      rule :
+ 934: 6504/12530     -- rel ProcessBlockHeader: state block ~> state_0
+ 935: 6480/  24     -- rel ProcessWithdrawals: state_0 block.BODY.EXECUTION_PAYLOAD ~> state_1
+ 936: 5884/ 596     -- rel ProcessExecutionPayload: state_1 block.BODY ~> state_2
+ 937: 5689/ 195     -- rel ProcessRandao: state_2 block.BODY ~> state_3
+ 938: 5689/####     -- rel ProcessEth1Data: state_3 block.BODY ~> state_4
+ 939: 3940/1749     -- rel ProcessOperations: state_4 block.BODY ~> state_5
+ 940: 3516/ 424     -- rel ProcessSyncAggregate: state_5 block.BODY.SYNC_AGGREGATE ~> state_6
+      3516          state block ~>* state_6
+
+relation State_transition:
+      rule validate:
+ 941: ####/19372     -- if (bool = true)
+ 942: ####         -- let beaconBlock = signedBeaconBlock.MESSAGE
+ 943: ####/####     -- rel ProcessSlots: state beaconBlock.SLOT ~> state_cur
+ 944: ####/####     -- if $verify_block_signature(state_cur, signedBeaconBlock)
+ 945: ####/####     -- rel ProcessBlock: state_cur beaconBlock ~>* state_next
+ 946: ####/####     -- if (beaconBlock.STATE_ROOT = $hash_tree_root_beaconState(state_next))
+      ####          state signedBeaconBlock bool ~>* state_next
+      rule skip-validate:
+ 947: 19372/####     -- if (bool = false)
+ 948: 19372         -- let beaconBlock = signedBeaconBlock.MESSAGE
+ 949: 19034/ 338     -- rel ProcessSlots: state beaconBlock.SLOT ~> state_cur
+ 950: 3516/15518     -- rel ProcessBlock: state_cur beaconBlock ~>* state_next
+      3516          state signedBeaconBlock bool ~>* state_next
+
+=== Symbolic Mutations ===
+
+(no symbolic mutations found)
+
