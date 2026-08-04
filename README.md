@@ -91,7 +91,7 @@ Expect 0 mismatch and 0 crash cases (all six implementations agreed). Proceed to
 | --- | --- | --- | --- |
 | C1 | Consensus-SpecTec passes 910 official tests | §4 | [B.3](#b3-validate-consensus-spectec-c1) |
 | C2 | 24 divergences (10 Class-A, 14 Class-B), 6 categories | Table 1 | [B.6](#b6-rq1-bug-finding-effectiveness-c2) |
-| C3 | Premise coverage 61.8% → 91.2% | Table 2 | [B.7 Spec Coverage](#spec-coverage-c3) |
+| C3 | Premise coverage 46.1% → 90.8% | Table 2 | [B.7 Spec Coverage](#spec-coverage-c3) |
 | C4 | Code-coverage gains modest, complementary | Table 3 | [B.7 Implementation Coverage](#implementation-coverage-c4) |
 | C5 | All 24 reproduce under Deneb, ~28-line cross-fork extension | §7.3 | [B.8](#b8-rq3-cross-fork-reproducibility-c5) |
 
@@ -253,7 +253,7 @@ This run takes multiple hours, so the precomputed result ships under `testgen_da
 
 ### Spec coverage (C3)
 
-Reproduces **Table 2** (126/204 = 61.8% → 186/204 = 91.2%).
+Reproduces **Table 2** (130/282 = 46.1% → 256/282 = 90.8%).
 
 Some generated JSON tests fail SSZ conversion (e.g. variable-length arrays where SSZ expects a fixed vector). Filter them for a fair comparison, then measure coverage:
 
@@ -268,7 +268,7 @@ nohup ./spectec-core eth coverage -v \
   --node-coverage.output capella-testgen.txt
 ```
 
-The precomputed `baseline.txt` and `baseline+testgen.txt` are the raw premise-coverage reports, in which falsified premises rise from 129/317 to 191/317. Table 2's 61.8% → 91.2% restricts this to the 204 falsifiable premises (317 minus the 108 unfalsifiable and 5 redundant of §5), giving 126/204 → 186/204.
+The precomputed `baseline.txt` and `baseline+testgen.txt` are the raw premise-coverage reports, in which falsified premises rise from 130/392 to 256/392. Table 2's 46.1% → 90.8% restricts this to the 282 falsifiable premises (392 minus the 110 unfalsifiable of §5), giving 130/282 → 256/282. Every falsified premise lies inside the falsifiable set, so the restriction moves the denominator only. The per-premise classification behind the split is `testgen_data/capella/premise_classification.tsv`.
 
 Checkpoint utilities:
 
@@ -355,7 +355,8 @@ artifact-eval/
 │   └── lighthouse/ prysm/ nimbus/ teku/ lodestar/
 │
 ├── testgen_data/                    Precomputed checkpoints and target premises
-│   ├── capella/                     baseline.ckpt, baseline.txt, target_premises.txt, baseline+testgen.*
+│   ├── capella/                     baseline.*, baseline+testgen.*, baseline+random.*, baseline+extreme.*,
+│   │                                target_premises.txt, premise_classification.tsv
 │   └── deneb/
 │
 ├── diff_testing.py                  Six-implementation differential harness
