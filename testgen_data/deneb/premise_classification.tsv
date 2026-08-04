@@ -1,0 +1,389 @@
+deneb_uid	capella_uid	decl	premise	base_succ	base_fail	comb_succ	comb_fail	category	note
+0	0	def $filter_list_	-- if X*{X <- X*} matches []	360	156483	63070	28267355	falsifiable-covered	
+1	1	def $filter_list_	-- if X*{X <- X*} matches _ :: _	156483	0	28267355	0	unfalsifiable-closing	
+3	3	def $filter_list_	-- if ($cond(X_h) = true)	28093	128390	5424460	22842895	falsifiable-covered	
+4	4	def $filter_list_	-- if X*{X <- X*} matches _ :: _	128390	0	22842895	0	unfalsifiable-closing	
+6	6	def $filter_list_	-- if ($cond(X_h) = false)	128390	0	22842895	0	unfalsifiable-closing	
+7	7	def $filter_list_2_	-- if X*{X <- X*} matches []	23408	7384929	10167340	3607426746	falsifiable-covered	
+8	8	def $filter_list_2_	-- if X*{X <- X*} matches _ :: _	7384929	0	3607426746	0	unfalsifiable-closing	
+10	10	def $filter_list_2_	-- if ($cond(X_h, Y) = true)	5396617	1988312	2477701988	1129724758	falsifiable-covered	
+11	11	def $filter_list_2_	-- if X*{X <- X*} matches _ :: _	1988312	0	1129724424	0	unfalsifiable-closing	
+13	13	def $filter_list_2_	-- if ($cond(X_h, Y) = false)	1988312	0	1129724424	0	unfalsifiable-closing	
+14	14	def $fold_	-- if Y*{Y <- Y*} matches []	9697	868783	1042685	93652880	falsifiable-covered	
+15	15	def $fold_	-- if Y*{Y <- Y*} matches _ :: _	868783	0	93652880	0	unfalsifiable-closing	
+17	17	def $has_flag	-- if (n >= 8)	0	1256	0	113036	falsifiable-covered	
+18	18	def $has_flag	-- if (((participationFlags / $pow2(n)) \ 2) = 1)	147	1109	46836	66200	falsifiable-covered	
+20	20	def $add_flag	-- if (n >= 8)	0	1016	0	12881	falsifiable-covered	
+21	21	def $add_flag	-- if (((participationFlags / $pow2(n)) \ 2) = 1)	0	1016	0	12881	falsifiable-covered	
+23	23	def $max_uint64	-- if (x >= y)	406149	399110	43675943	40296791	falsifiable-covered	
+25	25	def $min_uint64	-- if (x <= y)	638	1512	36581	370770	falsifiable-covered	
+27	27	def $eth_fast_aggregate_verify	-- if (|blsPubkey*{blsPubkey <- blsPubkey*}| = 0)	535	18	1672	391	falsifiable-covered	
+28	28	def $eth_fast_aggregate_verify	-- if (blsSignature = $G2_POINT_AT_INFINITY)	535	0	1496	176	falsifiable-covered	
+30	30	def $index_of_pubkey	-- if (validatorIndex, blsPubkey)*{(validatorIndex, blsPubkey) <- (validatorIndex, blsPubkey)*} matches _ :: _	19256958	0	86407595	121	falsifiable-covered	
+32	32	def $index_of_pubkey	-- if (blsPubkey_h = blsPubkey_committee)	144004	19112954	523625	85883970	falsifiable-covered	
+33	33	def $index_of_pubkey	-- if (validatorIndex, blsPubkey)*{(validatorIndex, blsPubkey) <- (validatorIndex, blsPubkey)*} matches _ :: _	19112954	0	85883970	121	falsifiable-covered	
+41	36	def $get_previous_epoch	-- if ($get_current_epoch(state) = $GENESIS_EPOCH)	0	5648	123	3166149	falsifiable-covered	
+43	38	def $get_prev_slot	-- if (slot = 0)	0	553	0	2063	falsifiable-covered	
+45	40	def $compute_domain	-- if version'?{version' <- version'?} matches (_)	1602	39	23613	2893	falsifiable-covered	
+47	42	def $compute_domain	-- if root'?{root' <- root'?} matches (_)	1602	0	23613	0	unfalsifiable-tautology	
+49	44	def $compute_domain	-- if version?{version <- version?} matches ()	39	0	2893	0	unfalsifiable-closing	
+50	45	def $compute_domain	-- if root?{root <- root?} matches ()	20	19	2135	758	falsifiable-covered	
+51	46	def $compute_domain	-- if version'?{version' <- version'?} matches (_)	0	19	0	758	falsifiable-covered	
+53	48	def $compute_domain	-- if root?{root <- root?} matches ()	0	0	0	0	unfalsifiable-tautology	
+54	49	def $compute_domain	-- if version?{version <- version?} matches ()	19	0	758	0	unfalsifiable-closing	
+55	50	def $compute_domain	-- if root'?{root' <- root'?} matches (_)	19	0	758	0	unfalsifiable-closing	
+57	52	def $get_domain	-- if epoch?{epoch <- epoch?} matches ()	562	1584	9082	135721	falsifiable-covered	
+59	54	def $get_domain	-- if (epoch_cur < state.FORK.EPOCH)	0	562	0	9082	falsifiable-covered	
+60	55	def $get_domain	-- if epoch?{epoch <- epoch?} matches ()	562	1584	9082	135721	falsifiable-covered	
+63	58	def $get_domain	-- if epoch'?{epoch' <- epoch'?} matches (_)	1584	0	135721	0	unfalsifiable-closing	
+65	60	def $get_domain	-- if (epoch < state.FORK.EPOCH)	0	1584	0	135721	falsifiable-covered	
+66	61	def $get_domain	-- if epoch'?{epoch' <- epoch'?} matches (_)	1584	0	135721	0	unfalsifiable-closing	
+69	64	def $verify_block_signature	-- if (signedBeaconBlock.MESSAGE.PROPOSER_INDEX < |state.VALIDATORS|)	0	0	0	0	unfalsifiable-tautology	
+72	67	def $verify_block_signature	-- if $bls_verify(validator_proposer.PUBKEY, root_signing, signedBeaconBlock.SIGNATURE)	0	0	0	0	unfalsifiable-tautology	
+74	69	def $is_active_validator	-- if (validator.ACTIVATION_EPOCH <= epoch)	345911	3828	18602094	1903168	falsifiable-covered	
+75	70	def $is_active_validator	-- if (epoch < validator.EXIT_EPOCH)	342725	3186	17092099	1509995	falsifiable-covered	
+77	72	def $is_eligible_for_activation_queue	-- if (validator.ACTIVATION_ELIGIBILITY_EPOCH = $FAR_FUTURE_EPOCH)	112	11520	101318	4367001	falsifiable-covered	
+78	73	def $is_eligible_for_activation_queue	-- if (validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)	112	0	101171	147	falsifiable-covered	
+80	75	def $is_eligible_for_activation	-- if (validator.ACTIVATION_ELIGIBILITY_EPOCH <= state.FINALIZED_CHECKPOINT.EPOCH)	11520	112	4367001	101318	falsifiable-covered	
+81	76	def $is_eligible_for_activation	-- if (validator.ACTIVATION_EPOCH = $FAR_FUTURE_EPOCH)	368	11152	250516	4116485	falsifiable-covered	
+83	78	def $is_slashable_validator	-- if ~validator.SLASHED	224	12	57104	184	falsifiable-covered	
+84	79	def $is_slashable_validator	-- if (validator.ACTIVATION_EPOCH <= epoch)	224	0	57104	0	unfalsifiable-tautology	
+85	80	def $is_slashable_validator	-- if (epoch < validator.WITHDRAWABLE_EPOCH)	224	0	57104	0	target-limitation	
+87	82	def $is_fully_withdrawable_validator	-- if ($has_eth1_withdrawal_credential(validator) = true)	146	147882	36583	3611608	falsifiable-covered	
+88	83	def $is_fully_withdrawable_validator	-- if (validator.WITHDRAWABLE_EPOCH <= epoch)	29	117	4764	31819	falsifiable-covered	
+89	84	def $is_fully_withdrawable_validator	-- if (balance > 0)	28	1	4763	1	falsifiable-covered	
+91	86	def $is_partially_withdrawable_validator	-- if ($has_eth1_withdrawal_credential(validator) = true)	118	147882	31820	3611608	falsifiable-covered	
+92	87	def $is_partially_withdrawable_validator	-- if (validator.EFFECTIVE_BALANCE = $MAX_EFFECTIVE_BALANCE)	79	39	18154	13666	falsifiable-covered	
+93	88	def $is_partially_withdrawable_validator	-- if (balance > $MAX_EFFECTIVE_BALANCE)	78	1	18100	54	falsifiable-covered	
+109	104	def $has_flag_for_index	-- if (vid < |participationFlags_list*{participationFlags_list <- participationFlags_list*}|)	2897677	0	1887240734	334	falsifiable-covered	
+110	105	def $is_unslashed	-- if (vid < |state.VALIDATORS|)	1083581	0	641668706	0	unfalsifiable-tautology	
+112	107	def $is_unslashed	-- if (validator.SLASHED = false)	875669	207912	507340272	134328434	falsifiable-covered	
+114	109	def $get_unslashed_participating_indices	-- if ($get_current_epoch(state) = epoch)	27	5213	11859	3135484	falsifiable-covered	
+118	113	def $get_unslashed_participating_indices	-- if ($get_previous_epoch(state) = epoch)	5213	0	3135484	0	unfalsifiable-tautology	
+124	117	def $get_block_root_at_slot	-- if (slot < state.SLOT)	2804	0	268537	0	unfalsifiable-tautology	
+125	118	def $get_block_root_at_slot	-- if (slot <= ($UINT64_MAX - $SLOTS_PER_HISTORICAL_ROOT))	2804	0	268537	0	target-limitation	
+126	119	def $get_block_root_at_slot	-- if (state.SLOT <= (slot + $SLOTS_PER_HISTORICAL_ROOT))	2804	0	268537	0	unfalsifiable-tautology	
+128	121	def $get_finality_delay	-- if ($get_previous_epoch(state) >= state.FINALIZED_CHECKPOINT.EPOCH)	5128	0	3103306	68	falsifiable-covered	
+129	122	def $choose_index	-- if (nat_bit = 1)	410819	407562	42250666	41940393	falsifiable-covered	
+152	145	def $compute_proposer_index_loop	-- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))	2959	0	224918	120	falsifiable-covered	
+153	146	def $compute_proposer_index_loop	-- if ((balance_effective * $MAX_RANDOM_BYTE) >= ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))	2868	91	190554	34364	falsifiable-covered	
+158	151	def $compute_proposer_index_loop	-- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))	91	0	34364	120	falsifiable-covered	
+159	152	def $compute_proposer_index_loop	-- if ((balance_effective * $MAX_RANDOM_BYTE) < ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))	91	0	34364	0	unfalsifiable-closing	
+160	153	def $compute_proposer_index	-- if (|vid*{vid <- vid*}| > 0)	2868	0	190674	60	falsifiable-covered	
+165	158	relation IncreaseBalance	-- if (vid < |state.BALANCES|)	52987	0	17078425	138	falsifiable-covered	
+167	160	relation IncreaseBalance	-- if (balance <= ($UINT64_MAX - delta))	52987	0	17078352	73	falsifiable-covered	
+168	161	relation DecreaseBalance	-- if (vid < |state.BALANCES|)	312765	0	17408937	1	falsifiable-covered	reclassified from target-limitation
+170	163	relation DecreaseBalance	-- if (delta > balance)	61	312704	854	17408083	falsifiable-covered	
+171	164	relation DecreaseBalance	-- if (vid < |state.BALANCES|)	312704	0	17408083	1	falsifiable-covered	reclassified from target-limitation
+173	166	relation DecreaseBalance	-- if (delta <= balance)	312704	0	17408083	0	unfalsifiable-closing	
+174	167	def $exit_epoch_not_far_future	-- if (validator.EXIT_EPOCH =/= $FAR_FUTURE_EPOCH)	28093	256780	5424460	45685790	falsifiable-covered	
+176	169	def $exit_epoch_eq	-- if (validator.EXIT_EPOCH = epoch)	839	54508	151142	10546636	falsifiable-covered	
+178	171	def $select_epoch_exit_queue	-- if (uint64_churn >= uint64_limit)	80	280	14933	48137	falsifiable-covered	
+180	173	relation InitiateValidatorExit	-- if (vid < |state.VALIDATORS|)	462	0	125935	0	unfalsifiable-tautology	
+182	175	relation InitiateValidatorExit	-- if (validator.EXIT_EPOCH =/= $FAR_FUTURE_EPOCH)	102	360	62865	63070	falsifiable-covered	
+183	176	relation InitiateValidatorExit	-- if (vid < |state.VALIDATORS|)	360	0	63070	0	unfalsifiable-tautology	
+185	178	relation InitiateValidatorExit	-- if (validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)	360	0	63070	0	unfalsifiable-closing	
+193	186	relation InitiateValidatorExit	-- if (epoch_exit_queue <= ($UINT64_MAX - $MIN_VALIDATOR_WITHDRAWABILITY_DELAY))	360	0	63070	0	target-limitation	
+195	188	relation SlashValidator	-- if validatorIndex?{validatorIndex <- validatorIndex?} matches ()	224	0	56714	0	unfalsifiable-tautology	
+196	189	relation SlashValidator	-- if (vid_slashed < |state.VALIDATORS|)	224	0	56714	0	unfalsifiable-tautology	
+202	195	relation SlashValidator	-- if (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] <= ($UINT64_MAX - validator.EFFECTIVE_BALANCE))	224	0	56714	0	target-limitation	
+213	206	relation SlashValidator	-- if validatorIndex?{validatorIndex <- validatorIndex?} matches (_)	0	0	0	0	unfalsifiable-tautology	
+215	208	relation SlashValidator	-- if (vid_slashed < |state.VALIDATORS|)	0	0	0	0	unfalsifiable-tautology	
+221	214	relation SlashValidator	-- if (state_1.SLASHINGS[(epoch \ $EPOCHS_PER_SLASHINGS_VECTOR)] <= ($UINT64_MAX - validator.EFFECTIVE_BALANCE))	0	0	0	0	unfalsifiable-tautology	
+234	227	relation ApplyDeposit	-- if ~blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}	206	3	18806	16	falsifiable-covered	
+237	230	relation ApplyDeposit	-- if $bls_verify(blsPubkey, $compute_signing_root_depositMessage(depositMessage, domain), blsSignature)	206	0	18806	0	target-limitation	
+241	234	relation ApplyDeposit	-- if ~blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}	0	3	0	16	falsifiable-covered	
+244	237	relation ApplyDeposit	-- if ~$bls_verify(blsPubkey, $compute_signing_root_depositMessage(depositMessage, domain), blsSignature)	0	0	0	0	unfalsifiable-closing	
+247	240	relation ApplyDeposit	-- if blsPubkey <- blsPubkey_existing*{blsPubkey_existing <- blsPubkey_existing*}	3	0	16	0	unfalsifiable-closing	
+258	251	def $bit_is_one_at_index	-- if (i < |bit*{bit <- bit*}|)	14575	0	1988632	0	unfalsifiable-tautology	
+263	256	def $is_valid_indexed_attestation	-- if (|indexedAttestation.ATTESTING_INDICES| = 0)	0	1456	0	187738	falsifiable-covered	
+264	257	def $is_valid_indexed_attestation	-- if ($sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES)) =/= indexedAttestation.ATTESTING_INDICES)	0	1456	130	187608	falsifiable-covered	
+266	259	def $is_valid_indexed_attestation	-- if (|indexedAttestation.ATTESTING_INDICES| > 0)	1456	0	187608	0	unfalsifiable-closing	
+267	260	def $is_valid_indexed_attestation	-- if ($sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES)) = indexedAttestation.ATTESTING_INDICES)	1456	0	187608	0	unfalsifiable-closing	
+268	261	def $is_valid_indexed_attestation	-- (if (vid < |state.VALIDATORS|))*{vid <- vid*}	1456	0	187548	60	falsifiable-covered	
+272	265	relation SlashIfEligible	-- if (vid < |state.VALIDATORS|)	86	0	11691	0	unfalsifiable-tautology	
+273	266	relation SlashIfEligible	-- if $is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))	76	10	11529	162	falsifiable-covered	
+275	268	relation SlashIfEligible	-- if (vid < |state.VALIDATORS|)	10	0	162	0	unfalsifiable-tautology	
+276	269	relation SlashIfEligible	-- if ~$is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))	10	0	162	0	unfalsifiable-closing	
+277	270	relation SlashIfEligible_over_validators	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	24	86	4260	11691	falsifiable-covered	
+278	271	relation SlashIfEligible_over_validators	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	86	0	11691	0	unfalsifiable-closing	
+282	275	def $source_flag_list	-- if (uint64_inclusion_delay <= $integer_square_root($SLOTS_PER_EPOCH))	309	563	11424	69754	falsifiable-covered	
+285	279	def $head_flag_list	-- if (uint64_inclusion_delay = $MIN_ATTESTATION_INCLUSION_DELAY)	257	615	708	80470	falsifiable-covered	
+287	281	def $get_attestation_participation_flag_indices	-- if (attestationData.TARGET.EPOCH = $get_current_epoch(state))	523	883	70309	109007	falsifiable-covered	
+289	283	def $get_attestation_participation_flag_indices	-- if (attestationData.SOURCE.EPOCH = checkpoint_justified.EPOCH)	523	0	70179	130	falsifiable-covered	
+290	284	def $get_attestation_participation_flag_indices	-- if (attestationData.SOURCE.ROOT = checkpoint_justified.ROOT)	523	0	70139	40	falsifiable-covered	
+299	293	def $get_attestation_participation_flag_indices	-- if (attestationData.TARGET.EPOCH =/= $get_current_epoch(state))	883	0	109007	170	redundant	
+301	295	def $get_attestation_participation_flag_indices	-- if (attestationData.SOURCE.EPOCH = checkpoint_justified.EPOCH)	883	0	108808	199	falsifiable-covered	
+302	296	def $get_attestation_participation_flag_indices	-- if (attestationData.SOURCE.ROOT = checkpoint_justified.ROOT)	883	0	108744	64	falsifiable-covered	
+311	305	def $next_sync_committee_indices_loop	-- if (|vid_sync_committee*{vid_sync_committee <- vid_sync_committee*}| >= $SYNC_COMMITTEE_SIZE)	1	512	182	93192	falsifiable-covered	
+312	306	def $next_sync_committee_indices_loop	-- if (|vid_sync_committee*{vid_sync_committee <- vid_sync_committee*}| < $SYNC_COMMITTEE_SIZE)	512	0	93192	0	unfalsifiable-closing	
+317	311	def $next_sync_committee_indices_loop	-- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))	512	0	93192	0	unfalsifiable-tautology	
+318	312	def $next_sync_committee_indices_loop	-- if ((balance_effective * $MAX_RANDOM_BYTE) >= ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))	512	0	93184	8	falsifiable-covered	
+319	313	def $next_sync_committee_indices_loop	-- if (|vid_sync_committee*{vid_sync_committee <- vid_sync_committee*}| < $SYNC_COMMITTEE_SIZE)	0	0	8	0	target-limitation	
+324	318	def $next_sync_committee_indices_loop	-- if (balance_effective <= ($UINT64_MAX / $MAX_RANDOM_BYTE))	0	0	8	0	target-limitation	
+325	319	def $next_sync_committee_indices_loop	-- if ((balance_effective * $MAX_RANDOM_BYTE) < ($MAX_EFFECTIVE_BALANCE * uint64_random_byte))	0	0	8	0	target-limitation	
+329	323	def $get_next_sync_committee_indices	-- if (count_active > 0)	1	0	182	1	falsifiable-covered	
+338	332	def $get_total_balance	-- if (gwei_sum <= $UINT64_MAX)	1535	0	149289	733	falsifiable-covered	
+343	337	def $get_base_reward	-- if (vid < |state.VALIDATORS|)	15604	0	4625558	0	unfalsifiable-tautology	
+349	343	relation ApplyEffectiveBalance	-- if (balance <= ($UINT64_MAX - uint64_down_th))	11632	0	4343261	384	falsifiable-covered	
+350	344	relation ApplyEffectiveBalance	-- if (((balance + uint64_down_th) < validator.EFFECTIVE_BALANCE) \/ ((validator.EFFECTIVE_BALANCE <= ($UINT64_MAX - uint64_up_th)) /\ ((validator.EFFECTIVE_BALANCE + uint64_up_th) < balance)))	2245	9387	1572893	2770368	falsifiable-covered	
+354	348	relation ApplyEffectiveBalance	-- if (balance <= ($UINT64_MAX - uint64_down_th))	9387	0	2770368	384	falsifiable-covered	
+355	349	relation ApplyEffectiveBalance	-- if ((balance + uint64_down_th) >= validator.EFFECTIVE_BALANCE)	9387	0	2770368	0	unfalsifiable-closing	
+356	350	relation ApplyEffectiveBalance	-- if (validator.EFFECTIVE_BALANCE <= ($UINT64_MAX - uint64_up_th))	9387	0	2770368	0	target-limitation	
+357	351	relation ApplyEffectiveBalance	-- if ((validator.EFFECTIVE_BALANCE + uint64_up_th) >= balance)	9387	0	2770368	0	unfalsifiable-closing	
+358	352	def $inact_penalty_one	-- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}	9198	898	3780637	706682	falsifiable-covered	
+359	353	def $inact_penalty_one	-- if ~vid <- vid_matching*{vid_matching <- vid_matching*}	4309	4889	2079909	1700728	falsifiable-covered	
+360	354	def $inact_penalty_one	-- if (vid < |state.VALIDATORS|)	4309	0	2079909	0	unfalsifiable-tautology	
+362	356	def $inact_penalty_one	-- if (vid < |state.INACTIVITY_SCORES|)	4309	0	2079909	0	target-limitation	
+365	359	def $inact_penalty_one	-- if (penalty_numerator <= $UINT64_MAX)	4309	0	2079529	380	falsifiable-covered	
+368	362	def $inact_penalty_one	-- if (~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ vid <- vid_matching*{vid_matching <- vid_matching*})	5787	0	2407410	380	redundant	
+375	369	def $flag_reward_one_eligible	-- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}	20958	2370	9322938	1866013	falsifiable-covered	
+376	370	def $flag_reward_one_eligible	-- if vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*}	9176	11782	3477838	5845100	falsifiable-covered	
+377	371	def $flag_reward_one_eligible	-- if ~$is_in_inactivity_leak(state)	8417	759	3178943	298895	falsifiable-covered	
+380	374	def $flag_reward_one_eligible	-- if (reward_numerator <= $UINT64_MAX)	8417	0	3178919	24	falsifiable-covered	
+382	376	def $flag_reward_one_eligible	-- if (~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ ~vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*})	14152	759	7711113	298919	falsifiable-covered	
+383	377	def $flag_reward_one_eligible	-- if $is_in_inactivity_leak(state)	759	0	298895	24	redundant	
+384	378	def $flag_penalty_one_eligible	-- if vid <- vid_eligible*{vid_eligible <- vid_eligible*}	27594	2694	11595872	2185312	falsifiable-covered	
+385	379	def $flag_penalty_one_eligible	-- if ~vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*}	16890	10704	7913930	3681942	falsifiable-covered	
+386	380	def $flag_penalty_one_eligible	-- if (flag_index =/= $TIMELY_HEAD_FLAG_INDEX)	10437	6453	4932520	2981410	falsifiable-covered	
+389	383	def $flag_penalty_one_eligible	-- if ((~vid <- vid_eligible*{vid_eligible <- vid_eligible*} \/ vid <- vid_unslashed*{vid_unslashed <- vid_unslashed*}) \/ (flag_index = $TIMELY_HEAD_FLAG_INDEX))	19851	0	8848664	0	unfalsifiable-closing	
+402	396	relation ApplyRewardsAndPenalties	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	82	36734	31186	16588440	falsifiable-covered	
+403	397	relation ApplyRewardsAndPenalties	-- if gwei*{gwei <- gwei*} matches []	82	0	31186	0	unfalsifiable-tautology	
+404	398	relation ApplyRewardsAndPenalties	-- if gwei'*{gwei' <- gwei'*} matches []	82	0	31186	0	unfalsifiable-tautology	
+405	399	relation ApplyRewardsAndPenalties	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	36734	0	16588440	0	unfalsifiable-closing	
+407	401	relation ApplyRewardsAndPenalties	-- if gwei*{gwei <- gwei*} matches _ :: _	36734	0	16588440	0	unfalsifiable-tautology	
+409	403	relation ApplyRewardsAndPenalties	-- if gwei'*{gwei' <- gwei'*} matches _ :: _	36734	0	16588440	0	unfalsifiable-tautology	
+413	407	relation ApplyRewardsAndPenalties_over_deltas	-- if gwei*{gwei <- gwei*}*{gwei* <- gwei**} matches []	30	120	10395	41815	falsifiable-covered	
+414	408	relation ApplyRewardsAndPenalties_over_deltas	-- if gwei'*{gwei' <- gwei'*}*{gwei'* <- gwei'**} matches []	30	0	10395	0	unfalsifiable-tautology	
+415	409	relation ApplyRewardsAndPenalties_over_deltas	-- if gwei*{gwei <- gwei*}*{gwei* <- gwei**} matches _ :: _	120	0	41815	0	unfalsifiable-closing	
+417	411	relation ApplyRewardsAndPenalties_over_deltas	-- if gwei'*{gwei' <- gwei'*}*{gwei'* <- gwei'**} matches _ :: _	120	0	41815	0	unfalsifiable-tautology	
+421	415	relation ApplyInactivity	-- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	4889	4309	1753855	2178155	falsifiable-covered	
+422	416	relation ApplyInactivity	-- if ~$is_in_inactivity_leak(state)	4399	490	1505897	247958	falsifiable-covered	
+423	417	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	4399	0	1505829	68	falsifiable-covered	
+424	418	relation ApplyInactivity	-- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	490	4309	248010	2178139	falsifiable-covered	
+425	419	relation ApplyInactivity	-- if $is_in_inactivity_leak(state)	490	0	247942	68	redundant	
+426	420	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	490	0	247924	18	falsifiable-covered	
+427	421	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	4309	0	2178139	86	redundant	
+428	422	relation ApplyInactivity	-- if ~$is_in_inactivity_leak(state)	1843	2466	583235	1594904	falsifiable-covered	
+430	424	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	1843	0	583189	46	falsifiable-covered	
+431	425	relation ApplyInactivity	-- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))	1843	0	583115	74	falsifiable-covered	
+432	426	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	2466	0	1594972	86	redundant	
+433	427	relation ApplyInactivity	-- if $is_in_inactivity_leak(state)	2466	0	1594852	120	redundant	
+434	428	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	2466	0	1594808	44	falsifiable-covered	
+435	429	relation ApplyInactivity	-- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))	2466	0	1594740	68	falsifiable-covered	
+436	430	relation ApplyInactivity_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	30	9198	11040	3932010	falsifiable-covered	
+437	431	relation ApplyInactivity_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	9198	0	3932010	0	unfalsifiable-closing	
+441	435	def $is_due_slashing_en	-- if (validator.SLASHED = true)	1086	22178	769482	8065434	falsifiable-covered	
+442	436	def $is_due_slashing_en	-- if ((epoch + ($EPOCHS_PER_SLASHINGS_VECTOR / 2)) = validator.WITHDRAWABLE_EPOCH)	0	1086	0	769482	falsifiable-covered	
+444	438	relation DecreaseBalances	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	36	0	10763	0	target-limitation	
+445	439	relation DecreaseBalances	-- if gwei*{gwei <- gwei*} matches []	36	0	10763	0	unfalsifiable-tautology	
+446	440	relation DecreaseBalances	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	0	0	0	0	target-limitation	
+448	442	relation DecreaseBalances	-- if gwei*{gwei <- gwei*} matches _ :: _	0	0	0	0	target-limitation	
+452	446	relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))	27	0	11055	28	falsifiable-covered	
+453	447	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	27	0	11044	11	falsifiable-covered	
+454	448	relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))	27	0	11038	6	falsifiable-covered	
+455	449	relation WeighJustificationAndFinalization	-- if ~((balance_prev_epoch_target * 3) >= (balance_total_active * 2))	11	16	5539	5499	falsifiable-covered	
+456	450	relation WeighJustificationAndFinalization	-- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))	6	5	2846	2693	falsifiable-covered	
+461	455	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))	6	0	2846	0	target-limitation	
+462	456	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))	6	0	2846	0	target-limitation	
+463	457	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))	6	0	2846	0	unfalsifiable-tautology	
+464	458	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))	6	0	2846	0	unfalsifiable-tautology	
+465	459	relation WeighJustificationAndFinalization	-- if ((((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) \/ ((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))	0	6	8	2838	falsifiable-covered	
+466	460	relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))	27	0	11047	28	falsifiable-covered	
+467	461	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	27	0	11036	11	falsifiable-covered	
+468	462	relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))	27	0	11030	6	falsifiable-covered	
+469	463	relation WeighJustificationAndFinalization	-- if ~((balance_prev_epoch_target * 3) >= (balance_total_active * 2))	11	16	5531	5499	falsifiable-covered	
+470	464	relation WeighJustificationAndFinalization	-- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))	6	5	2838	2693	falsifiable-covered	
+475	469	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))	6	0	2838	0	target-limitation	
+476	470	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))	6	0	2838	0	target-limitation	
+477	471	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))	6	0	2838	0	unfalsifiable-tautology	
+478	472	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))	6	0	2838	0	unfalsifiable-tautology	
+479	473	relation WeighJustificationAndFinalization	-- if (~(((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) /\ ~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))	6	0	2838	0	unfalsifiable-closing	
+480	474	relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))	21	0	8209	28	falsifiable-covered	
+481	475	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	21	0	8198	11	falsifiable-covered	
+482	476	relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))	21	0	8192	6	falsifiable-covered	
+483	477	relation WeighJustificationAndFinalization	-- if ((balance_prev_epoch_target * 3) >= (balance_total_active * 2))	16	5	5499	2693	falsifiable-covered	
+484	478	relation WeighJustificationAndFinalization	-- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))	10	6	3652	1847	falsifiable-covered	
+490	484	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))	10	0	3646	6	falsifiable-covered	
+491	485	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))	10	0	3638	8	falsifiable-covered	
+492	486	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))	10	0	3638	0	unfalsifiable-tautology	
+493	487	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))	10	0	3638	0	unfalsifiable-tautology	
+494	488	relation WeighJustificationAndFinalization	-- if ((((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) \/ ((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))	6	4	2729	909	falsifiable-covered	
+495	489	relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))	15	0	5480	28	falsifiable-covered	
+496	490	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	15	0	5469	11	falsifiable-covered	
+497	491	relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))	15	0	5463	6	falsifiable-covered	
+498	492	relation WeighJustificationAndFinalization	-- if ((balance_prev_epoch_target * 3) >= (balance_total_active * 2))	10	5	2770	2693	falsifiable-covered	
+499	493	relation WeighJustificationAndFinalization	-- if ~((balance_current_epoch_target * 3) >= (balance_total_active * 2))	4	6	923	1847	falsifiable-covered	
+505	499	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))	4	0	917	6	falsifiable-covered	
+506	500	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))	4	0	909	8	falsifiable-covered	
+507	501	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))	4	0	909	0	unfalsifiable-tautology	
+508	502	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))	4	0	909	0	unfalsifiable-tautology	
+509	503	relation WeighJustificationAndFinalization	-- if (~(((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) /\ ~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))	4	0	909	0	unfalsifiable-closing	
+510	504	relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))	11	0	4571	28	falsifiable-covered	
+511	505	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	11	0	4560	11	falsifiable-covered	
+512	506	relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))	11	0	4554	6	falsifiable-covered	
+513	507	relation WeighJustificationAndFinalization	-- if ((balance_current_epoch_target * 3) >= (balance_total_active * 2))	11	0	4540	14	redundant	
+518	512	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))	11	0	4537	3	falsifiable-covered	
+519	513	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))	11	0	4535	2	falsifiable-covered	reclassified from target-limitation
+520	514	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))	11	0	4531	4	falsifiable-covered	
+521	515	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))	11	0	4529	2	falsifiable-covered	
+522	516	relation WeighJustificationAndFinalization	-- if ((((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 2))) \/ ((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 1))))	6	5	1803	2726	falsifiable-covered	
+523	517	relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))	5	0	2768	28	falsifiable-covered	
+524	518	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	5	0	2757	11	falsifiable-covered	
+525	519	relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))	5	0	2751	6	falsifiable-covered	
+526	520	relation WeighJustificationAndFinalization	-- if ((balance_current_epoch_target * 3) >= (balance_total_active * 2))	5	0	2737	14	redundant	
+531	525	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))	5	0	2734	3	falsifiable-covered	
+532	526	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))	5	0	2732	2	falsifiable-covered	reclassified from target-limitation
+533	527	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))	5	0	2728	4	falsifiable-covered	
+534	528	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))	5	0	2726	2	falsifiable-covered	
+535	529	relation WeighJustificationAndFinalization	-- if ((~(((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 2))) /\ ~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 1)))) /\ ((((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3))) \/ ((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2)))))	0	5	8	2718	falsifiable-covered	
+536	530	relation WeighJustificationAndFinalization	-- if (balance_prev_epoch_target <= ($UINT64_MAX / 3))	5	0	2760	28	falsifiable-covered	
+537	531	relation WeighJustificationAndFinalization	-- if (balance_total_active <= ($UINT64_MAX / 2))	5	0	2749	11	falsifiable-covered	
+538	532	relation WeighJustificationAndFinalization	-- if (balance_current_epoch_target <= ($UINT64_MAX / 3))	5	0	2743	6	falsifiable-covered	
+539	533	relation WeighJustificationAndFinalization	-- if ((balance_current_epoch_target * 3) >= (balance_total_active * 2))	5	0	2729	14	redundant	
+544	538	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 3)))	5	0	2726	3	falsifiable-covered	
+545	539	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) \/ (checkpoint_prev.EPOCH <= ($UINT64_MAX - 2)))	5	0	2724	2	falsifiable-covered	reclassified from target-limitation
+546	540	relation WeighJustificationAndFinalization	-- if (~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 2)))	5	0	2720	4	falsifiable-covered	
+547	541	relation WeighJustificationAndFinalization	-- if (~(bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) \/ (checkpoint_cur.EPOCH <= ($UINT64_MAX - 1)))	5	0	2718	2	falsifiable-covered	
+548	542	relation WeighJustificationAndFinalization	-- if (((~(((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 2))) /\ ~((bit*{bit <- bit*}[0] /\ bit*{bit <- bit*}[1]) /\ (epoch_cur = (checkpoint_cur.EPOCH + 1)))) /\ ~(((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ bit*{bit <- bit*}[3]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 3)))) /\ ~((bit*{bit <- bit*}[1] /\ bit*{bit <- bit*}[2]) /\ (epoch_cur = (checkpoint_prev.EPOCH + 2))))	5	0	2718	0	unfalsifiable-closing	
+551	545	relation ProcessEligibilityAndEjection	-- if $is_eligible_for_activation_queue(validator)	112	11520	101171	4368303	falsifiable-covered	
+552	546	relation ProcessEligibilityAndEjection	-- if ($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))	0	112	0	101171	falsifiable-covered	
+556	550	relation ProcessEligibilityAndEjection	-- if $is_eligible_for_activation_queue(validator)	112	11520	101171	4368303	falsifiable-covered	
+557	551	relation ProcessEligibilityAndEjection	-- if ~($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))	112	0	101171	0	unfalsifiable-closing	
+560	554	relation ProcessEligibilityAndEjection	-- if ~$is_eligible_for_activation_queue(validator)	11520	0	4368303	0	unfalsifiable-closing	
+561	555	relation ProcessEligibilityAndEjection	-- if ($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))	101	11419	62298	4306005	falsifiable-covered	
+565	559	relation ProcessEligibilityAndEjection	-- if ~$is_eligible_for_activation_queue(validator)	11419	0	4306005	0	unfalsifiable-closing	
+566	560	relation ProcessEligibilityAndEjection	-- if ~($is_active_validator(validator, epoch_cur) /\ (validator.EFFECTIVE_BALANCE <= $EJECTION_BALANCE))	11419	0	4306005	0	unfalsifiable-closing	
+567	561	relation ProcessEligibilityAndEjection_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	36	11632	10929	4469474	falsifiable-covered	
+568	562	relation ProcessEligibilityAndEjection_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	11632	0	4469474	0	unfalsifiable-closing	
+572	566	relation ApplyActivations	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	36	36	10929	25550	falsifiable-covered	
+573	567	relation ApplyActivations	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	36	0	25550	0	unfalsifiable-closing	
+578	572	relation ProcessSlot	-- if (state.LATEST_BLOCK_HEADER.STATE_ROOT = $ZERO_ROOT)	557	628	20505	257204	falsifiable-covered	
+583	577	relation ProcessSlot	-- if (state.LATEST_BLOCK_HEADER.STATE_ROOT =/= $ZERO_ROOT)	628	0	257204	0	unfalsifiable-closing	
+587	581	relation ProcessJustificationAndFinalization	-- if (epoch_cur <= ($GENESIS_EPOCH + 1))	9	27	963	12053	falsifiable-covered	
+594	588	relation ProcessInactivityUpdates	-- if ($get_current_epoch(state) = $GENESIS_EPOCH)	6	30	534	11442	falsifiable-covered	
+598	592	relation ProcessRewardsAndPenalties	-- if ($get_current_epoch(state) = $GENESIS_EPOCH)	6	30	534	11040	falsifiable-covered	
+617	611	relation ProcessSlashings	-- if ($sum_<gwei>(state.SLASHINGS) <= ($UINT64_MAX / $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX))	36	0	10763	123	falsifiable-covered	
+623	617	relation ProcessSlashings	-- (if (penalty_numerator <= $UINT64_MAX))*{penalty_numerator <- penalty_numerator*}	36	0	10763	0	target-limitation	
+627	621	relation ProcessEth1DataReset	-- if ((epoch_next \ $EPOCHS_PER_ETH1_VOTING_PERIOD) =/= 0)	35	1	10571	192	falsifiable-covered	
+630	624	relation ProcessEffectiveBalanceUpdates	-- if (|state.VALIDATORS| <= |state.BALANCES|)	36	0	10733	30	falsifiable-covered	
+635	629	relation ProcessSlashingsReset	-- if (i < |state.SLASHINGS|)	36	0	10349	0	unfalsifiable-tautology	
+639	633	relation ProcessRandaoMixesReset	-- if (i < |state.RANDAO_MIXES|)	36	0	10349	0	unfalsifiable-tautology	
+641	635	relation ProcessHistoricalSummariesUpdate	-- if ((epoch_next \ ($SLOTS_PER_HISTORICAL_ROOT / $SLOTS_PER_EPOCH)) =/= 0)	35	1	10166	183	falsifiable-covered	
+648	642	relation ProcessSyncCommitteeUpdates	-- if ((epoch_next \ $EPOCHS_PER_SYNC_COMMITTEE_PERIOD) =/= 0)	35	1	10166	183	falsifiable-covered	
+662	656	relation ProcessSlots_loop	-- if (state.SLOT >= slot_target)	569	1185	18821	277709	falsifiable-covered	
+663	657	relation ProcessSlots_loop	-- if (state.SLOT < slot_target)	1185	0	277709	0	unfalsifiable-closing	
+667	661	relation ProcessSlots_loop	-- if ((slot_next \ $SLOTS_PER_EPOCH) =/= 0)	1149	36	264693	13016	falsifiable-covered	
+670	664	relation ProcessSlots_loop	-- if (state.SLOT < slot_target)	36	0	26258	0	unfalsifiable-closing	
+674	668	relation ProcessSlots_loop	-- if ((slot_next \ $SLOTS_PER_EPOCH) = 0)	36	0	13016	13242	redundant	
+678	672	relation ProcessSlots	-- if (state.SLOT < slot_target)	569	3	21497	695	falsifiable-covered	
+680	674	def $expected_withdrawals_loop	-- if (|withdrawal_acc*{withdrawal_acc <- withdrawal_acc*}| = $MAX_WITHDRAWALS_PER_PAYLOAD)	3	148591	156	3657734	falsifiable-covered	
+681	675	def $expected_withdrawals_loop	-- if (i >= uint64_bound)	563	148028	9500	3648234	falsifiable-covered	
+682	676	def $expected_withdrawals_loop	-- if (vid < |state.VALIDATORS|)	148028	0	3648214	20	falsifiable-covered	
+683	677	def $expected_withdrawals_loop	-- if (vid < |state.BALANCES|)	148028	0	3648191	23	falsifiable-covered	
+686	680	def $expected_withdrawals_loop	-- if ($is_fully_withdrawable_validator(validator, balance, epoch) = true)	28	148000	4763	3643428	falsifiable-covered	
+687	681	def $expected_withdrawals_loop	-- if (withdrawalIndex <= ($UINT64_MAX - 1))	28	0	4762	1	falsifiable-covered	
+689	683	def $expected_withdrawals_loop	-- if (vid < |state.VALIDATORS|)	148000	0	3643452	20	falsifiable-covered	
+690	684	def $expected_withdrawals_loop	-- if (vid < |state.BALANCES|)	148000	0	3643429	23	falsifiable-covered	
+693	687	def $expected_withdrawals_loop	-- if ($is_fully_withdrawable_validator(validator, balance, epoch) = false)	148000	0	3643428	1	redundant	
+694	688	def $expected_withdrawals_loop	-- if ($is_partially_withdrawable_validator(validator, balance) = true)	78	147922	18100	3625328	falsifiable-covered	
+695	689	def $expected_withdrawals_loop	-- if (withdrawalIndex <= ($UINT64_MAX - 1))	78	0	18099	1	falsifiable-covered	
+697	691	def $expected_withdrawals_loop	-- if (vid < |state.VALIDATORS|)	147922	0	3625353	20	falsifiable-covered	
+698	692	def $expected_withdrawals_loop	-- if (vid < |state.BALANCES|)	147922	0	3625330	23	falsifiable-covered	
+701	695	def $expected_withdrawals_loop	-- if ~$is_fully_withdrawable_validator(validator, balance, epoch)	147922	0	3625329	1	redundant	
+702	696	def $expected_withdrawals_loop	-- if ~$is_partially_withdrawable_validator(validator, balance)	147922	0	3625328	1	redundant	
+708	702	relation ApplyWithdrawals	-- if withdrawal*{withdrawal <- withdrawal*} matches []	566	106	9580	22543	falsifiable-covered	
+709	703	relation ApplyWithdrawals	-- if withdrawal*{withdrawal <- withdrawal*} matches _ :: _	106	0	22543	0	unfalsifiable-closing	
+713	707	relation AddFlag	-- if ~$has_flag(participationFlags, vid_flag)	11191	8775	931643	1333467	falsifiable-covered	
+715	709	relation AddFlag	-- if $has_flag(participationFlags, vid_flag)	8775	0	1333467	0	unfalsifiable-closing	
+716	710	relation AddFlags	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	14474	19966	1978623	2265110	falsifiable-covered	
+717	711	relation AddFlags	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	19966	0	2265110	0	unfalsifiable-closing	
+721	715	relation ProcessFlags	-- if (vid_attesting < |participationFlags*{participationFlags <- participationFlags*}|)	14575	0	1986669	0	unfalsifiable-tautology	
+723	717	relation ProcessFlags_over_attesting	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	1032	14575	118712	1986669	falsifiable-covered	
+724	718	relation ProcessFlags_over_attesting	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	14575	0	1986669	0	unfalsifiable-closing	
+728	722	def $bit_is_one_en_blsPubkey	-- if (i < |boolean_bits*{boolean_bits <- boolean_bits*}|)	558848	0	1951616	0	unfalsifiable-tautology	
+729	723	def $bit_is_one_en_blsPubkey	-- if (boolean_bits*{boolean_bits <- boolean_bits*}[i] = true)	7424	551424	150656	1800960	falsifiable-covered	
+731	725	relation ApplyReward	-- if (bool = true)	7424	275712	138368	743914	falsifiable-covered	
+734	728	relation ApplyReward	-- if (bool = false)	275712	0	743914	0	unfalsifiable-closing	
+736	730	relation ApplyReward_over_participants	-- if boolean*{boolean <- boolean*} matches []	553	283136	1723	882292	falsifiable-covered	
+737	731	relation ApplyReward_over_participants	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	553	0	1723	0	unfalsifiable-tautology	
+738	732	relation ApplyReward_over_participants	-- if boolean*{boolean <- boolean*} matches _ :: _	283136	0	882292	0	unfalsifiable-closing	
+740	734	relation ApplyReward_over_participants	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	283136	0	882282	10	falsifiable-covered	
+746	740	relation ProcessProposerSlashing	-- if (beaconBlockHeader_1.SLOT = beaconBlockHeader_2.SLOT)	150	0	46344	548	falsifiable-covered	
+747	741	relation ProcessProposerSlashing	-- if (beaconBlockHeader_1.PROPOSER_INDEX = beaconBlockHeader_2.PROPOSER_INDEX)	150	0	45677	667	falsifiable-covered	
+748	742	relation ProcessProposerSlashing	-- if (beaconBlockHeader_1 =/= beaconBlockHeader_2)	150	0	45597	80	falsifiable-covered	
+750	744	relation ProcessProposerSlashing	-- if (vid_proposer < |state.VALIDATORS|)	150	0	45597	0	target-limitation	
+752	746	relation ProcessProposerSlashing	-- if $is_slashable_validator(validator_proposer, $get_current_epoch(state))	148	2	45575	22	falsifiable-covered	
+757	751	relation ProcessProposerSlashing	-- if $bls_verify(validator_proposer.PUBKEY, root_sign_h1, signedBeaconBlockHeader_1.SIGNATURE)	148	0	45380	195	falsifiable-covered	
+762	756	relation ProcessProposerSlashing	-- if $bls_verify(validator_proposer.PUBKEY, root_sign_h2, signedBeaconBlockHeader_2.SIGNATURE)	148	0	45185	195	falsifiable-covered	
+764	758	relation ProcessProposerSlashings	-- if proposerSlashing*{proposerSlashing <- proposerSlashing*} matches []	558	150	7021	46892	falsifiable-covered	
+765	759	relation ProcessProposerSlashings	-- if proposerSlashing*{proposerSlashing <- proposerSlashing*} matches _ :: _	150	0	46892	0	unfalsifiable-closing	
+771	765	relation ProcessAttesterSlashing	-- if ($is_slashable_attestation_data(indexedAttestation_1.DATA, indexedAttestation_2.DATA) = true)	25	0	4543	214	falsifiable-covered	
+772	766	relation ProcessAttesterSlashing	-- if ($is_valid_indexed_attestation(state, indexedAttestation_1) = true)	25	0	4309	234	falsifiable-covered	
+773	767	relation ProcessAttesterSlashing	-- if ($is_valid_indexed_attestation(state, indexedAttestation_2) = true)	25	0	4280	29	falsifiable-covered	
+777	771	relation ProcessAttesterSlashing	-- if bool_slashed_any	24	1	4260	20	falsifiable-covered	
+778	772	relation ProcessAttesterSlashings	-- if attesterSlashing*{attesterSlashing <- attesterSlashing*} matches []	557	25	6524	4757	falsifiable-covered	
+779	773	relation ProcessAttesterSlashings	-- if attesterSlashing*{attesterSlashing <- attesterSlashing*} matches _ :: _	25	0	4757	0	unfalsifiable-closing	
+784	778	relation ProcessAttestation	-- if (attestationData.TARGET.EPOCH = $get_current_epoch(state))	523	883	70864	110211	falsifiable-covered	
+785	779	relation ProcessAttestation	-- if (attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT))	523	0	70577	287	falsifiable-covered	
+786	780	relation ProcessAttestation	-- if ((attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY) <= state.SLOT)	523	0	70539	38	falsifiable-covered	
+787	783	relation ProcessAttestation	-- if (attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH))	523	0	70425	114	falsifiable-covered	
+789	785	relation ProcessAttestation	-- if (|attestation.AGGREGATION_BITS| = |vid_committee*{vid_committee <- vid_committee*}|)	523	0	70310	115	falsifiable-covered	
+791	787	relation ProcessAttestation	-- if $is_valid_indexed_attestation(state, $get_indexed_attestation(state, attestation))	523	0	70069	71	falsifiable-covered	
+798	794	relation ProcessAttestation	-- if (attestationData.TARGET.EPOCH = $get_previous_epoch(state))	883	0	109955	889	falsifiable-covered	
+799	795	relation ProcessAttestation	-- if (attestationData.TARGET.EPOCH = $compute_epoch_at_slot(attestationData.SLOT))	883	0	109454	501	falsifiable-covered	
+800	796	relation ProcessAttestation	-- if ((attestationData.SLOT + $MIN_ATTESTATION_INCLUSION_DELAY) <= state.SLOT)	883	0	109444	10	falsifiable-covered	
+801	799	relation ProcessAttestation	-- if (attestationData.INDEX < $get_committee_count_per_slot(state, attestationData.TARGET.EPOCH))	883	0	109236	208	falsifiable-covered	
+803	801	relation ProcessAttestation	-- if (|attestation.AGGREGATION_BITS| = |vid_committee*{vid_committee <- vid_committee*}|)	883	0	109037	199	falsifiable-covered	
+805	803	relation ProcessAttestation	-- if $is_valid_indexed_attestation(state, $get_indexed_attestation(state, attestation))	883	0	108624	150	falsifiable-covered	
+811	809	relation ProcessAttestations	-- if attestation*{attestation <- attestation*} matches []	557	1540	4134	200600	falsifiable-covered	
+812	810	relation ProcessAttestations	-- if attestation*{attestation <- attestation*} matches _ :: _	1540	0	200600	0	unfalsifiable-closing	
+816	814	relation ProcessDeposit	-- if $is_valid_merkle_branch($hash_tree_root_depositData(deposit.DATA), deposit.PROOF, ($DEPOSIT_CONTRACT_TREE_DEPTH + 1), state.ETH1_DEPOSIT_INDEX, state.ETH1_DATA.DEPOSIT_ROOT)	209	0	18822	1097	falsifiable-covered	
+819	817	relation ProcessDeposits	-- if deposit*{deposit <- deposit*} matches []	557	209	3037	19919	falsifiable-covered	
+820	818	relation ProcessDeposits	-- if deposit*{deposit <- deposit*} matches _ :: _	209	0	19919	0	unfalsifiable-closing	
+826	824	relation ProcessVoluntaryExit	-- if (vid_exit < |state.VALIDATORS|)	139	0	7300	136	falsifiable-covered	
+829	827	relation ProcessVoluntaryExit	-- if ($is_active_validator(validator, epoch_cur) = true)	139	0	7259	41	falsifiable-covered	
+830	828	relation ProcessVoluntaryExit	-- if (validator.EXIT_EPOCH = $FAR_FUTURE_EPOCH)	137	2	7226	33	falsifiable-covered	
+831	829	relation ProcessVoluntaryExit	-- if (epoch_cur >= voluntaryExit.EPOCH)	137	0	7098	128	falsifiable-covered	
+832	830	relation ProcessVoluntaryExit	-- if (validator.ACTIVATION_EPOCH <= ($UINT64_MAX - $SHARD_COMMITTEE_PERIOD))	137	0	7098	0	unfalsifiable-tautology	
+833	831	relation ProcessVoluntaryExit	-- if (epoch_cur >= (validator.ACTIVATION_EPOCH + $SHARD_COMMITTEE_PERIOD))	137	0	7098	0	unfalsifiable-tautology	
+836	834	relation ProcessVoluntaryExit	-- if ($bls_verify(validator.PUBKEY, root_vol_exit_signing_root, signedVoluntaryExit.SIGNATURE) = true)	137	0	6923	175	falsifiable-covered	
+838	836	relation ProcessVoluntaryExits	-- if signedVoluntaryExit*{signedVoluntaryExit <- signedVoluntaryExit*} matches []	555	139	2524	7436	falsifiable-covered	
+839	837	relation ProcessVoluntaryExits	-- if signedVoluntaryExit*{signedVoluntaryExit <- signedVoluntaryExit*} matches _ :: _	139	0	7436	0	unfalsifiable-closing	
+845	843	relation ProcessBlsToExecutionChange	-- if (vid_change < |state.VALIDATORS|)	117	0	4673	116	falsifiable-covered	
+847	845	relation ProcessBlsToExecutionChange	-- if ($get_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $BLS_WITHDRAWAL_PREFIX)	115	2	4649	24	falsifiable-covered	
+848	846	relation ProcessBlsToExecutionChange	-- if ($strip_first_byte(validator.WITHDRAWAL_CREDENTIALS) = $strip_first_byte($hash_<blsPubkey>(blsToExecutionChange.FROM_BLS_PUBKEY)))	115	0	4463	186	falsifiable-covered	
+851	849	relation ProcessBlsToExecutionChange	-- if ($bls_verify(blsToExecutionChange.FROM_BLS_PUBKEY, root_sign, signedBlsToExecutionChange.SIGNATURE) = true)	115	0	4328	135	falsifiable-covered	
+853	851	relation ProcessBlsToExecutionChanges	-- if signedBlsToExecutionChange*{signedBlsToExecutionChange <- signedBlsToExecutionChange*} matches []	553	117	2063	4789	falsifiable-covered	
+854	852	relation ProcessBlsToExecutionChanges	-- if signedBlsToExecutionChange*{signedBlsToExecutionChange <- signedBlsToExecutionChange*} matches _ :: _	117	0	4789	0	unfalsifiable-closing	
+858	856	relation ProcessBlockHeader	-- if (block.SLOT = state.SLOT)	569	0	18821	0	unfalsifiable-tautology	
+859	857	relation ProcessBlockHeader	-- if (state.LATEST_BLOCK_HEADER.SLOT < block.SLOT)	569	0	18589	232	falsifiable-covered	
+860	858	relation ProcessBlockHeader	-- if ($get_beacon_proposer_index(state) = block.PROPOSER_INDEX)	567	2	17600	989	falsifiable-covered	
+861	859	relation ProcessBlockHeader	-- if (block.PARENT_ROOT = $hash_tree_root_beaconBlockHeader(state.LATEST_BLOCK_HEADER))	566	1	9706	7894	falsifiable-covered	
+863	861	relation ProcessBlockHeader	-- if (block.PROPOSER_INDEX < |state.VALIDATORS|)	566	0	9706	0	unfalsifiable-tautology	
+864	862	relation ProcessBlockHeader	-- if ~state.VALIDATORS[block.PROPOSER_INDEX].SLASHED	566	0	9701	5	falsifiable-covered	
+866	864	relation ProcessWithdrawals	-- if (executionPayload.WITHDRAWALS = withdrawal_expected*{withdrawal_expected <- withdrawal_expected*})	566	0	9580	76	falsifiable-covered	
+868	866	relation ProcessWithdrawals	-- if (|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| = 0)	551	15	5566	4014	falsifiable-covered	
+871	869	relation ProcessWithdrawals	-- if (executionPayload.WITHDRAWALS = withdrawal_expected*{withdrawal_expected <- withdrawal_expected*})	15	0	4014	76	falsifiable-covered	
+873	871	relation ProcessWithdrawals	-- if (|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| = $MAX_WITHDRAWALS_PER_PAYLOAD)	3	12	147	3867	falsifiable-covered	
+878	876	relation ProcessWithdrawals	-- if (executionPayload.WITHDRAWALS = withdrawal_expected*{withdrawal_expected <- withdrawal_expected*})	12	0	3867	76	falsifiable-covered	
+880	878	relation ProcessWithdrawals	-- if (|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| =/= 0)	12	0	3867	0	unfalsifiable-closing	
+881	879	relation ProcessWithdrawals	-- if (|withdrawal_expected*{withdrawal_expected <- withdrawal_expected*}| =/= $MAX_WITHDRAWALS_PER_PAYLOAD)	12	0	3867	0	unfalsifiable-closing	
+886	884	relation ProcessExecutionPayload	-- if (executionPayload.PARENT_HASH = state.LATEST_EXECUTION_PAYLOAD_HEADER.BLOCK_HASH)	566	0	9454	126	falsifiable-covered	
+887	885	relation ProcessExecutionPayload	-- if (executionPayload.PREV_RANDAO = $get_randao_mix(state, $get_current_epoch(state)))	565	1	9453	1	falsifiable-covered	
+888	886	relation ProcessExecutionPayload	-- if (executionPayload.TIMESTAMP = $compute_time_at_slot(state, state.SLOT))	565	0	9085	368	falsifiable-covered	
+889		relation ProcessExecutionPayload	-- if (|body.BLOB_KZG_COMMITMENTS| <= $MAX_BLOBS_PER_BLOCK)	562	3	9082	3	falsifiable-covered	
+890	887	relation ProcessExecutionPayload	-- if $ee_verify_and_notify_new_payload(executionPayload)	562	0	9082	0	unfalsifiable-tautology	
+894	891	relation ProcessRandao	-- if (vid_proposer < |state.VALIDATORS|)	562	0	9082	0	unfalsifiable-tautology	
+898	895	relation ProcessRandao	-- if $bls_verify(validator_proposer.PUBKEY, root_signing, body.RANDAO_REVEAL)	562	0	8770	312	falsifiable-covered	
+905	902	relation ProcessEth1Data	-- if ((n_occ * 2) > ($EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH))	0	562	0	8770	falsifiable-covered	
+908	905	relation ProcessEth1Data	-- if ((n_occ * 2) <= ($EPOCHS_PER_ETH1_VOTING_PERIOD * $SLOTS_PER_EPOCH))	562	0	8770	0	unfalsifiable-closing	
+909	906	relation ProcessOperations	-- if (state.ETH1_DEPOSIT_INDEX <= state.ETH1_DATA.DEPOSIT_COUNT)	562	0	8730	40	falsifiable-covered	
+910	907	relation ProcessOperations	-- if (|body.DEPOSITS| = $min_uint64($MAX_DEPOSITS, (state.ETH1_DATA.DEPOSIT_COUNT - state.ETH1_DEPOSIT_INDEX)))	560	2	8728	2	falsifiable-covered	
+919	916	relation ProcessSyncAggregate	-- (if (blsPubkey = blsPubkey_committee))*{blsPubkey <- blsPubkey*, blsPubkey_committee <- blsPubkey_committee*}	553	0	2063	0	unfalsifiable-tautology	
+924	921	relation ProcessSyncAggregate	-- if $eth_fast_aggregate_verify(blsPubkey_participants*{blsPubkey_participants <- blsPubkey_participants*}, root_sign, syncAggregate.SYNC_COMMITTEE_SIGNATURE)	553	0	1855	208	falsifiable-covered	
+932	929	relation ProcessSyncAggregate	-- if (state.CURRENT_SYNC_COMMITTEE.PUBKEYS = blsPubkey_committee*{blsPubkey_committee <- blsPubkey_committee*})	553	0	1855	0	unfalsifiable-tautology	
+944	941	relation State_transition	-- if (bool = true)	0	572	0	22192	falsifiable-covered	
+947	944	relation State_transition	-- if $verify_block_signature(state_cur, signedBeaconBlock)	0	0	0	0	unfalsifiable-tautology	
+949	946	relation State_transition	-- if (beaconBlock.STATE_ROOT = $hash_tree_root_beaconState(state_next))	0	0	0	0	unfalsifiable-tautology	
+950	947	relation State_transition	-- if (bool = false)	572	0	22192	0	unfalsifiable-tautology	

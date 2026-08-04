@@ -100,7 +100,7 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 257	246	def $is_valid_indexed_attestation	-- if ($sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES)) =/= indexedAttestation.ATTESTING_INDICES)	0	1483	0	1483	falsifiable-covered	
 259	248	def $is_valid_indexed_attestation	-- if (|indexedAttestation.ATTESTING_INDICES| > 0)	1483	0	1483	0	unfalsifiable-closing	
 260	249	def $is_valid_indexed_attestation	-- if ($sort_<validatorIndex>($to_set_<validatorIndex>(indexedAttestation.ATTESTING_INDICES)) = indexedAttestation.ATTESTING_INDICES)	1483	0	1483	0	unfalsifiable-closing	
-261		def $is_valid_indexed_attestation	-- (if (vid < |state.VALIDATORS|))*{vid <- vid*}			1483	0	target-limitation	new-in-v2; F23; block-side index edit; iterated-uninstrumented; limitation-coordinated: measured 157332/0 in fixed combined; zero mutations pre-instrumentation-fix; 2nd testgen iteration would attempt
+261		def $is_valid_indexed_attestation	-- (if (vid < |state.VALIDATORS|))*{vid <- vid*}			1483	0	falsifiable-covered	new-in-v2; F23; iterated premise; block-side index edit; covered by generated tests (t2, 32 fails); zero mutations pre-instrumentation-fix
 265	253	relation SlashIfEligible	-- if (vid < |state.VALIDATORS|)	81	0	81	0	unfalsifiable-tautology	tier1 verified unfalsifiable: attesting indices bounded <|VALIDATORS| by is_valid_indexed_attestation before SlashIfEligible
 266	254	relation SlashIfEligible	-- if $is_slashable_validator(state.VALIDATORS[vid], $get_current_epoch(state))	71	10	71	10	falsifiable-covered	
 268	256	relation SlashIfEligible	-- if (vid < |state.VALIDATORS|)	10	0	10	0	unfalsifiable-tautology	tier1 verified unfalsifiable: attesting indices bounded by is_valid_indexed_attestation
@@ -160,17 +160,17 @@ v2	v1	decl	premise	v1_succ	v1_fail	v2_succ	v2_fail	category	note
 411	389	relation ApplyRewardsAndPenalties_over_deltas	-- if gwei'*{gwei' <- gwei'*}*{gwei'* <- gwei'**} matches _ :: _	120	0	120	0	unfalsifiable-tautology	
 415	393	relation ApplyInactivity	-- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	4648	4532	4648	4532	falsifiable-covered	
 416	394	relation ApplyInactivity	-- if ~$is_in_inactivity_leak(state)	4298	350	4298	350	falsifiable-covered	
-417	395	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	4298	0	4298	0	target-limitation	limitation-coordinated: tier1: FELL, own INACTIVITY_SCORES-truncation mutation (43 fails)
+417	395	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	4298	0	4298	0	falsifiable-covered	covered by generated tests (t2, 43 fails); own INACTIVITY_SCORES-truncation mutation; tier1-predicted
 418	396	relation ApplyInactivity	-- if vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	350	4532	350	4532	falsifiable-covered	markdown: redundant (deferred)
-419	397	relation ApplyInactivity	-- if $is_in_inactivity_leak(state)	350	0	350	0	unfalsifiable-closing	tier1: fell via spillover of 417 abort (43=43 pairing); uncovered spillover-only, stays closing (migrates to redundant only if source fires in main run)
-420	398	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	350	0	350	0	target-limitation	limitation-coordinated: tier1: FELL, own INACTIVITY_SCORES-truncation mutation (18 fails)
-421	399	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	4532	0	4532	0	unfalsifiable-closing	tier1: fell via spillover of INACTIVITY_SCORES bound aborts (61 fails, no own mutation); stays closing
+419	397	relation ApplyInactivity	-- if $is_in_inactivity_leak(state)	350	0	350	0	redundant	was unfalsifiable-closing; spillover of 417 abort (43=43 pairing), no own mutation; source fires in t2
+420	398	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	350	0	350	0	falsifiable-covered	covered by generated tests (t2, 18 fails); own INACTIVITY_SCORES-truncation mutation; tier1-predicted
+421	399	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	4532	0	4532	0	redundant	was unfalsifiable-closing; spillover of INACTIVITY_SCORES bound aborts (61 fails), no own mutation; source fires in t2
 422	400	relation ApplyInactivity	-- if ~$is_in_inactivity_leak(state)	1903	2629	1903	2629	falsifiable-covered	
-424	402	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	1903	0	1903	0	target-limitation	limitation-coordinated: tier1: FELL, own INACTIVITY_SCORES-truncation mutation (28 fails)
+424	402	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	1903	0	1903	0	falsifiable-covered	covered by generated tests (t2, 28 fails); own INACTIVITY_SCORES-truncation mutation; tier1-predicted
 425		relation ApplyInactivity	-- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))			1903	0	falsifiable-covered	new-in-v2; F7; covered by generated tests (combined fail=68)
-426	403	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	2629	0	2629	0	unfalsifiable-closing	tier1: fell via spillover (61 fails, no own mutation); stays closing
+426	403	relation ApplyInactivity	-- if ~vid <- $get_unslashed_participating_indices(state, $TIMELY_TARGET_FLAG_INDEX, $get_previous_epoch(state))	2629	0	2629	0	redundant	was unfalsifiable-closing; spillover of INACTIVITY_SCORES bound aborts (61 fails), no own mutation; source fires in t2
 427	404	relation ApplyInactivity	-- if $is_in_inactivity_leak(state)	2629	0	2629	0	redundant	was unfalsifiable-closing; spillover of 425 (inactivity-score overflow abort in inactive_no_leak); 16-shard fail distributions identical (68=68) (combined fail=68)
-428	405	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	2629	0	2629	0	target-limitation	limitation-coordinated: tier1: FELL, own INACTIVITY_SCORES-truncation mutation (45 fails)
+428	405	relation ApplyInactivity	-- if (vid < |state.INACTIVITY_SCORES|)	2629	0	2629	0	falsifiable-covered	covered by generated tests (t2, 45 fails); own INACTIVITY_SCORES-truncation mutation; tier1-predicted
 429		relation ApplyInactivity	-- if (state.INACTIVITY_SCORES[vid] <= ($UINT64_MAX - $INACTIVITY_SCORE_BIAS))			2629	0	falsifiable-covered	new-in-v2; F7; covered by generated tests (combined fail=76)
 430	406	relation ApplyInactivity_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches []	30	9180	30	9180	falsifiable-covered	
 431	407	relation ApplyInactivity_over_vids	-- if validatorIndex*{validatorIndex <- validatorIndex*} matches _ :: _	9180	0	9180	0	unfalsifiable-closing	
