@@ -158,6 +158,8 @@ rule ProcessSlashings:
   state ~> state_out
   -- if $get_current_epoch(state) = epoch_cur 
   -- if $get_total_active_balance(state) = balance_total
+  ;; inserted overflow check
+  -- if $( $sum_<gwei>(state.SLASHINGS) <= $UINT64_MAX / $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX )
   -- if $min_uint64(
         $( $sum_<gwei>(state.SLASHINGS) * $PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX ),
         balance_total
