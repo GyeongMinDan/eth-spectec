@@ -161,6 +161,8 @@ def $get_eligible_validator_indices(state) = vid_eligible*
 dec $has_flag_for_index(validatorIndex, (participationFlags*, nat)) : bool
 def $has_flag_for_index(vid, (participationFlags_list*, nat_flag))
   = $has_flag(participationFlags_list*[vid], nat_flag)
+  ;; inserted guard
+  -- if $(vid < |participationFlags_list*|)
 
 ;; [Custom | filter helper : get_unslashed_participating_indices]
 dec $is_unslashed(validatorIndex, beaconState) : bool

@@ -8,9 +8,12 @@ dec $get_total_balance(beaconState, validatorIndex*) : gwei
 def $get_total_balance(state, vid*)
   = $max_uint64(
       $EFFECTIVE_BALANCE_INCREMENT,
-      $sum_<gwei>(balance*)
+      gwei_sum
     )
   -- if (state.VALIDATORS[vid].EFFECTIVE_BALANCE = balance)*
+  -- if $sum_<gwei>(balance*) = gwei_sum
+  ;; inserted overflow check
+  -- if $(gwei_sum <= $UINT64_MAX)
 
 dec $get_total_active_balance(beaconState) : gwei
 
