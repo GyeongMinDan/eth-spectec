@@ -14,6 +14,8 @@ rule IncreaseBalance:
   state `.BALANCES `[ vid ] `+ delta ~> state[ .BALANCES[vid] = $(balance + delta) ]
   -- if $(vid < |state.BALANCES|)
   -- if state.BALANCES[vid] = balance
+  ;; inserted overflow check
+  -- if $(balance <= $UINT64_MAX - delta)
 
 ;; [Phase0]
 ;; decrease_balance(beaconState, validatorIndex, gwei) : beaconState
@@ -121,7 +123,9 @@ rule SlashValidator/no_whistleblower:
   -- if $max_uint64(validator.WITHDRAWABLE_EPOCH, $( epoch + $EPOCHS_PER_SLASHINGS_VECTOR )) = epoch_withdrawable
   -- if state_1 = state_init[.VALIDATORS[vid_slashed] = validator[.SLASHED = true][.WITHDRAWABLE_EPOCH = epoch_withdrawable]]
   ;; accumulate slashings[epoch % EPOCHS_PER_SLASHINGS_VECTOR] += effective_balance
-  -- if state_2 = state_1[ .SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR] 
+  ;; inserted overflow check
+  -- if $(state_1.SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR] <= $UINT64_MAX - validator.EFFECTIVE_BALANCE)
+  -- if state_2 = state_1[ .SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR]
                 = $(state_1.SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR] + validator.EFFECTIVE_BALANCE) ]
   ;; base slashing penalty (Bellatrix)
   -- if $( validator.EFFECTIVE_BALANCE / $MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX ) = penalty_slashing
@@ -146,7 +150,9 @@ rule SlashValidator/whistleblower:
   -- if $max_uint64(validator.WITHDRAWABLE_EPOCH, $( epoch + $EPOCHS_PER_SLASHINGS_VECTOR )) = epoch_withdrawable
   -- if state_1 = state_init[.VALIDATORS[vid_slashed] = validator[.SLASHED = true][.WITHDRAWABLE_EPOCH = epoch_withdrawable]]
   ;; accumulate slashings[epoch % EPOCHS_PER_SLASHINGS_VECTOR] += effective_balance
-  -- if state_2 = state_1[ .SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR] 
+  ;; inserted overflow check
+  -- if $(state_1.SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR] <= $UINT64_MAX - validator.EFFECTIVE_BALANCE)
+  -- if state_2 = state_1[ .SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR]
                 = $(state_1.SLASHINGS[epoch \ $EPOCHS_PER_SLASHINGS_VECTOR] + validator.EFFECTIVE_BALANCE) ]
   ;; base slashing penalty (Bellatrix)
   -- if $( validator.EFFECTIVE_BALANCE / $MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX ) = penalty_slashing

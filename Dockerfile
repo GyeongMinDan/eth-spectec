@@ -49,9 +49,11 @@ RUN apt-get update && \
 # ============================================
 # Pin nightly for reproducible coverage builds (Lighthouse uses -Z coverage-options=branch)
 ARG RUST_NIGHTLY_DATE=2026-01-15
+# Pin the stable toolchain to the as-built version from the published image
+ARG RUST_STABLE_VERSION=1.94.1
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . $HOME/.cargo/env && \
-    rustup default stable && \
+    rustup default ${RUST_STABLE_VERSION} && \
     rustup component add llvm-tools-preview && \
     rustup toolchain install nightly-${RUST_NIGHTLY_DATE} --component llvm-tools-preview
 
@@ -70,7 +72,8 @@ ENV GOPATH="/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
 
 # Install go-bcov for Prysm branch coverage
-RUN go install github.com/alx99/go-bcov@v1
+ARG GO_BCOV_VERSION=1.0.4
+RUN go install github.com/alx99/go-bcov@v${GO_BCOV_VERSION}
 
 # ============================================
 # Stage 4: Install Java 21 (for Teku)
@@ -98,8 +101,11 @@ RUN curl -fsSL https://bazel.build/bazel-release.pub.gpg | gpg --dearmor > bazel
 # ============================================
 # Stage 6: Install Node.js 20 (for Lodestar)
 # ============================================
+# Pin Node to the as-built minor via the nodesource apt version string.
+# If this exact version is unavailable on a future rebuild, drop the "=${NODE_VERSION}-1nodesource1" pin.
+ARG NODE_VERSION=20.20.0
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y nodejs && \
+    apt-get install -y nodejs=${NODE_VERSION}-1nodesource1 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -156,7 +162,8 @@ RUN git sparse-checkout init --cone && \
 # Install uv (Python package manager for eth2spec)
 # uv install script may install to ~/.cargo/bin (already in PATH from Rust) or ~/.local/bin
 WORKDIR /workspace/spectec-core
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ARG UV_VERSION=0.11.2
+RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
 
 # Add /root/.local/bin to PATH (uv may install here if not in .cargo/bin)
 # Note: /root/.cargo/bin is already in PATH from Rust installation (line 57)
@@ -371,7 +378,8 @@ RUN if [ -f "./env.sh" ]; then \
 
 # Verify Lodestar c8 availability
 WORKDIR /workspace/spectec-core/testing_clients/lodestar
-RUN npx --yes c8 --version || echo "c8 will be installed on first use"
+ARG C8_VERSION=11.0.0
+RUN npx --yes c8@${C8_VERSION} --version || echo "c8 will be installed on first use"
 
 # ============================================
 # Final stage: Set working directory

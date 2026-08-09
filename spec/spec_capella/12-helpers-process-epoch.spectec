@@ -88,6 +88,8 @@ rule ApplyInactivity/inactive_no_leak:
   -- if n_leak_penalty = $($INACTIVITY_SCORE_BIAS - $INACTIVITY_SCORE_RECOVERY_RATE)
   ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
+  ;; inserted overflow check
+  -- if $(state.INACTIVITY_SCORES[vid] <= $UINT64_MAX - $INACTIVITY_SCORE_BIAS)
 
 rule ApplyInactivity/inactive_leak:
   state `.INACTIVITY_SCORES `[ vid ]
@@ -101,6 +103,8 @@ rule ApplyInactivity/inactive_leak:
   -- if $is_in_inactivity_leak(state)
   ;; inserted guard
   -- if $(vid < |state.INACTIVITY_SCORES|)
+  ;; inserted overflow check
+  -- if $(state.INACTIVITY_SCORES[vid] <= $UINT64_MAX - $INACTIVITY_SCORE_BIAS)
 
 ;; [Custom] folder
 relation ApplyInactivity_over_vids:
@@ -169,8 +173,10 @@ rule WeighJustificationAndFinalization/justify_neither_finalize_prev:
             [.FINALIZED_CHECKPOINT = checkpoint_prev]
             [.JUSTIFICATION_BITS = bit*]
   ----
-  ;; inserted overflow check
+  ;; inserted overflow checks
+  -- if $(balance_prev_epoch_target <= $UINT64_MAX / 3)
   -- if $(balance_total_active <= $UINT64_MAX / 2)
+  -- if $(balance_current_epoch_target <= $UINT64_MAX / 3)
   ;; branch 1: (false, false)
   -- if ~ $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
   -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
@@ -183,6 +189,11 @@ rule WeighJustificationAndFinalization/justify_neither_finalize_prev:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   -- if $get_current_epoch(state)  = epoch_cur
+  ;; inserted overflow checks: pyspec evaluates each addition only when its bits conjunct holds
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 3)
+  -- if ~(bit*[1] /\ bit*[2]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 1)
   ----
   ;; branch 2: true
   -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ epoch_cur = $(checkpoint_prev.EPOCH + 3))
@@ -196,8 +207,10 @@ rule WeighJustificationAndFinalization/justify_neither_finalize_neither:
     ~> state[.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_cur]
             [.JUSTIFICATION_BITS = bit*]
   ----
-  ;; inserted overflow check
+  ;; inserted overflow checks
+  -- if $(balance_prev_epoch_target <= $UINT64_MAX / 3)
   -- if $(balance_total_active <= $UINT64_MAX / 2)
+  -- if $(balance_current_epoch_target <= $UINT64_MAX / 3)
   ;; branch 1: (false, false)
   -- if ~ $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
   -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
@@ -210,6 +223,11 @@ rule WeighJustificationAndFinalization/justify_neither_finalize_neither:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   -- if $get_current_epoch(state)  = epoch_cur
+  ;; inserted overflow checks: pyspec evaluates each addition only when its bits conjunct holds
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 3)
+  -- if ~(bit*[1] /\ bit*[2]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 1)
   ----
   ;; branch 2: false
   -- if ~(bit*[1] /\ bit*[2] /\ bit*[3] /\ epoch_cur = $(checkpoint_prev.EPOCH + 3))
@@ -227,8 +245,10 @@ rule WeighJustificationAndFinalization/justify_prev_finalize_prev:
             [.FINALIZED_CHECKPOINT = checkpoint_prev]
             [.JUSTIFICATION_BITS = bit*]
   ----
-  ;; inserted overflow check
+  ;; inserted overflow checks
+  -- if $(balance_prev_epoch_target <= $UINT64_MAX / 3)
   -- if $(balance_total_active <= $UINT64_MAX / 2)
+  -- if $(balance_current_epoch_target <= $UINT64_MAX / 3)
   ;; branch 1: (true, false)
   -- if $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
   -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
@@ -242,6 +262,11 @@ rule WeighJustificationAndFinalization/justify_prev_finalize_prev:
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
+  ;; inserted overflow checks: pyspec evaluates each addition only when its bits conjunct holds
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 3)
+  -- if ~(bit*[1] /\ bit*[2]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 1)
   ----
   ;; branch 2: true
   -- if (bit*[1] /\ bit*[2] /\ bit*[3]  /\ epoch_cur = $(checkpoint_prev.EPOCH + 3))
@@ -258,8 +283,10 @@ rule WeighJustificationAndFinalization/justify_prev_finalize_neither:
                   ROOT $get_block_root(state, epoch_prev) }]
             [.JUSTIFICATION_BITS = bit*]
   ----
-  ;; inserted overflow check
+  ;; inserted overflow checks
+  -- if $(balance_prev_epoch_target <= $UINT64_MAX / 3)
   -- if $(balance_total_active <= $UINT64_MAX / 2)
+  -- if $(balance_current_epoch_target <= $UINT64_MAX / 3)
   ;; branch 1: (true, false)
   -- if $(balance_prev_epoch_target * 3 >= balance_total_active * 2)
   -- if ~ $(balance_current_epoch_target  * 3 >= balance_total_active * 2)
@@ -273,6 +300,11 @@ rule WeighJustificationAndFinalization/justify_prev_finalize_neither:
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   -- if $get_previous_epoch(state) = epoch_prev
   -- if $get_current_epoch(state)  = epoch_cur
+  ;; inserted overflow checks: pyspec evaluates each addition only when its bits conjunct holds
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 3)
+  -- if ~(bit*[1] /\ bit*[2]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 1)
   ----
   ;; branch 2: false
   -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]  /\ epoch_cur = $(checkpoint_prev.EPOCH + 3))
@@ -290,8 +322,10 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_cur:
             [.FINALIZED_CHECKPOINT = checkpoint_cur]
             [.JUSTIFICATION_BITS = bit*]
   ----
-  ;; inserted overflow check
+  ;; inserted overflow checks
+  -- if $(balance_prev_epoch_target <= $UINT64_MAX / 3)
   -- if $(balance_total_active <= $UINT64_MAX / 2)
+  -- if $(balance_current_epoch_target <= $UINT64_MAX / 3)
   ;; branch 1: (_, true)
   -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
   -- if bit* = [
@@ -304,6 +338,11 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_cur:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   -- if $get_current_epoch(state)  = epoch_cur
+  ;; inserted overflow checks: pyspec evaluates each addition only when its bits conjunct holds
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 3)
+  -- if ~(bit*[1] /\ bit*[2]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 1)
   ----
   ;; branch 2: (true, _)
   -- if (bit*[0] /\ bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_cur.EPOCH + 2))
@@ -321,8 +360,10 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_prev:
             [.FINALIZED_CHECKPOINT = checkpoint_prev]
             [.JUSTIFICATION_BITS = bit*]
   ----
-  ;; inserted overflow check
+  ;; inserted overflow checks
+  -- if $(balance_prev_epoch_target <= $UINT64_MAX / 3)
   -- if $(balance_total_active <= $UINT64_MAX / 2)
+  -- if $(balance_current_epoch_target <= $UINT64_MAX / 3)
   ;; branch 1: (_, true)
   -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
   -- if bit* = [
@@ -335,6 +376,11 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_prev:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   -- if $get_current_epoch(state)  = epoch_cur
+  ;; inserted overflow checks: pyspec evaluates each addition only when its bits conjunct holds
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 3)
+  -- if ~(bit*[1] /\ bit*[2]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 1)
   ----
   ;; branch 2: (false, true)
   -- if ~(bit*[0] /\ bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_cur.EPOCH + 2))
@@ -353,8 +399,10 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_neither:
                   ROOT $get_block_root(state, epoch_cur) }]
             [.JUSTIFICATION_BITS = bit*]
   ----
-  ;; inserted overflow check
+  ;; inserted overflow checks
+  -- if $(balance_prev_epoch_target <= $UINT64_MAX / 3)
   -- if $(balance_total_active <= $UINT64_MAX / 2)
+  -- if $(balance_current_epoch_target <= $UINT64_MAX / 3)
   ;; branch 1: (_, true)
   -- if $(balance_current_epoch_target * 3 >= balance_total_active * 2)
   -- if bit* = [
@@ -368,6 +416,11 @@ rule WeighJustificationAndFinalization/justify_cur_finalize_neither:
   -- if state.PREVIOUS_JUSTIFIED_CHECKPOINT = checkpoint_prev
   -- if state.CURRENT_JUSTIFIED_CHECKPOINT = checkpoint_cur
   -- if $get_current_epoch(state)  = epoch_cur
+  ;; inserted overflow checks: pyspec evaluates each addition only when its bits conjunct holds
+  -- if ~(bit*[1] /\ bit*[2] /\ bit*[3]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 3)
+  -- if ~(bit*[1] /\ bit*[2]) \/ $(checkpoint_prev.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1] /\ bit*[2]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 2)
+  -- if ~(bit*[0] /\ bit*[1]) \/ $(checkpoint_cur.EPOCH <= $UINT64_MAX - 1)
   ;; branch 2: (false, false)
   -- if ~(bit*[0] /\ bit*[1] /\ bit*[2] /\ epoch_cur = $(checkpoint_cur.EPOCH + 2))
      /\ ~(bit*[0] /\ bit*[1] /\ epoch_cur = $(checkpoint_cur.EPOCH + 1))
