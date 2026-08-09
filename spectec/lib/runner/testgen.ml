@@ -869,9 +869,9 @@ let retarget_aggregate_sym_mutation (sym_mut : Pos.sym_mutation) :
       Pos.ToConst
         ( ((`GtOp | `GeOp | `LtOp | `LeOp | `NeOp) as op),
           ({ it = Il.NumV _; _ } as v) ) )
-    when (match field_path_type path with
+    when match field_path_type path with
          | Some (Type_tree.IterT (Type_tree.NumT _, Type_tree.List)) -> true
-         | _ -> false) ->
+         | _ -> false ->
       {
         Pos.target_path =
           Some { path with steps = path.steps @ [ Dep.IndexAccess 0 ] };

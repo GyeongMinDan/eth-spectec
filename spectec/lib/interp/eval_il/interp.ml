@@ -791,7 +791,7 @@ and eval_args (ctx : Ctx.t) (args : arg list) : Ctx.t * value list =
 
 (* Premise evaluation *)
 
-and eval_prem (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
+and eval_prem ?(notify = true) (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
   let eval_rule_prem ctx id notexp =
     let rel = Ctx.find_rel ctx id in
     let exps_input, exps_output =
@@ -824,16 +824,14 @@ and eval_prem (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
     print_endline @@ Print.string_of_value value;
     Ok ctx
   in
-  (match prem.it with
-  | IterPr _ -> ()
-  | _ ->
-      (* Create eval closure for instrumentation *)
-      let eval e =
-        let _, v = eval_exp ctx e in
-        v
-      in
-      Instrumentation.Dispatcher.notify_prem_enter ~eval:(Some eval) ~prem
-        ~at:prem.at);
+  (if notify then
+     (* Create eval closure for instrumentation *)
+     let eval e =
+       let _, v = eval_exp ctx e in
+       v
+     in
+     Instrumentation.Dispatcher.notify_prem_enter ~eval:(Some eval) ~prem
+       ~at:prem.at);
   (* Pass lookup function for variable resolution in handlers *)
   let lookup id = Ctx.find_value_opt ctx (id $ no_region, []) in
   Instrumentation.Dispatcher.notify_prem_fields ~prem ~fields:[] ~lookup
@@ -847,11 +845,9 @@ and eval_prem (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
     | IterPr (prem, iterexp) -> eval_iter_prem ctx prem iterexp
     | DebugPr exp -> eval_debug_prem ctx exp
   in
-  (match prem.it with
-  | IterPr _ -> ()
-  | _ ->
-      Instrumentation.Dispatcher.notify_prem_exit ~prem ~at:prem.at
-        ~success:(Result.is_ok result));
+  if notify then
+    Instrumentation.Dispatcher.notify_prem_exit ~prem ~at:prem.at
+      ~success:(Result.is_ok result);
   result
 
 and eval_prems (ctx : Ctx.t) (prems : prem list) : Ctx.t attempt =
@@ -958,7 +954,7 @@ and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
                 let* ctx, values_binding_batch_rev = ctx_values_binding_batch in
                 Instrumentation.Dispatcher.notify_iter_prem_enter ~prem
                   ~at:prem.at;
-                let* ctx_sub = eval_prem ctx_sub prem in
+                let* ctx_sub = eval_prem ~notify:false ctx_sub prem in
                 Instrumentation.Dispatcher.notify_iter_prem_exit ~at:prem.at;
                 let value_binding_batch =
                   List.map

@@ -157,22 +157,13 @@ module M : Instrumentation_core.Handler.S = struct
     State.incr_count State.prems_attempted key;
     State.record_premise_coverage key
 
-  (* Only track failures for non-let premises since let cannot fail *)
+  (* Failures are keyed on the outermost premise, matching the printed key *)
   let on_prem_exit ~prem ~at:_ ~success =
     let key = prem_key prem in
     if success then (
       State.incr_count State.prems_succeeded key;
       State.record_premise_coverage key)
-    else
-      let rec incr_failures prem =
-        match prem.it with
-        | LetPr _ | ElsePr | DebugPr _ -> ()
-        | IterPr (inner, _) -> incr_failures inner
-        | IfPr _ | RulePr _ ->
-            let key = prem_key prem in
-            State.incr_count State.prems_failed key
-      in
-      incr_failures prem
+    else if is_fallible prem then State.incr_count State.prems_failed key
 
   let on_instr = Instrumentation_core.Noop.on_instr
   let on_prem_fields = Instrumentation_core.Noop.on_prem_fields
@@ -182,8 +173,10 @@ module M : Instrumentation_core.Handler.S = struct
 
   (* --- Output: Summary mode (stats + uncovered only) --- *)
 
+  (* Iterated if-premises stringify as "(if ...)*..." *)
   let is_if_prem_key ((_, content) : region * string) : bool =
-    String.length content >= 3 && String.sub content 0 3 = "if "
+    (String.length content >= 3 && String.sub content 0 3 = "if ")
+    || (String.length content >= 4 && String.sub content 0 4 = "(if ")
 
   let print_stats () =
     let succeeded = Hashtbl.length State.prems_succeeded in
