@@ -920,6 +920,8 @@ def process_clients(state, block, paths, spectec_core_dir=None, enable_coverage=
                 "--Xnetwork-bellatrix-fork-epoch=0",
                 "--Xnetwork-capella-fork-epoch=0",
                 f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+                # Teku derives this from CPU count and rejects >255.
+                "--Xnetwork-async-beaconchain-max-threads=5",
                 # validate_result = false (via modified_code): Skip block signature and state root verification
                 # Block signature: skipped in AbstractBlockProcessor.java (verifyBlockSignature commented out)
                 # State root: skipped in AbstractBlockProcessor.java (validatePostState commented out)
@@ -1269,6 +1271,8 @@ def process_clients_sanity_slots(state, slot_value, paths, spectec_core_dir=None
                 "--Xnetwork-bellatrix-fork-epoch=0",
                 "--Xnetwork-capella-fork-epoch=0",
                 f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+                # Teku derives this from CPU count and rejects >255.
+                "--Xnetwork-async-beaconchain-max-threads=5",
             ]),
     ]
 
@@ -1572,6 +1576,8 @@ def process_clients_operation(state, operation, operation_type, paths, spectec_c
         "--Xnetwork-bellatrix-fork-epoch=0",
         "--Xnetwork-capella-fork-epoch=0",
         f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+        # Teku derives this from CPU count and rejects >255.
+        "--Xnetwork-async-beaconchain-max-threads=5",
     ]
     # Add execution_valid flag for execution_payload operation
     if operation_type == "execution_payload" and execution_valid is not None:
@@ -1917,6 +1923,8 @@ def process_clients_epoch_processing(state, epoch_processing_type, paths, specte
                 "--Xnetwork-bellatrix-fork-epoch=0",
                 "--Xnetwork-capella-fork-epoch=0",
                 f"--Xnetwork-deneb-fork-epoch={'0' if fork_version == 'deneb' else '75520'}",
+                # Teku derives this from CPU count and rejects >255.
+                "--Xnetwork-async-beaconchain-max-threads=5",
             ]),
     ]
 
