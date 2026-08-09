@@ -133,11 +133,12 @@ rule AddFlag/main:
   participationFlags `[ vid_attesting ] `++ `{ vid_flag } `# state `#SUM reward
     ~>
     $add_flag(participationFlags, vid_flag)
-    `#SUM $(reward + $get_base_reward(state, vid_attesting) * $PARTICIPATION_FLAG_WEIGHTS[vid_flag])
+    `#SUM $(reward + reward_base * $PARTICIPATION_FLAG_WEIGHTS[vid_flag])
   -- if ~$has_flag(participationFlags, vid_flag)
+  -- if $get_base_reward(state, vid_attesting) = reward_base
 rule AddFlag/skip:
   participationFlags `[ _ ] `++ `{ vid_flag } `# _ `#SUM reward ~> participationFlags `#SUM reward
-  -- otherwise
+  -- if $has_flag(participationFlags, vid_flag)
 
 ;; [Custom]
 ;; fold AddFlag over flag indices
