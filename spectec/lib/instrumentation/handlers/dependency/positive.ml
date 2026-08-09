@@ -289,10 +289,58 @@ let string_of_sym_mutation (mut : sym_mutation) : string =
   in
   Printf.sprintf "%s → %s" target_str (string_of_mutation_kind mut.suggestion)
 
+(* === Callee Inlining for Call Premises === *)
+
+(* Extraction-time inlining of expression-bodied callees (one clause, no
+   premises, bare-variable parameters). Substituting argument expressions for
+   parameters yields a body evaluable in the caller's environment. *)
+module Inline = struct
+  let table : (string, string list * Il.exp) Hashtbl.t = Hashtbl.create 64
+
+  let init (spec : Il.spec) =
+    Hashtbl.clear table;
+    List.iter
+      (fun (def : Il.def) ->
+        match def.it with
+        | Il.DecD (id, _, _, _, [ { it = params, body, []; _ } ]) ->
+            let param_ids =
+              List.filter_map
+                (fun (param : Il.arg) ->
+                  match param.it with
+                  | Il.ExpA { it = Il.VarE pid; _ } -> Some pid.it
+                  | _ -> None)
+                params
+            in
+            if List.length param_ids = List.length params then
+              Hashtbl.replace table id.it (param_ids, body)
+        | _ -> ())
+      spec
+
+  let rec subst (env : (string * Il.exp) list) (exp : Il.exp) : Il.exp =
+    match exp.it with
+    | Il.VarE id -> (
+        match List.assoc_opt id.it env with Some e -> e | None -> exp)
+    | _ -> Il.Traverse.map_children_exp (subst env) exp
+
+  let expand (id : Il.id) (args : Il.arg list) : Il.exp option =
+    match Hashtbl.find_opt table id.it with
+    | None -> None
+    | Some (param_ids, body) ->
+        let arg_exps =
+          List.filter_map
+            (fun (arg : Il.arg) ->
+              match arg.it with Il.ExpA e -> Some e | _ -> None)
+            args
+        in
+        if List.length arg_exps = List.length param_ids then
+          Some (subst (List.combine param_ids arg_exps) body)
+        else None
+end
+
 (* === Provenance-based Mutation Extraction === *)
 
-let rec extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp)
-    : sym_mutation list =
+let rec extract_symbolic_mutations' (depth : int) (eval : Il.exp -> Il.Value.t)
+    (exp : Il.exp) : sym_mutation list =
   let try_eval e = try Some (eval e) with _ -> None in
   (* For a (target_exp, constraint_exp, op) triple:
      evaluate target for provenance, constraint for concrete value.
@@ -341,22 +389,30 @@ let rec extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp)
         make_muts_from_prov rhs lhs (invert_cmp_op op) rhs_is_len
       in
       muts_lhs @ muts_rhs
-  | Il.CallE (_, _, args) ->
-      (* Verification-function args: extract provenance from each argument *)
-      List.concat_map
-        (fun arg ->
-          match arg.it with
-          | Il.ExpA e -> (
-              match try_eval e with
-              | Some v ->
-                  let paths = provs_of_val v in
-                  List.map
-                    (fun path ->
-                      { target_path = Some path; suggestion = Unknown v })
-                    paths
-              | None -> [])
-          | Il.DefA _ -> [])
-        args
+  | Il.CallE (id, _, args) -> (
+      (* Fallback: per-argument Unknown hints (builtins, clause-guarded defs) *)
+      let arg_muts () =
+        List.concat_map
+          (fun arg ->
+            match arg.it with
+            | Il.ExpA e -> (
+                match try_eval e with
+                | Some v ->
+                    let paths = provs_of_val v in
+                    List.map
+                      (fun path ->
+                        { target_path = Some path; suggestion = Unknown v })
+                      paths
+                | None -> [])
+            | Il.DefA _ -> [])
+          args
+      in
+      match if depth > 0 then Inline.expand id args else None with
+      | Some body -> (
+          match extract_symbolic_mutations' (depth - 1) eval body with
+          | [] -> arg_muts ()
+          | muts -> muts)
+      | None -> arg_muts ())
   | Il.MatchE (inner, pat) -> (
       match pat with
       | Il.ListP `Nil -> (
@@ -408,7 +464,8 @@ let rec extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp)
       | None -> [])
   | Il.BinE (`AndOp, _, e1, e2) ->
       (* Recurse into each conjunct independently *)
-      extract_symbolic_mutations eval e1 @ extract_symbolic_mutations eval e2
+      extract_symbolic_mutations' depth eval e1
+      @ extract_symbolic_mutations' depth eval e2
   | _ -> (
       match try_eval exp with
       | Some v ->
@@ -421,6 +478,11 @@ let rec extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp)
               })
             paths
       | None -> [])
+
+(* Depth 1: open a named predicate's body without chasing helper chains *)
+let extract_symbolic_mutations (eval : Il.exp -> Il.Value.t) (exp : Il.exp) :
+    sym_mutation list =
+  extract_symbolic_mutations' 1 eval exp
 
 (* Check if premise is an if-premise (possibly wrapped in IterPr) *)
 let rec is_if_prem (prem : Il.prem) : bool =
@@ -510,7 +572,7 @@ module M : Instrumentation_core.Handler.S = struct
   let init ~spec =
     State.reset ();
     match spec with
-    | Instrumentation_core.Handler.IlSpec _il_spec -> ()
+    | Instrumentation_core.Handler.IlSpec il_spec -> Inline.init il_spec
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
   let on_test_start ~test_case_id = State.current_test_id := test_case_id
