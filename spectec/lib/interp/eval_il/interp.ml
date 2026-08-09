@@ -535,6 +535,7 @@ and eval_cat_exp (note : typ') (ctx : Ctx.t) (at : region) (exp_l : exp)
         values_l @ values_r |> Value.Make.list note
     | _ -> error at "concatenation expects either two texts or two lists"
   in
+  let value_res = Value.with_merged_provenance [ value_l; value_r ] value_res in
   (ctx, value_res)
 
 (* Membership expression evaluation *)
