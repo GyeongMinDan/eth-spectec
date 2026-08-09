@@ -420,7 +420,8 @@ let rec extract_symbolic_mutations' (depth : int) (eval : Il.exp -> Il.Value.t)
   | Il.MatchE (inner, pat) -> (
       match pat with
       | Il.ListP `Nil -> (
-          (* Inner has provenance and is empty list → mutate length to >0 to violate matches [] *)
+          (* Satisfying direction (len <= 0); the global negation in
+             add_per_test_sym_mutation yields the violating len > 0 *)
           match try_eval inner with
           | Some v ->
               let paths = provs_of_val v in
@@ -430,7 +431,7 @@ let rec extract_symbolic_mutations' (depth : int) (eval : Il.exp -> Il.Value.t)
                     target_path = Some path;
                     suggestion =
                       ToLength
-                        ( `GtOp,
+                        ( `LeOp,
                           Il.Value.Make.num Il.Typ.nat (`Nat (Bigint.of_int 0))
                         );
                   })
