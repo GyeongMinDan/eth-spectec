@@ -1215,6 +1215,18 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
         invoke_func' ()
       else invoke_func' |> Cache.with_func_cache ctx.cache (id.it, values_input)
     in
+    let value_output =
+      let lookup_clauses fid =
+        Option.map
+          (fun (_, (_, clauses)) -> clauses)
+          (Ctx.find_func_opt ctx (fid $ no_region))
+      in
+      let provs =
+        Instrumentation.Dispatcher.notify_func_result ~id:id.it
+          ~values:values_input ~lookup_clauses
+      in
+      Value.add_provenance provs value_output
+    in
     (* Fallback provenance propagation: when the output has no provenance but
        inputs do, merge all input provenances into the output.
        Necessary for builtins where output provenances are computed empty. *)

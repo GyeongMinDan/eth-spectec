@@ -61,6 +61,15 @@ module type S = sig
   val on_clause_return :
     id:string -> clause_idx:int -> at:region -> return_exp:Il.exp -> unit
 
+  (* Extra provenance to union into a call's result note. Annotation-only:
+     handlers cannot alter the computed value. [lookup_clauses] also
+     resolves locally bound function names. *)
+  val on_func_result :
+    id:string ->
+    values:Il.Value.t list ->
+    lookup_clauses:(string -> Il.clause list option) ->
+    Il.json_provenance list
+
   (* SL-specific events *)
   val on_instr : instr:Sl.instr -> at:region -> unit
   val finish : unit -> unit

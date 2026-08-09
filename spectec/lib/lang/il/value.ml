@@ -147,6 +147,12 @@ module MakeWithVid (VidProvider : VidProvider) = struct
     if deduped = [] then result
     else { result with note = { result.note with provenance = deduped } }
 
+  let add_provenance (provs : json_provenance list) (v : t) : t =
+    if provs = [] then v
+    else
+      let merged = List.sort_uniq Stdlib.compare (v.note.provenance @ provs) in
+      { v with note = { v.note with provenance = merged } }
+
   module Make = struct
     let value (t' : typ') (v : value') : t = make_val t' v
     let bool (t' : typ') (b : bool) : t = make_val t' (BoolV b)
