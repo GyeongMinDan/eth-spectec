@@ -66,7 +66,7 @@ rule ProcessWithdrawals/lenMax:
   -- if |withdrawal_expected*| = $MAX_WITHDRAWALS_PER_PAYLOAD
   -- if withdrawal_expected*[|withdrawal_expected*| - 1] = withdrawal_latest
   -- if $(withdrawal_latest.INDEX + 1 ) = withdrawalIndex_next
-  -- if $(( withdrawal_latest.VALIDATOR_INDEX + 1 \ |state_after_debits.VALIDATORS|)) = vid_next
+  -- if $(( withdrawal_latest.VALIDATOR_INDEX + 1 ) \ |state_after_debits.VALIDATORS|) = vid_next
 
 ;; 0 < len(expected) < MAX_WITHDRAWALS_PER_PAYLOAD
 rule ProcessWithdrawals/lenPartial:
