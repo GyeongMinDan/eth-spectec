@@ -466,6 +466,18 @@ let rec extract_symbolic_mutations' (depth : int) (eval : Il.exp -> Il.Value.t)
       (* Recurse into each conjunct independently *)
       extract_symbolic_mutations' depth eval e1
       @ extract_symbolic_mutations' depth eval e2
+  | Il.BinE (`OrOp, _, e1, e2) ->
+      (* Only the concretely-true disjunct(s) decided the result, so only
+         their fields can flip it *)
+      let is_true e =
+        match try_eval e with
+        | Some { it = Il.BoolV true; _ } -> true
+        | _ -> false
+      in
+      let branches =
+        match List.filter is_true [ e1; e2 ] with [] -> [ e1; e2 ] | ws -> ws
+      in
+      List.concat_map (extract_symbolic_mutations' depth eval) branches
   | _ -> (
       match try_eval exp with
       | Some v ->
