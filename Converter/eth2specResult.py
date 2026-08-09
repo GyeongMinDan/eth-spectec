@@ -13,7 +13,7 @@ if consensus_specs_path not in sys.path:
 from eth2spec.utils.ssz.ssz_impl import deserialize
 
 
-def main(pre_ssz_path=None, blocks_ssz_path=None, output_ssz_path=None, fork="capella"):
+def main(pre_ssz_path=None, blocks_ssz_path=None, output_ssz_path=None, fork="capella", validate=False):
     """Decode SSZ files, execute state_transition, and save result"""
     
     # Import the appropriate fork module
@@ -56,7 +56,7 @@ def main(pre_ssz_path=None, blocks_ssz_path=None, output_ssz_path=None, fork="ca
     # Execute state_transition
     print("\nExecuting state_transition...")
     try:
-        spec.state_transition(state, signed_block, validate_result=False)
+        spec.state_transition(state, signed_block, validate_result=validate)
         print("  ✓ State transition succeeded!")
     except Exception as e:
         print(f"  ✗ State transition failed: {e}")
@@ -78,12 +78,15 @@ if __name__ == '__main__':
     parser.add_argument('--out', dest='output_ssz_path', help='Path to output SSZ file')
     parser.add_argument('--fork', dest='fork', default='capella', choices=['capella', 'deneb'],
                         help='Fork name to use (default: capella)')
+    parser.add_argument('--validate', dest='validate', action='store_true',
+                        help='Run state_transition with validate_result=True (block signature and state-root checks)')
     args = parser.parse_args()
-    
+
     main(
         pre_ssz_path=args.pre_ssz_path,
         blocks_ssz_path=args.blocks_ssz_path,
         output_ssz_path=args.output_ssz_path,
-        fork=args.fork
+        fork=args.fork,
+        validate=args.validate
     )
 
