@@ -220,18 +220,7 @@ let is_list_field (path : field_path) : bool =
   match field_path_type path with
   | Some (Type_tree.IterT (_, Type_tree.List)) -> true
   | Some _ -> false (* known non-list type *)
-  | None ->
-      let root_opt = source_root_type_name path.source in
-      let root_found = Option.bind root_opt Type_tree.lookup_ci in
-      Format.eprintf
-        "[Testgen] is_list_field: type tree returned None for path %s\n\
-        \  source root name: %s\n\
-        \  root lookup: %s\n\
-         %!"
-        (Dep.string_of_field_path path)
-        (Option.value ~default:"<none>" root_opt)
-        (match root_found with Some _ -> "found" | None -> "NOT FOUND");
-      assert false
+  | None -> false
 
 (* ===== Strategy generation ===== *)
 
