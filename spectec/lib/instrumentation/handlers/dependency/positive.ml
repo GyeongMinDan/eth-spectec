@@ -696,14 +696,17 @@ module M : Instrumentation_core.Handler.S = struct
                 reason
             else Format.fprintf !fmt "  (not covered)\n"
           else
-            Hashtbl.iter
-              (fun test_id muts ->
-                Format.fprintf !fmt "  test %s:\n" test_id;
-                List.iter
-                  (fun mut ->
-                    Format.fprintf !fmt "    %s\n" (string_of_sym_mutation mut))
-                  muts)
-              tests;
+            Hashtbl.fold
+              (fun test_id muts acc -> (test_id, muts) :: acc)
+              tests []
+            |> List.sort (fun (t1, _) (t2, _) -> String.compare t1 t2)
+            |> List.iter (fun (test_id, muts) ->
+                   Format.fprintf !fmt "  test %s:\n" test_id;
+                   List.iter
+                     (fun mut ->
+                       Format.fprintf !fmt "    %s\n"
+                         (string_of_sym_mutation mut))
+                     muts);
           Format.fprintf !fmt "\n")
         sorted;
     Format.pp_print_flush !fmt ();
