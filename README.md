@@ -66,6 +66,10 @@ This creates an executable `spectec-core` in the project root.
 ### 3. Testing
 
 ```bash
+# Run the SSZ hash-tree-root tests
+make test-ssz
+
+# Run the complete project test suite
 make test
 ```
 
@@ -74,15 +78,43 @@ make test
 
 **Note:** This script must be run from the project root directory (where `Makefile` is located).
 
-### 4. Run Converter scripts (eth2spec integration)
+### 4. Run Capella and Deneb Official Tests
 
 ```bash
 # Inside the container:
 cd /workspace/spectec-core
 
-# Make the spectec inputs (Example)
-python3 Converter/generate_json_test_cases.py   Converter/OfficialTestSuite/capella/sanity/blocks/pyspec_tests   --fork capella  --output-dir eth-tests   -v
+# Generate Capella test inputs
+python3 Converter/generate_json_test_cases.py \
+  Converter/OfficialTestSuite/capella \
+  --fork capella \
+  --output-dir generated-tests/capella \
+  --verbose
+
+# Run the Capella tests
+./spectec-core eth coverage -v \
+  --official-fork capella \
+  --check-post \
+  --spec-dir spec/spec_capella \
+  --test-dir generated-tests/capella
+
+# Generate Deneb test inputs
+python3 Converter/generate_json_test_cases.py \
+  Converter/OfficialTestSuite/deneb \
+  --fork deneb \
+  --output-dir generated-tests/deneb \
+  --verbose
+
+# Run the Deneb tests
+./spectec-core eth coverage -v \
+  --official-fork deneb \
+  --check-post \
+  --spec-dir spec/spec_deneb \
+  --test-dir generated-tests/deneb
 ```
+
+Run these commands from the project root and use a separate output directory
+for each fork.
 
 ### 5. diff_testing.py
 

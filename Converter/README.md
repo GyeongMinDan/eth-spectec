@@ -9,7 +9,7 @@ Converter/
 ├── CompareResult.py              # SSZ file comparison tool
 ├── snappyDecompressor.py         # Snappy decompression tool
 ├── eth2specResult.py             # eth2spec state transition execution tool
-├── run_test_suite.py             # Complete test suite runner (independent / sequential modes)
+├── generate_json_test_cases.py   # Official SSZ vector → SpecTec JSON generator
 ├── JsonToSSZ/                    # JSON → SSZ conversion tools
 │   ├── BeaconStateJsonToSSZ.py
 │   └── SignedBeaconBlockJsonToSSZ.py
@@ -23,13 +23,17 @@ Converter/
 │       └── deposit_contract_block.txt
 └── OfficialTestSuite/            # Official test suite
     ├── capella/                  # Capella fork test cases
-    │   ├── random/              # Random test cases
-    │   ├── sanity/blocks/       # Sanity block test cases
-    │   └── finality/             # Finality test cases
+    │   ├── random/               # Random test cases
+    │   ├── sanity/               # Block and slot test cases
+    │   ├── finality/             # Finality test cases
+    │   ├── operations/           # Operation test cases
+    │   └── epoch_processing/     # Epoch-processing test cases
     └── deneb/                    # Deneb fork test cases
         ├── random/               # Random test cases
-        ├── sanity/blocks/        # Sanity block test cases
-        └── finality/             # Finality test cases
+        ├── sanity/               # Block and slot test cases
+        ├── finality/             # Finality test cases
+        ├── operations/           # Operation test cases
+        └── epoch_processing/     # Epoch-processing test cases
 ```
 
 ## Pure Capella Network Configuration
@@ -145,158 +149,47 @@ python eth2specResult.py --pre pre.ssz --block blocks_0.ssz --out eth2specResult
 
 **Note:** This script uses eth2spec from the `consensus-specs/tests/core/pyspec` path.
 
-### 6. Complete Test Suite Runner (run_test_suite.py)
+### 6. Official Test Input Generator (`generate_json_test_cases.py`)
 
-Automatically runs the complete workflow for official test suites.
-
-**Workflow modes:**
-
-- **independent (default)**  
-  Each `blocks_i` is tested **independently** from the same `pre` state:
-  1. Decompress Snappy files (pre.ssz_snappy, blocks_*.ssz_snappy → pre.ssz, blocks_*.ssz)
-  2. Convert SSZ to JSON (pre.ssz → pre.json, blocks_*.ssz → blocks_*.json)
-  3. Run Spectec once per block, always starting from the original `pre.json`
-  4. Convert each Spectec result to SSZ (spectec_output_i.json → spectec_output_i.ssz)
-  5. Execute eth2specResult.py once per block, always starting from the original `pre.ssz`
-  6. Compare results per block (spectec_output_i.ssz vs eth2specResult_i.ssz)
-
-- **sequential**  
-  Blocks are applied **sequentially**: `pre → blocks_0 → postState_0 → blocks_1 → ...`:
-  1. Decompress Snappy files (pre.ssz_snappy, blocks_*.ssz_snappy → pre.ssz, blocks_*.ssz)
-  2. Convert SSZ to JSON (pre.ssz → pre.json, blocks_*.ssz → blocks_*.json)
-  3. Run Spectec in a chain: `pre.json → blocks_0 → postState_0 → blocks_1 → ...`
-  4. Convert each chained Spectec postState to SSZ (spectec_output_i.json → spectec_output_i.ssz)
-  5. Execute eth2specResult.py in the same chained way on SSZ (`pre.ssz → blocks_0 → ...`)
-  6. Compare postState SSZ results for each step
-
-**Usage:**
+Run the generator from the repository root to convert the official SSZ vectors
+into the JSON test inputs consumed by `spectec-core`.
 
 ```bash
-python run_test_suite.py <test_suite_dir> --spectec-bin <spectec_binary> [options]
+# Capella
+python3 Converter/generate_json_test_cases.py \
+  Converter/OfficialTestSuite/capella \
+  --fork capella \
+  --output-dir generated-tests/capella \
+  --verbose
 
-# Examples (independent mode, default, using Deneb fork)
-python run_test_suite.py Converter/OfficialTestSuite/deneb/random --spectec-bin ../spectec-core
-python run_test_suite.py Converter/OfficialTestSuite/deneb/sanity/blocks --spectec-bin ../spectec-core --verbose
-
-# Examples (using Capella fork)
-python run_test_suite.py Converter/OfficialTestSuite/capella/random --spectec-bin ../spectec-core --fork capella
-python run_test_suite.py Converter/OfficialTestSuite/capella/sanity/blocks --spectec-bin ../spectec-core --fork capella --verbose
-
-# Examples (sequential mode, v2-style chained execution)
-python run_test_suite.py Converter/OfficialTestSuite/deneb/random --spectec-bin ../spectec-core --workflow sequential
-python run_test_suite.py Converter/OfficialTestSuite/deneb/sanity/blocks --spectec-bin ../spectec-core --workflow sequential --verbose
-
-# Examples with custom output directory
-python run_test_suite.py Converter/OfficialTestSuite/deneb/random --spectec-bin ../spectec-core --output-dir custom_results
-python run_test_suite.py Converter/OfficialTestSuite/deneb/sanity/blocks --spectec-bin ../spectec-core --workflow sequential --output-dir ./my_test_results --verbose
+# Deneb
+python3 Converter/generate_json_test_cases.py \
+  Converter/OfficialTestSuite/deneb \
+  --fork deneb \
+  --output-dir generated-tests/deneb \
+  --verbose
 ```
 
-**Required Arguments:**
-- `test_suite`: Test suite directory (e.g., `Converter/OfficialTestSuite/deneb/random` or `Converter/OfficialTestSuite/capella/sanity/blocks`)
-- `--spectec-bin`: Path to Spectec executable (e.g., `../spectec-core`)
+Arguments and options:
 
-**Optional Arguments:**
-- `--converter-dir <dir>`: Path to Converter directory (default: auto-detect from script location)
-- `--spec-dir <dir>`: Path to spec files directory (default: `spectec-core/spec/spec_{fork}`). If not specified, automatically uses the fork-specific directory based on `--fork` option.
-- `--fork <fork>`: Fork name to use (`deneb` or `capella`, default: `deneb`). Spec files will be loaded from `spec/spec_{fork}/` directory.
-- `--output-dir <dir>`: Output directory for test results (default: `test_suite/_results`). All intermediate files (SSZ, JSON) and comparison results are saved here. Example: `--output-dir custom_results` or `--output-dir ./my_test_results`
-- `--filter <name>`: Filter test cases by name (e.g., `randomized_0`)
-- `-v, --verbose`: Verbose output
-- `--run-mode <mode>`: Execution mode (`run-il` or `run-sl`, default: `run-il`)
- - `--workflow <mode>`: Test workflow mode (`independent` or `sequential`, default: `independent`)
+- `test_suite`: source directory searched recursively for official test cases
+- `--fork {capella,deneb}`: fork used to process the source vectors
+- `--output-dir`: directory where the generated JSON cases are written
+- `--filter <name>`: generate only cases whose source directory matches the
+  given name
+- `-v`, `--verbose`: print per-case progress
 
-**Output:**
-- Intermediate and result files created in work directory for each test case
-- Test summary (passed/failed counts)
+Generated cases are grouped below the output directory by test type, including
+`random`, `finality`, `sanity`, `operations`, and
+`epoch_processing`. Use a different output directory for each fork.
 
-## Official Test Suite (OfficialTestSuite)
+For local execution outside the Docker image, initialize the pinned
+`consensus-specs` submodule and generate the PySpec modules first:
 
-### Test Case Selection Criteria
-
-The `OfficialTestSuite` directory contains test cases extracted from **Ethereum Consensus Spec Tests pinned at `v1.5.0`**.  
-(We pin a specific tag to ensure reproducibility across machines and CI.)
-
-**Why only `random/` and `sanity/blocks/`?**  
-We focused on suites that:
-- provide abundant **single-fork** block/state examples,
-- have **stable, self-contained vectors** with clear `meta.yaml` rules,
-- and are lightweight enough to keep this repo practical.
-
-Other suites (e.g., full transition / fork-heavy scenarios) remain valid in the upstream repo, but are **out of scope** for this converter collection to keep the tooling simple and reproducible.
-
-### meta.yaml Rules Understanding
-
-Each test case defines the following rules through the `meta.yaml` file:
-
-#### Version Selection Quick Rules (from `meta.yaml`)
-
-- `post_fork: <fork>` → `post.ssz_snappy` **must** be decoded as `<post_fork>.BeaconState`.
-- `fork_epoch: <int>` → upgrade at `fork_slot = fork_epoch * SLOTS_PER_EPOCH`.
-- `fork_block: <int>` (optional):
-  - present: `blocks_0..blocks_<fork_block>` = **pre-fork** `SignedBeaconBlock`, the rest = **post-fork**.
-  - absent: **all** `blocks_i` are **post-fork** `SignedBeaconBlock`.
-- **`pre.ssz_snappy`** is always the **immediate predecessor** fork of `post_fork`.  
-  (e.g., `post_fork=capella` ⇒ `pre` is **Bellatrix** `BeaconState`.)
-
-#### Why We Exclude Version-Transitioning Test Cases
-
-To simplify the converter and avoid implementing on-the-fly **fork upgrade logic** (e.g., `upgrade_to_capella`) in this collection, we intentionally select **single-fork scenarios** only.
-
-Concretely:
-- We avoid cases that require switching `state_transition` rules mid-run.
-- We skip cases that rely on `fork_block` to mix pre-fork and post-fork `SignedBeaconBlock` types.
-
-> Note: The upstream spec/tests **do** support fork transitions correctly when you use the right types and upgrade functions. We're simply narrowing scope here for a clean JSON↔SSZ workflow.
-
-#### 1. Block Count
-```yaml
-blocks_count: <int>        # Number of block files to process
+```bash
+git submodule update --init --recursive consensus-specs
+(cd consensus-specs && make _pyspec)
 ```
-
-#### 2. BLS Signature Verification Settings
-```yaml
-bls_setting: <int>
-# 0: BLS ON/OFF regardless (default)
-# 1: BLS signature verification required
-# 2: BLS signature verification ignored
-```
-
-Our runners map `bls_setting` to signature-verification flags (ON/OFF/ignored) and ignore `reveal_deadlines_setting` unless a legacy custody-game vector explicitly requires it.
-
-### Selection Filters (non-transition, single-fork only)
-
-We include a case **only if**:
-- Folder path already fixes the fork version (e.g., `OfficialTestSuite/capella/...` or `OfficialTestSuite/deneb/...`).
-- `meta.yaml` is **absent** or contains **only** general keys:
-  - required: `blocks_count ≥ 1`
-  - optional: `bls_setting` (0/1/2), `description`, `reveal_deadlines_setting`
-- `meta.yaml` does **not** contain transition keys: `post_fork`, `fork_epoch`, `fork_block`.
-- The required files exist:
-  - `pre.ssz_snappy` (or `pre.ssz`)
-  - `blocks_0.ssz_snappy ... blocks_{blocks_count-1}.ssz_snappy`
-  - (optional) `post.ssz_snappy`
-
-### Version Determination (Directory-Based)
-
-**How is the fork version determined?**
-
-The fork version is fixed by the **directory path** (e.g., `OfficialTestSuite/capella/...` or `OfficialTestSuite/deneb/...`), not by `meta.yaml` keys.
-
-- All `blocks_i` are decoded as that fork's `SignedBeaconBlock`
-- `pre.ssz`/`post.ssz` are decoded as **that fork's** `BeaconState`
-- No version transitions within a single test case
-
-**Example:** For a test case in `OfficialTestSuite/capella/...`:
-- `pre.ssz` → Capella `BeaconState`
-- `blocks_0.ssz` → Capella `SignedBeaconBlock`
-- `post.ssz` → Capella `BeaconState`
-
-**Example:** For a test case in `OfficialTestSuite/deneb/...`:
-- `pre.ssz` → Deneb `BeaconState`
-- `blocks_0.ssz` → Deneb `SignedBeaconBlock`
-- `post.ssz` → Deneb `BeaconState`
-
-This ensures **single-fork consistency** throughout each test case, avoiding the complexity of fork upgrade logic.
 
 ## Usage Examples
 
@@ -318,21 +211,6 @@ python JsonToSSZ/BeaconStateJsonToSSZ.py --in pre.json --out pre_converted.ssz
 python CompareResult.py pre.ssz pre_converted.ssz
 ```
 
-### Complete Test Suite Workflow
-```bash
-# Run complete test suite (automated workflow, using Deneb by default)
-python run_test_suite.py Converter/OfficialTestSuite/deneb/random --spectec-bin ../spectec-core --verbose
-
-# Run with Capella fork
-python run_test_suite.py Converter/OfficialTestSuite/capella/random --spectec-bin ../spectec-core --fork capella --verbose
-
-# Run with specific test filter
-python run_test_suite.py Converter/OfficialTestSuite/deneb/sanity/blocks --spectec-bin ../spectec-core --filter randomized_0
-
-# Run with custom output directory
-python run_test_suite.py Converter/OfficialTestSuite/deneb/random --spectec-bin ../spectec-core --output-dir custom_results
-```
-
 ### eth2spec State Transition
 ```bash
 # Execute state transition using eth2spec (Capella, default)
@@ -348,6 +226,7 @@ These tools require the following Python packages:
 - `remerkleable`: SSZ serialization/deserialization
 - `eth2spec`: Ethereum 2.0 specification implementation
 - `snappy`: Snappy compression/decompression
+- `PyYAML`: operation metadata and slot-test configuration
 
 ## Important Notes
 
