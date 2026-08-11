@@ -29,6 +29,69 @@ type t = {
   timestamp : float; (* Unix timestamp *)
 }
 
+(* Keep run metadata in [completed_inputs] so the Marshal record layout stays
+   compatible with existing artifact and testgen checkpoints. A NUL cannot be
+   part of a filesystem-backed test ID. *)
+let run_marker_prefix = "\000spectec-coverage-run:"
+let success_entry_prefix = "\000spectec-coverage-pass:"
+let failure_entry_prefix = "\000spectec-coverage-fail:"
+
+let make_run_marker signature =
+  run_marker_prefix ^ (Digest.string signature |> Digest.to_hex)
+
+let has_prefix ~prefix value =
+  let prefix_length = String.length prefix in
+  String.length value >= prefix_length
+  && String.sub value 0 prefix_length = prefix
+
+let strip_prefix ~prefix value =
+  String.sub value (String.length prefix)
+    (String.length value - String.length prefix)
+
+let is_run_marker = has_prefix ~prefix:run_marker_prefix
+let is_success_entry = has_prefix ~prefix:success_entry_prefix
+let is_failure_entry = has_prefix ~prefix:failure_entry_prefix
+let make_success_entry input = success_entry_prefix ^ input
+let make_failure_entry input = failure_entry_prefix ^ input
+
+let run_markers checkpoint =
+  checkpoint.completed_inputs
+  |> List.filter is_run_marker
+  |> List.sort_uniq String.compare
+
+let successful_test_inputs checkpoint =
+  checkpoint.completed_inputs
+  |> List.filter_map (fun input ->
+         if is_success_entry input then
+           Some (strip_prefix ~prefix:success_entry_prefix input)
+         else if is_run_marker input || is_failure_entry input then None
+         else Some input)
+  |> List.sort_uniq String.compare
+
+let failed_test_inputs checkpoint =
+  checkpoint.completed_inputs
+  |> List.filter_map (fun input ->
+         if is_failure_entry input then
+           Some (strip_prefix ~prefix:failure_entry_prefix input)
+         else None)
+  |> List.sort_uniq String.compare
+
+let lists_overlap left right =
+  List.exists (fun value -> List.mem value right) left
+
+let has_outcome_conflict checkpoint =
+  lists_overlap
+    (successful_test_inputs checkpoint)
+    (failed_test_inputs checkpoint)
+
+let has_run_signature checkpoint ~signature =
+  run_markers checkpoint = [ make_run_marker signature ]
+  && not (has_outcome_conflict checkpoint)
+
+let completed_test_inputs checkpoint =
+  successful_test_inputs checkpoint @ failed_test_inputs checkpoint
+  |> List.sort_uniq String.compare
+
 (* ============================================================================
    INTERNAL HELPERS
    ============================================================================ *)
@@ -59,7 +122,7 @@ let create ~spec_files ~completed_inputs ~coverage =
 (* Format checkpoint as human-readable summary string *)
 let format_summary checkpoint =
   Printf.sprintf "Checkpoint: %d tests completed, saved at %s"
-    (List.length checkpoint.completed_inputs)
+    (List.length (completed_test_inputs checkpoint))
     ( Unix.gmtime checkpoint.timestamp |> fun time_record ->
       Printf.sprintf "%04d-%02d-%02d %02d:%02d:%02d UTC"
         (time_record.tm_year + 1900)
@@ -91,9 +154,23 @@ let load_from_file ~file =
 
 (* Save checkpoint to file using Marshal *)
 let save_to_file ~file checkpoint =
-  let output_channel = open_out_bin file in
-  Marshal.to_channel output_channel checkpoint [];
-  close_out output_channel
+  let directory = Filename.dirname file in
+  let prefix = Filename.basename file ^ "." in
+  let temporary = Filename.temp_file ~temp_dir:directory prefix ".tmp" in
+  try
+    let output_channel = open_out_bin temporary in
+    (try
+       Marshal.to_channel output_channel checkpoint [];
+       flush output_channel;
+       Unix.fsync (Unix.descr_of_out_channel output_channel);
+       close_out output_channel
+     with exception_value ->
+       close_out_noerr output_channel;
+       raise exception_value);
+    Unix.rename temporary file
+  with exception_value ->
+    (try Sys.remove temporary with Sys_error _ -> ());
+    raise exception_value
 
 (* ============================================================================
    VALIDATION
@@ -192,11 +269,34 @@ let merge ?(ignore_spec_mismatch = false) checkpoint1 checkpoint2 =
   then
     Error
       (Error.SpecMismatchError (checkpoint1.spec_hash, checkpoint2.spec_hash))
+  else if
+    has_outcome_conflict checkpoint1
+    || has_outcome_conflict checkpoint2
+    || lists_overlap
+         (successful_test_inputs checkpoint1)
+         (failed_test_inputs checkpoint2)
+    || lists_overlap
+         (failed_test_inputs checkpoint1)
+         (successful_test_inputs checkpoint2)
+  then
+    Error
+      (Error.DirectoryError
+         "Cannot merge checkpoints with conflicting outcomes for the same test")
   else
+    let matching_run_markers =
+      run_markers checkpoint1 = run_markers checkpoint2
+    in
     let () =
       if checkpoint1.spec_hash <> checkpoint2.spec_hash then
         Format.printf
           "Warning: spec version mismatch ignored (--ignore-spec-mismatch).\n"
+    in
+    let () =
+      if not matching_run_markers then
+        Format.printf
+          "Warning: checkpoints were produced by different coverage runs. The \
+           merged checkpoint can be reported on or used by testgen, but cannot \
+           be resumed.\n"
     in
     (* Warn if the two checkpoints share any completed inputs, as overlapping
        runs will inflate per-premise hit counts in the merged result. *)
@@ -204,11 +304,11 @@ let merge ?(ignore_spec_mismatch = false) checkpoint1 checkpoint2 =
       let seen = Hashtbl.create 256 in
       List.iter
         (fun id -> Hashtbl.replace seen id ())
-        checkpoint1.completed_inputs;
+        (completed_test_inputs checkpoint1);
       let overlap_count =
         List.fold_left
           (fun n id -> if Hashtbl.mem seen id then n + 1 else n)
-          0 checkpoint2.completed_inputs
+          0 (completed_test_inputs checkpoint2)
       in
       if overlap_count > 0 then
         Format.printf
@@ -221,14 +321,16 @@ let merge ?(ignore_spec_mismatch = false) checkpoint1 checkpoint2 =
     let completed_inputs =
       (* Use string -> unit hashtable to track seen IDs *)
       let seen = Hashtbl.create 256 in
-      (* Add all IDs from first checkpoint *)
-      List.iter
-        (fun id -> Hashtbl.replace seen id ())
-        checkpoint1.completed_inputs;
-      (* Add all IDs from second checkpoint (duplicates automatically handled) *)
-      List.iter
-        (fun id -> Hashtbl.replace seen id ())
-        checkpoint2.completed_inputs;
+      let add id =
+        (* Different run markers describe checkpoints that are valid to merge
+           for aggregate reporting but not safe to resume as one execution.
+           Dropping all such markers makes that distinction unambiguous. *)
+        if matching_run_markers || not (is_run_marker id) then
+          Hashtbl.replace seen id ()
+      in
+      (* Add all IDs from both checkpoints; duplicates are removed. *)
+      List.iter add checkpoint1.completed_inputs;
+      List.iter add checkpoint2.completed_inputs;
       (* Collect all unique IDs into a list *)
       Hashtbl.fold (fun id () seen_list -> id :: seen_list) seen []
     in
@@ -302,10 +404,11 @@ let verify_and_load ~file ~spec_files ~verbose ?(ignore_spec_mismatch = false)
 
 (* Filter out already-completed inputs from a list *)
 let filter_remaining checkpoint inputs ~get_id =
-  let completed = Hashtbl.create (List.length checkpoint.completed_inputs) in
+  let completed_inputs = completed_test_inputs checkpoint in
+  let completed = Hashtbl.create (List.length completed_inputs) in
   List.iter
     (fun id -> Hashtbl.replace completed id ())
-    checkpoint.completed_inputs;
+    completed_inputs;
   List.filter (fun input -> not (Hashtbl.mem completed (get_id input))) inputs
 
 (* Capture current state and save checkpoint to file.
@@ -329,7 +432,7 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
   Format.printf "=== Checkpoint Contents ===\n\n";
   Format.printf "%s\n\n" (format_summary checkpoint);
   Format.printf "Completed tests: %d\n\n"
-    (List.length checkpoint.completed_inputs);
+    (List.length (completed_test_inputs checkpoint));
   (* Use provided config if present, else default to Full/stdout *)
   let branch_cfg =
     match config.branch_coverage with

@@ -32,6 +32,58 @@ let default =
     dep_pos = None;
   }
 
+(* Stable description of the instrumentation settings that affect which data
+   is collected. Output destinations are deliberately excluded: changing a
+   report filename must not invalidate an otherwise compatible checkpoint. *)
+let semantic_fingerprint config =
+  let trace =
+    match config.trace with
+    | None -> "off"
+    | Some cfg -> (
+        match cfg.Trace.level with
+        | Trace.Summary -> "summary"
+        | Trace.Full -> "full")
+  in
+  let branch_coverage =
+    match config.branch_coverage with
+    | None -> "off"
+    | Some cfg -> (
+        match cfg.Branch_coverage.level with
+        | Branch_coverage.Summary -> "summary"
+        | Branch_coverage.Full -> "full")
+  in
+  let node_coverage =
+    match config.node_coverage with
+    | None -> "off"
+    | Some cfg ->
+        let level =
+          match cfg.Node_coverage_il.level with
+          | Node_coverage_il.Summary -> "summary"
+          | Node_coverage_il.Full -> "full"
+        in
+        Printf.sprintf "%s:track-seeds=%b" level cfg.track_seeds
+  in
+  let dep_pos =
+    match config.dep_pos with
+    | None -> "off"
+    | Some cfg ->
+        let level =
+          match cfg.Positive.level with
+          | Positive.Summary -> "summary"
+          | Positive.Full -> "full"
+        in
+        let targets =
+          match cfg.target_uids with
+          | None -> "default"
+          | Some uids ->
+              uids |> List.sort_uniq Int.compare |> List.map string_of_int
+              |> String.concat "," |> Printf.sprintf "explicit:%s"
+        in
+        Printf.sprintf "%s:targets=%s" level targets
+  in
+  Printf.sprintf "trace=%s,profile=%b,branch=%s,node=%s,dep-pos=%s" trace
+    (Option.is_some config.profile) branch_coverage node_coverage dep_pos
+
 (* Convert config to handler list *)
 let to_handlers config =
   let handlers =

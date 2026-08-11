@@ -136,6 +136,7 @@ module Typecheck = struct
 
   let source { filename; _ } = filename
   let expectation { expect; _ } = expect
+  let check_output = Runner.Task.accept_output
   let format_output _values = "Typechecker succeeded"
   let save_output _filename _values = ()
 end

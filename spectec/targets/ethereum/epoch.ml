@@ -7,7 +7,18 @@ let epoch_dir = "eth-tests/epoch_processing"
 (* Collect epoch tests: only pre.json required *)
 let collect_epoch_tests ~epoch_type ?dir () =
   let base_dir =
-    Option.value dir ~default:(Filename.concat epoch_dir epoch_type)
+    match dir with
+    | None -> Filename.concat epoch_dir epoch_type
+    | Some root ->
+        let candidates =
+          [
+            Filename.concat root
+              (Filename.concat "epoch_processing" epoch_type);
+            Filename.concat root epoch_type;
+            root;
+          ]
+        in
+        Option.value (List.find_opt dir_exists candidates) ~default:root
   in
   let file_checker case_dir =
     let pre_file = Filename.concat case_dir "pre.json" in
@@ -43,6 +54,8 @@ struct
   let unparse = unparse
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = M.format_msg
   let save_output _filename _values = ()
 end

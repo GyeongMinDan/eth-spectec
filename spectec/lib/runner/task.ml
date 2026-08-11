@@ -8,7 +8,8 @@
     - expectation: Whether input expects success or failure
     - collect: Gather inputs from a directory
     - format_output: Format output values for display
-    - save_output: Save output to file (optional) *)
+    - save_output: Save output to file (optional)
+    - check_output: Validate successful output against a task-specific oracle *)
 
 module Il = Lang.Il
 
@@ -30,7 +31,10 @@ let compute_outcome expectation result =
   match (expectation, result) with
   | Positive, Ok values -> Pass values
   | Positive, Error e -> Fail e
-  | Negative, Error e -> ExpectedFail e
+  | Negative, Error (Error.EvalIlError _ as e)
+  | Negative, Error (Error.EvalSlError _ as e) ->
+      ExpectedFail e
+  | Negative, Error e -> Fail e
   | Negative, Ok values -> UnexpectedPass values
 
 (** A task specification for interpreter execution *)
@@ -63,9 +67,17 @@ module type S = sig
   *)
   val collect : ?dir:string -> unit -> input list
 
+  (** Validate the values returned by a successful interpreter run. This hook
+      is invoked only when output checking is explicitly enabled. *)
+  val check_output :
+    spec:Il.spec -> input -> Il.Value.t list -> unit result
+
   val format_output : Il.Value.t list -> string
   val save_output : string -> Il.Value.t list -> unit
 end
+
+(** Default output checker for tasks without an external result oracle. *)
+let accept_output ~spec:_ _input _values = Ok ()
 
 (** Existential wrapper for heterogeneous tasks *)
 type packed_task = Pack : (module S with type input = 'a) -> packed_task

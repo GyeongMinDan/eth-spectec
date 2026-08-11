@@ -15,6 +15,187 @@ let collect_spec_files spec_dir =
   |> List.sort String.compare
   |> List.map (Filename.concat spec_dir)
 
+let digest_file filename = Digest.file filename |> Digest.to_hex
+
+let is_corpus_file name =
+  List.mem name
+    [
+      ".fork";
+      ".official-oracle";
+      "pre.json";
+      "post.json";
+      "error.txt";
+      "block.json";
+      "slots.yaml";
+      "proposer_slashing.json";
+      "attester_slashing.json";
+      "attestation.json";
+      "deposit.json";
+      "voluntary_exit.json";
+      "bls_to_execution_change.json";
+      "execution_payload.json";
+      "execution.json";
+      "withdrawals.json";
+      "block_header.json";
+      "sync_aggregate.json";
+    ]
+
+let is_hex_digest value =
+  String.length value = 64
+  && String.for_all
+       (function
+         | '0' .. '9' | 'a' .. 'f' | 'A' .. 'F' -> true
+         | _ -> false)
+       value
+
+let validate_official_oracles ~root ~fork ~expected_total =
+  let rec collect_leaves path leaves =
+    if not (Sys.is_directory path) then leaves
+    else
+      let pre = Filename.concat path "pre.json" in
+      if Sys.file_exists pre && not (Sys.is_directory pre) then path :: leaves
+      else
+        Sys.readdir path |> Array.to_list
+        |> List.fold_left
+             (fun leaves name ->
+               let child = Filename.concat path name in
+               if Sys.is_directory child then collect_leaves child leaves
+               else leaves)
+             leaves
+  in
+  let leaves = collect_leaves root [] |> List.sort String.compare in
+  if List.length leaves <> expected_total then
+    Error
+      (Printf.sprintf "official corpus has %d leaves, expected %d"
+         (List.length leaves) expected_total)
+  else
+    let validate_leaf case_dir =
+      let post = Filename.concat case_dir "post.json" in
+      let error = Filename.concat case_dir "error.txt" in
+      if Sys.file_exists post = Sys.file_exists error then
+        Error
+          (Printf.sprintf
+             "official test must contain exactly one of post.json or error.txt: %s"
+             case_dir)
+      else
+        let marker = Filename.concat case_dir ".official-oracle" in
+        if not (Sys.file_exists marker) || Sys.is_directory marker then
+          Error
+            (Printf.sprintf "official test is missing oracle marker: %s" marker)
+        else
+          try
+            let channel = open_in marker in
+            let value =
+              Fun.protect ~finally:(fun () -> close_in_noerr channel) (fun () ->
+                  input_line channel |> String.trim)
+            in
+            match String.split_on_char ':' value with
+            | [ "official-oracle-v1"; marker_fork; polarity; digest ]
+              when marker_fork = fork
+                   && (polarity = "positive" || polarity = "negative")
+                   && is_hex_digest digest ->
+                Ok ()
+            | _ ->
+                Error
+                  (Printf.sprintf "invalid official oracle marker: %s" marker)
+          with
+          | Sys_error message ->
+            Error
+              (Printf.sprintf "cannot read official oracle marker %s: %s"
+                 marker message)
+          | End_of_file ->
+              Error
+                (Printf.sprintf "official oracle marker is empty: %s" marker)
+    in
+    let rec validate = function
+      | [] -> Ok ()
+      | case_dir :: rest -> (
+          match validate_leaf case_dir with
+          | Ok () -> validate rest
+          | Error _ as error -> error)
+    in
+    validate leaves
+
+let digest_tree root =
+  let rec collect path files =
+    if Sys.is_directory path then
+      Sys.readdir path |> Array.to_list
+      |> List.fold_left
+           (fun files name -> collect (Filename.concat path name) files)
+           files
+    else
+      let name = Filename.basename path in
+      if is_corpus_file name then path :: files else files
+  in
+  if not (Sys.file_exists root) then "missing"
+  else
+    let files = collect root [] |> List.sort String.compare in
+    let root_prefix =
+      if Filename.check_suffix root Filename.dir_sep then root
+      else root ^ Filename.dir_sep
+    in
+    let buffer = Buffer.create (List.length files * 64) in
+    List.iter
+      (fun filename ->
+        let relative =
+          let prefix_length = String.length root_prefix in
+          if
+            String.length filename >= prefix_length
+            && String.sub filename 0 prefix_length = root_prefix
+          then
+            String.sub filename prefix_length
+              (String.length filename - prefix_length)
+          else filename
+        in
+        Buffer.add_string buffer relative;
+        Buffer.add_char buffer '\000';
+        Buffer.add_string buffer (digest_file filename);
+        Buffer.add_char buffer '\n')
+      files;
+    Digest.string (Buffer.contents buffer) |> Digest.to_hex
+
+let epoch_official_counts =
+  [
+    ("justification_and_finalization", 10);
+    ("inactivity_updates", 21);
+    ("rewards_and_penalties", 15);
+    ("registry_updates", 11);
+    ("slashings", 5);
+    ("eth1_data_reset", 2);
+    ("effective_balance_updates", 1);
+    ("slashings_reset", 1);
+    ("randao_mixes_reset", 1);
+    ("historical_summaries_update", 1);
+    ("participation_flag_updates", 10);
+  ]
+
+let common_operation_official_counts =
+  [
+    ("proposer_slashing", 15);
+    ("attester_slashing", 30);
+    ("attestation", 41);
+    ("deposit", 21);
+    ("voluntary_exit", 15);
+    ("withdrawals", 50);
+    ("block_header", 6);
+    ("sync_aggregate", 26);
+  ]
+
+let official_counts = function
+  | "capella" ->
+      Some
+        (common_operation_official_counts
+        @ [ ("bls_to_execution_change", 15); ("execution_payload", 26) ]
+        @ epoch_official_counts
+        @ [ ("slots", 7); ("state_transition", 581) ])
+  | "deneb" ->
+      Some
+        (common_operation_official_counts
+        @ [ ("bls_to_execution_change", 14); ("execution_payload", 38) ]
+        @ epoch_official_counts
+        @ [ ("slots", 6); ("state_transition", 590) ])
+  | _ -> None
+
 (* Print outcome for a single test *)
 let print_outcome (type i) (module T : Runner.Task.S with type input = i) source
     outcome =
@@ -34,28 +215,30 @@ let print_outcome (type i) (module T : Runner.Task.S with type input = i) source
 
 (* Run interpreter on a single input and print result *)
 let run_single (type i) (module T : Runner.Task.S with type input = i) ~config
-    ~sl_mode ~spec_il (input : i) =
+    ~sl_mode ~spec_il ~check_output (input : i) =
   let outcome =
-    Runner.run_with_outcome (module T) ~config ~sl_mode ~spec_il input
+    Runner.run_with_outcome (module T) ~config ~check_output ~sl_mode ~spec_il
+      input
   in
-  print_outcome (module T) (T.source input) outcome
+  print_outcome (module T) (T.source input) outcome;
+  outcome
 
 (* Run interpreter on a suite of inputs and print results *)
 let run_suite (type i) (module T : Runner.Task.S with type input = i) ~config
-    ~sl_mode ~spec_il ~verbose (inputs : i list) =
+    ~sl_mode ~spec_il ~verbose ~check_output (inputs : i list) =
   let results =
     Runner.run_suite_with_outcomes
-      (module T)
-      ~config ~sl_mode ~spec_il ~verbose inputs
+      (module T) ~config ~sl_mode ~spec_il ~verbose ~check_output inputs
   in
+  let summary = Runner.summarize_outcomes results in
+  let passed = Runner.summary_passed summary in
+  let failed = Runner.summary_failed summary in
   match verbose with
   | true ->
       (* Summary only in verbose mode, as progress was printed *)
-      let summary = Runner.summarize_outcomes results in
-      let passed = Runner.summary_passed summary in
-      let failed = Runner.summary_failed summary in
       Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
-        summary.total failed
+        summary.total failed;
+      summary
   | false ->
       (* Full report at end if not verbose *)
       List.iter
@@ -63,11 +246,9 @@ let run_suite (type i) (module T : Runner.Task.S with type input = i) ~config
           Format.printf ">>> Running %s on %s\n" T.name source;
           print_outcome (module T) source outcome)
         results;
-      let summary = Runner.summarize_outcomes results in
-      let passed = Runner.summary_passed summary in
-      let failed = Runner.summary_failed summary in
       Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
-        summary.total failed
+        summary.total failed;
+      summary
 
 (* Generate a CLI command for any CLI_TASK *)
 let make (type i) ~summary (module T : CLI_TASK with type input = i) =
@@ -77,8 +258,14 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
      let%map filenames_spec =
        flag "--spec" (listed string)
          ~doc:"FILES spec files (default: use target spec dir)"
+     and spec_dir_arg =
+       flag "--spec-dir" (optional string)
+         ~doc:"DIR directory containing spec files (default: target spec dir)"
      and sl_mode = flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
      and verbose = flag "-v" no_arg ~doc:" verbose output"
+     and check_output =
+       flag "--check-post" no_arg
+         ~doc:" compare successful output with sibling post.json"
      and suite_mode =
        flag "--suite" no_arg ~doc:" run on test suite (default dir)"
      and suite_dir_arg =
@@ -88,34 +275,67 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
      fun () ->
        let open Runner in
        let run () =
+         let* () =
+           if check_output && spec_dir_arg = None && filenames_spec = [] then
+             Error
+               (Error.TestRunError
+                  "--check-post requires an explicit --spec-dir or --spec")
+           else Ok ()
+         in
          let filenames_spec =
-           match filenames_spec with
-           | [] -> collect_spec_files T.Target.spec_dir
-           | files -> files
+           match (filenames_spec, spec_dir_arg) with
+           | [], None -> collect_spec_files T.Target.spec_dir
+           | [], Some dir -> collect_spec_files dir
+           | files, _ -> files
          in
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
          match (suite_mode, suite_dir_arg) with
          | false, None ->
-             run_single (module T) ~config ~sl_mode ~spec_il input;
-             Ok ()
+             let outcome =
+               run_single (module T) ~config ~sl_mode ~spec_il ~check_output
+                 input
+             in
+             (match outcome with
+             | Task.Fail _ | Task.UnexpectedPass _ ->
+                 Error (Error.TestRunError "test failed")
+             | Task.Pass _ | Task.ExpectedFail _ | Task.Skipped -> Ok ())
          | true, None ->
              (* Use task defaults *)
-             run_suite
-               (module T)
-               ~config ~sl_mode ~spec_il ~verbose (T.collect ());
-             Ok ()
+             let summary =
+               run_suite
+                 (module T) ~config ~sl_mode ~spec_il ~verbose ~check_output
+                 (T.collect ())
+             in
+             if summary.total = 0 then
+               Error (Error.TestRunError "no tests discovered")
+             else if Runner.summary_failed summary > 0 then
+               Error
+                 (Error.TestRunError
+                    (Printf.sprintf "%d test(s) failed"
+                       (Runner.summary_failed summary)))
+             else Ok ()
          | _, Some dir ->
              (* Use explicit directory *)
-             run_suite
-               (module T)
-               ~config ~sl_mode ~spec_il ~verbose (T.collect ~dir ());
-             Ok ()
+             let summary =
+               run_suite
+                 (module T) ~config ~sl_mode ~spec_il ~verbose ~check_output
+                 (T.collect ~dir ())
+             in
+             if summary.total = 0 then
+               Error (Error.TestRunError "no tests discovered")
+             else if Runner.summary_failed summary > 0 then
+               Error
+                 (Error.TestRunError
+                    (Printf.sprintf "%d test(s) failed"
+                       (Runner.summary_failed summary)))
+             else Ok ()
        in
        match run () with
        | Ok () -> ()
        | Error e ->
-           Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error e))
+           Format.eprintf "Error:\n  %s\n%!" (Runner.Error.string_of_error e);
+           Stdlib.exit 1)
 
 let make_parse (type i) ~summary (module T : CLI_TASK with type input = i) =
   Core.Command.basic ~summary
@@ -153,7 +373,8 @@ let make_parse (type i) ~summary (module T : CLI_TASK with type input = i) =
        match run () with
        | Ok s -> Format.printf "%s\n" s
        | Error e ->
-           Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error e))
+           Format.eprintf "Error:\n  %s\n%!" (Runner.Error.string_of_error e);
+           Stdlib.exit 1)
 
 (* Functor to generate commands for a specific target.
    Enforces that only tasks belonging to this target can be used. *)
@@ -204,6 +425,16 @@ module Make (Tgt : Runner.Target.S) = struct
        and no_validate =
          flag "--no-validate" no_arg
            ~doc:" Skip state root validation (validate_result=false)"
+       and check_output =
+         flag "--check-post" no_arg
+           ~doc:" compare successful output with sibling post.json"
+       and require_all_tasks =
+         flag "--require-all-tasks" no_arg
+           ~doc:" fail if any configured task discovers zero tests"
+       and official_fork =
+         flag "--official-fork" (optional string)
+           ~doc:
+             "FORK validate the complete official manifest (capella or deneb)"
        and instrumentation_config = Cli_args.config_flags in
        fun () ->
          let open Runner in
@@ -211,9 +442,122 @@ module Make (Tgt : Runner.Target.S) = struct
          (* Handle --show-checkpoint: decode and display, then exit *)
          (* Normal coverage run *)
          let run () =
+           let* official_manifest =
+             match official_fork with
+             | None -> Ok None
+             | Some fork -> (
+                 let fork = String.lowercase_ascii fork in
+                 match official_counts fork with
+                 | Some counts -> Ok (Some (fork, counts))
+                 | None ->
+                     Error
+                       (Error.TestRunError
+                          "--official-fork must be either capella or deneb"))
+           in
+           let* () =
+             if check_output && spec_dir_arg = None then
+               Error
+                 (Error.TestRunError
+                    "--check-post requires an explicit --spec-dir")
+             else Ok ()
+           in
+           let* () =
+             match official_manifest with
+             | None -> Ok ()
+             | Some _ when not check_output ->
+                 Error
+                   (Error.TestRunError
+                      "--official-fork requires --check-post")
+             | Some _ when no_validate ->
+                 Error
+                   (Error.TestRunError
+                      "--official-fork cannot be combined with --no-validate")
+             | Some _ when test_dir = None ->
+                 Error
+                   (Error.TestRunError
+                      "--official-fork requires an explicit --test-dir")
+             | Some _ -> Ok ()
+           in
+           let* () =
+             if checkpoint_save_interval <= 0 then
+               Error
+                 (Error.TestRunError "--save-interval must be greater than zero")
+             else Ok ()
+           in
            let spec_files =
              let dir = Option.value spec_dir_arg ~default:Tgt.spec_dir in
              collect_spec_files dir
+           in
+           let* () =
+             match official_manifest with
+             | None -> Ok ()
+             | Some (fork, _) ->
+                 let expected_dir = "spec_" ^ fork in
+                 if
+                   List.for_all
+                     (fun filename ->
+                       Filename.basename (Filename.dirname filename)
+                       = expected_dir)
+                     spec_files
+                 then Ok ()
+                 else
+                   Error
+                     (Error.TestRunError
+                        (Printf.sprintf
+                           "--official-fork %s requires spec files from %s"
+                           fork expected_dir))
+           in
+           let* () =
+             match (official_manifest, test_dir) with
+             | Some (fork, _), Some root ->
+                 let marker = Filename.concat root ".fork" in
+                 if Sys.file_exists marker then
+                   (try
+                      let channel = open_in marker in
+                      let recorded =
+                        Fun.protect
+                          ~finally:(fun () -> close_in_noerr channel)
+                          (fun () -> input_line channel |> String.trim)
+                      in
+                      if recorded = fork then Ok ()
+                      else
+                        Error
+                          (Error.TestRunError
+                             (Printf.sprintf
+                                "test corpus fork marker is %s, expected %s"
+                                recorded fork))
+                    with
+                   | Sys_error message ->
+                       Error
+                         (Error.TestRunError
+                            (Printf.sprintf
+                               "cannot read test corpus fork marker %s: %s"
+                               marker message))
+                   | End_of_file ->
+                       Error
+                         (Error.TestRunError
+                            (Printf.sprintf
+                               "test corpus fork marker is empty: %s" marker)))
+                 else
+                   Error
+                     (Error.TestRunError
+                        (Printf.sprintf
+                           "official test corpus is missing fork marker: %s"
+                           marker))
+             | _ -> Ok ()
+           in
+           let* () =
+             match (official_manifest, test_dir) with
+             | Some (fork, expected_counts), Some root ->
+                 let expected_total =
+                   List.fold_left
+                     (fun total (_, count) -> total + count)
+                     0 expected_counts
+                 in
+                 validate_official_oracles ~root ~fork ~expected_total
+                 |> Result.map_error (fun message ->
+                        Error.TestRunError message)
+             | _ -> Ok ()
            in
            (* Build checkpoint configuration from CLI flags *)
            let checkpoint_config : Checkpoint.config =
@@ -227,10 +571,50 @@ module Make (Tgt : Runner.Target.S) = struct
            let* spec_il = elaborate spec in
            (* Convert to generic tasks for runner *)
            let generic_tasks = List.map to_generic tasks in
-           let results =
+           let corpus_root = Option.value test_dir ~default:Tgt.test_dir in
+           let canonical_corpus_root =
+             try Unix.realpath corpus_root with Unix.Unix_error _ -> corpus_root
+           in
+           let checkpoint_run_signature =
+             let checkpoint_enabled =
+               Option.is_some checkpoint_output_file
+               || Option.is_some checkpoint_resume_file
+             in
+             let binary_hash, corpus_hash =
+               if checkpoint_enabled then (
+                 Format.printf
+                   "Fingerprinting executable and test corpus for safe \
+                    checkpoint resume... %!";
+                 let hashes =
+                   (digest_file Sys.executable_name, digest_tree corpus_root)
+                 in
+                 Format.printf "done\n%!";
+                 hashes)
+               else ("checkpoint-disabled", "checkpoint-disabled")
+             in
+             let task_names =
+               List.map
+                 (fun (Pack (module Task)) -> Task.name)
+                 tasks
+               |> String.concat ","
+             in
+             let instrumentation =
+               Instrumentation.Config.semantic_fingerprint
+                 instrumentation_config
+             in
+             Printf.sprintf
+               "coverage-v3;target=%s;sl=%b;check-post=%b;validate=%b;max-slot-gap=%s;tasks=%s;instrumentation=%s;binary=%s;corpus-root=%s;corpus=%s"
+               Tgt.name sl_mode check_output (not no_validate)
+               (match max_slot_gap with
+               | None -> "none"
+               | Some limit -> string_of_int limit)
+               task_names instrumentation binary_hash canonical_corpus_root
+               corpus_hash
+           in
+           let* results =
              run_target_coverage ~config:instrumentation_config ?test_dir
-               ?max_slot_gap ~checkpoint_config ~verbose ~sl_mode ~spec_files
-               spec_il generic_tasks
+               ?max_slot_gap ~check_output ~checkpoint_config ~verbose ~sl_mode
+               ~spec_files ~checkpoint_run_signature spec_il generic_tasks
            in
            (* Print summary for each input spec *)
            List.iter
@@ -245,12 +629,79 @@ module Make (Tgt : Runner.Target.S) = struct
                Format.printf "%s: %d/%d passed, %d failed%s\n" task_name passed
                  summary.total failed skipped_str)
              results;
-           Ok ()
+           let failed =
+             List.fold_left
+               (fun total { summary; _ } ->
+                 total + Runner.summary_failed summary)
+               0 results
+           in
+           let empty_tasks =
+             List.filter (fun { summary; _ } -> summary.total = 0) results
+           in
+           let manifest_errors =
+             match official_manifest with
+             | None -> []
+             | Some (_, expected_counts) ->
+                 List.filter_map
+                   (fun (task_name, expected) ->
+                     match
+                       List.find_opt
+                         (fun result -> result.task_name = task_name)
+                         results
+                     with
+                     | None -> Some (Printf.sprintf "%s is missing" task_name)
+                     | Some { summary; _ } when summary.total <> expected ->
+                         Some
+                           (Printf.sprintf "%s has %d tests, expected %d"
+                              task_name summary.total expected)
+                     | Some _ -> None)
+                   expected_counts
+           in
+           let skipped =
+             List.fold_left
+               (fun total { summary; _ } -> total + summary.skipped)
+               0 results
+           in
+           (match official_manifest with
+           | Some (fork, expected_counts) when manifest_errors = [] ->
+               let expected_total =
+                 List.fold_left
+                   (fun total (_, count) -> total + count)
+                   0 expected_counts
+               in
+               Format.printf "official-%s: manifest %d/%d discovered\n" fork
+                 expected_total expected_total
+           | _ -> ());
+           if failed > 0 then
+             Error
+               (Error.TestRunError
+                  (Printf.sprintf "%d official test(s) failed" failed))
+           else if require_all_tasks && empty_tasks <> [] then
+             Error
+               (Error.TestRunError
+                  (Printf.sprintf "No tests discovered for required task(s): %s"
+                     (empty_tasks
+                     |> List.map (fun { task_name; _ } -> task_name)
+                     |> String.concat ", ")))
+           else if manifest_errors <> [] then
+             Error
+               (Error.TestRunError
+                  ("Official manifest mismatch: "
+                  ^ String.concat "; " manifest_errors))
+           else if official_manifest <> None && skipped > 0 then
+             Error
+               (Error.TestRunError
+                  (Printf.sprintf
+                     "Official validation skipped %d test(s); a full run must skip none"
+                     skipped))
+           else Ok ()
          in
          match run () with
          | Ok () -> ()
          | Error error ->
-             Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error error))
+             Format.eprintf "Error:\n  %s\n%!"
+               (Runner.Error.string_of_error error);
+             Stdlib.exit 1)
 
   let make_checkpoint () =
     let report_command =
@@ -330,11 +781,11 @@ module Make (Tgt : Runner.Target.S) = struct
              Checkpoint.save_to_file ~file:output_file merged;
              Format.printf "Merged checkpoint saved to: %s\n" output_file;
              Format.printf "  Checkpoint 1: %d tests\n"
-               (List.length checkpoint1.completed_inputs);
+               (List.length (Checkpoint.completed_test_inputs checkpoint1));
              Format.printf "  Checkpoint 2: %d tests\n"
-               (List.length checkpoint2.completed_inputs);
+               (List.length (Checkpoint.completed_test_inputs checkpoint2));
              Format.printf "  Merged: %d tests\n"
-               (List.length merged.completed_inputs);
+               (List.length (Checkpoint.completed_test_inputs merged));
              Ok ()
            in
            match run () with

@@ -8,7 +8,17 @@ let operations_dir = "eth-tests/operations"
 (* Collect operation tests: pre.json + operation.json required *)
 let collect_operation_tests ~op_type ~op_file_name ?dir () =
   let base_dir =
-    Option.value dir ~default:(Filename.concat operations_dir op_type)
+    match dir with
+    | None -> Filename.concat operations_dir op_type
+    | Some root ->
+        let candidates =
+          [
+            Filename.concat root (Filename.concat "operations" op_type);
+            Filename.concat root op_type;
+            root;
+          ]
+        in
+        Option.value (List.find_opt dir_exists candidates) ~default:root
   in
   let file_checker case_dir =
     let pre_file = Filename.concat case_dir "pre.json" in
@@ -51,6 +61,8 @@ module ProposerSlashing = struct
 
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "Proposer slashing processed"
   let parse_string = parse_string
   let unparse = unparse
@@ -89,6 +101,8 @@ module AttesterSlashing = struct
 
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "Attester slashing processed"
   let parse_string = parse_string
   let unparse = unparse
@@ -126,6 +140,8 @@ module Attestation = struct
 
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "Attestation processed"
   let parse_string = parse_string
   let unparse = unparse
@@ -161,6 +177,8 @@ module Deposit = struct
 
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "Deposit processed"
   let parse_string = parse_string
   let unparse = unparse
@@ -198,6 +216,8 @@ module VoluntaryExit = struct
 
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "Voluntary exit processed"
   let parse_string = parse_string
   let unparse = unparse
@@ -235,6 +255,8 @@ module BlsToExecutionChange = struct
 
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "BLS to execution change processed"
   let parse_string = parse_string
   let unparse = unparse
@@ -298,6 +320,8 @@ module ExecutionPayload = struct
 
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "Execution payload processed"
   let parse_string = parse_string
   let unparse = unparse
@@ -336,6 +360,8 @@ module Withdrawals = struct
 
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "Withdrawals processed"
   let parse_string = parse_string
   let unparse = unparse
@@ -371,6 +397,8 @@ module BlockHeader = struct
 
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "Block header processed"
   let parse_string = parse_string
   let unparse = unparse
@@ -408,6 +436,8 @@ module SyncAggregate = struct
 
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "Sync aggregate processed"
   let parse_string = parse_string
   let unparse = unparse

@@ -795,7 +795,26 @@ let merge_result (r1 : result) (r2 : result) : result =
         merged [];
   }
 
-let restore (_result : result) = ()
+(* Restore the mutation data captured by [get_result]. The checkpoint format
+   does not persist transient counters or no-mutation diagnostics, but every
+   restored mutation proves that its UID was seen and produced mutations, so
+   rebuild those derived tables as well. *)
+let restore (result : result) =
+  Hashtbl.clear State.per_test_sym_mutations;
+  Hashtbl.clear State.seen_uids;
+  Hashtbl.clear State.uids_with_mutations;
+  List.iter
+    (fun (uid, test_mutations) ->
+      let tests = Hashtbl.create (max 1 (List.length test_mutations)) in
+      List.iter
+        (fun (test_id, mutations) ->
+          Hashtbl.replace tests test_id mutations;
+          if mutations <> [] then (
+            Hashtbl.replace State.seen_uids uid ();
+            Hashtbl.replace State.uids_with_mutations uid ()))
+        test_mutations;
+      Hashtbl.replace State.per_test_sym_mutations uid tests)
+    result.per_test_sym_mutations
 
 module HandlerWithData :
   Instrumentation_core.Handler.S_with_data with type result = result = struct

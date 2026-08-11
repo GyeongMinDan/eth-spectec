@@ -7,6 +7,9 @@ type t =
   | EvalIlError of region * string
   | EvalSlError of region * string
   | TaskParseError of region * string
+  | OutputMismatchError of region * string
+  | HarnessError of region * string
+  | TestRunError of string
   | SpecMismatchError of string * string
   | DirectoryError of string
 

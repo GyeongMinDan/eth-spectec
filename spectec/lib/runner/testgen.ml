@@ -2248,7 +2248,7 @@ let checkpoint_summary (checkpoint_file : string) =
   let fmt = Format.formatter_of_buffer buf in
   Format.fprintf fmt "Checkpoint: %s\n" checkpoint_file;
   Format.fprintf fmt "  Completed tests: %d\n"
-    (List.length checkpoint.Checkpoint.completed_inputs);
+    (List.length (Checkpoint.completed_test_inputs checkpoint));
   Format.fprintf fmt "  Coverage data: %s\n"
     (if Option.is_some coverage then "present" else "missing");
   (match coverage with

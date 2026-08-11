@@ -86,6 +86,10 @@ module StateTransition = struct
 
   let parse_input ~spec (input : input) =
     let ( let* ) = Result.bind in
+    (* ExecutionPayload unit tests configure this process-global stub from
+       execution.json. State transitions have no such sidecar and must not
+       inherit the previous task's setting during an all-task coverage run. *)
+    Builtin_eth.Engine.set_validity true;
     let* beaconState_il = parse_json ~spec input.pre_file "beaconState" in
     let* block_il = parse_json ~spec input.block_file "signedBeaconBlock" in
     Ok
@@ -97,6 +101,8 @@ module StateTransition = struct
   let unparse = unparse
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "State transition succeeded"
   let save_output _filename _values = ()
 end

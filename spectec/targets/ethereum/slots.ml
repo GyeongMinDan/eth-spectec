@@ -16,7 +16,13 @@ let parse_slots_yaml filename =
 (* Collect sanity slots tests: pre.json + slots.yaml required *)
 let collect_sanity_slots_tests ?dir () =
   let base_dir =
-    Option.value dir ~default:(Filename.concat sanity_dir "slots")
+    match dir with
+    | None -> Filename.concat sanity_dir "slots"
+    | Some root ->
+        let candidates =
+          [ Filename.concat root "sanity/slots"; Filename.concat root "slots"; root ]
+        in
+        Option.value (List.find_opt dir_exists candidates) ~default:root
   in
   let file_checker case_dir =
     let pre_file = Filename.concat case_dir "pre.json" in
@@ -74,6 +80,8 @@ module Slots = struct
   let unparse = unparse
   let source { pre_file; _ } = pre_file
   let expectation { expect; _ } = expect
+  let check_output ~spec (input : input) values =
+    check_beacon_state_output ~spec ~pre_file:input.pre_file values
   let format_output _values = "Sanity slots processed"
   let save_output _filename _values = ()
 end

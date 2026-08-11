@@ -29,6 +29,25 @@ type t = {
   timestamp : float; (* Unix timestamp *)
 }
 
+(** Encode run-mode metadata inside [completed_inputs] without changing the
+    Marshal layout used by existing coverage and test-generation checkpoints. *)
+val make_run_marker : string -> string
+
+(** Encode a task-qualified test ID and its persisted outcome. *)
+val make_success_entry : string -> string
+val make_failure_entry : string -> string
+
+(** Whether this checkpoint was produced with the supplied run signature. *)
+val has_run_signature : t -> signature:string -> bool
+
+(** Return persisted successful and failed task-qualified test IDs. Legacy
+    untagged IDs are treated as successful only when explicitly consumed. *)
+val successful_test_inputs : t -> string list
+val failed_test_inputs : t -> string list
+
+(** Return all real test IDs, excluding internal metadata markers. *)
+val completed_test_inputs : t -> string list
+
 (* Load checkpoint from file using Marshal.
    Returns Ok checkpoint if successful, Error if file cannot be loaded. *)
 val load_from_file : file:string -> (t, Error.t) result

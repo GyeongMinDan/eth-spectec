@@ -120,10 +120,20 @@ let eval_sl_with_task_run (type input)
 
 (* --- Higher-level runners using expectation and test_outcome --- *)
 
+let check_successful_output (type i)
+    (module T : Task.S with type input = i) ~enabled ~spec_il (input : i)
+    result =
+  match (enabled, T.expectation input, result) with
+  | true, Task.Positive, Ok values ->
+      let* () = T.check_output ~spec:spec_il input values in
+      Ok values
+  | _ -> result
+
 (* Run single input and compute outcome based on expectation.
    Includes full init/finish lifecycle - use for single runs. *)
 let run_with_outcome (type i) (module T : Task.S with type input = i)
-    ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il (input : i) =
+    ?(config = Instrumentation.Config.default) ?(check_output = false) ~sl_mode
+    ~spec_il (input : i) =
   let result =
     T.Target.handler (fun () ->
         if sl_mode then
@@ -136,12 +146,17 @@ let run_with_outcome (type i) (module T : Task.S with type input = i)
           let* _, values = eval_il_with_task (module T) ~config spec_il input in
           Ok values)
   in
+  let result =
+    check_successful_output (module T) ~enabled:check_output ~spec_il input
+      result
+  in
   Task.compute_outcome (T.expectation input) result
 
 (* Run single input without init/finish lifecycle.
    For use in batch/coverage runs where init/finish is managed externally. *)
 let run_with_outcome_no_lifecycle (type i)
-    (module T : Task.S with type input = i) ~sl_mode ~spec_il (input : i) =
+    (module T : Task.S with type input = i) ?(check_output = false) ?spec_sl
+    ~sl_mode ~spec_il (input : i) =
   let test_case_id = T.source input in
   (* Notify handlers of test start *)
   Instrumentation.Dispatcher.notify_test_start ~test_case_id;
@@ -149,7 +164,11 @@ let run_with_outcome_no_lifecycle (type i)
     try
       T.Target.handler (fun () ->
           if sl_mode then
-            let spec_sl = structure spec_il in
+            let spec_sl =
+              match spec_sl with
+              | Some spec_sl -> spec_sl
+              | None -> structure spec_il
+            in
             let* _, values =
               eval_sl_with_task_run (module T) spec_il spec_sl input
             in
@@ -164,6 +183,10 @@ let run_with_outcome_no_lifecycle (type i)
   in
   (* Notify handlers of test end after execution *)
   Instrumentation.Dispatcher.notify_test_end ~test_case_id;
+  let result =
+    check_successful_output (module T) ~enabled:check_output ~spec_il input
+      result
+  in
   Task.compute_outcome (T.expectation input) result
 
 (* Result for a single test in a suite *)
@@ -176,7 +199,7 @@ type 'i test_result = {
 (* Run suite of inputs and return individual outcomes *)
 let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il
-    ?(verbose = false) (inputs : i list) =
+    ?(verbose = false) ?(check_output = false) (inputs : i list) =
   let total = List.length inputs in
   let run () =
     List.mapi
@@ -184,10 +207,12 @@ let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
         let source = T.source input in
         if verbose then Format.printf "[%d/%d] %s... %!" (idx + 1) total source;
         let outcome =
-          try run_with_outcome_no_lifecycle (module T) ~sl_mode ~spec_il input
+          try
+            run_with_outcome_no_lifecycle (module T) ~check_output ~sl_mode
+              ~spec_il input
           with exception_value ->
             let error =
-              EvalIlError
+              HarnessError
                 (Common.Source.no_region, Printexc.to_string exception_value)
             in
             Task.compute_outcome (T.expectation input) (Error error)
@@ -249,15 +274,9 @@ type task_result = { task_name : string; summary : suite_summary }
 exception SkipCurrentTest
 
 let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
-    ?max_slot_gap ~(checkpoint_config : Checkpoint.config) ~verbose ~sl_mode
-    ~spec_files spec_il tasks =
-  (* Initialize instrumentation once for the entire coverage run *)
-  let handlers = Instrumentation.Config.to_handlers config in
-  Instrumentation.Static.reset_all ();
-  Instrumentation.Static.init_all (Instrumentation.Static.IlSpec spec_il);
-  Instrumentation.Dispatcher.set_handlers handlers;
-  Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec_il);
-
+    ?max_slot_gap ?(check_output = false)
+    ~(checkpoint_config : Checkpoint.config) ~verbose ~sl_mode ~spec_files
+    ~checkpoint_run_signature spec_il tasks =
   (* Signal handler to skip current test (SIGUSR2 - user-defined signal 2)
      IMPORTANT: The 'kill' command name is misleading - it sends signals, not necessarily kills!
      SIGUSR2 is a user-defined signal that does NOT terminate the process.
@@ -267,10 +286,9 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
   let skip_handler _ =
     skip_current_test := true;
     Format.printf "\n[SIGUSR2] Interrupting current test...\n%!";
-    (* Use SIGALRM to interrupt the current execution immediately *)
-    (* This will cause an exception that we can catch *)
-    ignore (Unix.alarm 0)
-    (* Cancel any existing alarm *)
+    (* Schedule a fresh alarm: the periodic alarm may already have fired while
+       a long-running test was still executing. *)
+    ignore (Unix.alarm 1)
   in
   (* Set up SIGALRM handler to raise SkipCurrentTest when timeout/interrupt occurs *)
   let alarm_handler _ =
@@ -286,51 +304,65 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
      ());
 
   (* Load checkpoint if resuming *)
-  let loaded_checkpoint =
+  let* loaded_checkpoint =
     match checkpoint_config.resume_from with
-    | Some file -> (
-        match Checkpoint.verify_and_load ~file ~spec_files ~verbose () with
-        | Ok checkpoint -> Some checkpoint
-        | Error e ->
-            Format.printf "%s\n" (Error.string_of_error e);
-            None)
-    | None -> None
+    | Some file ->
+        let* checkpoint =
+          Checkpoint.verify_and_load ~file ~spec_files ~verbose ()
+        in
+        if
+          Checkpoint.has_run_signature checkpoint
+            ~signature:checkpoint_run_signature
+        then Ok (Some checkpoint)
+        else
+          Error
+            (Error.TestRunError
+               "Checkpoint run mode, binary, or test corpus does not match")
+    | None -> Ok None
   in
 
-  (* Track completed inputs across all tasks *)
-  let all_completed_inputs = ref [] in
+  (* Initialize instrumentation once for the entire coverage run, after a
+     requested checkpoint has been verified. A bad resume must never silently
+     restart and overwrite the user's recovery point. *)
+  let spec_sl = if sl_mode then Some (structure spec_il) else None in
+  let instrumentation_spec =
+    match spec_sl with
+    | Some spec_sl -> Instrumentation.Static.SlSpec spec_sl
+    | None -> Instrumentation.Static.IlSpec spec_il
+  in
+  let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Static.reset_all ();
+  Instrumentation.Static.init_all instrumentation_spec;
+  Instrumentation.Dispatcher.set_handlers handlers;
+  Instrumentation.Dispatcher.init
+    ~spec:(handler_spec_of_static instrumentation_spec);
+
+  (* Persist task-qualified outcomes. Keeping both successes and failures makes
+     a resumed summary complete without silently dropping a previous failure. *)
+  let successful_inputs = ref [] in
+  let failed_inputs = ref [] in
   (match loaded_checkpoint with
   | Some checkpoint ->
-      all_completed_inputs := checkpoint.Checkpoint.completed_inputs;
+      successful_inputs := Checkpoint.successful_test_inputs checkpoint;
+      failed_inputs := Checkpoint.failed_test_inputs checkpoint;
       Checkpoint.restore_coverage checkpoint
   | None -> ());
 
   let save_current_checkpoint () =
-    Checkpoint.save ~spec_files ~completed_inputs:!all_completed_inputs
-      ~output_file:checkpoint_config.output_file;
-    (* Clear large state after checkpoint to prevent OOM *)
-    Instrumentation.Dependency.Positive.clear_large_state ()
+    let completed_inputs =
+      Checkpoint.make_run_marker checkpoint_run_signature
+      :: (List.map Checkpoint.make_success_entry !successful_inputs
+         @ List.map Checkpoint.make_failure_entry !failed_inputs)
+    in
+    Checkpoint.save ~spec_files ~completed_inputs
+      ~output_file:checkpoint_config.output_file
   in
 
   let results =
     List.map
       (fun (Task.Pack (module T)) ->
-        (* TEMPORARY: Skip all tasks except state_transition *)
-        if T.name <> "state_transition" then
-          {
-            task_name = T.name;
-            summary =
-              {
-                total = 0;
-                pass = 0;
-                expected_fail = 0;
-                fail = 0;
-                unexpected_pass = 0;
-                skipped = 0;
-              };
-          }
-        else
-          let task_result =
+        let checkpoint_id input = T.name ^ "\000" ^ T.source input in
+        let task_result =
             (* Each task discovers its own inputs *)
             let all_inputs =
               match test_dir with
@@ -343,10 +375,26 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
               match loaded_checkpoint with
               | Some checkpoint ->
                   Checkpoint.filter_remaining checkpoint all_inputs
-                    ~get_id:T.source
+                    ~get_id:checkpoint_id
               | None -> all_inputs
             in
             let completed_count = total_all - List.length inputs in
+            let completed_pass_count =
+              List.fold_left
+                (fun count input ->
+                  if List.mem (checkpoint_id input) !successful_inputs then
+                    count + 1
+                  else count)
+                0 all_inputs
+            in
+            let completed_fail_count =
+              List.fold_left
+                (fun count input ->
+                  if List.mem (checkpoint_id input) !failed_inputs then
+                    count + 1
+                  else count)
+                0 all_inputs
+            in
             Format.printf
               "Discovered %d tests total (%d remaining, %d already completed).\n\
                %!"
@@ -358,12 +406,12 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                  %!";
             let empty_summary =
               {
-                pass = 0;
+                pass = completed_pass_count;
                 expected_fail = 0;
-                fail = 0;
+                fail = completed_fail_count;
                 unexpected_pass = 0;
                 skipped = 0;
-                total = 0;
+                total = completed_pass_count + completed_fail_count;
               }
             in
             let summary, _ =
@@ -377,11 +425,9 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                       Format.printf "  [%d/%d] %s... SKIPPED\n%!"
                         (completed_count + index + 1)
                         total_all source;
-                    (* Track completion even if skipped *)
-                    all_completed_inputs := source :: !all_completed_inputs;
                     ( {
                         summary with
-                        pass = summary.pass + 1;
+                        skipped = summary.skipped + 1;
                         total = summary.total + 1;
                       },
                       index + 1 ))
@@ -435,24 +481,20 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                           let result =
                             run_with_outcome_no_lifecycle
                               (module T)
-                              ~sl_mode ~spec_il input
+                              ~check_output ?spec_sl ~sl_mode ~spec_il input
                           in
                           (* Cancel alarm on successful completion *)
                           ignore (Unix.alarm 0);
                           result
                         with
                         | SkipCurrentTest ->
-                            (* Test was interrupted by signal - treat as FAIL *)
+                            (* A user-requested skip is not a semantic failure
+                               and must remain eligible on resume. *)
                             skip_current_test := false;
                             ignore (Unix.alarm 0);
-                            (* Cancel any pending alarm *)
                             if verbose then
-                              Format.printf "INTERRUPTED (treated as FAIL)\n%!";
-                            Task.compute_outcome (T.expectation input)
-                              (Error
-                                 (Error.EvalIlError
-                                    ( Common.Source.no_region,
-                                      "Test interrupted by SIGUSR2" )))
+                              Format.printf "INTERRUPTED (skipped)\n%!";
+                            Task.Skipped
                         | exception_value ->
                             ignore (Unix.alarm 0);
                             (* Cancel any pending alarm *)
@@ -460,16 +502,11 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                             if !skip_current_test then (
                               skip_current_test := false;
                               if verbose then
-                                Format.printf
-                                  "INTERRUPTED (treated as FAIL)\n%!";
-                              Task.compute_outcome (T.expectation input)
-                                (Error
-                                   (Error.EvalIlError
-                                      ( Common.Source.no_region,
-                                        "Test interrupted by SIGUSR2" ))))
+                                Format.printf "INTERRUPTED (skipped)\n%!";
+                              Task.Skipped)
                             else
                               let error =
-                                Error.EvalIlError
+                                Error.HarnessError
                                   ( Common.Source.no_region,
                                     Printexc.to_string exception_value )
                               in
@@ -497,9 +534,23 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                          | Task.Fail _ -> Format.printf "FAIL\n%!"
                          | Task.UnexpectedPass _ ->
                              Format.printf "UNEXPECTED PASS\n%!"
-                         | Task.Skipped -> Format.printf "SKIPPED\n%!");
-                      (* Track completion *)
-                      all_completed_inputs := source :: !all_completed_inputs;
+                       | Task.Skipped -> Format.printf "SKIPPED\n%!");
+                      (match outcome with
+                      | Task.Fail error ->
+                          Format.eprintf "Failure in %s:\n  %s\n%!" source
+                            (Error.string_of_error error)
+                      | Task.UnexpectedPass _ ->
+                          Format.eprintf
+                            "Unexpected pass for negative test %s\n%!" source
+                      | Task.Pass _ | Task.ExpectedFail _ | Task.Skipped -> ());
+                      let completed_id = checkpoint_id input in
+                      (match outcome with
+                      | Task.Pass _ | Task.ExpectedFail _ ->
+                          successful_inputs :=
+                            completed_id :: !successful_inputs
+                      | Task.Fail _ | Task.UnexpectedPass _ ->
+                          failed_inputs := completed_id :: !failed_inputs
+                      | Task.Skipped -> ());
                       (* Periodic checkpoint save *)
                       if (index + 1) mod checkpoint_config.save_interval = 0
                       then save_current_checkpoint ();
@@ -529,8 +580,8 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
                 (empty_summary, 0) inputs
             in
             { task_name = T.name; summary }
-          in
-          task_result)
+        in
+        task_result)
       tasks
   in
   (* Final checkpoint save *)
@@ -538,7 +589,7 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
   (* Finish instrumentation once for the entire coverage run *)
   Instrumentation.Dispatcher.finish ();
   Instrumentation.Config.close_outputs config;
-  results
+  Ok results
 
 (* let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir *)
 (*     ~(checkpoint_config : Checkpoint.config) ~verbose ~sl_mode ~spec_files *)

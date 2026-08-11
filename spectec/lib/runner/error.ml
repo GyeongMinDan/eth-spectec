@@ -8,6 +8,9 @@ type t =
   | EvalIlError of region * string
   | EvalSlError of region * string
   | TaskParseError of region * string
+  | OutputMismatchError of region * string
+  | HarnessError of region * string
+  | TestRunError of string
   | SpecMismatchError of string * string
   | DirectoryError of string
 
@@ -37,6 +40,9 @@ let string_of_error = function
   | EvalIlError (at, msg) -> string_of_error' at msg
   | EvalSlError (at, msg) -> string_of_error' at msg
   | TaskParseError (at, msg) -> string_of_error' at msg
+  | OutputMismatchError (at, msg) -> string_of_error' at msg
+  | HarnessError (at, msg) -> string_of_error' at msg
+  | TestRunError msg -> msg
   | SpecMismatchError (hash_expected, hash_actual) ->
       Printf.sprintf "Spec version mismatch: expected spec hash %s but got %s."
         hash_expected hash_actual

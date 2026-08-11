@@ -67,6 +67,31 @@ let parse_string ~spec ~filename:_ content =
          let msg = Interface.JSON.Parse.string_of_error err in
          Runner.Error.TaskParseError (Common.Source.no_region, msg))
 
+let check_beacon_state_output ~spec ~pre_file values =
+  let ( let* ) = Result.bind in
+  let post_file = Filename.concat (Filename.dirname pre_file) "post.json" in
+  if not (file_exists post_file) then
+    Error
+      (Runner.Error.OutputMismatchError
+         ( Common.Source.no_region,
+           Printf.sprintf "expected output file is missing: %s" post_file ))
+  else
+    let* expected =
+      try parse_json ~spec post_file "beaconState"
+      with exception_value ->
+        Error
+          (Runner.Error.OutputMismatchError
+             ( Common.Source.no_region,
+               Printf.sprintf "cannot read expected output %s: %s" post_file
+                 (Printexc.to_string exception_value) ))
+    in
+    if Lang.Il.Eq.eq_values values [ expected ] then Ok ()
+    else
+      Error
+        (Runner.Error.OutputMismatchError
+           ( Common.Source.no_region,
+             Printf.sprintf "interpreter output differs from %s" post_file ))
+
 (* Shared unparse: convert IL values back to JSON string *)
 let unparse ~spec:_ values =
   match values with
@@ -167,6 +192,7 @@ module JsonParse = struct
   let unparse = unparse
   let source { json_file; _ } = json_file
   let expectation { expect; _ } = expect
+  let check_output = Runner.Task.accept_output
   let collect ?dir:_ () = []
   let format_output values = unparse ~spec:[] values
   let save_output _filename _values = ()

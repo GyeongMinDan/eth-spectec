@@ -1,0 +1,3 @@
+(test
+ (name checkpoint_semantics)
+ (libraries spectec.instrumentation spectec.lang spectec.runner bignum.bigint))
