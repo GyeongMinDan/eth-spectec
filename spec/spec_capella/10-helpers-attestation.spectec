@@ -134,6 +134,7 @@ dec $target_flag_list(bool, uint64) : nat*
 
 def $target_flag_list(bool_matching_target, uint64_inclusion_delay) 
   = [ $TIMELY_TARGET_FLAG_INDEX ]
+  -- if bool_matching_target
   -- if $(uint64_inclusion_delay <= $SLOTS_PER_EPOCH)
 def $target_flag_list(_, _) = eps
   -- otherwise
@@ -141,6 +142,7 @@ dec $head_flag_list(bool, uint64) : nat*
 
 def $head_flag_list(bool_matching_head, uint64_inclusion_delay)
   = [ $TIMELY_HEAD_FLAG_INDEX ]
+  -- if bool_matching_head
   -- if $(uint64_inclusion_delay = $MIN_ATTESTATION_INCLUSION_DELAY)
 def $head_flag_list(_, _) = eps
   -- otherwise
