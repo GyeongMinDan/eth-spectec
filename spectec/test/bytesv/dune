@@ -1,0 +1,15 @@
+(executable
+ (name main)
+ (libraries spectec.interface.json))
+
+(rule
+ (target bytesv.actual)
+ (action
+  (with-stdout-to
+   %{target}
+   (run ./main.exe))))
+
+(rule
+ (alias runtest)
+ (action
+  (diff bytesv.expected bytesv.actual)))
