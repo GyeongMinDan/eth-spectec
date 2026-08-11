@@ -31,9 +31,15 @@ import sys
 import subprocess
 import argparse
 import json
+import hashlib
 import shutil
+import tempfile
 from pathlib import Path
 from typing import List, Tuple, Optional
+
+# Bump this whenever generator/reference semantics change so resumed output is
+# revalidated instead of being trusted under an older contract.
+ORACLE_MARKER_VERSION = "official-oracle-v1"
 
 
 class JsonTestCaseGenerator:
@@ -163,7 +169,9 @@ class JsonTestCaseGenerator:
             )
             return True, None
         except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else e.stdout
+            error_msg = "\n".join(
+                output for output in (e.stdout, e.stderr) if output
+            )
             return False, error_msg
     
     def run_eth2spec_operation(self, pre_ssz: Path, operation_ssz: Path, output_ssz: Path, operation_type: str) -> Tuple[bool, Optional[str]]:
@@ -189,7 +197,9 @@ class JsonTestCaseGenerator:
             )
             return True, None
         except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else e.stdout
+            error_msg = "\n".join(
+                output for output in (e.stdout, e.stderr) if output
+            )
             return False, error_msg
     
     def run_eth2spec_epoch_processing(self, pre_ssz: Path, output_ssz: Path, epoch_processing_type: str) -> Tuple[bool, Optional[str]]:
@@ -214,7 +224,45 @@ class JsonTestCaseGenerator:
             )
             return True, None
         except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else e.stdout
+            error_msg = "\n".join(
+                output for output in (e.stdout, e.stderr) if output
+            )
+            return False, error_msg
+
+    def run_eth2spec_sanity_slot(
+        self,
+        pre_ssz: Path,
+        slots_yaml: Path,
+        output_ssz: Path,
+    ) -> Tuple[bool, Optional[str]]:
+        """Run eth2specSanitySlotResult.py."""
+        try:
+            env = os.environ.copy()
+            if 'PYTHONPATH' in env:
+                env['PYTHONPATH'] = (
+                    str(self.consensus_specs_path)
+                    + os.pathsep
+                    + env['PYTHONPATH']
+                )
+            else:
+                env['PYTHONPATH'] = str(self.consensus_specs_path)
+
+            subprocess.run(
+                [sys.executable, str(self.eth2spec_sanity_slot_result),
+                 "--pre", str(pre_ssz),
+                 "--slots-yaml", str(slots_yaml),
+                 "--out", str(output_ssz),
+                 "--fork", self.fork],
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env,
+            )
+            return True, None
+        except subprocess.CalledProcessError as e:
+            error_msg = "\n".join(
+                output for output in (e.stdout, e.stderr) if output
+            )
             return False, error_msg
     
     def ssz_to_json_operation(self, ssz_file: Path, json_file: Path, operation_type: str) -> bool:
@@ -383,7 +431,14 @@ class JsonTestCaseGenerator:
             
         return short_name
 
-    def _should_skip_test(self, case_output_dir: Path, verbose: bool = False) -> bool:
+    def _should_skip_test(
+        self,
+        case_output_dir: Path,
+        verbose: bool = False,
+        required_files: Tuple[str, ...] = (),
+        expected_post: Optional[bool] = None,
+        expected_oracle_marker: Optional[str] = None,
+    ) -> bool:
         """
         Check if test case has already been generated.
         
@@ -394,13 +449,104 @@ class JsonTestCaseGenerator:
         Returns:
             True if test should be skipped
         """
+        has_post = (case_output_dir / "post.json").exists()
+        has_error = (case_output_dir / "error.txt").exists()
+        has_required_files = all(
+            (case_output_dir / filename).exists() for filename in required_files
+        )
+        if expected_post is None:
+            has_expected_result = has_post != has_error
+        elif expected_post:
+            has_expected_result = has_post and not has_error
+        else:
+            has_expected_result = has_error and not has_post
+
+        has_verified_oracle = True
+        if expected_oracle_marker is not None:
+            marker = case_output_dir / ".official-oracle"
+            try:
+                has_verified_oracle = (
+                    marker.read_text().strip() == expected_oracle_marker
+                )
+            except (OSError, UnicodeError):
+                has_verified_oracle = False
+
         if case_output_dir.exists() and \
            (case_output_dir / "pre.json").exists() and \
-           ((case_output_dir / "post.json").exists() or (case_output_dir / "error.txt").exists()):
+           has_required_files and \
+           has_expected_result and \
+           has_verified_oracle:
             if verbose:
                 print(f"  ✓ Skipped (exists): {case_output_dir.name}")
             return True
         return False
+
+    @staticmethod
+    def _is_semantic_failure(error: Optional[str]) -> bool:
+        """Distinguish a spec rejection from runner/import/decode failures."""
+        if not error:
+            return False
+        return (
+            "State transition failed:" in error
+            or "process_slots failed:" in error
+            or ("Executing process_" in error and " failed:" in error)
+        )
+
+    @staticmethod
+    def _ssz_files_equal(actual: Path, expected: Path) -> bool:
+        """Compare canonical SSZ byte strings without loading a state at once."""
+        if actual.stat().st_size != expected.stat().st_size:
+            return False
+        with actual.open("rb") as actual_file, expected.open("rb") as expected_file:
+            while True:
+                actual_chunk = actual_file.read(1024 * 1024)
+                expected_chunk = expected_file.read(1024 * 1024)
+                if actual_chunk != expected_chunk:
+                    return False
+                if not actual_chunk:
+                    return True
+
+    def _oracle_marker_value(
+        self,
+        official_positive: bool,
+        oracle_inputs: Tuple[Path, ...],
+    ) -> str:
+        if not oracle_inputs:
+            raise ValueError("official oracle requires its source inputs")
+
+        outcome = "positive" if official_positive else "negative"
+        digest = hashlib.sha256()
+        digest.update(ORACLE_MARKER_VERSION.encode("ascii") + b"\0")
+        digest.update(self.fork.encode("utf-8") + b"\0")
+        digest.update(outcome.encode("ascii") + b"\0")
+        for source in oracle_inputs:
+            name = source.name.encode("utf-8")
+            digest.update(len(name).to_bytes(8, "big"))
+            digest.update(name)
+            digest.update(source.stat().st_size.to_bytes(8, "big"))
+            with source.open("rb") as input_file:
+                while True:
+                    chunk = input_file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+        return ":".join(
+            (ORACLE_MARKER_VERSION, self.fork, outcome, digest.hexdigest())
+        )
+
+    @staticmethod
+    def _clear_output_dirs(case_output_dirs: List[Path]) -> None:
+        """Remove only the generated directories belonging to one source case."""
+        for case_output_dir in dict.fromkeys(case_output_dirs):
+            if case_output_dir.exists():
+                shutil.rmtree(case_output_dir)
+
+    @staticmethod
+    def _write_oracle_marker(
+        case_output_dir: Path,
+        oracle_marker: str,
+    ) -> None:
+        (case_output_dir / ".official-oracle").write_text(oracle_marker + "\n")
 
     def process_test_case(
         self, 
@@ -448,9 +594,6 @@ class JsonTestCaseGenerator:
         Returns:
             (generated_count, error_count)
         """
-        generated = 0
-        errors = 0
-        
         # 1. locate files
         pre_snappy = test_case_dir / "pre.ssz_snappy"
         if not pre_snappy.exists():
@@ -468,149 +611,193 @@ class JsonTestCaseGenerator:
         # check for existing post.ssz_snappy
         post_snappy = test_case_dir / "post.ssz_snappy"
         has_existing_post = post_snappy.exists()
-        
-        # create temporary work directory
-        work_dir = output_dir / f".work_{test_name}"
-        work_dir.mkdir(parents=True, exist_ok=True)
-        
+        oracle_inputs = (pre_snappy, *block_snappy_files)
+        if has_existing_post:
+            oracle_inputs += (post_snappy,)
+        oracle_marker = self._oracle_marker_value(
+            has_existing_post,
+            oracle_inputs,
+        )
+
+        short_test_name = self._get_short_test_name(test_name, test_case_dir)
+        is_single_block = len(block_snappy_files) == 1
+        path_parts = test_case_dir.parts
+        if "sanity" in path_parts and "blocks" in path_parts:
+            block_output_base = output_dir / "sanity" / "blocks"
+        elif "random" in path_parts:
+            block_output_base = output_dir / "random"
+        else:
+            block_output_base = output_dir / "finality"
+
+        def block_case_output_dir(block_num: int) -> Path:
+            if is_single_block:
+                return block_output_base / short_test_name
+            return block_output_base / f"{short_test_name}_{block_num}"
+
+        block_numbers = [
+            int(path.stem.replace("blocks_", ""))
+            for path in block_snappy_files
+        ]
+        all_case_output_dirs = [
+            block_case_output_dir(block_num) for block_num in block_numbers
+        ]
+
+        # A sequential source case is verified and published as one chain.
+        output_dir.mkdir(parents=True, exist_ok=True)
+        work_dir = Path(tempfile.mkdtemp(prefix=".work_", dir=output_dir))
+
         try:
             # 2. Decompress snappy files
             if verbose:
                 print("  Decompressing snappy files...")
-            
+
             pre_ssz = work_dir / "pre.ssz"
             if not self.decompress_snappy(pre_snappy, pre_ssz):
+                self._clear_output_dirs(all_case_output_dirs)
                 return 0, 1
-            
+
             block_ssz_files = []
             for block_snappy in block_snappy_files:
                 block_num = int(block_snappy.stem.replace("blocks_", ""))
                 block_ssz = work_dir / f"blocks_{block_num}.ssz"
                 if not self.decompress_snappy(block_snappy, block_ssz):
-                    errors += 1
-                    continue
+                    self._clear_output_dirs(all_case_output_dirs)
+                    return 0, 1
                 block_ssz_files.append((block_num, block_ssz))
-            
-            if not block_ssz_files:
-                print(f"  ✗ Failed to decompress any block files")
-                return 0, errors
-            
+
             # Decompress existing post.ssz if available
             post_ssz = None
             if has_existing_post:
-                post_ssz = work_dir / "post.ssz"
+                post_ssz = work_dir / "official_post.ssz"
                 if not self.decompress_snappy(post_snappy, post_ssz):
-                    post_ssz = None
-            
+                    print("  ✗ Official post.ssz_snappy is unreadable")
+                    self._clear_output_dirs(all_case_output_dirs)
+                    return 0, 1
+
+            # Reuse only output that this generator has already checked against
+            # the same official positive/negative oracle.
+            existing_count = 0
+            for index, case_output_dir in enumerate(all_case_output_dirs):
+                expected_post = True if has_existing_post else None
+                if not self._should_skip_test(
+                    case_output_dir,
+                    required_files=("block.json",),
+                    expected_post=expected_post,
+                    expected_oracle_marker=oracle_marker,
+                ):
+                    break
+                existing_count += 1
+                if (case_output_dir / "error.txt").exists():
+                    self._clear_output_dirs(all_case_output_dirs[index + 1:])
+                    if verbose:
+                        print(f"  ✓ Skipped (verified chain): {short_test_name}")
+                    return existing_count, 0
+            else:
+                if has_existing_post:
+                    if verbose:
+                        print(f"  ✓ Skipped (verified chain): {short_test_name}")
+                    return existing_count, 0
+
             # 3. SSZ -> JSON conversion and test case generation
             if verbose:
                 print("  Converting to JSON and generating test cases...")
-            
+
             # initial pre state
-            initial_pre_ssz = pre_ssz
             initial_pre_json = work_dir / "pre.json"
             if not self.ssz_to_json(pre_ssz, initial_pre_json, is_beacon_state=True):
+                self._clear_output_dirs(all_case_output_dirs)
                 return 0, 1
-            
-            # Pre-calculate short test name
-            short_test_name = self._get_short_test_name(test_name, test_case_dir)
 
-            # current pre state (for multi-block tests)
-            current_pre_ssz = initial_pre_ssz
+            current_pre_ssz = pre_ssz
             current_pre_json = initial_pre_json
-            
-            is_single_block = len(block_ssz_files) == 1
-            
-            for i, (block_num, block_ssz) in enumerate(block_ssz_files):
-                # Calculate output directory early
-                # Determine output subdirectory based on test path keywords
-                path_parts = test_case_dir.parts
-                if "sanity" in path_parts and "blocks" in path_parts:
-                    block_output_base = output_dir / "sanity" / "blocks"
-                elif "random" in path_parts:
-                     block_output_base = output_dir / "random"
-                else:
-                    # Default/Fallback to finality if "finality" is in path or assumed default
-                    block_output_base = output_dir / "finality"
+            staged_cases = []
+            saw_expected_rejection = False
 
-                if is_single_block:
-                    case_output_dir = block_output_base / short_test_name
-                else:
-                    case_output_dir = block_output_base / f"{short_test_name}_{block_num}"
-
-                # Check if test already exists
-                if self._should_skip_test(case_output_dir, verbose):
-                    generated += 1
-                    continue
-
-                case_output_dir.mkdir(parents=True, exist_ok=True)
-
-                # convert block to JSON
+            for block_num, block_ssz in block_ssz_files:
+                case_output_dir = block_case_output_dir(block_num)
                 block_json = work_dir / f"blocks_{block_num}.json"
                 if not self.ssz_to_json(block_ssz, block_json, is_beacon_state=False):
-                    errors += 1
-                    continue
-                
-                # post state generation
-                post_json = None
-                eth2spec_error = None
-                
-                if is_single_block and post_ssz:
-                    # use existing post.ssz for single-block tests
-                    post_json = work_dir / "post.json"
-                    if not self.ssz_to_json(post_ssz, post_json, is_beacon_state=True):
-                        errors += 1
-                        continue
-                else:
-                    # otherwise, generate post state using eth2spec
-                    generated_post_ssz = work_dir / f"post_{block_num}.ssz"
-                    success, error = self.run_eth2spec(current_pre_ssz, block_ssz, generated_post_ssz)
-                    
-                    if success:
-                        post_json = work_dir / f"post_{block_num}.json"
-                        if not self.ssz_to_json(generated_post_ssz, post_json, is_beacon_state=True):
-                            errors += 1
-                            continue
-                    else:
-                        # eth2spec failed - this is a negative test
-                        eth2spec_error = error
-                
-                # copy JSON files to output directory - flat structure
-                is_negative = eth2spec_error is not None
+                    self._clear_output_dirs(all_case_output_dirs)
+                    return 0, 1
 
-                
-                # Copy files to output directory
-                shutil.copy(current_pre_json, case_output_dir / "pre.json")
-                shutil.copy(block_json, case_output_dir / "block.json")
-                
-                if is_negative:
-                    # Write error.txt for negative tests
-                    with open(case_output_dir / "error.txt", "w") as f:
-                        f.write(eth2spec_error or "Unknown error")
-                    if verbose:
-                        print(f"  ✓ Generated (negative): {case_output_dir.name}")
-                    # Stop processing further blocks for this test case
-                    generated += 1
+                generated_post_ssz = work_dir / f"post_{block_num}.ssz"
+                success, error = self.run_eth2spec(
+                    current_pre_ssz,
+                    block_ssz,
+                    generated_post_ssz,
+                )
+
+                if not success:
+                    if has_existing_post:
+                        print("  ✗ Python rejected an officially positive block chain")
+                        if error:
+                            print(error)
+                        self._clear_output_dirs(all_case_output_dirs)
+                        return 0, 1
+                    if not self._is_semantic_failure(error):
+                        print("  ✗ Python runner failed before a semantic rejection")
+                        if error:
+                            print(error)
+                        self._clear_output_dirs(all_case_output_dirs)
+                        return 0, 1
+                    staged_cases.append(
+                        (case_output_dir, current_pre_json, block_json, None, error)
+                    )
+                    saw_expected_rejection = True
                     break
+
+                post_json = work_dir / f"post_{block_num}.json"
+                if not self.ssz_to_json(
+                    generated_post_ssz,
+                    post_json,
+                    is_beacon_state=True,
+                ):
+                    self._clear_output_dirs(all_case_output_dirs)
+                    return 0, 1
+
+                staged_cases.append(
+                    (case_output_dir, current_pre_json, block_json, post_json, None)
+                )
+                current_pre_ssz = generated_post_ssz
+                current_pre_json = post_json
+
+            if has_existing_post:
+                if not self._ssz_files_equal(current_pre_ssz, post_ssz):
+                    print("  ✗ Python post-state differs from official post.ssz")
+                    self._clear_output_dirs(all_case_output_dirs)
+                    return 0, 1
                 else:
-                    # Copy post.json for positive tests
+                    assert not saw_expected_rejection
+            elif not saw_expected_rejection:
+                print("  ✗ Python accepted an officially negative block chain")
+                self._clear_output_dirs(all_case_output_dirs)
+                return 0, 1
+
+            # No output becomes visible until the complete chain satisfies the
+            # source oracle. Clearing all known destinations removes stale tails.
+            self._clear_output_dirs(all_case_output_dirs)
+            for case_output_dir, pre_json, block_json, post_json, error in staged_cases:
+                case_output_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy(pre_json, case_output_dir / "pre.json")
+                shutil.copy(block_json, case_output_dir / "block.json")
+                if error is not None:
+                    (case_output_dir / "error.txt").write_text(error)
+                    outcome = "negative"
+                else:
                     shutil.copy(post_json, case_output_dir / "post.json")
-                    if verbose:
-                        print(f"  ✓ Generated (positive): {case_output_dir.name}")
-                    
-                    # Update pre state for next block (multi-block only)
-                    if not is_single_block:
-                        current_pre_ssz = work_dir / f"post_{block_num}.ssz"
-                        current_pre_json = post_json
-                    
-                    generated += 1
-        
+                    outcome = "positive"
+                self._write_oracle_marker(
+                    case_output_dir,
+                    oracle_marker,
+                )
+                if verbose:
+                    print(f"  ✓ Generated ({outcome}): {case_output_dir.name}")
+
+            return len(staged_cases), 0
         finally:
             # cleanup temporary work directory
             if work_dir.exists():
                 shutil.rmtree(work_dir)
-        
-        return generated, errors
     
     def process_operation_test_case(
         self, 
@@ -625,9 +812,6 @@ class JsonTestCaseGenerator:
         Returns:
             (generated_count, error_count)
         """
-        generated = 0
-        errors = 0
-        
         # 1. locate files
         pre_snappy = test_case_dir / "pre.ssz_snappy"
         if not pre_snappy.exists():
@@ -642,172 +826,233 @@ class JsonTestCaseGenerator:
         # check for existing post.ssz_snappy
         post_snappy = test_case_dir / "post.ssz_snappy"
         has_existing_post = post_snappy.exists()
-        
-        # create temporary work directory
-        work_dir = output_dir / f".work_{test_name}"
-        work_dir.mkdir(parents=True, exist_ok=True)
-        
+        oracle_inputs = (
+            pre_snappy,
+            *(operation_file for _, operation_file in operation_files),
+        )
+        execution_yaml = test_case_dir / "execution.yaml"
+        if execution_yaml.exists():
+            oracle_inputs += (execution_yaml,)
+        if has_existing_post:
+            oracle_inputs += (post_snappy,)
+        oracle_marker = self._oracle_marker_value(
+            has_existing_post,
+            oracle_inputs,
+        )
+
+        op_type_0 = operation_files[0][0]
+        prefix_to_remove = f"{op_type_0}_pyspec_tests_"
+        short_test_name = self._get_short_test_name(
+            test_name, test_case_dir, prefix_to_remove
+        )
+        is_single_operation = len(operation_files) == 1
+
+        def operation_case_output_dir(op_type: str, index: int) -> Path:
+            base = output_dir / "operations" / op_type
+            if is_single_operation:
+                return base / short_test_name
+            return base / f"{short_test_name}_{index}"
+
+        all_case_output_dirs = [
+            operation_case_output_dir(op_type, index)
+            for index, (op_type, _) in enumerate(operation_files)
+        ]
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        work_dir = Path(tempfile.mkdtemp(prefix=".work_", dir=output_dir))
+
         try:
             # 2. Decompress snappy files
             if verbose:
                 print("  Decompressing snappy files...")
-            
+
             pre_ssz = work_dir / "pre.ssz"
             if not self.decompress_snappy(pre_snappy, pre_ssz):
+                self._clear_output_dirs(all_case_output_dirs)
                 return 0, 1
-            
+
             operation_ssz_files = []
-            for op_type, op_snappy in operation_files:
-                op_ssz = work_dir / f"{op_type}.ssz"
+            for index, (op_type, op_snappy) in enumerate(operation_files):
+                op_ssz = work_dir / f"{op_type}_{index}.ssz"
                 if not self.decompress_snappy(op_snappy, op_ssz):
-                    errors += 1
-                    continue
+                    self._clear_output_dirs(all_case_output_dirs)
+                    return 0, 1
                 operation_ssz_files.append((op_type, op_ssz))
-            
-            if not operation_ssz_files:
-                print(f"  ✗ Failed to decompress any operation files")
-                return 0, errors
-            
+
             # Decompress existing post.ssz if available
             post_ssz = None
             if has_existing_post:
-                post_ssz = work_dir / "post.ssz"
+                post_ssz = work_dir / "official_post.ssz"
                 if not self.decompress_snappy(post_snappy, post_ssz):
-                    post_ssz = None
-            
+                    print("  ✗ Official post.ssz_snappy is unreadable")
+                    self._clear_output_dirs(all_case_output_dirs)
+                    return 0, 1
+
+            existing_count = 0
+            for index, (op_type, _) in enumerate(operation_files):
+                case_output_dir = all_case_output_dirs[index]
+                required_files = [f"{op_type}.json"]
+                if op_type == "execution_payload" and (
+                    test_case_dir / "execution.yaml"
+                ).exists():
+                    required_files.append("execution.json")
+                expected_post = True if has_existing_post else None
+                if not self._should_skip_test(
+                    case_output_dir,
+                    required_files=tuple(required_files),
+                    expected_post=expected_post,
+                    expected_oracle_marker=oracle_marker,
+                ):
+                    break
+                existing_count += 1
+                if (case_output_dir / "error.txt").exists():
+                    self._clear_output_dirs(all_case_output_dirs[index + 1:])
+                    if verbose:
+                        print(f"  ✓ Skipped (verified chain): {short_test_name}")
+                    return existing_count, 0
+            else:
+                if has_existing_post:
+                    if verbose:
+                        print(f"  ✓ Skipped (verified chain): {short_test_name}")
+                    return existing_count, 0
+
             # 3. SSZ -> JSON conversion and test case generation
             if verbose:
                 print("  Converting to JSON and generating test cases...")
-            
-            # Pre-calculate short test name 
-            op_type_0 = operation_ssz_files[0][0] if operation_ssz_files else ""
-            prefix_to_remove = f"{op_type_0}_pyspec_tests_"
-            short_test_name = self._get_short_test_name(test_name, test_case_dir, prefix_to_remove)
 
             current_pre_ssz = pre_ssz
             current_pre_json = work_dir / "pre.json"
 
             # Initial pre state conversion
             if not self.ssz_to_json(pre_ssz, current_pre_json, is_beacon_state=True):
+                self._clear_output_dirs(all_case_output_dirs)
                 return 0, 1
-            
-            is_single_operation = len(operation_ssz_files) == 1
-            
-            for i, (op_type, op_ssz) in enumerate(operation_ssz_files):
-                # Calculate output directory early to check for existence
-                if is_single_operation:
-                    case_output_dir = output_dir / "operations" / op_type / short_test_name
-                else:
-                    case_output_dir = output_dir / "operations" / op_type / f"{short_test_name}_{i}"
 
-                # Check if test already exists
-                if self._should_skip_test(case_output_dir, verbose):
-                    generated += 1
-                    
-                    # Here, we assume that either all steps of a sequential test exists or none.
-                    # If some exist and some don't, we re-generate since we cannot compute intermediate states.
-                    
-                    continue
-
-                # Normal processing...
-                # convert operation to JSON
-                op_json = work_dir / f"{op_type}.json"
-                if not self.ssz_to_json_operation(op_ssz, op_json, op_type):
-                    errors += 1
-                    continue
-                
-                # post state generation
-                post_json = None
-                eth2spec_error = None
-                
-                if is_single_operation and post_ssz:
-                    # use existing post.ssz for single-operation tests
-                    post_json = work_dir / "post.json"
-                    if not self.ssz_to_json(post_ssz, post_json, is_beacon_state=True):
-                        errors += 1
-                        continue
-                else:
-                    # otherwise, generate post state using eth2spec operation
-                    # For execution_payload tests, copy execution.yaml file to work_dir
-                    if op_type == 'execution_payload':
-                        execution_yaml = test_case_dir / "execution.yaml"
-                        if execution_yaml.exists():
-                            # Copy execution.yaml to work_dir (eth2specOperationResult.py reads it from operation_ssz_path.parent)
-                            execution_yaml_work = work_dir / "execution.yaml"
-                            shutil.copy(execution_yaml, execution_yaml_work)
-                            
-                            # Also convert execution.yaml to execution.json for output
-                            # Format is simple: {execution_valid: true/false}
-                            is_valid = True
-                            with open(execution_yaml, 'r') as f:
-                                content = f.read()
-                                if 'execution_valid: false' in content or "execution_valid: False" in content:
-                                    is_valid = False
-                            
-                            execution_json = work_dir / "execution.json"
-                            with open(execution_json, 'w') as f:
-                                json.dump({"execution_valid": is_valid}, f)
-                    
-                    generated_post_ssz = work_dir / f"post_{i}.ssz"
-                    success, error = self.run_eth2spec_operation(current_pre_ssz, op_ssz, generated_post_ssz, op_type)
-                    
-                    if success:
-                        post_json = work_dir / f"post_{i}.json"
-                        if not self.ssz_to_json(generated_post_ssz, post_json, is_beacon_state=True):
-                            errors += 1
-                            continue
-                    else:
-                        # eth2spec failed - this is a negative test
-                        eth2spec_error = error
-                
-                # copy JSON files to output directory - flat structure
-                is_negative = eth2spec_error is not None
-                
-                # Flat structure: {op_type}/{short_test_name}
-                # Expectation is determined by presence of post.json vs error.txt
-                if is_single_operation:
-                    case_output_dir = output_dir / "operations" / op_type / short_test_name
-                else:
-                    case_output_dir = output_dir / "operations" / op_type / f"{short_test_name}_{i}"
-                case_output_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Copy files to output directory
-                shutil.copy(current_pre_json, case_output_dir / "pre.json")
-                shutil.copy(op_json, case_output_dir / f"{op_type}.json")
-                
-                if op_type == 'execution_payload':
+            # execution.yaml affects both positive and negative payload tests.
+            execution_json = None
+            if any(op_type == "execution_payload" for op_type, _ in operation_files):
+                if execution_yaml.exists():
+                    shutil.copy(execution_yaml, work_dir / "execution.yaml")
+                    content = execution_yaml.read_text()
+                    is_valid = not (
+                        "execution_valid: false" in content
+                        or "execution_valid: False" in content
+                    )
                     execution_json = work_dir / "execution.json"
-                    if execution_json.exists():
-                        shutil.copy(execution_json, case_output_dir / "execution.json")
-                
-                if is_negative:
-                    # Write error.txt for negative tests
-                    with open(case_output_dir / "error.txt", "w") as f:
-                        f.write(eth2spec_error or "Unknown error")
-                    if verbose:
-                        print(f"  ✓ Generated (negative): {case_output_dir.name}")
-                    # Stop processing further operations for this test case
-                    generated += 1
+                    execution_json.write_text(
+                        json.dumps({"execution_valid": is_valid})
+                    )
+
+            staged_cases = []
+            saw_expected_rejection = False
+
+            for i, (op_type, op_ssz) in enumerate(operation_ssz_files):
+                op_json = work_dir / f"{op_type}_{i}.json"
+                if not self.ssz_to_json_operation(op_ssz, op_json, op_type):
+                    self._clear_output_dirs(all_case_output_dirs)
+                    return 0, 1
+
+                case_output_dir = operation_case_output_dir(op_type, i)
+                generated_post_ssz = work_dir / f"post_{i}.ssz"
+                success, error = self.run_eth2spec_operation(
+                    current_pre_ssz,
+                    op_ssz,
+                    generated_post_ssz,
+                    op_type,
+                )
+
+                if not success:
+                    if has_existing_post:
+                        print("  ✗ Python rejected an officially positive operation chain")
+                        if error:
+                            print(error)
+                        self._clear_output_dirs(all_case_output_dirs)
+                        return 0, 1
+                    if not self._is_semantic_failure(error):
+                        print("  ✗ Python runner failed before a semantic rejection")
+                        if error:
+                            print(error)
+                        self._clear_output_dirs(all_case_output_dirs)
+                        return 0, 1
+                    staged_cases.append(
+                        (
+                            case_output_dir,
+                            current_pre_json,
+                            op_type,
+                            op_json,
+                            None,
+                            error,
+                        )
+                    )
+                    saw_expected_rejection = True
                     break
+
+                post_json = work_dir / f"post_{i}.json"
+                if not self.ssz_to_json(
+                    generated_post_ssz,
+                    post_json,
+                    is_beacon_state=True,
+                ):
+                    self._clear_output_dirs(all_case_output_dirs)
+                    return 0, 1
+
+                staged_cases.append(
+                    (
+                        case_output_dir,
+                        current_pre_json,
+                        op_type,
+                        op_json,
+                        post_json,
+                        None,
+                    )
+                )
+                current_pre_ssz = generated_post_ssz
+                current_pre_json = post_json
+
+            if has_existing_post:
+                if not self._ssz_files_equal(current_pre_ssz, post_ssz):
+                    print("  ✗ Python post-state differs from official post.ssz")
+                    self._clear_output_dirs(all_case_output_dirs)
+                    return 0, 1
                 else:
-                    # Copy post.json for positive tests
+                    assert not saw_expected_rejection
+            elif not saw_expected_rejection:
+                print("  ✗ Python accepted an officially negative operation chain")
+                self._clear_output_dirs(all_case_output_dirs)
+                return 0, 1
+
+            self._clear_output_dirs(all_case_output_dirs)
+            for (
+                case_output_dir,
+                pre_json,
+                op_type,
+                op_json,
+                post_json,
+                error,
+            ) in staged_cases:
+                case_output_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy(pre_json, case_output_dir / "pre.json")
+                shutil.copy(op_json, case_output_dir / f"{op_type}.json")
+                if op_type == "execution_payload" and execution_json is not None:
+                    shutil.copy(execution_json, case_output_dir / "execution.json")
+                if error is not None:
+                    (case_output_dir / "error.txt").write_text(error)
+                    outcome = "negative"
+                else:
                     shutil.copy(post_json, case_output_dir / "post.json")
-                    if verbose:
-                        print(f"  ✓ Generated (positive): {case_output_dir.name}")
-                    
-                    # Update pre state for next operation (multi-operation only)
-                    if not is_single_operation:
-                        current_pre_ssz = work_dir / f"post_{i}.ssz"
-                        current_pre_json = post_json
-                    
-                    generated += 1
-        
+                    outcome = "positive"
+                self._write_oracle_marker(
+                    case_output_dir,
+                    oracle_marker,
+                )
+                if verbose:
+                    print(f"  ✓ Generated ({outcome}): {case_output_dir.name}")
+
+            return len(staged_cases), 0
         finally:
             # cleanup temporary work directory
             if work_dir.exists():
                 shutil.rmtree(work_dir)
-        
-        return generated, errors
     
     def process_epoch_processing_test_case(
         self, 
@@ -822,9 +1067,6 @@ class JsonTestCaseGenerator:
         Returns:
             (generated_count, error_count)
         """
-        generated = 0
-        errors = 0
-        
         # 1. locate files
         pre_snappy = test_case_dir / "pre.ssz_snappy"
         if not pre_snappy.exists():
@@ -833,6 +1075,13 @@ class JsonTestCaseGenerator:
         
         post_snappy = test_case_dir / "post.ssz_snappy"
         has_existing_post = post_snappy.exists()
+        oracle_inputs = (pre_snappy,)
+        if has_existing_post:
+            oracle_inputs += (post_snappy,)
+        oracle_marker = self._oracle_marker_value(
+            has_existing_post,
+            oracle_inputs,
+        )
         
         # Extract epoch_processing type from parent's parent folder name
         # test_case_dir.parent = pyspec_tests
@@ -841,98 +1090,117 @@ class JsonTestCaseGenerator:
         if epoch_processing_type not in self.epoch_processing_functions:
             print(f"  ✗ Unknown epoch processing type: {epoch_processing_type}")
             return 0, 1
-        
-        # create temporary work directory
-        work_dir = output_dir / f".work_{test_name}"
-        work_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        short_test_name = self._get_short_test_name(test_name, test_case_dir)
+        case_output_dir = (
+            output_dir
+            / "epoch_processing"
+            / epoch_processing_type
+            / short_test_name
+        )
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        work_dir = Path(tempfile.mkdtemp(prefix=".work_", dir=output_dir))
+
         try:
-            # Pre-calculate short test name with prefix stripping
-            short_test_name = self._get_short_test_name(test_name, test_case_dir)
-
-            # Check if test already exists
-            case_output_dir = output_dir / "epoch_processing" / epoch_processing_type / short_test_name
-            if self._should_skip_test(case_output_dir, verbose):
-                return 1, 0
-
             # 2. Decompress snappy files
             if verbose:
                 print("  Decompressing snappy files...")
-            
+
             pre_ssz = work_dir / "pre.ssz"
             if not self.decompress_snappy(pre_snappy, pre_ssz):
+                self._clear_output_dirs([case_output_dir])
                 return 0, 1
-            
+
             # Decompress existing post.ssz if available
             post_ssz = None
             if has_existing_post:
-                post_ssz = work_dir / "post.ssz"
+                post_ssz = work_dir / "official_post.ssz"
                 if not self.decompress_snappy(post_snappy, post_ssz):
-                    post_ssz = None
-            
+                    print("  ✗ Official post.ssz_snappy is unreadable")
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
+
+            if self._should_skip_test(
+                case_output_dir,
+                verbose,
+                expected_post=has_existing_post,
+                expected_oracle_marker=oracle_marker,
+            ):
+                return 1, 0
+
             # 3. SSZ -> JSON conversion and test case generation
             if verbose:
                 print("  Converting to JSON and generating test cases...")
-            
+
             # pre state
             pre_json = work_dir / "pre.json"
             if not self.ssz_to_json(pre_ssz, pre_json, is_beacon_state=True):
+                self._clear_output_dirs([case_output_dir])
                 return 0, 1
-            
-            # post state generation
+
+            generated_post_ssz = work_dir / "generated_post.ssz"
+            success, error = self.run_eth2spec_epoch_processing(
+                pre_ssz,
+                generated_post_ssz,
+                epoch_processing_type,
+            )
+
             post_json = None
-            eth2spec_error = None
-            
-            if post_ssz:
-                # use existing post.ssz
+            if success:
+                if not has_existing_post:
+                    print("  ✗ Python accepted an officially negative epoch test")
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
+                if not self._ssz_files_equal(generated_post_ssz, post_ssz):
+                    print("  ✗ Python post-state differs from official post.ssz")
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
                 post_json = work_dir / "post.json"
-                if not self.ssz_to_json(post_ssz, post_json, is_beacon_state=True):
-                    errors += 1
+                if not self.ssz_to_json(
+                    generated_post_ssz,
+                    post_json,
+                    is_beacon_state=True,
+                ):
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
             else:
-                # otherwise, generate post state using eth2spec epoch processing
-                generated_post_ssz = work_dir / "post.ssz"
-                success, error = self.run_eth2spec_epoch_processing(pre_ssz, generated_post_ssz, epoch_processing_type)
-                
-                if success:
-                    post_json = work_dir / "post.json"
-                    if not self.ssz_to_json(generated_post_ssz, post_json, is_beacon_state=True):
-                        errors += 1
-                else:
-                    # eth2spec failed - this is a negative test
-                    eth2spec_error = error
-            
-            # copy JSON files to output directory -  structure
-            is_negative = eth2spec_error is not None
-            
-            # Flat structure: {epoch_processing_type}/{short_test_name}
-            # Expectation is determined by presence of post.json vs error.txt
-            case_output_dir = output_dir / "epoch_processing" / epoch_processing_type / short_test_name
+                if has_existing_post:
+                    print("  ✗ Python rejected an officially positive epoch test")
+                    if error:
+                        print(error)
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
+                if not self._is_semantic_failure(error):
+                    print("  ✗ Python runner failed before a semantic rejection")
+                    if error:
+                        print(error)
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
+
+            # Publish only after execution, oracle comparison, and JSON
+            # conversion have all succeeded.
+            self._clear_output_dirs([case_output_dir])
             case_output_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Copy files to output directory
             shutil.copy(pre_json, case_output_dir / "pre.json")
-            
-            if is_negative:
-                # Write error.txt for negative tests
-                with open(case_output_dir / "error.txt", "w") as f:
-                    f.write(eth2spec_error or "Unknown error")
-                if verbose:
-                    print(f"  ✓ Generated (negative): {case_output_dir.name}")
+            if success:
+                shutil.copy(post_json, case_output_dir / "post.json")
+                outcome = "positive"
             else:
-                # Copy post.json for positive tests
-                if post_json:
-                    shutil.copy(post_json, case_output_dir / "post.json")
-                if verbose:
-                    print(f"  ✓ Generated (positive): {case_output_dir.name}")
-            
-            generated += 1
-        
+                (case_output_dir / "error.txt").write_text(error or "Unknown error")
+                outcome = "negative"
+            self._write_oracle_marker(
+                case_output_dir,
+                oracle_marker,
+            )
+            if verbose:
+                print(f"  ✓ Generated ({outcome}): {case_output_dir.name}")
+
+            return 1, 0
         finally:
             # cleanup temporary work directory
             if work_dir.exists():
                 shutil.rmtree(work_dir)
-        
-        return generated, errors
     
     def process_sanity_slots_test_case(
         self, 
@@ -947,9 +1215,6 @@ class JsonTestCaseGenerator:
         Returns:
             (generated_count, error_count)
         """
-        generated = 0
-        errors = 0
-        
         # 1. locate files
         pre_snappy = test_case_dir / "pre.ssz_snappy"
         if not pre_snappy.exists():
@@ -963,104 +1228,123 @@ class JsonTestCaseGenerator:
         
         post_snappy = test_case_dir / "post.ssz_snappy"
         has_existing_post = post_snappy.exists()
-        
-        # create temporary work directory
-        work_dir = output_dir / f".work_{test_name}"
-        work_dir.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            # Pre-calculate output name
-            output_test_name = self._get_short_test_name(test_name, test_case_dir)
-            
-            # Check if test already exists
-            case_output_dir = output_dir / "sanity" / "slots" / output_test_name
-            if self._should_skip_test(case_output_dir, verbose):
-                return 1, 0
+        oracle_inputs = (pre_snappy, slots_yaml)
+        if has_existing_post:
+            oracle_inputs += (post_snappy,)
+        oracle_marker = self._oracle_marker_value(
+            has_existing_post,
+            oracle_inputs,
+        )
 
+        output_test_name = self._get_short_test_name(test_name, test_case_dir)
+        case_output_dir = output_dir / "sanity" / "slots" / output_test_name
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        work_dir = Path(tempfile.mkdtemp(prefix=".work_", dir=output_dir))
+
+        try:
             # 2. Decompress snappy files
             if verbose:
                 print("  Decompressing snappy files...")
-            
+
             pre_ssz = work_dir / "pre.ssz"
             if not self.decompress_snappy(pre_snappy, pre_ssz):
+                self._clear_output_dirs([case_output_dir])
                 return 0, 1
-            
+
             # Copy slots.yaml to work_dir
             slots_yaml_work = work_dir / "slots.yaml"
             shutil.copy(slots_yaml, slots_yaml_work)
-            
+
             # Decompress existing post.ssz if available
             post_ssz = None
             if has_existing_post:
-                post_ssz = work_dir / "post.ssz"
+                post_ssz = work_dir / "official_post.ssz"
                 if not self.decompress_snappy(post_snappy, post_ssz):
-                    post_ssz = None
-            
+                    print("  ✗ Official post.ssz_snappy is unreadable")
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
+
+            if self._should_skip_test(
+                case_output_dir,
+                verbose,
+                required_files=("slots.yaml",),
+                expected_post=has_existing_post,
+                expected_oracle_marker=oracle_marker,
+            ):
+                return 1, 0
+
             # 3. SSZ -> JSON conversion and test case generation
             if verbose:
                 print("  Converting to JSON and generating test cases...")
-            
+
             # pre state
             pre_json = work_dir / "pre.json"
             if not self.ssz_to_json(pre_ssz, pre_json, is_beacon_state=True):
+                self._clear_output_dirs([case_output_dir])
                 return 0, 1
-            
-            # post state generation
+
+            generated_post_ssz = work_dir / "generated_post.ssz"
+            success, error = self.run_eth2spec_sanity_slot(
+                pre_ssz,
+                slots_yaml_work,
+                generated_post_ssz,
+            )
+
             post_json = None
-            eth2spec_error = None
-            
-            if post_ssz:
-                # use existing post.ssz
+            if success:
+                if not has_existing_post:
+                    print("  ✗ Python accepted an officially negative slots test")
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
+                if not self._ssz_files_equal(generated_post_ssz, post_ssz):
+                    print("  ✗ Python post-state differs from official post.ssz")
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
                 post_json = work_dir / "post.json"
-                if not self.ssz_to_json(post_ssz, post_json, is_beacon_state=True):
-                    errors += 1
+                if not self.ssz_to_json(
+                    generated_post_ssz,
+                    post_json,
+                    is_beacon_state=True,
+                ):
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
             else:
-                # otherwise, generate post state using eth2spec sanity slot
-                generated_post_ssz = work_dir / "post.ssz"
-                success, error = self.run_eth2spec_sanity_slot(pre_ssz, slots_yaml_work, generated_post_ssz)
-                
-                if success:
-                    post_json = work_dir / "post.json"
-                    if not self.ssz_to_json(generated_post_ssz, post_json, is_beacon_state=True):
-                        errors += 1
-                else:
-                    # eth2spec failed - this is a negative test
-                    eth2spec_error = error
-            
-            # copy JSON files to output directory - flat structure
-            is_negative = eth2spec_error is not None
-            
-            # Flat structure: output to sanity/slots
-            case_output_dir = output_dir / "sanity" / "slots" / output_test_name
+                if has_existing_post:
+                    print("  ✗ Python rejected an officially positive slots test")
+                    if error:
+                        print(error)
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
+                if not self._is_semantic_failure(error):
+                    print("  ✗ Python runner failed before a semantic rejection")
+                    if error:
+                        print(error)
+                    self._clear_output_dirs([case_output_dir])
+                    return 0, 1
+
+            self._clear_output_dirs([case_output_dir])
             case_output_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Copy files to output directory
             shutil.copy(pre_json, case_output_dir / "pre.json")
-            
-            # Always copy slots.yaml - it's an input to the relation
             shutil.copy(slots_yaml, case_output_dir / "slots.yaml")
-            
-            if is_negative:
-                # Write error.txt for negative tests
-                with open(case_output_dir / "error.txt", "w") as f:
-                    f.write(eth2spec_error or "Unknown error")
-                if verbose:
-                    print(f"  ✓ Generated (negative): {case_output_dir.name}")
+            if success:
+                shutil.copy(post_json, case_output_dir / "post.json")
+                outcome = "positive"
             else:
-                # Copy post.json for positive tests
-                if post_json:
-                    shutil.copy(post_json, case_output_dir / "post.json")
-                if verbose:
-                    print(f"  ✓ Generated (positive): {case_output_dir.name}")
-            
-            generated += 1
-        
+                (case_output_dir / "error.txt").write_text(error or "Unknown error")
+                outcome = "negative"
+            self._write_oracle_marker(
+                case_output_dir,
+                oracle_marker,
+            )
+            if verbose:
+                print(f"  ✓ Generated ({outcome}): {case_output_dir.name}")
+
+            return 1, 0
         finally:
             # cleanup temporary work directory
             if work_dir.exists():
                 shutil.rmtree(work_dir)
-        
-        return generated, errors
     
     def generate(
         self, 
@@ -1084,6 +1368,31 @@ class JsonTestCaseGenerator:
         test_suite_path = Path(test_suite_dir).resolve()
         output_path = Path(output_dir).resolve()
         output_path.mkdir(parents=True, exist_ok=True)
+
+        fork_marker = output_path / ".fork"
+        marker_fd, marker_name = tempfile.mkstemp(
+            prefix=".fork_", suffix=".tmp", dir=output_path
+        )
+        os.close(marker_fd)
+        temporary_marker = Path(marker_name)
+        try:
+            temporary_marker.write_text(self.fork + "\n")
+            temporary_marker.chmod(0o644)
+            try:
+                # Hard-linking a fully written temporary file publishes the
+                # marker atomically and never overwrites another fork's marker.
+                os.link(temporary_marker, fork_marker)
+            except FileExistsError:
+                pass
+        finally:
+            temporary_marker.unlink(missing_ok=True)
+
+        recorded_fork = fork_marker.read_text().strip()
+        if recorded_fork != self.fork:
+            raise ValueError(
+                f"output directory belongs to fork {recorded_fork!r}, "
+                f"not {self.fork!r}: {output_path}"
+            )
         
         # locate test case directories
         test_case_dirs = self.find_test_cases(test_suite_dir)
