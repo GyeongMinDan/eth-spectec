@@ -80,6 +80,11 @@ and eq_value ?(dbg = false) (value_a : value) (value_b : value) : bool =
     match (value_a.it, value_b.it) with
     | BoolV b_a, BoolV b_b -> b_a = b_b
     | NumV n_a, NumV n_b -> Num.eq n_a n_b
+    | NumV n_a, BytesV { num = n_b; _ } -> Num.eq n_a (`Nat n_b)
+    | BytesV { num = n_a; _ }, NumV n_b -> Num.eq (`Nat n_a) n_b
+    | ( BytesV { num = num_a; len = len_a },
+        BytesV { num = num_b; len = len_b } ) ->
+        len_a = len_b && Bigint.equal num_a num_b
     | TextV t_a, TextV t_b -> t_a = t_b
     | StructV valuefields_a, StructV valuefields_b ->
         List.length valuefields_a = List.length valuefields_b

@@ -30,6 +30,7 @@ clean:
 # Tests
 #
 # Individual tests:
+#   make test-ssz        - SSZ Merkle and hash-tree-root unit tests
 #   make test-elab       - Elaboration test
 #   make test-struct     - Structuring test
 #   make test-il-pos     - IL interpreter positive tests (slow)
@@ -38,12 +39,12 @@ clean:
 #   make test-sl-neg     - SL interpreter negative tests
 #
 # Grouped tests:
-#   make test-quick      - Fast tests only (elab + struct)
+#   make test-quick      - Fast tests only (SSZ + elab + struct)
 #   make test-il         - All IL tests (pos + neg)
 #   make test-sl         - All SL tests (pos + neg)
 #   make test            - All tests
 
-.PHONY: test test-quick test-elab test-struct
+.PHONY: test test-quick test-ssz test-elab test-struct
 .PHONY: test-il test-il-pos test-il-neg
 .PHONY: test-sl test-sl-pos test-sl-neg
 .PHONY: promote
@@ -55,6 +56,10 @@ test-elab:
 test-struct:
 	@echo "#### Running structuring test"
 	@$(DUNE) build @test/struct/runtest --profile=release && echo OK
+
+test-ssz:
+	@echo "#### Running SSZ Merkle and hash-tree-root tests"
+	@$(DUNE) build @test/ssz/runtest --profile=release && echo OK
 
 # $(1): il / sl
 # $(2): pos / neg
@@ -77,7 +82,7 @@ test-sl-pos:
 test-sl-neg:
 	$(call run_interp_test,sl,neg)
 
-test-quick: test-elab test-struct
+test-quick: test-ssz test-elab test-struct
 	@echo "#### Quick tests passed"
 
 test-il: test-il-pos test-il-neg

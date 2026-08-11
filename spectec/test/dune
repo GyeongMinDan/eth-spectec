@@ -3,6 +3,7 @@
 ; Run all tests:     dune test
 ; Run specific test: dune build @test/elab/runtest
 ;                    dune build @test/struct/runtest
+;                    dune build @test/ssz/runtest
 ;                    dune build @test/il/runtest
 ;                    dune build @test/sl/runtest
 ;

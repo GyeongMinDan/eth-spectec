@@ -1,0 +1,16 @@
+(test
+ (name merkle_primitives)
+ (libraries ethereum_ssz bignum.bigint))
+
+(test
+ (name hash_tree_root)
+ (libraries ethereum_ssz bignum.bigint))
+
+(test
+ (name builtin_adapter)
+ (libraries
+  spectec.common
+  spectec.lang
+  spectec.interp.builtins.eth
+  ethereum_ssz
+  bignum.bigint))

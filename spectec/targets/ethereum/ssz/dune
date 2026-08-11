@@ -1,0 +1,4 @@
+(library
+ (name ethereum_ssz)
+ (public_name spectec.targets.ethereum.ssz)
+ (libraries bignum.bigint digestif))
