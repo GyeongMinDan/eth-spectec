@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Measure LOC differences between Capella and Deneb spec versions.
-Counts non-empty lines only (excludes blank lines and whitespace-only lines).
+Reports files whose contents differ, with non-empty, non-comment LOC as context.
 """
 
 from pathlib import Path
@@ -14,6 +14,15 @@ def count_lines(filepath):
     except Exception as e:
         print(f"Error reading {filepath}: {e}")
         return 0
+
+
+def files_differ(first, second):
+    """Return whether two files differ byte-for-byte."""
+    try:
+        return first.read_bytes() != second.read_bytes()
+    except OSError as error:
+        print(f"Error comparing {first} and {second}: {error}")
+        return True
 
 def main():
     base_dir = Path(__file__).parent
@@ -57,7 +66,9 @@ def main():
             total_capella_loc += capella_loc
             total_deneb_loc += deneb_loc
             
-            if capella_loc != deneb_loc:
+            # A content change can leave LOC unchanged (for example, a renamed
+            # function on an existing line), so do not use LOC to detect it.
+            if files_differ(capella_file, deneb_file):
                 changed_files.append({
                     'filename': filename,
                     'capella': capella_loc,
@@ -88,7 +99,8 @@ def main():
     print(f"  Deneb total LOC:   {total_deneb_loc}")
     print(f"  Net change:        {total_deneb_loc - total_capella_loc:+d} lines")
     print()
-    print("Note: Only non-empty lines are counted (blank lines and whitespace-only lines are excluded).")
+    print("Note: Changed files are detected by content. LOC excludes blank, whitespace-only,")
+    print("      and ;; comment lines.")
     print()
     
     if changed_files:
