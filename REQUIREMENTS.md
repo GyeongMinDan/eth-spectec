@@ -44,7 +44,7 @@ The **pre-built image runs offline**. Network is needed only to *build* the imag
 | Smoke test (validate + diff on 5 single-block cases) | 5 cases | ~2 min |
 | Consensus-SpecTec validation (`eth coverage`, full state-transition suites) | 581 state-transition tests | hours (finality expands to many block-steps) |
 | Baseline premise coverage (from scratch) | full Capella | hours (precomputed in `testgen_data/`) |
-| Test generation | 65 premises | min to hours |
+| Test generation | 137 premises | min to hours |
 | RQ1 differential testing | per suite | min to hours |
 | RQ2 / RQ3 coverage runs | full suites | hours (precomputed in `testgen_data/`) |
 
