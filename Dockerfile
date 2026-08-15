@@ -310,6 +310,17 @@ RUN if [ -f "testing_clients/lodestar/node_modules/@lodestar/state-transition/li
 # ============================================
 WORKDIR /workspace/spectec-core/testing_clients
 
+# Lighthouse's deposit_contract build script downloads its ABI/bytecode at compile time via
+# reqwest, which has no IPv4 fallback and hangs where IPv6 is unroutable. Fetch them with curl
+# over IPv4 and expose them through build.rs's file:// override so the compile needs no network.
+ENV LIGHTHOUSE_DEPOSIT_CONTRACT_SPEC_URL=file:///workspace/deposit/validator_registration.json
+ENV LIGHTHOUSE_DEPOSIT_CONTRACT_TESTNET_URL=file:///workspace/deposit/unsafe_validator_registration.json
+RUN mkdir -p /workspace/deposit && \
+    curl -4 -fsSL --retry 8 --retry-all-errors --retry-delay 3 -o /workspace/deposit/validator_registration.json \
+      https://raw.githubusercontent.com/ethereum/eth2.0-specs/v0.12.1/deposit_contract/contracts/validator_registration.json && \
+    curl -4 -fsSL --retry 8 --retry-all-errors --retry-delay 3 -o /workspace/deposit/unsafe_validator_registration.json \
+      https://raw.githubusercontent.com/sigp/unsafe-eth2-deposit-contract/v0.9.2.1/unsafe_validator_registration.json
+
 # Build Lighthouse
 WORKDIR /workspace/spectec-core/testing_clients/lighthouse
 RUN cargo build --release --bin lcli
