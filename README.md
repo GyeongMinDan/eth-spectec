@@ -25,7 +25,7 @@ An amd64 Linux Docker host with ~80 to 120 GB free disk (see [`REQUIREMENTS.md`]
 docker load -i spectrum-image.tar.gz
 
 # Or pull the Docker Hub mirror
-docker pull kaistplrg/spectrum:ase2026
+docker pull kaistplrg/spectrum:ase2026.2
 ```
 
 To build the image yourself (not needed for evaluation), see [C.2](#c2-build-from-source).
@@ -33,7 +33,7 @@ To build the image yourself (not needed for evaluation), see [C.2](#c2-build-fro
 ## A.3 Start the container
 
 ```bash
-docker run -it --name spectrum kaistplrg/spectrum:ase2026 /bin/bash
+docker run -it --name spectrum kaistplrg/spectrum:ase2026.2 /bin/bash
 cd /workspace/spectec-core
 ```
 
@@ -42,7 +42,7 @@ All commands below run **inside the container** from `/workspace/spectec-core`.
 **Hosts with >255 CPUs.** Teku derives thread-pool sizes from the visible CPU count and rejects values above 255. If you hit this limit, restrict the CPUs the container sees:
 
 ```bash
-docker run -it --cpuset-cpus=0-15 --name spectrum kaistplrg/spectrum:ase2026 /bin/bash
+docker run -it --cpuset-cpus=0-15 --name spectrum kaistplrg/spectrum:ase2026.2 /bin/bash
 ```
 
 ## A.4 Smoke test (< 30 min)
@@ -372,7 +372,7 @@ artifact-eval/
 Required only to extend the artifact (C.3 to C.5).
 
 ```bash
-docker build -t kaistplrg/spectrum:ase2026 .
+docker build -t kaistplrg/spectrum:ase2026.2 .
 ```
 
 Best-effort: the build needs network access and takes hours on a 16-core machine. It clones the five upstream repositories at the commits pinned in `REQUIREMENTS.md`, so results are stable, but package mirrors and GitHub can still fail transiently.
