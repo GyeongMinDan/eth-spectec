@@ -377,7 +377,7 @@ let rec extract_symbolic_mutations' (depth : int) (eval : Il.exp -> Il.Value.t)
                         | _ -> cv
                       in
                       ToConst (effective_op, cv')
-                | None -> assert false
+                | None -> Unknown tv
               in
               { target_path = Some path; suggestion })
             paths
