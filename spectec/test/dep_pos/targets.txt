@@ -1,0 +1,89 @@
+28
+72
+79
+145
+177
+271
+272
+283
+284
+414
+665
+666
+667
+681
+690
+704
+705
+707
+709
+711
+719
+720
+721
+724
+726
+737
+750
+752
+757
+769
+772
+780
+787
+792
+799
+807
+809
+818
+843
+# inserted
+# underflow check
+118
+# overflow check
+142
+300
+328
+329
+339
+422
+430
+438
+447
+456
+463
+470
+# index bound checks
+607
+612
+618
+669
+747
+766
+# iteration matching lengths
+659
+# removed
+# unfalsifiable: out of scope (3)
+# 179, 810, 869
+# unfalsifiable: tautologies
+#30
+#33
+#78
+#111
+#115
+#116
+#219
+#240
+#265
+#299
+#706
+#753
+#754
+#784
+#851
+# unfalsifiable: closing branches
+#248
+#249
+#437
+#485
+# redundant: 281, 599

@@ -22,6 +22,7 @@ fmt:
 
 promote:
 	$(DUNE) promote
+	@cp -f spectec/test/dep_pos/dep_pos.actual spectec/test/dep_pos/dep_pos.expected 2>/dev/null && rm -f spectec/test/dep_pos/dep_pos.actual && echo "promoted dep_pos.expected" || true
 
 clean:
 	rm -f ./$(NAME)
@@ -43,8 +44,9 @@ clean:
 #   make test-il         - All IL tests (pos + neg)
 #   make test-sl         - All SL tests (pos + neg)
 #   make test            - All tests
+#   make test-dep        - Dependency mutation-report golden (slow, opt-in)
 
-.PHONY: test test-quick test-elab test-struct test-bytesv
+.PHONY: test test-quick test-elab test-struct test-bytesv test-dep
 .PHONY: test-il test-il-pos test-il-neg
 .PHONY: test-sl test-sl-pos test-sl-neg
 .PHONY: promote
@@ -60,6 +62,10 @@ test-struct:
 test-bytesv:
 	@echo "#### Running BytesV hex/width test"
 	@$(DUNE) build @test/bytesv/runtest --profile=release && echo OK
+
+test-dep: exe
+	@echo "#### Running dependency mutation-report golden (attestation_0)"
+	@sh spectec/test/dep_pos/run.sh
 
 # $(1): il / sl
 # $(2): pos / neg
