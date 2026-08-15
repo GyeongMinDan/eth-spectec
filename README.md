@@ -90,10 +90,10 @@ Expect 0 mismatch and 0 crash cases (all six implementations agreed). Proceed to
 | # | Claim | Paper | Section |
 | --- | --- | --- | --- |
 | C1 | Consensus-SpecTec passes 910 official tests | §4 | [B.3](#b3-validate-consensus-spectec-c1) |
-| C2 | 24 divergences (10 Class-A, 14 Class-B), 6 categories | Table 1 | [B.6](#b6-rq1-bug-finding-effectiveness-c2) |
-| C3 | Premise coverage 46.1% → 90.8% | Table 2 | [B.7 Spec Coverage](#spec-coverage-c3) |
-| C4 | Code-coverage gains modest, complementary | Table 3 | [B.7 Implementation Coverage](#implementation-coverage-c4) |
-| C5 | All 24 reproduce under Deneb, ~28-line cross-fork extension | §7.3 | [B.8](#b8-rq3-cross-fork-reproducibility-c5) |
+| C2 | 27 divergences (4 Class-A, 23 Class-B), 6 categories | Table 1 | [B.6](#b6-rq1-bug-finding-effectiveness-c2) |
+| C3 | Premise coverage 46.3% → 91.1% | §7.2 | [B.7 Spec Coverage](#spec-coverage-c3) |
+| C4 | Code-coverage gains modest, complementary | Table 2 | [B.7 Implementation Coverage](#implementation-coverage-c4) |
+| C5 | All 27 reproduce under Deneb, ~26-line cross-fork extension | §7.4 | [B.8](#b8-rq3-cross-fork-reproducibility-c5) |
 
 Research questions (verbatim):
 
@@ -196,7 +196,7 @@ Converted tests are saved in `./capella-testgen-ssz/testgen/spectec-generated`.
 
 ## B.6 RQ1: Bug-finding effectiveness (C2)
 
-Reproduces **Table 1**. `diff_testing.py` runs each input across all six implementations and compares outcomes and post-states (accept/reject disagreement, post-state disagreement, crash). Test generation is deterministic. The divergent cases, after deduplication, are the 24 of Table 1 (10 Class-A consensus failures, 14 Class-B liveness failures, 6 root-cause categories).
+Reproduces **Table 1**. `diff_testing.py` runs each input across all six implementations and compares outcomes and post-states (accept/reject disagreement, post-state disagreement, crash). Test generation is deterministic. The divergent cases, after deduplication, are the 27 of Table 1 (4 Class-A consensus failures, 23 Class-B liveness failures, 6 root-cause categories).
 
 Run the three official suites and the generated suite:
 
@@ -230,7 +230,7 @@ python3 check_postState.py ./results/coverage_SpecTrum --fork-version capella
 
 ## B.7 RQ2: Diagnostic power of premise coverage (C3, C4)
 
-Two complementary measurements: spec-level premise coverage (Table 2) and implementation-level code coverage (Table 3).
+Two complementary measurements: spec-level premise coverage (§7.2) and implementation-level code coverage (Table 2).
 
 ### Baseline premise coverage
 
@@ -249,11 +249,11 @@ This run takes multiple hours, so the precomputed result ships under `testgen_da
 - `baseline.ckpt`. Serialized baseline coverage (which seed reached which premise). Consumed by `testgen` (B.5) and replayed by `checkpoint report`.
 - `baseline.txt`. The baseline premise-coverage report.
 - `target_premises.txt`. The audited falsifiable premises `testgen` targets, with tautologies, closing branches, and out-of-scope premises removed.
-- `baseline+testgen.ckpt`, `baseline+testgen.txt`. Coverage after adding the generated tests (Table 2 Combined column).
+- `baseline+testgen.ckpt`, `baseline+testgen.txt`. Coverage after adding the generated tests (the combined premise coverage of §7.2).
 
 ### Spec coverage (C3)
 
-Reproduces **Table 2** (130/282 = 46.1% → 256/282 = 90.8%).
+Reproduces the premise-coverage result of §7.2 (130/281 = 46.3% → 256/281 = 91.1%).
 
 Some generated JSON tests fail SSZ conversion (e.g. variable-length arrays where SSZ expects a fixed vector). Filter them for a fair comparison, then measure coverage:
 
@@ -268,7 +268,7 @@ nohup ./spectec-core eth coverage -v \
   --node-coverage.output capella-testgen.txt
 ```
 
-The precomputed `baseline.txt` and `baseline+testgen.txt` are the raw premise-coverage reports, in which falsified premises rise from 130/392 to 256/392. Table 2's 46.1% → 90.8% restricts this to the 282 falsifiable premises (392 minus the 110 unfalsifiable of §5), giving 130/282 → 256/282. Every falsified premise lies inside the falsifiable set, so the restriction moves the denominator only. The per-premise classification behind the split is `testgen_data/capella/premise_classification.tsv`.
+The precomputed `baseline.txt` and `baseline+testgen.txt` are the raw premise-coverage reports, in which falsified premises rise from 130/392 to 256/392. The 46.3% → 91.1% figures restrict this to the 281 falsifiable premises (392 minus the 111 unfalsifiable of §5), giving 130/281 → 256/281. Every falsified premise lies inside the falsifiable set, so the restriction moves the denominator only. The per-premise classification behind the split is `testgen_data/capella/premise_classification.tsv`.
 
 Checkpoint utilities:
 
@@ -284,7 +284,7 @@ Checkpoint utilities:
 
 ### Implementation coverage (C4)
 
-Reproduces **Table 3** (modest per-client line/branch gains, premise and code coverage are complementary). Build the accumulated coverage reports with and without the generated tests, then compare:
+Reproduces **Table 2** (modest per-client line/branch gains, premise and code coverage are complementary). Build the accumulated coverage reports with and without the generated tests, then compare:
 
 ```bash
 python3 diff_testing.py --generate-final-coverage \
@@ -302,13 +302,13 @@ python3 compare_state_transition_coverage.py \
   ./results/accumulated_coverage_report_with_SpecTrum
 ```
 
-The reported per-client line/branch deltas are the Base vs. Combined columns of Table 3.
+The reported per-client line/branch deltas are the Base vs. Combined columns of Table 2.
 
 ## B.8 RQ3: Cross-fork reproducibility (C5)
 
-Reproduces §7.3: all 24 divergences recur under Deneb, and extending Consensus-SpecTec Capella to Deneb inserts ~28 lines (~1%) across 10 of 22 files.
+Reproduces §7.4: all 27 divergences recur under Deneb, and extending Consensus-SpecTec Capella to Deneb inserts ~26 lines (~1%) across 10 of 22 files.
 
-The Deneb mechanization is under `spec/spec_deneb/`. Its diff against `spec/spec_capella/` spans those 10 files, with 28 net insertions. Deneb checkpoints and premises ship under `testgen_data/deneb/`.
+The Deneb mechanization is under `spec/spec_deneb/`. Its diff against `spec/spec_capella/` spans those 10 files, with 26 net insertions. Deneb checkpoints and premises ship under `testgen_data/deneb/`.
 
 The RQ3 pipeline is identical to RQ1 with fork-specific inputs swapped:
 
@@ -386,7 +386,7 @@ The pipeline does not change across forks. Only fork-specific inputs and flags d
 - `Converter/OfficialTestSuite/<fork>/`, the official suites in SSZ form.
 - The `eth2spec` build for the fork (produced by the image from `consensus-specs`).
 
-Then pass `--spec-dir spec/spec_<fork>`, `--fork <fork>`, and `--fork-version <fork>` to the commands in Part B. The shipped Deneb mechanization shows the scale: its diff against Capella is about 28 lines (~1%).
+Then pass `--spec-dir spec/spec_<fork>`, `--fork <fork>`, and `--fork-version <fork>` to the commands in Part B. The shipped Deneb mechanization shows the scale: its diff against Capella is about 26 lines (~1%).
 
 ## C.4 Add a new client
 
@@ -396,7 +396,7 @@ Each client is integrated at three points, mirroring the five existing clients:
 2. **Patch.** If the client does not provide a separate state-transition entrypoint, patch and add the patched code to `modified_code/<client>/` following the existing per-client directories.
 3. **Build.** Add a `Dockerfile` stage that clones the client at a pinned tag, builds it, and applies the patch.
 
-To include the client in the Table 3 coverage rows, also add its source-filter block (the `*_CORE_INCLUDE_PREFIXES` and `*_IGNORE_PATTERNS` definitions in `diff_testing.py`).
+To include the client in the Table 2 coverage rows, also add its source-filter block (the `*_CORE_INCLUDE_PREFIXES` and `*_IGNORE_PATTERNS` definitions in `diff_testing.py`).
 
 ## C.5 Retarget the toolchain to a different specification
 
