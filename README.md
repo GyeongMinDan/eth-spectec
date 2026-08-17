@@ -2,7 +2,7 @@
 
 Artifact for **"SpecTrum: Specification-Guided Differential Fuzzing for Ethereum Consensus Clients."**
 
-It contains **Consensus-SpecTec** (the Ethereum consensus spec mechanized in SpecTec), the SpecTec compiler/interpreter, the specification-guided test generator, the differential-testing harness over six implementations (Lighthouse, Lodestar, Nimbus, Prysm, Teku, and the reference `eth2spec`), and the analysis scripts.
+It contains **Consensus-SpecTec** (the Ethereum consensus spec mechanized in SpecTec), the SpecTec compiler/interpreter, the specification-guided test generator, the deterministic Random/Extreme control generators, the differential-testing harness over six implementations (Lighthouse, Lodestar, Nimbus, Prysm, Teku, and the reference `eth2spec`), and the analysis scripts.
 
 - **[Part A: Getting Started](#part-a-getting-started):** install and smoke test in under 30 minutes.
 - **[Part B: Step-by-Step](#part-b-step-by-step):** reproduce each research question, keyed to the paper's claims and tables.
@@ -16,7 +16,7 @@ Read [`REQUIREMENTS.md`](REQUIREMENTS.md) first. The artifact targets **x86-64 (
 
 ## A.1 Prerequisites
 
-An amd64 Linux Docker host with ~80 to 120 GB free disk (see [`REQUIREMENTS.md`](REQUIREMENTS.md)). No other host software is needed.
+An amd64 Linux Docker host with ~80 to 120 GB free disk (see [`REQUIREMENTS.md`](REQUIREMENTS.md)). No other host software is needed. The complete RQ3 control-generation run in [B.8](#b8-rq3-contribution-of-specification-guidance-c5) additionally needs at least 120 GB free on its output filesystem, beyond the space used by the Docker image.
 
 ## A.2 Obtain the image
 
@@ -93,13 +93,15 @@ Expect 0 mismatch and 0 crash cases (all six implementations agreed). Proceed to
 | C2 | 27 divergences (4 Class-A, 23 Class-B), 6 categories | Table 1 | [B.6](#b6-rq1-bug-finding-effectiveness-c2) |
 | C3 | Premise coverage 46.3% → 91.1% | §7.2 | [B.7 Spec Coverage](#spec-coverage-c3) |
 | C4 | Code-coverage gains modest, complementary | Table 2 | [B.7 Implementation Coverage](#implementation-coverage-c4) |
-| C5 | All 27 reproduce under Deneb, ~26-line cross-fork extension | §7.4 | [B.8](#b8-rq3-cross-fork-reproducibility-c5) |
+| C5 | Under an equal budget, SpecTrum finds 27 divergences vs. Random's 12 and Extreme's 16 | Table 3 | [B.8](#b8-rq3-contribution-of-specification-guidance-c5) |
+| C6 | All 27 reproduce under Deneb, ~26-line cross-fork extension | §7.4 | [B.9](#b9-rq4-cross-fork-reproducibility-c6) |
 
 Research questions (verbatim):
 
 > **RQ1.** Can SpecTrum uncover cross-client divergence cases?
 > **RQ2.** What does premise coverage reveal that code coverage does not?
-> **RQ3.** Do bugs in shared logic affect multiple forks?
+> **RQ3.** Does SpecTrum outperform unguided mutation under an equal budget?
+> **RQ4.** Do bugs in shared logic affect multiple forks?
 
 ## B.2 Contents
 
@@ -108,7 +110,8 @@ Research questions (verbatim):
 - [B.5 Test generation](#b5-test-generation)
 - [B.6 RQ1: Bug-finding effectiveness (C2)](#b6-rq1-bug-finding-effectiveness-c2)
 - [B.7 RQ2: Diagnostic power of premise coverage (C3, C4)](#b7-rq2-diagnostic-power-of-premise-coverage-c3-c4)
-- [B.8 RQ3: Cross-fork reproducibility (C5)](#b8-rq3-cross-fork-reproducibility-c5)
+- [B.8 RQ3: Contribution of specification guidance (C5)](#b8-rq3-contribution-of-specification-guidance-c5)
+- [B.9 RQ4: Cross-fork reproducibility (C6)](#b9-rq4-cross-fork-reproducibility-c6)
 
 ## B.3 Validate Consensus-SpecTec (C1)
 
@@ -304,13 +307,52 @@ python3 compare_state_transition_coverage.py \
 
 The reported per-client line/branch deltas are the Base vs. Combined columns of Table 2.
 
-## B.8 RQ3: Cross-fork reproducibility (C5)
+## B.8 RQ3: Contribution of specification guidance (C5)
+
+Reproduces **Table 3**. Random and Extreme are unguided controls over the same 581 Capella state-transition seed pairs used by SpecTrum. They use only the public SSZ type structure: neither reads SpecTrum premises, provenance, or target information. Both select the same realizable normalized field path and concrete indices; Random assigns a seeded type-valid PRNG value, while Extreme draws from a seeded boundary-value pool. Each case mutates one atomic SSZ path in either `BeaconState` or `SignedBeaconBlock.message` (the outer `SignedBeaconBlock.signature` is excluded).
+
+### Generate the Random and Extreme controls
+
+Run the complete generation pipeline inside the artifact container from `/workspace/spectec-core`:
+
+```bash
+./tools/run_rq3_random_extreme_baselines.sh ./results/rq3-controls 4
+```
+
+The final argument is the number of parallel seed workers; changing it does not change the generated cases. The script:
+
+1. Sequentially replays the public `finality`, `random/random`, and `sanity/blocks` suites to flatten exactly 581 `(BeaconState, SignedBeaconBlock)` seed pairs.
+2. Derives 65 `BeaconState` and 80 `BeaconBlock` normalized atomic paths from the Capella v1.6.0 SSZ schema.
+3. Generates one deterministic 21,444-case raw suite for each strategy.
+4. Builds the testing suites by excluding only cases with `block.message.slot - state.slot > 32` (a gap of exactly 32 is retained).
+5. Validates the case counts, slot-gap subsets, and Random/Extreme path-selection equality.
+
+The output is:
+
+```text
+results/rq3-controls/
+├── capella_seed581/
+├── random/
+│   ├── raw/                 # 21,444 generated cases
+│   └── gap32/               # 20,557 testing-ready cases
+├── extreme/
+│   ├── raw/                 # 21,444 generated cases
+│   └── gap32/               # 20,670 testing-ready cases
+├── logs/
+└── reproduction_report.json
+```
+
+A successful run ends with `RQ3 Random/Extreme reproduction complete`; `reproduction_report.json` contains `"passed": true` and confirms 21,444 exact Random/Extreme path-selection matches.
+
+To execute the controls, use `random/gap32` or `extreme/gap32` as `--test-suite` in the `diff_testing.py` workflow from [B.6](#b6-rq1-bug-finding-effectiveness-c2); all other Capella arguments are unchanged. The precomputed combined premise-coverage reports used for Table 3 are `testgen_data/capella/baseline+random.txt` and `testgen_data/capella/baseline+extreme.txt` (with the corresponding `.ckpt` files). They report 193 and 187 falsified premises, respectively, compared with 130 for the official-test baseline and 256 for SpecTrum. As in [B.7](#spec-coverage-c3), Table 3 restricts the denominator to the 281 classified falsifiable premises; the numerators are unchanged.
+
+## B.9 RQ4: Cross-fork reproducibility (C6)
 
 Reproduces §7.4: all 27 divergences recur under Deneb, and extending Consensus-SpecTec Capella to Deneb inserts ~26 lines (~1%) across 10 of 22 files.
 
 The Deneb mechanization is under `spec/spec_deneb/`. Its diff against `spec/spec_capella/` spans those 10 files, with 26 net insertions. Deneb checkpoints and premises ship under `testgen_data/deneb/`.
 
-The RQ3 pipeline is identical to RQ1 with fork-specific inputs swapped:
+The RQ4 pipeline is identical to RQ1 with fork-specific inputs swapped:
 
 | Capella | Deneb |
 | --- | --- |
@@ -320,7 +362,7 @@ The RQ3 pipeline is identical to RQ1 with fork-specific inputs swapped:
 | `testgen_data/capella/...` | `testgen_data/deneb/...` |
 | `capella` fork args in `generate_json_test_cases.py`, `convert_testgen_json_to_ssz.py`, `diff_testing.py` | `deneb` |
 
-The pipeline itself is unchanged. Only fork directories, checkpoints, premises, and flags differ. That is the maintainability result of C5.
+The pipeline itself is unchanged. Only fork directories, checkpoints, premises, and flags differ. That is the maintainability result of C6.
 
 ---
 
@@ -351,6 +393,13 @@ artifact-eval/
 │   ├── generate_json_test_cases.py
 │   └── ...
 │
+├── tools/                           Deterministic RQ3 control generation
+│   ├── collect_capella_flattened_seed581.py
+│   ├── generate_capella_path_uniform_baseline_pyspec.py
+│   ├── filter_capella_suite_by_slot_gap.py
+│   ├── run_rq3_random_extreme_baselines.sh
+│   └── validate_capella_rq3_baselines.py
+│
 ├── modified_code/                   Per-client patches, one dir per client
 │   └── lighthouse/ prysm/ nimbus/ teku/ lodestar/
 │
@@ -379,7 +428,7 @@ Best-effort: the build needs network access and takes hours on a 16-core machine
 
 ## C.3 Add a new fork
 
-The pipeline does not change across forks. Only fork-specific inputs and flags do, as the Capella-to-Deneb swap table in [B.8](#b8-rq3-cross-fork-reproducibility-c5) shows. To target a new fork, supply the matching inputs:
+The pipeline does not change across forks. Only fork-specific inputs and flags do, as the Capella-to-Deneb swap table in [B.9](#b9-rq4-cross-fork-reproducibility-c6) shows. To target a new fork, supply the matching inputs:
 
 - `spec/spec_<fork>/`, the Consensus-SpecTec mechanization for the fork.
 - `testgen_data/<fork>/`, a baseline checkpoint and a `target_premises.txt`.
