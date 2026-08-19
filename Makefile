@@ -22,6 +22,7 @@ fmt:
 
 promote:
 	$(DUNE) promote
+	@cp -f spectec/test/dep_pos/dep_pos.actual spectec/test/dep_pos/dep_pos.expected 2>/dev/null && rm -f spectec/test/dep_pos/dep_pos.actual && echo "promoted dep_pos.expected" || true
 
 clean:
 	rm -f ./$(NAME)
@@ -32,18 +33,20 @@ clean:
 # Individual tests:
 #   make test-elab       - Elaboration test
 #   make test-struct     - Structuring test
+#   make test-bytesv     - BytesV hex / width test
 #   make test-il-pos     - IL interpreter positive tests (slow)
 #   make test-il-neg     - IL interpreter negative tests
 #   make test-sl-pos     - SL interpreter positive tests (slow)
 #   make test-sl-neg     - SL interpreter negative tests
 #
 # Grouped tests:
-#   make test-quick      - Fast tests only (elab + struct)
+#   make test-quick      - Fast tests only (elab + struct + bytesv)
 #   make test-il         - All IL tests (pos + neg)
 #   make test-sl         - All SL tests (pos + neg)
 #   make test            - All tests
+#   make test-dep        - Dependency mutation-report golden (slow, opt-in)
 
-.PHONY: test test-quick test-elab test-struct
+.PHONY: test test-quick test-elab test-struct test-bytesv test-dep
 .PHONY: test-il test-il-pos test-il-neg
 .PHONY: test-sl test-sl-pos test-sl-neg
 .PHONY: promote
@@ -55,6 +58,14 @@ test-elab:
 test-struct:
 	@echo "#### Running structuring test"
 	@$(DUNE) build @test/struct/runtest --profile=release && echo OK
+
+test-bytesv:
+	@echo "#### Running BytesV hex/width test"
+	@$(DUNE) build @test/bytesv/runtest --profile=release && echo OK
+
+test-dep: exe
+	@echo "#### Running dependency mutation-report golden (attestation_0)"
+	@sh spectec/test/dep_pos/run.sh
 
 # $(1): il / sl
 # $(2): pos / neg
@@ -77,7 +88,7 @@ test-sl-pos:
 test-sl-neg:
 	$(call run_interp_test,sl,neg)
 
-test-quick: test-elab test-struct
+test-quick: test-elab test-struct test-bytesv
 	@echo "#### Quick tests passed"
 
 test-il: test-il-pos test-il-neg

@@ -1,0 +1,16 @@
+roundtrip 0xdeadbeef -> 0xdeadbeef (len 4)
+roundtrip 0x00ff -> 0x00ff (len 2)
+roundtrip 0x0 -> 0x00 (len 1)
+roundtrip 0x -> 0x (len 0)
+roundtrip deadbeef -> error
+roundtrip 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -> 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (len 32)
+print len 0 -> 0x
+field pubkey -> Some 48
+field signature -> Some 96
+field state_root -> Some 32
+field block_hash -> Some 32
+field fee_recipient -> Some 20
+field logs_bloom -> Some 256
+field previous_version -> Some 4
+field withdrawal_credentials -> Some 32
+field graffiti -> None
